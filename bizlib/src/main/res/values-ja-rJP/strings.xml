@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+
+    <string name="icc_error_swipe_card">カードを取出し、もう一度插入するか、スワイプしてください</string>
+
+    <!-- Receipt -->
+    <string name="receipt_preview">伝票プレビュー</string>
+    <string name="receipt_print">印刷</string>
+    <string name="receipt_merchant_name">加盟店名</string>
+    <string name="receipt_merchant_code">加盟店番号</string>
+    <string name="receipt_terminal_code">端末番号</string>
+    <string name="receipt_terminal_code_space">端末番号</string>
+    <string name="receipt_batch_num">バッチ番号</string>
+    <string name="receipt_batch_num_colon">バッチ番号</string>
+    <string name="receipt_batch_num_space">バッチ番号</string>
+    <string name="receipt_date">日付/時間</string>
+    <string name="receipt_failed_trans_details">失敗取引明細をアップロード</string>
+    <string name="receipt_reject_trans_details">拒否取引明細</string>
+    <string name="receipt_type">タイプ</string>
+    <string name="receipt_count">カウント</string>
+    <string name="receipt_amount">合計</string>
+    <string name="receipt_card_borrow">デビット</string>
+    <string name="receipt_card_loan">カードローン</string>
+    <string name="receipt_card_no">カード番号</string>
+    <string name="receipt_trans_type">取引区分</string>
+    <string name="receipt_trans_no">伝票番号</string>
+    <string name="receipt_card_date">有効期限</string>
+    <string name="receipt_card_issue">カード会社</string>
+    <string name="receipt_auth_code">認証番号</string>
+    <string name="receipt_card_acquirer">加盟店管理会社</string>
+    <string name="receipt_ref_no">参照</string>
+    <string name="receipt_card_organization">カードブランド:</string>
+    <string name="receipt_comment">注釈:</string>
+    <string name="receipt_orig_trans_no">対象伝票番号:</string>
+    <string name="receipt_orig_date">対象取引日:</string>
+    <string name="receipt_orig_auth_code">対象認証番号:</string>
+    <string name="receipt_orig_ref_no">対象参照コード:</string>
+    <string name="receipt_print_again">再 印 刷</string>
+    <string name="receipt_had_void">取消済み</string>
+    <string name="receipt_amount_prompt_start">取引金額が上限を超えていません</string>
+    <string name="receipt_amount_prompt_end">署名または、暗証番号を入力する必要はありません</string>
+    <string name="receipt_amount_prompt_end_sign">署名する必要はありません</string>
+    <string name="receipt_amount_prompt_end_pin">暗証番号を入力する必要はありません</string>
+    <string name="receipt_qr_signature">署名する必要はありません</string>
+    <string name="receipt_sign">-------ご署名-------</string>
+    <string name="receipt_sign_line">---------------------------------</string>
+    <string name="receipt_verify">上記取引内容を確認し、取引内容が帳簿に記入されることを同意します\nI ACKNOWLEDGE SATISFACTORY RECEIPT OF RELATIVE GOODS/SERVICE</string>
+    <string name="receipt_stub_acquire">カード会社控え</string>
+    <string name="receipt_stub_merchant">加盟店控え</string>
+    <string name="receipt_stub_user">お客様控え</string>
+    <string name="receipt_amount_sale">金額</string>
+    <string name="receipt_amount_tip">チップ</string>
+    <string name="receipt_amount_total">合計</string>
+    <string name="receipt_amount_base">金額</string>
+    <string name="receipt_app_code">承認番号</string>
+    <string name="receipt_voucher">レシート</string>
+
+    <string name="demo_mode">**** デモ ****</string>
+
+    <string name="yes">はい</string>
+    <string name="no">いいえ</string>
+
+    <string name="settle_total_void_sale">売上・取消</string>
+    <string name="settle_total_void_refund">返金・取消</string>
+    <string name="settle_total_offline">オフライン</string>
+</resources>

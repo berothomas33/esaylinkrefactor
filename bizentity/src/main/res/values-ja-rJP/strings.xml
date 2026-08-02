@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Transaction Type -->
+    <string name="trans_sale">売上</string>
+    <string name="trans_void">取消</string>
+    <string name="trans_adjust">調整</string>
+    <string name="trans_offline">オフライン</string>
+    <string name="trans_preAuth">事前承認</string>
+    <string name="trans_refund">返金</string>
+    <string name="trans_echo">Echo機能</string>
+    <string name="trans_settle">決済</string>
+    <string name="trans_batch_up">バッチ・アップロード</string>
+    <string name="trans_settle_end">決済完了</string>
+    <string name="trans_offline_send">オフライン</string>
+</resources>

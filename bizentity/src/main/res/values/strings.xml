@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+
+    <!-- Transaction Type -->
+    <string name="trans_sale">Sale</string>
+    <string name="trans_void">Void</string>
+    <string name="trans_adjust">Adjust</string>
+    <string name="trans_offline">Offline</string>
+    <string name="trans_preAuth">Pre-Auth</string>
+    <string name="trans_refund">Refund</string>
+    <string name="trans_echo">Echo</string>
+    <string name="trans_settle">Settlement</string>
+    <string name="trans_batch_up">Batch Upload</string>
+    <string name="trans_settle_end">Settlement End</string>
+    <string name="trans_offline_send">Offline</string>
+
+</resources>

@@ -1,0 +1,42 @@
+// Top-level build file — AGP 8.2 / JDK 17 multi-module, Java + RxJava only
+plugins {
+    id 'com.android.application' version '8.2.2' apply false
+    id 'com.android.library' version '8.2.2' apply false
+}
+
+ext {
+    compileSdkVersion = 34
+    minSdkVersion = 24
+    targetSdkVersion = 34
+
+    androidAppcompat = '1.6.1'
+    constraintlayout = '2.1.4'
+    material = '1.11.0'
+    greendao = '3.3.0'
+    sqlcipher = '4.5.4'
+    // Must match the version sqlcipher resolves at runtime.
+    androidxSqlite = '2.2.0'
+    multidex = '2.0.1'
+    fastjson = '1.1.72.android'
+    routerCompiler = '1.2.1'
+    router = '1.2.1'
+    okhttp = '3.14.9'
+    loggingInterceptor = '3.14.0'
+    rxjava3 = '3.1.8'
+    rxandroid3 = '3.0.2'
+    rxlifecycle4 = '4.0.2'
+    glide = '4.16.0'
+
+    junit = '4.13.2'
+    mockito = '1.10.19'
+    hamcrest = '1.3'
+    coreTesting = '2.2.0'
+    runner = '1.5.2'
+    espresso = '3.5.1'
+    androidxExtJunit = '1.1.5'
+
+    // SQLCipher password for the PAX demo database, quoted for
+    // buildConfigField('String', 'DATABASE_PWD', ...). Override it locally in
+    // ~/.gradle/gradle.properties rather than committing a real credential.
+    DATABASE_PWD = project.findProperty('DATABASE_PWD') ?: '"CHANGE_ME"'
+}

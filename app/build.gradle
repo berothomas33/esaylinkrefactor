@@ -1,0 +1,77 @@
+plugins {
+    id 'com.android.application'
+}
+// WMRouter registry via annotationProcessor + ServiceLoader.lazyInit() (no Gradle plugin)
+android {
+    namespace 'com.emvenhance'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId "com.emvenhance.refactor"
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0.0"
+        multiDexEnabled true
+
+        // FAKE runs off-device, PAX drives the real terminal.
+        buildConfigField 'String', 'VENDOR', '"FAKE"'
+
+        ndk {
+            abiFilters 'armeabi', 'armeabi-v7a'
+        }
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField 'String', 'VENDOR',
+                    project.hasProperty('VENDOR') ? "\"${project.property('VENDOR')}\"" : '"FAKE"'
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            buildConfigField 'String', 'VENDOR', '"PAX"'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation project(':core')
+    implementation project(':emvflow')
+    implementation project(':emvservice:emv')
+    implementation project(':configservice:impl')
+    implementation project(':bizlib')
+    implementation project(':commonlib')
+
+    implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
+    implementation "com.google.android.material:material:$rootProject.material"
+    implementation "androidx.constraintlayout:constraintlayout:$rootProject.constraintlayout"
+    implementation 'androidx.multidex:multidex:2.0.1'
+
+    implementation "io.reactivex.rxjava3:rxjava:$rootProject.rxjava3"
+    implementation "io.reactivex.rxjava3:rxandroid:$rootProject.rxandroid3"
+
+    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
+}

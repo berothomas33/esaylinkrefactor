@@ -1,0 +1,28 @@
+{
+    "aid": [
+        {
+            "appName": "Rupay",
+            "aid": "A0000005241010",
+            "selFlag": 0,
+            "transLimit": 200000,
+            "transLimitFlag": 1,
+            "floorLimit": 0,
+            "floorLimitFlag": 1,
+            "cvmLimit": 30000,
+            "cvmLimitFlag": 1,
+            "tacDenial": "1000000000",
+            "tacOnline": "A478FC9800",
+            "tacDefault": "A020000000",
+            "acquirerId": "000000123456",
+            "version": "0002",
+            "terminalType": "22",
+            "terminalCapability": "E0F8C8",
+            "terminalAdditionalCapability": "F000F0A001",
+            "serviceId": "0000",
+            "crypto17Flag": 1,
+            "statusCheckFlag": 0,
+            "zeroAmountNoAllowed": 1,
+            "ttq": "3600C000"
+        }
+    ]
+}

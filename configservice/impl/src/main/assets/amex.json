@@ -1,0 +1,71 @@
+{
+    "aid": [
+        {
+            "appName":"AMEX",
+            "aid":"A00000002501",
+            "selFlag":0,
+            "transLimit":1500,
+            "transLimitFlag":1,
+            "floorLimit":1200,
+            "floorLimitFlag":1,
+            "cvmLimit":1000,
+            "cvmLimitFlag":1,
+            "tacDenial":"0010000000",
+            "tacOnline":"DE00FC9800",
+            "tacDefault":"DC50FC9800",
+            "acquirerId":"000000123456",
+            "dDOL":"039F3704",
+            "tDOL":"0F9F02065F2A029A039C0195059F3704",
+            "version":"0001",
+            "terminalType": "22",
+            "terminalCapability": "E0F0C8",
+            "terminalAdditionalCapability": "5800F0A001",
+            "unRange": "0060",
+            "supportOptTrans": 1,
+            "termTransCap": "D8F04000",
+            "delayAuthSupport": 0,
+            "exPayRdCap": "C8",
+            "exFunction": "1",
+            "supportFullOnline": 0,
+            "aucRFU": null
+        }
+    ],
+    "programID": [
+        {
+            "programId":"00000001",
+            "transLimit": 1500,
+            "transLimitFlag": 1,
+            "cvmLimit": 1000,
+            "cvmLimitFlag": 1,
+            "floorLimit": 1200,
+            "floorLimitFlag": 1,
+            "statusCheckFlag": 1,
+            "amountZeroNoAllowed": 1,
+            "dynamicLimitSet": 255
+        },
+        {
+            "programId":"00000006",
+            "transLimit": 700,
+            "transLimitFlag": 1,
+            "cvmLimit": 200,
+            "cvmLimitFlag": 1,
+            "floorLimit": 400,
+            "floorLimitFlag": 1,
+            "statusCheckFlag": 1,
+            "amountZeroNoAllowed": 1,
+            "dynamicLimitSet": 6
+        },
+        {
+            "programId":"00000011",
+            "transLimit": 300,
+            "transLimitFlag": 1,
+            "cvmLimit": 200,
+            "cvmLimitFlag": 1,
+            "floorLimit": 100,
+            "floorLimitFlag": 1,
+            "statusCheckFlag": 1,
+            "amountZeroNoAllowed": 1,
+            "dynamicLimitSet": 11
+        }
+    ]
+}

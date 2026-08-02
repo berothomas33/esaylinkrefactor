@@ -1,0 +1,37 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    // PAX proprietary jars/aars are consumed via fileTree/files(), not flatDir,
+    // so no module needs its own repositories block.
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "EmvEnhanceRefactor"
+
+include ':app'
+include ':core'
+include ':emvflow'
+
+// PAX EMV stack
+include ':emvbase'
+include ':emvlib'
+include ':emvlib:dpas'
+include ':emvlib:dpas2'
+include ':emvlib:base'
+include ':emvservice:export'
+include ':emvservice:emv'
+include ':commonlib'
+include ':poslib'
+include ':bizentity'
+include ':bizlib'
+include ':configservice:export'
+include ':configservice:impl'

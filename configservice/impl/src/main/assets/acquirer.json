@@ -1,0 +1,26 @@
+[
+    {
+        "name":"acquirer0",
+        "nii":"019",
+        "terminalId":"12345678",
+        "merchantId":"123456789012345",
+        "currBatchNo":1,
+        "ip":"192.168.191.1",
+        "port":10001,
+        "url":"https://d1d7bd68-4377-4269-84aa-4b24cdd53a5f.mock.pstmn.io",
+        "isEnableKeyIn":true,
+        "isEnableQR":true
+    },
+    {
+        "name":"acquirer1",
+        "nii":"020",
+        "terminalId":"22245678",
+        "merchantId":"222456789012345",
+        "currBatchNo":1,
+        "ip":"192.168.191.1",
+        "port":10001,
+        "url":"https://d1d7bd68-4377-4269-84aa-4b24cdd53a5f.mock.pstmn.io",
+        "isEnableKeyIn":false,
+        "isEnableQR":false
+    }
+]

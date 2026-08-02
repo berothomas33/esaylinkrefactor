@@ -1,0 +1,36 @@
+{
+    "aid": [
+        {
+            "appName": "PURE",
+            "aid": "A000000727",
+            "selFlag": 0,
+            "transLimit": 1000000,
+            "transLimitFlag": 1,
+            "floorLimit": 200,
+            "floorLimitFlag": 1,
+            "cvmLimit": 300000,
+            "cvmLimitFlag": 1,
+            "tacDenial": "0000980000",
+            "tacOnline": "BCF8049800",
+            "tacDefault": "BCF8049800",
+            "acquirerId": "000000000000",
+            "dDOL": "039F3704",
+            "version": "0020",
+            "terminalType": "22",
+            "terminalCapability": "E06848",
+            "terminalAdditionalCapability": "F000F0A001",
+            "addTagObjList": "9F029F039F26829F369F279F109F1A955F2A9A9C9F379F35579F34845F345AC79F339F739F779F45",
+            "mandatoryTagObjList": "8C57",
+            "authTransDataTagObjList": "82959F7784",
+            "clssKernelCapability": "36004043F9",
+            "clssPOSImplOption": "F8",
+            "appAuthTransType": "90",
+            "refundTacDenial": "FFFFFFFFFF",
+            "timeout": "1000",
+            "memorySlotReadTemp": "BF71069F7003DF0102",
+            "memorySlotUpdateTemp": "BF701EA207DF010111850100A208DF02021234850101A209DF0303123456850101",
+            "impOption": "F8",
+            "checkExceptionFilePan": "2222999999999990FFFF"
+        }
+    ]
+}

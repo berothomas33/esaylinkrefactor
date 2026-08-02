@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.pax.poslib'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    lint {
+        abortOnError false
+    }
+
+    packaging {
+        jniLibs {
+            keepDebugSymbols += ["**/libimgprocessing.so"]
+            useLegacyPackaging = true
+        }
+    }
+
+}
+
+dependencies {
+
+    api fileTree(include: ["*.jar"], dir: "libs")
+    api files("libs/nativetouchevent-release.aar")
+    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
+    api project(":commonlib")
+
+}

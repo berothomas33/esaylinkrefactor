@@ -1,0 +1,44 @@
+{
+    "aid": [
+        {
+            "appName": "EFT Debit",
+            "aid": "A00000038410",
+            "selFlag": 0,
+            "transLimit": 1000000,
+            "transLimitFlag": 1,
+            "floorLimit": 200,
+            "floorLimitFlag": 1,
+            "cvmLimit": 300000,
+            "cvmLimitFlag": 1,
+            "tacDenial": "0000980000",
+            "tacOnline": "BCF8049800",
+            "tacDefault": "BCF8049800",
+            "acquirerId": "000000000000",
+            "version": "0020",
+            "terminalType": "22",
+            "terminalCapability": "E06848",
+            "terminalAdditionalCapability": "F000F0A001",
+            "kernelId": "81"
+        },
+        {
+            "appName": "EFT Credit",
+            "aid": "A00000038420",
+            "selFlag": 0,
+            "transLimit": 1000000,
+            "transLimitFlag": 1,
+            "floorLimit": 200,
+            "floorLimitFlag": 1,
+            "cvmLimit": 300000,
+            "cvmLimitFlag": 1,
+            "tacDenial": "0000980000",
+            "tacOnline": "BCF8049800",
+            "tacDefault": "BCF8049800",
+            "acquirerId": "000000000000",
+            "version": "0020",
+            "terminalType": "22",
+            "terminalCapability": "E06848",
+            "terminalAdditionalCapability": "F000F0A001",
+            "kernelId": "81"
+        }
+    ]
+}

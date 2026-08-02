@@ -1,0 +1,201 @@
+{
+    "aid": [
+        {
+            "appName":"VISA CREDIT",
+            "aid":"A0000000031010",
+            "selFlag":0,
+            "version":"008C",
+            "terminalType": "22",
+            "ttq": "36008000",
+            "crypto17Flag": 1,
+            "statusCheckFlag": 0,
+            "amountZeroNoAllowed": 1,
+            "securityCapability": "C8",
+            "domesticOnly": 0,
+            "enDDAVerNo": 0,
+            "interWareFloorLimit": [
+                {
+                    "transType": 0,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 200,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 30000,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 1,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 200,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 30000,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 9,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 0,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 0,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 32,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 0,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 0,
+                    "cvmLimitFlag": 1
+                }
+            ]
+        },
+        {
+            "appName":"VISA ELECTRON",
+            "aid":"A0000000032010",
+            "selFlag":0,
+            "version":"008C",
+            "terminalType": "22",
+            "ttq": "36008000",
+            "crypto17Flag": 1,
+            "statusCheckFlag": 0,
+            "amountZeroNoAllowed": 1,
+            "securityCapability": "C8",
+            "domesticOnly": 0,
+            "enDDAVerNo": 0,
+            "interWareFloorLimit": [
+                {
+                    "transType": 0,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 200,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 30000,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 1,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 200,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 30000,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 9,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 0,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 0,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 32,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 0,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 0,
+                    "cvmLimitFlag": 1
+                }
+            ]
+        },
+        {
+            "appName": "VISA Interlink",
+            "aid": "A0000000033010",
+            "selFlag": 0,
+            "version": "008c",
+            "terminalType": "22",
+            "ttq": "36008000",
+            "crypto17Flag": 1,
+            "statusCheckFlag": 0,
+            "amountZeroNoAllowed": 1,
+            "securityCapability": "C8",
+            "domesticOnly": 0,
+            "enDDAVerNo": 0,
+            "interWareFloorLimit": [
+                {
+                    "transType": 0,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 200,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 30000,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 1,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 200,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 30000,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 9,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 0,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 0,
+                    "cvmLimitFlag": 1
+                },
+                {
+                    "transType": 32,
+                    "transLimit": 1000000,
+                    "transLimitFlag": 1,
+                    "floorLimit": 0,
+                    "floorLimitFlag": 1,
+                    "cvmLimit": 0,
+                    "cvmLimitFlag": 1
+                }
+            ]
+        }
+    ],
+    "programID": [
+        {
+            "programId": "60098008040000000000000000000000",
+            "transLimit": 1000000000,
+            "transLimitFlag": 0,
+            "floorLimit": 5000,
+            "floorLimitFlag": 0,
+            "cvmLimit": 2000,
+            "cvmLimitFlag": 0,
+            "crypto17Flag": 1,
+            "amountZeroNoAllowed": 1,
+            "statusCheckFlag": 0,
+            "ttq": "36008000"
+        },
+        {
+            "programId": "000001",
+            "transLimit": 1000000000,
+            "transLimitFlag": 0,
+            "floorLimit": 5000,
+            "floorLimitFlag": 0,
+            "cvmLimit": 2000,
+            "cvmLimitFlag": 0,
+            "crypto17Flag": 1,
+            "amountZeroNoAllowed": 1,
+            "statusCheckFlag": 0,
+            "ttq": "36008000"
+        },
+        {
+            "programId": "000002",
+            "transLimit": 1000000000,
+            "transLimitFlag": 1,
+            "floorLimit": 5000,
+            "floorLimitFlag": 0,
+            "cvmLimit": 2000,
+            "cvmLimitFlag": 0,
+            "crypto17Flag": 1,
+            "amountZeroNoAllowed": 1,
+            "statusCheckFlag": 0,
+            "ttq": "36008000"
+        }
+    ]
+}

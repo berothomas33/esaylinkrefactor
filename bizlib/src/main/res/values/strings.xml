@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+
+    <string name="icc_error_swipe_card">Please remove card to swipe or reinsert IC card</string>
+
+    <!-- Receipt -->
+    <string name="receipt_preview">Print Preview</string>
+    <string name="receipt_print">Print</string>
+    <string name="receipt_merchant_name">MERCHANT NAME</string>
+    <string name="receipt_merchant_code">MERCHANT ID.</string>
+    <string name="receipt_terminal_code">TERMINAL ID.</string>
+    <string name="receipt_terminal_code_space">TERMINAL ID.</string>
+    <string name="receipt_batch_num">BATCH NO.</string>
+    <string name="receipt_batch_num_colon">BATCH NO.</string>
+    <string name="receipt_batch_num_space">BATCH NO.</string>
+    <string name="receipt_date">DATE/TIME</string>
+    <string name="receipt_failed_trans_details">UPLOAD FAILED TRANSACTION DETAILS</string>
+    <string name="receipt_reject_trans_details">REJECT TRANSACTION DETAILS</string>
+    <string name="receipt_type">TYPE</string>
+    <string name="receipt_count">COUNT</string>
+    <string name="receipt_amount">AMOUNT</string>
+    <string name="receipt_card_borrow">DEBIT</string>
+    <string name="receipt_card_loan">LOAN</string>
+    <string name="receipt_card_no">CARD NO. </string>
+    <string name="receipt_trans_type">TRANSACTION TYPE</string>
+    <string name="receipt_trans_no">TRACE NO.</string>
+    <string name="receipt_card_date">EXP. DATE</string>
+    <string name="receipt_card_issue">ISSUER</string>
+    <string name="receipt_auth_code">AUTH CODE</string>
+    <string name="receipt_card_acquirer">ACQUIRER</string>
+    <string name="receipt_ref_no">REF. NO.</string>
+    <string name="receipt_card_organization">CARD ORGANIZATION CODE:</string>
+    <string name="receipt_comment">COMMENT:</string>
+    <string name="receipt_orig_trans_no">ORIGINAL TRANS NO.:</string>
+    <string name="receipt_orig_date">ORIGINAL TRANS DATE:</string>
+    <string name="receipt_orig_auth_code">ORIGINAL AUTH CODE:</string>
+    <string name="receipt_orig_ref_no">ORIGINAL REFERENCE CODE:</string>
+    <string name="receipt_print_again">RE-PRINT</string>
+    <string name="receipt_had_void">HAD VOID</string>
+    <string name="receipt_amount_prompt_start">TRANSACTION AMOUNT NOT EXCEED</string>
+    <string name="receipt_amount_prompt_end">NO NEED TO ENCRYPT OR SIGN</string>
+    <string name="receipt_amount_prompt_end_sign">NO NEED TO SIGN</string>
+    <string name="receipt_amount_prompt_end_pin">NO NEED TO ENTER PIN</string>
+    <string name="receipt_qr_signature">NO NEED TO SIGN</string>
+    <string name="receipt_sign">-------CARDHOLDER SIGNATURE-------</string>
+    <string name="receipt_sign_line">---------------------------------</string>
+    <string name="receipt_verify">I ACKNOWLEDGE SATISFACTORY RECEIPT OF RELATIVE GOODS/SERVICE</string>
+    <string name="receipt_stub_acquire">ACQUIRER COPY</string>
+    <string name="receipt_stub_merchant">MERCHANT COPY</string>
+    <string name="receipt_stub_user">CARDHOLDER COPY</string>
+    <string name="receipt_amount_sale">AMOUNT</string>
+    <string name="receipt_amount_tip">TIPS</string>
+    <string name="receipt_amount_total">TOTAL</string>
+    <string name="receipt_amount_base">BASE</string>
+    <string name="receipt_app_code">APP.CODE</string>
+    <string name="receipt_voucher">VOUCHER</string>
+
+    <string name="demo_mode">****Demo Mode****</string>
+
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+
+    <string name="settle_total_void_sale">Voided Sale</string>
+    <string name="settle_total_void_refund">Voided Refund</string>
+    <string name="settle_total_offline">Offline</string>
+</resources>

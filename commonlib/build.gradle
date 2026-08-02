@@ -1,0 +1,62 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.pax.commonlib'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            buildConfigField('boolean', 'RELEASE', 'true')
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            buildConfigField('boolean', 'RELEASE', 'false')
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    lint {
+        abortOnError false
+    }
+
+}
+
+dependencies {
+
+    api fileTree(dir: "libs", include: ["*.jar"])
+    api "com.alibaba:fastjson:$rootProject.fastjson"
+    api "androidx.multidex:multidex:$rootProject.multidex"
+    api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
+    api "net.sourceforge.javacsv:javacsv:2.0"
+    api "org.greenrobot:greendao:$rootProject.greendao"
+    api "net.zetetic:android-database-sqlcipher:$rootProject.sqlcipher"
+    // sqlcipher's SQLiteDatabase implements SupportSQLiteDatabase but declares
+    // androidx.sqlite runtime-only, so consumers can't compile against it.
+    api "androidx.sqlite:sqlite:$rootProject.androidxSqlite"
+    api "io.github.meituan-dianping:router:$rootProject.router"
+    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
+    api "io.reactivex.rxjava3:rxjava:$rootProject.rxjava3"
+    api "io.reactivex.rxjava3:rxandroid:$rootProject.rxandroid3"
+    api "com.trello.rxlifecycle4:rxlifecycle-android-lifecycle:$rootProject.rxlifecycle4"
+    api "androidx.constraintlayout:constraintlayout:$rootProject.constraintlayout"
+    api "com.squareup.okhttp3:okhttp:$rootProject.okhttp"
+    api "com.squareup.okhttp3:logging-interceptor:$rootProject.loggingInterceptor"
+
+}
