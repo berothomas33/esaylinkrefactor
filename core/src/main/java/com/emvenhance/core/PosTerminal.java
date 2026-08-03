@@ -11,10 +11,14 @@ import java.util.List;
  *
  * <h3>Architecture</h3>
  *
- * <p>{@link #wireReactiveOrchestration()} subscribes <strong>once</strong> to the
- * transaction-step stream and dispatches each event to a dedicated handler. There is no
- * {@code flatMap} chain linking steps together — each handler owns its own asynchronous
- * work (online authorization, printing, etc.).
+ * <p>{@link #wireReactiveOrchestration()} subscribes <strong>once</strong> to each engine
+ * stream and dispatches every event to a dedicated handler:
+ * <ul>
+ *   <li>{@link EmvEngine#transactionSteps()} → {@code handle*} transaction handlers
+ *   <li>{@link EmvEngine#emvSteps()} → {@code handleEmv*} kernel-phase handlers
+ * </ul>
+ * There is no {@code flatMap} chain linking steps together — each handler owns its own
+ * asynchronous work (online authorization, printing, PIN UI, etc.).
  *
  * <h3>Vendor customization (Open/Closed)</h3>
  *
@@ -32,11 +36,16 @@ import java.util.List;
  *       protected void handlePrintReceipt(TransactionStepEvent event) {
  *           // PAX printer SDK
  *       }
+ *
+ *       @Override
+ *       protected void handleEmvCardholderVerification(EmvStepEvent event) {
+ *           // PAX PIN pad / CVM UI
+ *       }
  *   }
  * }</pre>
  *
- * <p>Vendors must not rewrite {@link #wireReactiveOrchestration()} — the dispatch loop
- * stays closed for modification while individual steps remain open for extension.
+ * <p>Vendors must not rewrite {@link #wireReactiveOrchestration()} — the dispatch loops
+ * stay closed for modification while individual steps remain open for extension.
  */
 public class PosTerminal {
 
@@ -117,14 +126,17 @@ public class PosTerminal {
     // ─── Internal: reactive wiring (closed for modification) ─────────────
 
     /**
-     * Subscribes once to the transaction-step stream and dispatches each step to its
-     * dedicated handler. Vendors customize behavior by overriding handlers — not this
-     * method.
+     * Subscribes once to each engine stream and dispatches every step to its dedicated
+     * handler. Vendors customize behavior by overriding handlers — not this method.
      */
     private void wireReactiveOrchestration() {
         disposables.add(engine.transactionSteps()
                 .observeOn(Schedulers.io())
                 .subscribe(this::dispatchTransactionStep, this::onHandlerError));
+
+        disposables.add(engine.emvSteps()
+                .observeOn(Schedulers.io())
+                .subscribe(this::dispatchEmvStep, this::onHandlerError));
     }
 
     /**
@@ -311,8 +323,167 @@ public class PosTerminal {
         // default: no-op
     }
 
-    /** Fallback for any step not covered by the switch (forward compatibility). */
+    /** Fallback for any transaction step not covered by the switch (forward compatibility). */
     protected void handleUnknownStep(TransactionStepEvent event) {
+        // default: no-op
+    }
+
+    // ─── EMV step dispatch (open for extension) ──────────────────────────
+
+    /**
+     * Routes a fine-grained EMV kernel step to its dedicated handler.
+     *
+     * <p>Prefer overriding individual {@code handleEmv*} methods rather than this switch.
+     */
+    protected void dispatchEmvStep(EmvStepEvent event) {
+        switch (event.getStep()) {
+            case TERMINAL_INITIALIZATION:
+                handleEmvTerminalInitialization(event);
+                break;
+            case SEARCH_CARD:
+                handleEmvSearchCard(event);
+                break;
+            case APPLICATION_SELECTION:
+                handleEmvApplicationSelection(event);
+                break;
+            case WAIT_APPLICATION_SELECTION:
+                handleEmvWaitApplicationSelection(event);
+                break;
+            case FINAL_APPLICATION_SELECTION:
+                handleEmvFinalApplicationSelection(event);
+                break;
+            case READ_APPLICATION_DATA:
+                handleEmvReadApplicationData(event);
+                break;
+            case SET_TRANSACTION_DATA:
+                handleEmvSetTransactionData(event);
+                break;
+            case OFFLINE_DATA_AUTHENTICATION:
+                handleEmvOfflineDataAuthentication(event);
+                break;
+            case PROCESS_RESTRICTIONS:
+                handleEmvProcessRestrictions(event);
+                break;
+            case CARDHOLDER_VERIFICATION:
+                handleEmvCardholderVerification(event);
+                break;
+            case OFFLINE_PIN_VERIFICATION:
+                handleEmvOfflinePinVerification(event);
+                break;
+            case TERMINAL_RISK_MANAGEMENT:
+                handleEmvTerminalRiskManagement(event);
+                break;
+            case TERMINAL_ACTION_ANALYSIS:
+                handleEmvTerminalActionAnalysis(event);
+                break;
+            case START_ONLINE_PROCESS:
+                handleEmvStartOnlineProcess(event);
+                break;
+            case ISSUER_AUTHENTICATION:
+                handleEmvIssuerAuthentication(event);
+                break;
+            case SCRIPT_PROCESSING:
+                handleEmvScriptProcessing(event);
+                break;
+            case TRANSACTION_COMPLETION:
+                handleEmvTransactionCompletion(event);
+                break;
+            default:
+                handleUnknownEmvStep(event);
+                break;
+        }
+    }
+
+    /** Kernel pre-transaction initialization. */
+    protected void handleEmvTerminalInitialization(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Searching for contact / contactless card. */
+    protected void handleEmvSearchCard(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Candidate list / application selection started. */
+    protected void handleEmvApplicationSelection(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Waiting for cardholder / UI to pick an application. */
+    protected void handleEmvWaitApplicationSelection(EmvStepEvent event) {
+        // default: no-op — override to show AID chooser
+    }
+
+    /** Final AID confirmed. */
+    protected void handleEmvFinalApplicationSelection(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Reading application records from the card. */
+    protected void handleEmvReadApplicationData(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Setting transaction amount / TLVs into the kernel. */
+    protected void handleEmvSetTransactionData(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** SDA / DDA / CDA offline data authentication. */
+    protected void handleEmvOfflineDataAuthentication(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Processing restrictions (app version, AUC, dates, …). */
+    protected void handleEmvProcessRestrictions(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /**
+     * Cardholder verification (CVM). Override to drive PIN pad, signature capture,
+     * or NoCVM UX for a specific vendor.
+     */
+    protected void handleEmvCardholderVerification(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Offline PIN verification in progress. */
+    protected void handleEmvOfflinePinVerification(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Terminal risk management. */
+    protected void handleEmvTerminalRiskManagement(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Terminal action analysis (TVR / TSI → online / offline / decline). */
+    protected void handleEmvTerminalActionAnalysis(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Kernel entered the online-processing phase. */
+    protected void handleEmvStartOnlineProcess(EmvStepEvent event) {
+        // default: no-op — online work is driven by handleOnlineRequired
+    }
+
+    /** Issuer authentication after host reply. */
+    protected void handleEmvIssuerAuthentication(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Issuer script processing. */
+    protected void handleEmvScriptProcessing(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Kernel transaction completion. */
+    protected void handleEmvTransactionCompletion(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    /** Fallback for any EMV step not covered by the switch (forward compatibility). */
+    protected void handleUnknownEmvStep(EmvStepEvent event) {
         // default: no-op
     }
 
