@@ -4,31 +4,27 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.ViewModelProvider;
 import com.emvenhance.BuildConfig;
 import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
-import com.emvenhance.core.EmvEvent;
-import com.emvenhance.core.EmvState;
-import com.emvenhance.core.EmvStep;
-import com.emvenhance.core.EmvTransaction;
+import com.emvenhance.core.EmvStepEvent;
+import com.emvenhance.core.TransactionStep;
+import com.emvenhance.core.TransactionStepEvent;
 import com.emvenhance.databinding.ActivityMainBinding;
-import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
-import io.reactivex.rxjava3.disposables.CompositeDisposable;
 
 /**
- * Subscribes straight to {@link EmvTransaction}. The transaction outlives the Activity and
- * its state subject replays the latest snapshot, so rotation needs no extra plumbing.
+ * Observes two LiveData fields from {@link MainViewModel}. No RxJava, no subjects, no
+ * disposables, no engine, no callbacks. Just LiveData → UI binding.
  */
 public class MainActivity extends AppCompatActivity {
 
     private static final String PROC_CODE = "000000";
     private static final long AMOUNT_MINOR = 1000L;
 
-    private final CompositeDisposable disposables = new CompositeDisposable();
     private ActivityMainBinding binding;
-    private EmvTransaction transaction;
+    private MainViewModel viewModel;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -36,81 +32,66 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        transaction = ((EmvEnhanceApp) getApplication()).getTransaction();
+        viewModel = new ViewModelProvider(this,
+                new MainViewModelFactory(((EmvEnhanceApp) getApplication()).getTerminal()))
+                .get(MainViewModel.class);
+
         binding.modeLabel.setText(getString(R.string.vendor_label, BuildConfig.VENDOR));
 
         binding.btnContact.setOnClickListener(
-                v -> transaction.startContact(PROC_CODE, AMOUNT_MINOR));
+                v -> viewModel.startContact(PROC_CODE, AMOUNT_MINOR));
         binding.btnContactless.setOnClickListener(
-                v -> transaction.startContactless(PROC_CODE, AMOUNT_MINOR));
+                v -> viewModel.startContactless(PROC_CODE, AMOUNT_MINOR));
 
-        disposables.add(transaction.state()
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(this::render));
-        disposables.add(transaction.events()
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(this::handle));
+        // ── Transaction lifecycle (sticky — survives rotation) ───────────
+        viewModel.getTransactionStep().observe(this, this::renderTransactionStep);
+
+        // ── EMV kernel progress (consume-once — not replayed) ────────────
+        viewModel.getEmvStep().observe(this, event -> {
+            EmvStepEvent emvEvent = event.consume();
+            if (emvEvent != null) {
+                binding.stepText.setText(emvEvent.toString());
+            }
+        });
     }
 
-    private void render(EmvState state) {
-        binding.progress.setVisibility(state.isProcessing() ? View.VISIBLE : View.GONE);
-        binding.stepText.setText(describe(state.getStep()));
-        binding.panText.setText(orDash(state.getPan()));
-        binding.issuerText.setText(orDash(state.getIssuerName()));
-        binding.resultText.setText(
-                state.getResult() != null ? state.getResult() : orDash(state.getError()));
-    }
+    private void renderTransactionStep(TransactionStepEvent event) {
+        TransactionStep step = event.getStep();
 
-    private void handle(EmvEvent event) {
-        switch (event.getType()) {
-            case CONFIRM_CARD:
-                dialog("Confirm card", event.getIssuerName()
-                        + "\n" + event.getCardHolderName()
-                        + "\n" + event.getPan());
+        // Progress spinner
+        boolean busy = step != TransactionStep.IDLE
+                && step != TransactionStep.COMPLETED
+                && step != TransactionStep.ERROR
+                && step != TransactionStep.APPROVED
+                && step != TransactionStep.DECLINED;
+        binding.progress.setVisibility(busy ? View.VISIBLE : View.GONE);
+
+        // Card details (appear once CARD_DETECTED fires)
+        binding.panText.setText(event.getString(TransactionStepEvent.KEY_PAN));
+        binding.issuerText.setText(event.getString(TransactionStepEvent.KEY_ISSUER_NAME));
+
+        // Result / error
+        String result = event.get(TransactionStepEvent.KEY_RESULT);
+        String error  = event.get(TransactionStepEvent.KEY_ERROR);
+        binding.resultText.setText(result != null ? result : (error != null ? error : "—"));
+
+        // Toast for notable milestones
+        switch (step) {
+            case APPROVED:
+                toast("Transaction approved");
                 break;
-            case ASK_PIN:
-                toast("Enter PIN (online=" + event.isOnlinePin()
-                        + ", tries left " + event.getLeftTimes() + ")");
+            case DECLINED:
+                toast("Transaction declined: " + event.getString(TransactionStepEvent.KEY_ERROR));
                 break;
-            case FAILED:
-                dialog(event.getMessage(), orEmpty(event.getDetail()));
-                break;
-            case STEP_CHANGED:
-                // The step is already rendered from the state snapshot.
+            case ERROR:
+                toast("Error: " + event.getMessage());
                 break;
             default:
-                toast(event.getMessage());
                 break;
         }
     }
 
-    private static String describe(@Nullable EmvStep step) {
-        return step != null ? step.getNumber() + ". " + step.getTitle() : "—";
-    }
-
-    private static String orDash(@Nullable String value) {
-        return value != null ? value : "—";
-    }
-
-    private static String orEmpty(@Nullable String value) {
-        return value != null ? value : "";
-    }
-
-    private void dialog(String title, String message) {
-        new AlertDialog.Builder(this)
-                .setTitle(title)
-                .setMessage(message)
-                .setPositiveButton(android.R.string.ok, null)
-                .show();
-    }
-
-    private void toast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    protected void onDestroy() {
-        disposables.clear();
-        super.onDestroy();
+    private void toast(String msg) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 }
