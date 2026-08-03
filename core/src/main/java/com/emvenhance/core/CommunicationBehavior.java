@@ -1,16 +1,19 @@
 package com.emvenhance.core;
 
-import androidx.annotation.Nullable;
+import io.reactivex.rxjava3.core.Single;
 
 /**
  * Communication behavior: online authorization against the acquirer host.
  *
- * <p>Called on the kernel's background thread, so a blocking network call is fine here.
+ * <p>Returns a {@link Single} so the step handler can subscribe independently without
+ * chaining the result into a large reactive orchestration pipeline.
  */
 public interface CommunicationBehavior {
 
     /**
-     * @return true when the host approved the transaction
+     * Sends the authorization request for the given transaction.
+     *
+     * @return host result (approved or declined)
      */
-    boolean authorize(@Nullable String pan, long amountMinor);
+    Single<AuthResult> authorize(TransactionConfig config);
 }

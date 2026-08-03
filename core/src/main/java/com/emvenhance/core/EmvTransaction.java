@@ -33,7 +33,9 @@ public final class EmvTransaction {
     private String mode;
     private String pan;
     private String issuerName;
+    private String procCode;
     private long amountMinor;
+    private boolean contact;
 
     public EmvTransaction(EmvBehavior emv, PrinterBehavior printer,
             CommunicationBehavior communication) {
@@ -58,24 +60,26 @@ public final class EmvTransaction {
         start(procCode, amountMinor, false);
     }
 
-    private void start(String procCode, long amount, boolean contact) {
+    private void start(String code, long amount, boolean isContact) {
         if (!running.compareAndSet(false, true)) {
             events.onNext(EmvEvent.message("A transaction is already running"));
             return;
         }
+        procCode = code;
         amountMinor = amount;
-        mode = contact ? "Contact" : "Contactless";
+        contact = isContact;
+        mode = isContact ? "Contact" : "Contactless";
         pan = null;
         issuerName = null;
 
         goTo(EmvStep.TERMINAL_INITIALIZATION, null);
-        if (!emv.prepare(procCode, amount, contact, !contact)) {
+        if (!emv.prepare(code, amount, isContact, !isContact)) {
             finish(false, "Terminal initialization failed", null);
             return;
         }
 
         goTo(EmvStep.SEARCH_CARD, null);
-        if (contact) {
+        if (isContact) {
             emv.startContact(callback);
         } else {
             emv.startContactless(callback);
@@ -108,7 +112,11 @@ public final class EmvTransaction {
         public void onNeedOnline() {
             goTo(EmvStep.START_ONLINE_PROCESS, null);
             events.onNext(EmvEvent.needOnline());
-            boolean approved = communication.authorize(pan, amountMinor);
+            TransactionConfig config = new TransactionConfig(procCode, amountMinor,
+                    contact ? TransactionConfig.Mode.CONTACT
+                            : TransactionConfig.Mode.CONTACTLESS);
+            AuthResult authResult = communication.authorize(config).blockingGet();
+            boolean approved = authResult.isApproved();
             goTo(EmvStep.ISSUER_AUTHENTICATION, approved ? "host approved" : "host declined");
         }
 
@@ -158,7 +166,13 @@ public final class EmvTransaction {
         // A null PAN means no card was ever read (e.g. initialization failed), so there is
         // no transaction to print a receipt for.
         if (pan != null) {
-            boolean printed = printer.print(receiptLines(approved, label));
+            boolean printed;
+            try {
+                printer.print(receiptLines(approved, label)).blockingAwait();
+                printed = true;
+            } catch (Exception e) {
+                printed = false;
+            }
             events.onNext(
                     EmvEvent.receipt(approved, printed ? "Receipt printed" : "Printer failed"));
         }
