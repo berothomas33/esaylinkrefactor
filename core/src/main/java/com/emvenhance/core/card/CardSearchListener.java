@@ -38,15 +38,5 @@ public interface CardSearchListener {
     void onReaderError(String message);
 
     /** Optional no-op defaults for adapters that only care about a subset. */
-    abstract class Adapter implements CardSearchListener {
-        @Override public void onSearchStarted(TransactionConfig config) { }
-        @Override public void onChipDetected(CardPresence card) { }
-        @Override public void onContactlessDetected(CardPresence card) { }
-        @Override public void onMagstripeDetected(CardPresence card) { }
-        @Override public void onManualEntrySelected(CardPresence card) { }
-        @Override public void onCardRemoved() { }
-        @Override public void onSearchTimeout() { }
-        @Override public void onSearchCancelled() { }
-        @Override public void onReaderError(String message) { }
-    }
+
 }
