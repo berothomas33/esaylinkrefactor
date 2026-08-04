@@ -1,4 +1,5 @@
 package com.emvenhance.core.terminal;
+
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
@@ -6,10 +7,10 @@ import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStepEvent;
 
 /**
- * Vendor EMV lifecycle <em>after</em> {@link PosTerminal#searchCard} selects an entry method.
+ * Vendor EMV lifecycle after {@link PosTerminal#searchCard} selects an entry method.
  *
- * <p>Implement for each vendor. Shared online authorize / print live in
- * {@link AbstractEmvBehavior}.
+ * <p>EMV only — no host authorize / printer logic lives here. Implement per vendor
+ * (Pax / Ingenico / Fake / …).
  */
 public interface EmvBehavior {
 
@@ -19,10 +20,10 @@ public interface EmvBehavior {
     /** Run EMV for the already-selected {@link CardPresence}. Blocking. */
     void start(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    /** Cancel in-flight EMV / online wait. */
+    /** Cancel in-flight EMV. */
     void cancel();
 
-    // ─── Step dispatch (engine → hooks) ──────────────────────────────────
+    // ─── Optional step hooks (engine → vendor) ───────────────────────────
 
     default void dispatchTransactionStep(TransactionStepEvent event) {
         switch (event.getStep()) {
@@ -92,19 +93,15 @@ public interface EmvBehavior {
 
     default void onCardholderVerified(TransactionStepEvent event) { }
 
-    /** Default in {@link AbstractEmvBehavior}: host authorize + unblock kernel. */
     default void onOnlineRequired(TransactionStepEvent event) { }
 
     default void onOnlineProcessing(TransactionStepEvent event) { }
 
     default void onOnlineCompleted(TransactionStepEvent event) { }
 
-    /** Default in {@link AbstractEmvBehavior}: print receipt. */
     default void onApproved(TransactionStepEvent event) { }
 
     default void onDeclined(TransactionStepEvent event) { }
-
-    default void onPrintReceipt(TransactionStepEvent event) { }
 
     default void onCompleted(TransactionStepEvent event) { }
 

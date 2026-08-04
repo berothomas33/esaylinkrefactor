@@ -19,11 +19,11 @@ EmvEngine — thin subjects + notify* → behavior.dispatch*
 
 | Package | Contents |
 |---------|----------|
-| `terminal` | `PosTerminal`, `EmvBehavior`, `AbstractEmvBehavior` |
+| `terminal` | `PosTerminal`, `EmvBehavior` (EMV only — no host/print) |
 | `engine` | `EmvEngine` |
 | `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
 | `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
-| `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult`, `HostDefaults` |
+| `host` | `AuthResult` only (not injected into EmvBehavior) |
 
 ### `:emvflow` — `com.emvenhance.emvflow.*`
 

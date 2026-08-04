@@ -2,16 +2,14 @@ package com.emvenhance.vendor.pax;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.emvenhance.core.terminal.AbstractEmvBehavior;
-import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
-import com.emvenhance.core.host.PrinterBehavior;
-import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.terminal.EmvBehavior;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.emvflow.preprocess.EmvPreProcessFacade;
 import com.emvenhance.emvflow.progress.EmvStepProgress;
@@ -37,43 +35,31 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * PAX vendor EMV behavior — direct composition with concrete PAX kernels.
  *
- * <p>No Router, no service-locator lookup, no callback-adapter inner classes.
- * This class <em>is</em> the PAX {@link IContactCallback} / {@link IContactlessCallback}
- * (and result listeners) and notifies {@link EmvEngine} from those callbacks.
- *
- * <pre>
- *   PaxTerminal ──owns──► PaxKernel (EmvContactService, ContactlessService, …)
- *        │
- *        └── PaxEmvBehavior ──implements──► IContactCallback / IContactlessCallback
- *                              ──calls───► contact.startTransProcess(this)
- * </pre>
+ * <p>EMV only (no host / printer). This class <em>is</em> the PAX
+ * {@link IContactCallback} / {@link IContactlessCallback} and notifies {@link EmvEngine}.
  */
-public class PaxEmvBehavior extends AbstractEmvBehavior
-        implements IContactCallback, IContactlessCallback,
+public class PaxEmvBehavior implements EmvBehavior,
+        IContactCallback, IContactlessCallback,
         IContactResultListener, IContactlessResultListener {
 
     private static final String TAG = "PaxEmvBehavior";
 
     private final PaxKernel kernel;
-
-    private final AtomicReference<AuthResult> pendingAuth = new AtomicReference<>();
-    private volatile CountDownLatch authLatch;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+
+    @Nullable
+    private EmvEngine engine;
 
     /** Active gap-filler while a kernel transaction is running. */
     @Nullable
     private EmvStepProgress progress;
 
-    public PaxEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer,
-            PaxKernel kernel) {
-        super(communication, printer);
+    public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
     }
 
@@ -82,7 +68,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public boolean prepare(@NonNull EmvEngine engine, @NonNull TransactionConfig config) {
         this.engine = engine;
-        this.activeConfig = config;
         cancelled.set(false);
         progress = null;
 
@@ -95,7 +80,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
             @NonNull CardPresence card) {
         this.engine = engine;
-        this.activeConfig = config;
         cancelled.set(false);
         progress = null;
 
@@ -113,24 +97,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void cancel() {
         cancelled.set(true);
-        CountDownLatch latch = authLatch;
-        if (latch != null) {
-            pendingAuth.compareAndSet(null, AuthResult.declined("17", "Cancelled"));
-            latch.countDown();
-        }
         try {
             kernel.contact.setUserCancel(true);
         } catch (Exception e) {
             LogUtils.e(TAG, "setUserCancel failed", e);
-        }
-    }
-
-    @Override
-    protected void deliverOnlineResult(AuthResult authResult) {
-        pendingAuth.set(authResult);
-        CountDownLatch latch = authLatch;
-        if (latch != null) {
-            latch.countDown();
         }
     }
 
@@ -182,15 +152,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         eng.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "manual");
         eng.notifyCardDetected(pan, "MANUAL", "", card.getModeLabel());
         eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-        pendingAuth.set(null);
-        authLatch = new CountDownLatch(1);
-        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        AuthResult auth = awaitAuth();
+        AuthResult auth = requestOnline(eng);
         eng.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
-        if (auth != null && auth.isApproved()) {
+        if (auth.isApproved()) {
             eng.notifyApproved("MANUAL ONLINE APPROVED");
         } else {
-            eng.notifyDeclined(auth != null ? auth.getMessage() : "MANUAL declined");
+            eng.notifyDeclined(auth.getMessage());
         }
         eng.notifyCompleted();
     }
@@ -202,15 +169,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         eng.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "magstripe");
         eng.notifyCardDetected(pan, "MAG", "", card.getModeLabel());
         eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-        pendingAuth.set(null);
-        authLatch = new CountDownLatch(1);
-        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        AuthResult auth = awaitAuth();
+        AuthResult auth = requestOnline(eng);
         eng.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
-        if (auth != null && auth.isApproved()) {
+        if (auth.isApproved()) {
             eng.notifyApproved("MAG ONLINE APPROVED");
         } else {
-            eng.notifyDeclined(auth != null ? auth.getMessage() : "MAG declined");
+            eng.notifyDeclined(auth.getMessage());
         }
         eng.notifyCompleted();
     }
@@ -350,13 +314,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public OnlineResultWrapper startOnlineProcess() {
         advance(EmvStep.START_ONLINE_PROCESS, null);
-        pendingAuth.set(null);
-        authLatch = new CountDownLatch(1);
-        requireEngine().notifyTransactionStep(
-                TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        AuthResult auth = awaitAuth();
+        AuthResult auth = requestOnline(requireEngine());
         advance(EmvStep.ISSUER_AUTHENTICATION,
-                auth != null && auth.isApproved() ? "host approved" : "host declined");
+                auth.isApproved() ? "host approved" : "host declined");
         return toOnlineResultWrapper(auth);
     }
 
@@ -472,17 +432,21 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    @Nullable
-    private AuthResult awaitAuth() {
-        try {
-            authLatch.await();
-            return pendingAuth.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
-        } finally {
-            authLatch = null;
-        }
+    /**
+     * Online decision for the EMV kernel. Host authorize is not part of EmvBehavior —
+     * stub until a dedicated host layer is wired outside this class.
+     */
+    @NonNull
+    private AuthResult requestOnline(@NonNull EmvEngine eng) {
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        AuthResult auth = cancelled.get()
+                ? AuthResult.declined("17", "Cancelled")
+                : AuthResult.declined("96", "Host not wired");
+        eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+                .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
+                .build());
+        return auth;
     }
 
     @NonNull

@@ -3,10 +3,10 @@ package com.emvenhance.core.host;
 import androidx.annotation.Nullable;
 
 /**
- * Result of an online authorization against the acquirer host.
+ * Online authorization outcome used by a vendor when finishing an EMV online step.
  *
- * <p>Returned by {@link CommunicationBehavior#authorize} and delivered back to the
- * vendor behavior (e.g. to unblock a kernel {@code startOnlineProcess} wait).
+ * <p>Not injected into {@code EmvBehavior} — vendors create / receive this where they
+ * handle online themselves.
  */
 public final class AuthResult {
 
@@ -27,11 +27,6 @@ public final class AuthResult {
         this.issuerData = issuerData;
     }
 
-    /**
-     * @param authCode      host authorization code (e.g. "123456")
-     * @param responseCode  host response code (e.g. "00")
-     * @param issuerData    optional Field 55 / issuer scripts for the kernel
-     */
     public static AuthResult approved(String authCode, String responseCode,
             @Nullable byte[] issuerData) {
         return new AuthResult(true, authCode, responseCode, "Approved", issuerData);

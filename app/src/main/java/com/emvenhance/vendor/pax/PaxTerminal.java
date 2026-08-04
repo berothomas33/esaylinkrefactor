@@ -6,7 +6,6 @@ import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.utils.LogUtils;
@@ -41,11 +40,7 @@ public class PaxTerminal extends PosTerminal {
     }
 
     private PaxTerminal(PaxKernel kernel) {
-        super(new EmvEngine(),
-                new PaxEmvBehavior(
-                        HostDefaults.declineUntilWired(),
-                        HostDefaults.logPrinter("PaxPrinter"),
-                        kernel));
+        super(new EmvEngine(), new PaxEmvBehavior(kernel));
         this.kernel = kernel;
     }
 

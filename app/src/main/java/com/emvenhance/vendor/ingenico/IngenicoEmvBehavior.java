@@ -1,49 +1,38 @@
 package com.emvenhance.vendor.ingenico;
 
+import android.util.Log;
 import androidx.annotation.NonNull;
-import com.emvenhance.core.terminal.AbstractEmvBehavior;
-import com.emvenhance.core.host.AuthResult;
+import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
-import com.emvenhance.core.host.PrinterBehavior;
-import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
-import android.util.Log;
-import java.util.concurrent.CountDownLatch;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.terminal.EmvBehavior;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Ingenico vendor EMV behavior stub — runs after {@link IngenicoTerminal#searchCard}
- * selects an entry method.
- *
- * <p>Replace the stub flows with Tetra/Axium SDK calls when the Ingenico libraries are
- * attached. Online authorize / print remain in {@link AbstractEmvBehavior}.
+ * Ingenico EMV stub after card search. Replace with Tetra/Axium when SDK is attached.
+ * No host / printer coupling in this layer.
  */
-public class IngenicoEmvBehavior extends AbstractEmvBehavior {
+public class IngenicoEmvBehavior implements EmvBehavior {
 
     private static final String TAG = "IngenicoEmvBehavior";
 
-    private final AtomicReference<AuthResult> pendingAuth = new AtomicReference<>();
-    private volatile CountDownLatch authLatch;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
-    public IngenicoEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer) {
-        super(communication, printer);
-    }
+    @Nullable
+    private EmvEngine engine;
 
     @Override
     public boolean prepare(@NonNull EmvEngine engine, @NonNull TransactionConfig config) {
         this.engine = engine;
-        this.activeConfig = config;
         cancelled.set(false);
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION, "Ingenico stub");
         Log.w(TAG, "Ingenico EMV SDK not attached — stub prepare");
-        // TODO: load Ingenico AID/CAPK / terminal params from Tetra/Axium SDK
         return true;
     }
 
@@ -51,10 +40,8 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
             @NonNull CardPresence card) {
         this.engine = engine;
-        this.activeConfig = config;
         cancelled.set(false);
 
-        // TODO: dispatch to native Ingenico chip / contactless / mag / manual kernels
         switch (card.getEntryMethod()) {
             case CHIP:
                 stubFlow(engine, "Chip", "4111111111111111");
@@ -80,21 +67,6 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void cancel() {
         cancelled.set(true);
-        CountDownLatch latch = authLatch;
-        if (latch != null) {
-            pendingAuth.compareAndSet(null, AuthResult.declined("17", "Cancelled"));
-            latch.countDown();
-        }
-        // TODO: abort native Ingenico EMV process
-    }
-
-    @Override
-    protected void deliverOnlineResult(AuthResult authResult) {
-        pendingAuth.set(authResult);
-        CountDownLatch latch = authLatch;
-        if (latch != null) {
-            latch.countDown();
-        }
     }
 
     private void stubFlow(EmvEngine engine, String mode, String pan) {
@@ -105,26 +77,21 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
 
         engine.notifyEmvStep(EmvStep.START_ONLINE_PROCESS);
-        pendingAuth.set(null);
-        authLatch = new CountDownLatch(1);
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
 
-        AuthResult auth;
-        try {
-            authLatch.await();
-            auth = pendingAuth.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            auth = null;
-        } finally {
-            authLatch = null;
-        }
+        AuthResult auth = cancelled.get()
+                ? AuthResult.declined("17", "Cancelled")
+                : AuthResult.approved("123456", "00", null);
 
+        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+                .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
+                .build());
         engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
-        if (auth != null && auth.isApproved()) {
+        if (auth.isApproved()) {
             engine.notifyApproved("INGENICO STUB APPROVED");
         } else {
-            engine.notifyDeclined(auth != null ? auth.getMessage() : "Ingenico stub declined");
+            engine.notifyDeclined(auth.getMessage());
         }
         engine.notifyCompleted();
     }

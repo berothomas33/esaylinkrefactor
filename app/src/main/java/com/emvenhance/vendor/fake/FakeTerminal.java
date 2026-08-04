@@ -6,7 +6,6 @@ import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.host.HostDefaults;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -18,8 +17,7 @@ public class FakeTerminal extends PosTerminal {
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
     public FakeTerminal() {
-        super(new EmvEngine(),
-                new FakeEmvBehavior(HostDefaults.approveAlways(), HostDefaults.logPrinter("FakePrinter")));
+        super(new EmvEngine(), new FakeEmvBehavior());
     }
 
     @Nullable

@@ -7,7 +7,6 @@ import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.host.HostDefaults;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -21,9 +20,7 @@ public class IngenicoTerminal extends PosTerminal {
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
     public IngenicoTerminal() {
-        super(new EmvEngine(),
-                new IngenicoEmvBehavior(
-                        HostDefaults.approveAlways(), HostDefaults.logPrinter(TAG)));
+        super(new EmvEngine(), new IngenicoEmvBehavior());
     }
 
     @Override
