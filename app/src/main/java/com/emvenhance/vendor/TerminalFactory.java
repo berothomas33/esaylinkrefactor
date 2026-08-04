@@ -1,7 +1,7 @@
 package com.emvenhance.vendor;
 
 import androidx.annotation.NonNull;
-import com.emvenhance.core.PosTerminal;
+import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.vendor.fake.FakeTerminal;
 import com.emvenhance.vendor.ingenico.IngenicoTerminal;
 import com.emvenhance.vendor.pax.PaxTerminal;

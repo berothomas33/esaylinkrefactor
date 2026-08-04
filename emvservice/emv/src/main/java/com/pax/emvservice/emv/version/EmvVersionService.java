@@ -17,8 +17,8 @@
 
 package com.pax.emvservice.emv.version;
 
-import com.pax.emvservice.export.EmvServiceConstant;
-import com.pax.emvservice.export.IEmvVersionService;
+import com.pax.emvservice.export.constant.EmvServiceConstant;
+import com.pax.emvservice.export.version.IEmvVersionService;
 import com.pax.jemv.amex.api.ClssAmexApi;
 import com.pax.jemv.clcommon.ByteArray;
 import com.pax.jemv.dpas.api.ClssDPASApi;

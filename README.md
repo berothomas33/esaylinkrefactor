@@ -13,40 +13,66 @@ UI  →  PosTerminal.acceptCard() / startTransaction()
 EmvEngine — thin subjects + notify* → behavior.dispatch*
 ```
 
-| Layer | Owns |
-|-------|------|
-| `PosTerminal` | Device init, unified card search, cancel |
-| `EmvBehavior` | EMV after entry method selected |
-| `EmvEngine` | Reactive events for UI (no business logic) |
+## Package layout
 
-Adding a vendor = implement `PosTerminal` + `EmvBehavior` only. No core/UI changes.
+### `:core` — `com.emvenhance.core.*`
+
+| Package | Contents |
+|---------|----------|
+| `terminal` | `PosTerminal`, `EmvBehavior`, `AbstractEmvBehavior` |
+| `engine` | `EmvEngine` |
+| `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
+| `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
+| `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult`, `HostDefaults` |
+
+### `:emvflow` — `com.emvenhance.emvflow.*`
+
+| Package | Contents |
+|---------|----------|
+| `runtime` | `EmvFlowRuntime` (DAL / WMRouter lazy init) |
+| `preprocess` | `EmvPreProcessFacade` |
+| `progress` | `EmvStepProgress` |
+| `device` | `EmvDeviceImpl`, cipher mode |
+| `pin` | `IPinTask` |
+
+### `:emvservice:export` — `com.pax.emvservice.export.*`
+
+| Package | Contents |
+|---------|----------|
+| `api` | `IEmvBase`, `IEmvCallback`, `IEmvCardInfoService`, … |
+| `contact` / `contactless` | Contact / CLSS service + result listeners |
+| `mag` / `manual` | Magstripe / manual entry APIs |
+| `pin` / `version` / `constant` / `exceptions` | Supporting APIs |
+
+### `:emvservice:emv` — `com.pax.emvservice.emv.*`
+
+| Package | Contents |
+|---------|----------|
+| `init` | `EmvInit` |
+| `contact` / `contactless` / `mag` / `manual` / `pin` / `version` | Concrete Router services |
+
+### `:emvbase` — `com.pax.emvbase.*` (unchanged roots)
+
+`constant` · `param` (common/contact/clss) · `process` (contact/contactless/entity/enums) · `utils`
+
+### `:app` — vendors
+
+```text
+vendor.TerminalFactory
+vendor.pax / vendor.fake / vendor.ingenico
+```
 
 ## Vendors
 
 ```text
 TerminalFactory.create(VENDOR)
-  PAX      → vendor.pax.PaxTerminal      → PaxEmvBehavior
-  INGENICO → vendor.ingenico.IngenicoTerminal → IngenicoEmvBehavior (stub)
-  FAKE     → vendor.fake.FakeTerminal    → FakeEmvBehavior
+  PAX      → PaxTerminal → PaxEmvBehavior
+  INGENICO → IngenicoTerminal → IngenicoEmvBehavior (stub)
+  FAKE     → FakeTerminal → FakeEmvBehavior
 ```
 
 Gradle: `./gradlew :app:assembleDebug -PVENDOR=PAX`
 
-| `VENDOR` | Notes |
-|----------|-------|
-| `FAKE` | Phone / UI demo (default debug) |
-| `PAX` | Neptune DAL search + PAX kernels (default release) |
-| `INGENICO` | Stub until Tetra/Axium SDK is attached |
-
 ## Card search events
 
 `CardSearchListener`: started · chip · contactless · mag · manual · removed · timeout · cancelled · error.
-
-Selected `EntryMethod` is carried by `CardPresence` into `EmvBehavior.start`.
-
-## Modules
-
-- `:core` — `PosTerminal`, `EmvEngine`, `EmvBehavior`, card/host types (no vendor SDKs)
-- `:emvflow` — PAX runtime helpers (DAL init, preprocess, device, step gap-fill)
-- `:app` — UI + `TerminalFactory` + vendor packages
-- PAX stack — `emvbase`, `emvlib`, `emvservice`, `poslib`, …

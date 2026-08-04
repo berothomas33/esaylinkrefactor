@@ -1,9 +1,9 @@
 package com.emvenhance.core.host;
 
 import android.util.Log;
-import com.emvenhance.core.AuthResult;
-import com.emvenhance.core.CommunicationBehavior;
-import com.emvenhance.core.PrinterBehavior;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.PrinterBehavior;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 

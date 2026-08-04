@@ -1,7 +1,7 @@
 package com.emvenhance;
 
-import com.emvenhance.core.PosTerminal;
-import com.emvenhance.emvflow.EmvFlowRuntime;
+import com.emvenhance.core.terminal.PosTerminal;
+import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.vendor.TerminalFactory;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;

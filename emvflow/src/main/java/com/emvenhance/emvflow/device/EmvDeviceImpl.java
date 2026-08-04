@@ -36,7 +36,7 @@ import com.pax.dal.exceptions.EPiccDevException;
 import com.pax.dal.exceptions.IccDevException;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.dal.exceptions.PiccDevException;
-import com.emvenhance.emvflow.EmvFlowRuntime;
+import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.emvflow.pin.IPinTask;
 import com.pax.jemv.device.IDevice;
 import com.pax.jemv.device.model.ApduRespL2;

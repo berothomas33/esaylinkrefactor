@@ -1,16 +1,16 @@
 package com.emvenhance.vendor.ingenico;
 
 import androidx.annotation.NonNull;
-import com.emvenhance.core.AbstractEmvBehavior;
-import com.emvenhance.core.AuthResult;
-import com.emvenhance.core.CardPresence;
-import com.emvenhance.core.CommunicationBehavior;
-import com.emvenhance.core.EmvEngine;
-import com.emvenhance.core.EmvStep;
-import com.emvenhance.core.PrinterBehavior;
-import com.emvenhance.core.TransactionConfig;
-import com.emvenhance.core.TransactionStep;
-import com.emvenhance.core.TransactionStepEvent;
+import com.emvenhance.core.terminal.AbstractEmvBehavior;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.card.CardPresence;
+import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.event.EmvStep;
+import com.emvenhance.core.host.PrinterBehavior;
+import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.event.TransactionStep;
+import com.emvenhance.core.event.TransactionStepEvent;
 import android.util.Log;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;

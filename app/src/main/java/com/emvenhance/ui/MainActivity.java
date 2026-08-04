@@ -9,9 +9,9 @@ import androidx.lifecycle.ViewModelProvider;
 import com.emvenhance.BuildConfig;
 import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
-import com.emvenhance.core.EmvStepEvent;
-import com.emvenhance.core.TransactionStep;
-import com.emvenhance.core.TransactionStepEvent;
+import com.emvenhance.core.event.EmvStepEvent;
+import com.emvenhance.core.event.TransactionStep;
+import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.databinding.ActivityMainBinding;
 
 /**

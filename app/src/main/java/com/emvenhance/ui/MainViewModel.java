@@ -4,10 +4,10 @@ import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
-import com.emvenhance.core.EmvStepEvent;
-import com.emvenhance.core.PosTerminal;
-import com.emvenhance.core.TransactionConfig;
-import com.emvenhance.core.TransactionStepEvent;
+import com.emvenhance.core.event.EmvStepEvent;
+import com.emvenhance.core.terminal.PosTerminal;
+import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.event.TransactionStepEvent;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 
