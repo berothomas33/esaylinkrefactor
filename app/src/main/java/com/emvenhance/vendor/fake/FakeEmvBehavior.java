@@ -1,4 +1,4 @@
-package com.emvenhance.vendor;
+package com.emvenhance.vendor.fake;
 
 import com.emvenhance.core.AbstractEmvBehavior;
 import com.emvenhance.core.AuthResult;

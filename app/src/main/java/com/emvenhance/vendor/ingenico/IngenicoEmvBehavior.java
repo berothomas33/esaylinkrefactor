@@ -1,4 +1,4 @@
-package com.emvenhance.vendor;
+package com.emvenhance.vendor.ingenico;
 
 import androidx.annotation.NonNull;
 import com.emvenhance.core.AbstractEmvBehavior;
@@ -11,7 +11,7 @@ import com.emvenhance.core.PrinterBehavior;
 import com.emvenhance.core.TransactionConfig;
 import com.emvenhance.core.TransactionStep;
 import com.emvenhance.core.TransactionStepEvent;
-import com.pax.commonlib.utils.LogUtils;
+import android.util.Log;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -42,7 +42,7 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
         cancelled.set(false);
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION, "Ingenico stub");
-        LogUtils.w(TAG, "Ingenico EMV SDK not attached — stub prepare");
+        Log.w(TAG, "Ingenico EMV SDK not attached — stub prepare");
         // TODO: load Ingenico AID/CAPK / terminal params from Tetra/Axium SDK
         return true;
     }

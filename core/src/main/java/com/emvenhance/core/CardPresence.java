@@ -3,10 +3,7 @@ package com.emvenhance.core;
 import androidx.annotation.Nullable;
 
 /**
- * Result of a terminal-owned card search — the selected entry method plus any track/UID data.
- *
- * <p>Produced by {@link PosTerminal#searchCard}. The engine never performs vendor-specific
- * detection; {@link EmvBehavior#start} consumes this value to start the matching flow.
+ * Result of {@link PosTerminal#searchCard} — selected {@link EntryMethod} plus track/UID data.
  */
 public final class CardPresence {
 
@@ -50,24 +47,12 @@ public final class CardPresence {
         return new CardPresence(EntryMethod.MANUAL, null, null, null, null, pan);
     }
 
-    /** @deprecated use {@link #chip()} */
-    @Deprecated
-    public static CardPresence contact() {
-        return chip();
-    }
-
     public EntryMethod getEntryMethod() {
         return entryMethod;
     }
 
     public boolean isChip() {
         return entryMethod == EntryMethod.CHIP;
-    }
-
-    /** @deprecated use {@link #isChip()} */
-    @Deprecated
-    public boolean isContact() {
-        return isChip();
     }
 
     public boolean isContactless() {

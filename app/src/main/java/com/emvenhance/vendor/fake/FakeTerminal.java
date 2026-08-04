@@ -1,4 +1,4 @@
-package com.emvenhance.vendor;
+package com.emvenhance.vendor.fake;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.CardPresence;
@@ -6,39 +6,20 @@ import com.emvenhance.core.CardSearchListener;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.PosTerminal;
 import com.emvenhance.core.TransactionConfig;
-import com.pax.commonlib.utils.LogUtils;
+import com.emvenhance.core.host.HostDefaults;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Ingenico POS terminal stub — owns card search via the vendor SDK once Tetra/Axium
- * libraries are attached.
- *
- * <p>No Ingenico SDK is present in this workspace. This class demonstrates the extension
- * pattern: implement {@link #searchCard} with native reader APIs and fire
- * {@link CardSearchListener} events; pair with {@link IngenicoEmvBehavior} for EMV.
- *
- * <pre>
- *   IngenicoTerminal ──owns──► (Ingenico SDK readers — TODO)
- *        │
- *        └── IngenicoEmvBehavior ──owns──► (Tetra/Axium EMV — TODO)
- * </pre>
+ * Demo terminal — simulates search events so the UI works without POS hardware.
  */
-public class IngenicoTerminal extends PosTerminal {
+public class FakeTerminal extends PosTerminal {
 
-    private static final String TAG = "IngenicoTerminal";
     private static final long SEARCH_DELAY_MS = 200L;
-
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
-    public IngenicoTerminal() {
+    public FakeTerminal() {
         super(new EmvEngine(),
-                new IngenicoEmvBehavior(
-                        new FakeCommunicationBehavior(), new FakePrinterBehavior()));
-    }
-
-    @Override
-    protected void initializeVendor() {
-        LogUtils.w(TAG, "Ingenico SDK not attached — using stub card search");
+                new FakeEmvBehavior(HostDefaults.approveAlways(), HostDefaults.logPrinter("FakePrinter")));
     }
 
     @Nullable
@@ -47,7 +28,6 @@ public class IngenicoTerminal extends PosTerminal {
         stopSearch.set(false);
         listener.onSearchStarted(config);
 
-        // TODO: open Ingenico ICC / PICC / Mag readers with native SDK and poll.
         try {
             Thread.sleep(SEARCH_DELAY_MS);
         } catch (InterruptedException e) {
@@ -61,7 +41,6 @@ public class IngenicoTerminal extends PosTerminal {
             return null;
         }
 
-        // Stub detection so the architecture path is exercisable without the SDK.
         if (config.isManual()) {
             CardPresence card = CardPresence.manual("4111111111111111");
             listener.onManualEntrySelected(card);
@@ -73,23 +52,29 @@ public class IngenicoTerminal extends PosTerminal {
             return card;
         }
         if (config.isContactless()) {
-            CardPresence card = CardPresence.contactless(new byte[] {0x0A, 0x0B});
+            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
             listener.onContactlessDetected(card);
             return card;
         }
+        // CONTACT and ANY → chip first (demo)
         if (config.allowsChip()) {
             CardPresence card = CardPresence.chip();
             listener.onChipDetected(card);
             return card;
         }
         if (config.allowsContactless()) {
-            CardPresence card = CardPresence.contactless(new byte[] {0x0A, 0x0B});
+            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
             listener.onContactlessDetected(card);
             return card;
         }
         if (config.allowsMagstripe()) {
             CardPresence card = CardPresence.magstripe("CARD HOLDER", "4111111111111111=4912", null);
             listener.onMagstripeDetected(card);
+            return card;
+        }
+        if (config.allowsManual()) {
+            CardPresence card = CardPresence.manual("4111111111111111");
+            listener.onManualEntrySelected(card);
             return card;
         }
 
@@ -100,6 +85,5 @@ public class IngenicoTerminal extends PosTerminal {
     @Override
     protected void cancelCardSearch() {
         stopSearch.set(true);
-        // TODO: cancel native Ingenico reader wait
     }
 }

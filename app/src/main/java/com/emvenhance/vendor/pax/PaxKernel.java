@@ -1,4 +1,4 @@
-package com.emvenhance.vendor;
+package com.emvenhance.vendor.pax;
 
 import com.pax.configservice.impl.EmvParamService;
 import com.pax.emvservice.emv.contact.EmvContactService;

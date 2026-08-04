@@ -1,26 +1,34 @@
-package com.emvenhance.vendor;
+package com.emvenhance.vendor.ingenico;
 
+import android.util.Log;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.CardPresence;
 import com.emvenhance.core.CardSearchListener;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.PosTerminal;
 import com.emvenhance.core.TransactionConfig;
+import com.emvenhance.core.host.HostDefaults;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Fake POS terminal — simulated card search with {@link CardSearchListener} events.
- * EMV lifecycle after entry selection is in {@link FakeEmvBehavior}.
+ * Ingenico terminal stub. Replace {@link #searchCard} with Tetra/Axium reader APIs when
+ * the SDK is attached — no core changes required.
  */
-public class FakeTerminal extends PosTerminal {
+public class IngenicoTerminal extends PosTerminal {
 
+    private static final String TAG = "IngenicoTerminal";
     private static final long SEARCH_DELAY_MS = 200L;
-
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
-    public FakeTerminal() {
+    public IngenicoTerminal() {
         super(new EmvEngine(),
-                new FakeEmvBehavior(new FakeCommunicationBehavior(), new FakePrinterBehavior()));
+                new IngenicoEmvBehavior(
+                        HostDefaults.approveAlways(), HostDefaults.logPrinter(TAG)));
+    }
+
+    @Override
+    protected void initializeVendor() {
+        Log.w(TAG, "Ingenico SDK not attached — stub card search");
     }
 
     @Nullable
@@ -42,7 +50,7 @@ public class FakeTerminal extends PosTerminal {
             return null;
         }
 
-        // Prefer explicit single modes; for ANY default to chip.
+        // TODO: native Ingenico ICC / PICC / Mag poll + listener callbacks
         if (config.isManual()) {
             CardPresence card = CardPresence.manual("4111111111111111");
             listener.onManualEntrySelected(card);
@@ -54,7 +62,7 @@ public class FakeTerminal extends PosTerminal {
             return card;
         }
         if (config.isContactless()) {
-            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
+            CardPresence card = CardPresence.contactless(new byte[] {0x0A, 0x0B});
             listener.onContactlessDetected(card);
             return card;
         }
@@ -64,18 +72,13 @@ public class FakeTerminal extends PosTerminal {
             return card;
         }
         if (config.allowsContactless()) {
-            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
+            CardPresence card = CardPresence.contactless(new byte[] {0x0A, 0x0B});
             listener.onContactlessDetected(card);
             return card;
         }
         if (config.allowsMagstripe()) {
             CardPresence card = CardPresence.magstripe("CARD HOLDER", "4111111111111111=4912", null);
             listener.onMagstripeDetected(card);
-            return card;
-        }
-        if (config.allowsManual()) {
-            CardPresence card = CardPresence.manual("4111111111111111");
-            listener.onManualEntrySelected(card);
             return card;
         }
 

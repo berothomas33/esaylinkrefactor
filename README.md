@@ -1,52 +1,52 @@
-# EmvEnhanceRefactor — multi-vendor EMV / POS enhance
+# EmvEnhanceRefactor
+
+Vendor-agnostic POS EMV: **one `PosTerminal` API for any card / any vendor**.
 
 ## Architecture
 
 ```text
-UI
-  → PosTerminal.searchCard(config, CardSearchListener)   // vendor-owned readers
-       → EmvBehavior.start(engine, config, CardPresence) // vendor-owned EMV
-            → EmvEngine (subjects + notify* → behavior.dispatch*)
+UI  →  PosTerminal.acceptCard() / startTransaction()
+         ├── EmvBehavior.prepare()
+         ├── searchCard(config, CardSearchListener)   ← vendor readers
+         └── EmvBehavior.start(engine, config, card)  ← vendor EMV
 
-  Vendors:
-    PaxTerminal      → PaxEmvBehavior      (Neptune DAL + PAX kernels)
-    IngenicoTerminal → IngenicoEmvBehavior (stub until Tetra/Axium SDK attached)
-    FakeTerminal     → FakeEmvBehavior     (UI / phone demo)
+EmvEngine — thin subjects + notify* → behavior.dispatch*
 ```
 
-Card detection is a `PosTerminal` responsibility. Adding a vendor only requires a
-vendor `PosTerminal` + matching `EmvBehavior` — no core engine / orchestration changes.
+| Layer | Owns |
+|-------|------|
+| `PosTerminal` | Device init, unified card search, cancel |
+| `EmvBehavior` | EMV after entry method selected |
+| `EmvEngine` | Reactive events for UI (no business logic) |
 
-## Select vendor
+Adding a vendor = implement `PosTerminal` + `EmvBehavior` only. No core/UI changes.
 
-In `app/build.gradle` / BuildConfig:
+## Vendors
 
-| `VENDOR` | Adapter |
-|----------|---------|
-| `FAKE` | phone / UI demo (default debug) |
-| `PAX` | Neptune DAL search + PAX EMV kernels (default release) |
-| `INGENICO` | stub — Tetra/Axium SDK not in this repo |
+```text
+TerminalFactory.create(VENDOR)
+  PAX      → vendor.pax.PaxTerminal      → PaxEmvBehavior
+  INGENICO → vendor.ingenico.IngenicoTerminal → IngenicoEmvBehavior (stub)
+  FAKE     → vendor.fake.FakeTerminal    → FakeEmvBehavior
+```
 
-Gradle example: `./gradlew :app:assembleDebug -PVENDOR=PAX`
+Gradle: `./gradlew :app:assembleDebug -PVENDOR=PAX`
 
-## 7 EMV steps (`EmvStep`)
+| `VENDOR` | Notes |
+|----------|-------|
+| `FAKE` | Phone / UI demo (default debug) |
+| `PAX` | Neptune DAL search + PAX kernels (default release) |
+| `INGENICO` | Stub until Tetra/Axium SDK is attached |
 
-1. Application selection  
-2. Initiate application (GPO)  
-3. Read application data  
-4. Offline auth + restrictions  
-5. Cardholder verification (CVM)  
-6. Terminal risk + action analysis  
-7. Online / completion (+ **print receipt**)
+## Card search events
 
-## State vs events
+`CardSearchListener`: started · chip · contactless · mag · manual · removed · timeout · cancelled · error.
 
-- **StateFlow / BehaviorSubject** → `TransUiState` (step, PAN, result)  
-- **SharedFlow / PublishSubject** → `EmvEvent` (dialogs, print, 2nd tap, step toast)
+Selected `EntryMethod` is carried by `CardPresence` into `EmvBehavior.start`.
 
 ## Modules
 
-- `:core` — ports, steps, POS behaviors, facade (no vendor SDKs)  
-- `:emvflow` — PAX Contact/Contactless runners + EmvDeviceImpl  
-- PAX stack — emvbase, emvlib, emvservice, poslib, …  
-- `:app` — UI + adapters
+- `:core` — `PosTerminal`, `EmvEngine`, `EmvBehavior`, card/host types (no vendor SDKs)
+- `:emvflow` — PAX runtime helpers (DAL init, preprocess, device, step gap-fill)
+- `:app` — UI + `TerminalFactory` + vendor packages
+- PAX stack — `emvbase`, `emvlib`, `emvservice`, `poslib`, …

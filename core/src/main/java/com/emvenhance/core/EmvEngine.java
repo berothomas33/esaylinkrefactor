@@ -7,17 +7,10 @@ import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Thin EMV coordinator — owns reactive subjects and forwards step notifications to
- * {@link EmvBehavior}. Contains no vendor EMV business logic and no {@code handleXxx} /
- * lifecycle hooks.
+ * Thin event bus for one in-flight transaction. No vendor logic.
  *
- * <pre>
- *   PosTerminal (hardware)
- *     → EmvBehavior.start(...)   (vendor EMV lifecycle)
- *       → EmvEngine.notify*(...) (subjects + dispatch to behavior.onXxx)
- * </pre>
- *
- * <p>Adding a vendor never requires changing this class — only a new Terminal + Behavior.
+ * <p>{@link PosTerminal} owns search; {@link EmvBehavior} owns EMV; this class only
+ * publishes steps and dispatches to behavior hooks.
  */
 public final class EmvEngine {
 
@@ -40,8 +33,6 @@ public final class EmvEngine {
         return behavior;
     }
 
-    // ─── Observables (UI) ────────────────────────────────────────────────
-
     public Observable<TransactionStepEvent> transactionSteps() {
         return transactionSteps.hide();
     }
@@ -58,9 +49,6 @@ public final class EmvEngine {
         return running.get();
     }
 
-    // ─── Coordination ────────────────────────────────────────────────────
-
-    /** Acquires the single-flight lock before {@link EmvBehavior#start}. */
     public boolean begin() {
         if (!running.compareAndSet(false, true)) {
             notifyError("A transaction is already running");
@@ -77,8 +65,6 @@ public final class EmvEngine {
             notifyError("Transaction cancelled");
         }
     }
-
-    // ─── Notify API (behavior → subjects → behavior.onXxx) ───────────────
 
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);

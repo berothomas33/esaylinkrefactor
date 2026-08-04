@@ -7,26 +7,20 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Abstract POS terminal — owns card-reader hardware and the unified {@link #searchCard} API.
+ * The only public hardware API for the app.
  *
- * <h3>Responsibilities</h3>
- * <ul>
- *   <li>Vendor device initialization
- *   <li>Open/close readers
- *   <li>Unified card search with {@link CardSearchListener} events
- *   <li>Cancel search
- *   <li>Create the matching {@link EmvBehavior}
- * </ul>
- *
- * <p>After an entry method is selected (chip / contactless / mag / manual), the terminal
- * hands off to {@link EmvBehavior#start} for the EMV transaction. No EMV business logic
- * lives here.
+ * <p>Works the same for every vendor: open readers, search for a card, report reader
+ * events, then hand the selected {@link EntryMethod} to {@link EmvBehavior}.
  *
  * <pre>
- *   PaxTerminal      → PaxEmvBehavior
- *   IngenicoTerminal → IngenicoEmvBehavior
- *   FakeTerminal     → FakeEmvBehavior
+ *   UI → PosTerminal.startTransaction(ANY|CHIP|…)
+ *          ├── EmvBehavior.prepare
+ *          ├── searchCard(config, listener)   ← vendor SDK
+ *          └── EmvBehavior.start(card)        ← vendor EMV
  * </pre>
+ *
+ * <p>Adding a vendor = implement {@link #searchCard} + a matching {@link EmvBehavior}.
+ * No engine / UI / orchestration changes.
  */
 public abstract class PosTerminal {
 
@@ -43,7 +37,7 @@ public abstract class PosTerminal {
         initializeVendor();
     }
 
-    // ─── Public API ──────────────────────────────────────────────────────
+    // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
     public Observable<TransactionStepEvent> transactionSteps() {
         return engine.transactionSteps();
@@ -58,11 +52,14 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Unified transaction entry:
-     * <pre>
-     *   prepare → searchCard(listener) → EmvBehavior.start(selected entry)
-     * </pre>
+     * Accept any presented card (chip / tap / swipe / manual as enabled by the vendor).
+     * Preferred UI entry point.
      */
+    public final void acceptCard(String procCode, long amountMinor) {
+        startTransaction(new TransactionConfig(procCode, amountMinor, TransactionConfig.Mode.ANY));
+    }
+
+    /** Start with an explicit reader mode. */
     public void startTransaction(TransactionConfig config) {
         searchCancelled.set(false);
         disposables.add(
@@ -78,7 +75,6 @@ public abstract class PosTerminal {
         );
     }
 
-    /** Cancels card search and in-flight EMV. */
     public void cancelTransaction() {
         searchCancelled.set(true);
         cancelCardSearch();
@@ -94,27 +90,22 @@ public abstract class PosTerminal {
         return searchCancelled.get();
     }
 
-    // ─── Unified card search (vendor implements with native SDK) ─────────
+    // ─── Vendor must implement ───────────────────────────────────────────
 
     /**
-     * Blocking card search. Must report progress through {@code listener} and return the
-     * selected {@link CardPresence}, or {@code null} on timeout / cancel / error.
-     *
-     * <p>Implementations must call the matching detection callback before returning a card:
-     * {@link CardSearchListener#onChipDetected}, {@code onContactlessDetected},
-     * {@code onMagstripeDetected}, or {@code onManualEntrySelected}.
+     * Blocking card search using the vendor's native SDK.
+     * Fire {@link CardSearchListener} events; return the selected card or {@code null}.
      */
     @Nullable
     public abstract CardPresence searchCard(TransactionConfig config, CardSearchListener listener);
 
-    /** Stops an in-flight {@link #searchCard} loop. */
     protected abstract void cancelCardSearch();
 
     protected void initializeVendor() {
         // default: no-op
     }
 
-    // ─── Orchestration template ──────────────────────────────────────────
+    // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     private void runTransaction(TransactionConfig config) {
         if (!engine.begin()) {
@@ -131,32 +122,27 @@ public abstract class PosTerminal {
             return;
         }
         if (card == null) {
-            // timeout / error already reported via listener
             if (engine.isRunning()) {
                 engine.notifyError("Card search failed");
             }
             return;
         }
 
-        // Entry method selected — EmvBehavior owns the EMV flow from here.
         behavior.start(engine, config, card);
     }
 
-    /**
-     * Forwards reader events to the engine subjects so the UI observes search progress.
-     */
+    /** Maps reader events → engine subjects for the UI. */
     private final class EngineReportingListener implements CardSearchListener {
-        private final TransactionConfig config;
 
-        EngineReportingListener(TransactionConfig config) {
-            this.config = config;
+        EngineReportingListener(TransactionConfig ignored) {
         }
 
         @Override
         public void onSearchStarted(TransactionConfig config) {
-            engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
-                    waitingMessage(config)));
-            engine.notifyEmvStep(EmvStep.SEARCH_CARD, waitingMessage(config));
+            String msg = waitingMessage(config);
+            engine.notifyTransactionStep(TransactionStepEvent.of(
+                    TransactionStep.WAITING_FOR_CARD, msg));
+            engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg);
         }
 
         @Override
@@ -211,6 +197,9 @@ public abstract class PosTerminal {
     }
 
     private static String waitingMessage(TransactionConfig config) {
+        if (config.getMode() == TransactionConfig.Mode.ANY) {
+            return "Insert, tap, or swipe";
+        }
         if (config.isContact()) {
             return "Insert card";
         }
@@ -219,9 +208,6 @@ public abstract class PosTerminal {
         }
         if (config.isManual()) {
             return "Enter card number";
-        }
-        if (config.getMode() == TransactionConfig.Mode.ANY) {
-            return "Insert, tap, or swipe";
         }
         return "Tap card";
     }
