@@ -2,21 +2,14 @@ package com.emvenhance.vendor;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.emvenhance.core.AbstractEmvBehavior;
 import com.emvenhance.core.AuthResult;
 import com.emvenhance.core.CardPresence;
-import com.emvenhance.core.CardReader;
-import com.emvenhance.core.CommunicationBehavior;
+import com.emvenhance.core.EmvBehavior;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
-import com.emvenhance.core.PrinterBehavior;
 import com.emvenhance.core.TransactionConfig;
 import com.emvenhance.core.TransactionStep;
 import com.emvenhance.core.TransactionStepEvent;
-import com.emvenhance.emvflow.EmvFlowRuntime;
-import com.emvenhance.emvflow.EmvPreProcessFacade;
-import com.emvenhance.emvflow.EmvStepProgress;
-import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.entity.EPiccType;
@@ -43,21 +36,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * PAX vendor EMV behavior — direct composition with concrete PAX kernels.
+ * PAX vendor EMV behavior — implements the EMV lifecycle after entry method selection.
  *
- * <p>No Router, no service-locator lookup, no callback-adapter inner classes.
- * This class <em>is</em> the PAX {@link IContactCallback} / {@link IContactlessCallback}
- * (and result listeners) and notifies {@link EmvEngine} from those callbacks.
- *
- * <pre>
- *   PaxTerminal ──owns──► PaxKernel (EmvContactService, ContactlessService, …)
- *        │
- *        └── PaxEmvBehavior ──implements──► IContactCallback / IContactlessCallback
- *                              ──calls───► contact.startTransProcess(this)
- * </pre>
+ * <p>This class <em>is</em> the PAX {@link IContactCallback}/{@link IContactlessCallback}
+ * (and result listeners). It talks directly to the PAX kernel services via {@link PaxKernel}.
+ * Online authorization and receipt printing are handled inline — no separate behavior classes.
  */
-public class PaxEmvBehavior extends AbstractEmvBehavior
-        implements IContactCallback, IContactlessCallback,
+public class PaxEmvBehavior
+        implements EmvBehavior, IContactCallback, IContactlessCallback,
         IContactResultListener, IContactlessResultListener {
 
     private static final String TAG = "PaxEmvBehavior";
@@ -68,21 +54,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private volatile CountDownLatch authLatch;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
-    /** Active gap-filler while a kernel transaction is running. */
-    @Nullable
-    private EmvStepProgress progress;
+    @Nullable private EmvEngine engine;
+    @Nullable private TransactionConfig activeConfig;
+    @Nullable private PaxStepProgress progress;
 
-    public PaxEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer,
-            PaxKernel kernel) {
-        super(communication, printer);
+    PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
     }
 
-    // ─── Full lifecycle ──────────────────────────────────────────────────
+    // ─── EmvBehavior lifecycle ──────────────────────────────────────────
 
     @Override
-    public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
-            @NonNull CardReader cardReader) {
+    public boolean prepare(@NonNull EmvEngine engine, @NonNull TransactionConfig config) {
         this.engine = engine;
         this.activeConfig = config;
         cancelled.set(false);
@@ -90,32 +73,22 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
+        return prepareKernel(config);
+    }
 
-        if (!prepareKernel(config)) {
-            engine.notifyError("Terminal initialization failed");
-            return;
-        }
+    @Override
+    public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
+            @NonNull CardPresence card) {
+        this.engine = engine;
+        this.activeConfig = config;
+        cancelled.set(false);
+        progress = null;
 
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
-                waitingMessage(config)));
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, waitingMessage(config));
-
-        CardPresence card = cardReader.searchCard(config);
-        if (cardReader.isSearchCancelled() || cancelled.get()) {
-            return;
-        }
-        if (card == null) {
-            engine.notifyError("Card search timeout");
-            return;
-        }
-
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
-                .build());
-
-        if (card.isMagstripe()) {
+        if (card.isManual()) {
+            runManual(card);
+        } else if (card.isMagstripe()) {
             runMagstripe(card);
-        } else if (card.isContact()) {
+        } else if (card.isChip()) {
             runContact();
         } else {
             runContactless();
@@ -137,8 +110,46 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    // ─── Online authorization (inline — no CommunicationBehavior) ───────
+
     @Override
-    protected void deliverOnlineResult(AuthResult authResult) {
+    public void onOnlineRequired(TransactionStepEvent event) {
+        EmvEngine eng = requireEngine();
+        TransactionConfig config = activeConfig;
+        if (config == null) {
+            eng.notifyError("Online required but no active transaction config");
+            return;
+        }
+
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        try {
+            // TODO: replace with real acquirer host call
+            LogUtils.i(TAG, "authorize amount=" + config.getAmountMinor()
+                    + " -> declined (host not wired)");
+            AuthResult authResult = AuthResult.declined("96", "Host not wired");
+
+            eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+                    .put(TransactionStepEvent.KEY_RESULT, authResult.getMessage())
+                    .build());
+            deliverOnlineResult(authResult);
+        } catch (Exception e) {
+            AuthResult declined = AuthResult.declined("96",
+                    e.getMessage() != null ? e.getMessage() : "Online authorization failed");
+            deliverOnlineResult(declined);
+        }
+    }
+
+    @Override
+    public void onApproved(TransactionStepEvent event) {
+        // TODO: drive real printer via PaxRuntime.getDal().getPrinter()
+        LogUtils.i(TAG, "=== RECEIPT ===");
+        LogUtils.i(TAG, "PAN:    " + event.getString(TransactionStepEvent.KEY_PAN));
+        LogUtils.i(TAG, "Amount: " + (activeConfig != null ? activeConfig.getAmountMinor() : "—"));
+        LogUtils.i(TAG, "Result: " + event.getString(TransactionStepEvent.KEY_RESULT));
+        LogUtils.i(TAG, "===============");
+    }
+
+    private void deliverOnlineResult(AuthResult authResult) {
         pendingAuth.set(authResult);
         CountDownLatch latch = authLatch;
         if (latch != null) {
@@ -149,21 +160,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Prepare / run ───────────────────────────────────────────────────
 
     private boolean prepareKernel(@NonNull TransactionConfig config) {
-        if (config.isMagstripe() && !config.isContact() && !config.isContactless()) {
+        if (!config.allowsChip() && !config.allowsContactless()) {
             return true;
         }
         byte requested = 0;
-        if (config.isContact()) {
-            requested |= SearchMode.INSERT;
-        }
-        if (config.isContactless()) {
-            requested |= SearchMode.INTERNAL_WAVE;
-        }
-        if (requested == 0) {
-            return false;
-        }
+        if (config.allowsChip()) requested |= SearchMode.INSERT;
+        if (config.allowsContactless()) requested |= SearchMode.INTERNAL_WAVE;
+        if (requested == 0) return false;
+
         try {
-            byte adjusted = new EmvPreProcessFacade(
+            byte adjusted = new PaxPreProcess(
                     config.getProcCode(),
                     config.getAmountMinor(),
                     timestamp(),
@@ -181,6 +187,29 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.e(TAG, "preTransProcess failed", e);
             return false;
         }
+    }
+
+    private void runManual(@NonNull CardPresence card) {
+        EmvEngine eng = requireEngine();
+        String pan = card.getManualPan() != null ? card.getManualPan() : "";
+        if (pan.isEmpty()) {
+            eng.notifyError("Manual entry requires a PAN");
+            return;
+        }
+        eng.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "manual");
+        eng.notifyCardDetected(pan, "MANUAL", "", card.getModeLabel());
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        pendingAuth.set(null);
+        authLatch = new CountDownLatch(1);
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        AuthResult auth = awaitAuth();
+        eng.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
+        if (auth != null && auth.isApproved()) {
+            eng.notifyApproved("MANUAL ONLINE APPROVED");
+        } else {
+            eng.notifyDeclined(auth != null ? auth.getMessage() : "MANUAL declined");
+        }
+        eng.notifyCompleted();
     }
 
     private void runMagstripe(@NonNull CardPresence card) {
@@ -205,16 +234,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void runContactless() {
         EmvEngine eng = requireEngine();
-        progress = new EmvStepProgress(eng::notifyEmvStep);
+        progress = new PaxStepProgress(eng);
         ContactlessService emv = kernel.contactless;
         try {
-            DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
+            DeviceManager.getInstance().setIDevice(PaxDeviceImpl.getInstance());
             if (cancelled.get()) {
                 eng.notifyError("Transaction cancelled");
                 return;
             }
             LogUtils.d(TAG, "============ Start Contactless EMV ============");
-            // this == IContactlessCallback — no adapter
             int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
@@ -224,11 +252,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             closeReaders(true);
             if (!cancelled.get()) {
                 try {
-                    // this == IContactlessResultListener — no adapter
                     emv.checkClsResult(this);
                 } catch (Exception e) {
                     LogUtils.e(TAG, "checkClsResult error", e);
-                    eng.notifyError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
+                    eng.notifyError(e.getMessage() != null
+                            ? e.getMessage() : "checkClsResult failed");
                 }
             }
             progress = null;
@@ -237,16 +265,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void runContact() {
         EmvEngine eng = requireEngine();
-        progress = new EmvStepProgress(eng::notifyEmvStep);
+        progress = new PaxStepProgress(eng);
         EmvContactService emv = kernel.contact;
         try {
-            DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
+            DeviceManager.getInstance().setIDevice(PaxDeviceImpl.getInstance());
             if (cancelled.get()) {
                 eng.notifyError("Transaction cancelled");
                 return;
             }
             LogUtils.d(TAG, "============ Start Contact EMV ============");
-            // this == IContactCallback — no adapter
             int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
@@ -256,7 +283,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             closeReaders(false);
             if (!cancelled.get()) {
                 try {
-                    // this == IContactResultListener — no adapter
                     emv.checkContactResult(this);
                 } catch (Exception e) {
                     LogUtils.e(TAG, "checkContactResult error", e);
@@ -268,7 +294,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    // ─── IContactCallback + IContactlessCallback (shared / contactless) ──
+    // ─── IContactCallback + IContactlessCallback ────────────────────────
 
     @Override
     public int showEnterTip() {
@@ -284,7 +310,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public int confirmCard() {
-        // Contactless confirm
         advance(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
         eng.notifyCardDetected(safe(kernel.contactless.getPan()), "PAX Issuer",
@@ -306,7 +331,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public int showConfirmCard() {
-        // Contact confirm
         advance(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
         eng.notifyCardDetected(safe(kernel.contact.getPan()), "PAX Issuer",
@@ -370,13 +394,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void offlineApproved(boolean needSignature) {
-        // Contactless
         finishApproved("RESULT_OFFLINE_APPROVED", false);
     }
 
     @Override
     public void offlineApproved(boolean needSignature, boolean needSetARC) {
-        // Contact
         finishApproved("RESULT_OFFLINE_APPROVED", false);
     }
 
@@ -436,9 +458,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Helpers ─────────────────────────────────────────────────────────
 
     private void finishApproved(String result, boolean scripts) {
-        if (scripts) {
-            advance(EmvStep.SCRIPT_PROCESSING, null);
-        }
+        if (scripts) advance(EmvStep.SCRIPT_PROCESSING, null);
         advance(EmvStep.TRANSACTION_COMPLETION, result);
         EmvEngine eng = requireEngine();
         eng.notifyApproved(result);
@@ -519,27 +539,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void closeReaders(boolean contactless) {
         try {
-            if (EmvFlowRuntime.getDal() != null) {
-                EmvFlowRuntime.getDal().getMag().close();
-                EmvFlowRuntime.getDal().getIcc().close((byte) 0);
-                EmvFlowRuntime.getDal().getPicc(EPiccType.INTERNAL).close();
+            if (PaxRuntime.getDal() != null) {
+                PaxRuntime.getDal().getMag().close();
+                PaxRuntime.getDal().getIcc().close((byte) 0);
+                PaxRuntime.getDal().getPicc(EPiccType.INTERNAL).close();
                 if (contactless) {
-                    EmvFlowRuntime.getDal().getPicc(EPiccType.EXTERNAL).close();
+                    PaxRuntime.getDal().getPicc(EPiccType.EXTERNAL).close();
                 }
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "close readers failed", e);
         }
-    }
-
-    private static String waitingMessage(TransactionConfig config) {
-        if (config.isContact()) {
-            return "Insert card";
-        }
-        if (config.isMagstripe()) {
-            return "Swipe card";
-        }
-        return "Tap card";
     }
 
     private static String timestamp() {
@@ -552,9 +562,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private static String panFromTrack2(String track2) {
         int sep = track2.indexOf('=');
-        if (sep <= 0) {
-            sep = track2.indexOf('D');
-        }
+        if (sep <= 0) sep = track2.indexOf('D');
         return sep > 0 ? track2.substring(0, sep) : track2;
     }
 }

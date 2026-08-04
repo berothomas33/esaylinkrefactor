@@ -1,25 +1,28 @@
 package com.emvenhance.core;
 
 /**
- * Vendor-specific EMV lifecycle — owns the full transaction flow for one POS vendor.
+ * Vendor-specific EMV lifecycle — owns the EMV transaction <em>after</em> the terminal
+ * has selected an entry method via {@link PosTerminal#searchCard}.
  *
- * <p>Each terminal creates its matching behavior:
  * <pre>
  *   PaxTerminal      → PaxEmvBehavior
  *   IngenicoTerminal → IngenicoEmvBehavior
  * </pre>
- *
- * <p>{@link PosTerminal} only performs hardware (card search / cancel). {@link EmvEngine}
- * only coordinates subjects and forwards step notifications here. All EMV business logic
- * and SDK adaptation live in the vendor behavior.
  */
 public interface EmvBehavior {
 
     /**
-     * Runs the complete EMV transaction (prepare → search via {@link CardReader} → kernel
-     * → online → completion). Blocking; call on a background thread.
+     * Kernel / parameter initialization before card search.
+     *
+     * @return true when ready to search for a card
      */
-    void start(EmvEngine engine, TransactionConfig config, CardReader cardReader);
+    boolean prepare(EmvEngine engine, TransactionConfig config);
+
+    /**
+     * Runs EMV for an already-selected entry method ({@link CardPresence}).
+     * Blocking; called on a background thread after {@link PosTerminal#searchCard}.
+     */
+    void start(EmvEngine engine, TransactionConfig config, CardPresence card);
 
     /** Cancels in-flight EMV / online wait. */
     void cancel();
@@ -112,8 +115,8 @@ public interface EmvBehavior {
     }
 
     /**
-     * Kernel / flow requires online authorization. Default implementations in
-     * {@link AbstractEmvBehavior} perform host authorize and unblock the kernel.
+     * Kernel / flow requires online authorization. Vendor implementations should
+     * perform host authorization and deliver the result to unblock the kernel.
      */
     default void onOnlineRequired(TransactionStepEvent event) {
     }
@@ -124,7 +127,7 @@ public interface EmvBehavior {
     default void onOnlineCompleted(TransactionStepEvent event) {
     }
 
-    /** Default in {@link AbstractEmvBehavior} prints a receipt. */
+    /** Override to print a receipt on approval. */
     default void onApproved(TransactionStepEvent event) {
     }
 

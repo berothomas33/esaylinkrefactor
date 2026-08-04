@@ -1,13 +1,11 @@
 package com.emvenhance.vendor;
 
-import com.emvenhance.core.AbstractEmvBehavior;
+import android.util.Log;
 import com.emvenhance.core.AuthResult;
 import com.emvenhance.core.CardPresence;
-import com.emvenhance.core.CardReader;
-import com.emvenhance.core.CommunicationBehavior;
+import com.emvenhance.core.EmvBehavior;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
-import com.emvenhance.core.PrinterBehavior;
 import com.emvenhance.core.TransactionConfig;
 import com.emvenhance.core.TransactionStep;
 import com.emvenhance.core.TransactionStepEvent;
@@ -16,46 +14,41 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Fake vendor EMV behavior — full lifecycle without a real SDK.
+ * Fake vendor EMV behavior for off-device testing. Simulates the full EMV lifecycle
+ * with inline online authorization (always approves after 500ms delay).
  */
-public class FakeEmvBehavior extends AbstractEmvBehavior {
+public class FakeEmvBehavior implements EmvBehavior {
+
+    private static final String TAG = "FakeEmvBehavior";
 
     private final AtomicReference<AuthResult> pendingAuth = new AtomicReference<>();
     private volatile CountDownLatch authLatch;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
-    public FakeEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer) {
-        super(communication, printer);
+    private EmvEngine engine;
+    private TransactionConfig activeConfig;
+
+    FakeEmvBehavior() { }
+
+    @Override
+    public boolean prepare(EmvEngine engine, TransactionConfig config) {
+        this.engine = engine;
+        this.activeConfig = config;
+        cancelled.set(false);
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+        engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
+        return true;
     }
 
     @Override
-    public void start(EmvEngine engine, TransactionConfig config, CardReader cardReader) {
+    public void start(EmvEngine engine, TransactionConfig config, CardPresence card) {
         this.engine = engine;
         this.activeConfig = config;
         cancelled.set(false);
 
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
-        engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
-
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
-                config.isContact() ? "Insert card"
-                        : config.isMagstripe() ? "Swipe card" : "Tap card"));
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD);
-
-        CardPresence card = cardReader.searchCard(config);
-        if (cardReader.isSearchCancelled() || cancelled.get()) {
-            return;
-        }
-        if (card == null) {
-            engine.notifyError("Card search timeout");
-            return;
-        }
-
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
-                .build());
-
-        if (card.isContactless()) {
+        if (card.isManual()) {
+            executeManual(engine, card);
+        } else if (card.isContactless()) {
             executeContactless(engine);
         } else if (card.isMagstripe()) {
             executeMagstripe(engine, card);
@@ -74,14 +67,45 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         }
     }
 
+    // ─── Online authorization (inline — always approves) ────────────────
+
     @Override
-    protected void deliverOnlineResult(AuthResult authResult) {
+    public void onOnlineRequired(TransactionStepEvent event) {
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        try {
+            Log.i(TAG, "authorize amount=" + (activeConfig != null ? activeConfig.getAmountMinor() : "?")
+                    + " -> approved");
+            Thread.sleep(500);
+            AuthResult authResult = AuthResult.approved("123456", "00", null);
+            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+                    .put(TransactionStepEvent.KEY_RESULT, authResult.getMessage())
+                    .build());
+            deliverOnlineResult(authResult);
+        } catch (Exception e) {
+            AuthResult declined = AuthResult.declined("96",
+                    e.getMessage() != null ? e.getMessage() : "Online authorization failed");
+            deliverOnlineResult(declined);
+        }
+    }
+
+    @Override
+    public void onApproved(TransactionStepEvent event) {
+        Log.i(TAG, "=== RECEIPT ===");
+        Log.i(TAG, "PAN:    " + event.getString(TransactionStepEvent.KEY_PAN));
+        Log.i(TAG, "Amount: " + (activeConfig != null ? activeConfig.getAmountMinor() : "—"));
+        Log.i(TAG, "Result: " + event.getString(TransactionStepEvent.KEY_RESULT));
+        Log.i(TAG, "===============");
+    }
+
+    private void deliverOnlineResult(AuthResult authResult) {
         pendingAuth.set(authResult);
         CountDownLatch latch = authLatch;
         if (latch != null) {
             latch.countDown();
         }
     }
+
+    // ─── EMV flows ──────────────────────────────────────────────────────
 
     private void executeContact(EmvEngine engine) {
         engine.notifyEmvStep(EmvStep.APPLICATION_SELECTION);
@@ -130,6 +154,14 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         awaitOnlineAndFinish(engine, false);
     }
 
+    private void executeManual(EmvEngine engine, CardPresence card) {
+        engine.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "manual");
+        String pan = card.getManualPan() != null ? card.getManualPan() : "";
+        engine.notifyCardDetected(pan, "MANUAL", "", "Manual");
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        awaitOnlineAndFinish(engine, false);
+    }
+
     private void awaitOnlineAndFinish(EmvEngine engine, boolean emitIssuerSteps) {
         engine.notifyEmvStep(EmvStep.START_ONLINE_PROCESS);
         pendingAuth.set(null);
@@ -161,10 +193,6 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     }
 
     private static void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 }

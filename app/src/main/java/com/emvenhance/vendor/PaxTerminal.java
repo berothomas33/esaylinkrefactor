@@ -2,10 +2,10 @@ package com.emvenhance.vendor;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.CardPresence;
+import com.emvenhance.core.CardSearchListener;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.PosTerminal;
 import com.emvenhance.core.TransactionConfig;
-import com.emvenhance.emvflow.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.IDAL;
@@ -19,13 +19,10 @@ import com.pax.dal.entity.TrackData;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * PAX POS terminal — hardware only. Owns {@link PaxKernel} and creates {@link PaxEmvBehavior}.
+ * PAX POS terminal — owns Neptune DAL card search and creates {@link PaxEmvBehavior}.
  *
- * <pre>
- *   PaxTerminal
- *     ├── PaxKernel          (concrete PAX services, no Router)
- *     └── PaxEmvBehavior     (implements PAX callbacks directly)
- * </pre>
+ * <p>To add PAX support to a project, instantiate this class. It creates its own
+ * {@link EmvEngine} and {@link PaxEmvBehavior} internally — no other wiring needed.
  */
 public class PaxTerminal extends PosTerminal {
 
@@ -41,28 +38,40 @@ public class PaxTerminal extends PosTerminal {
     }
 
     private PaxTerminal(PaxKernel kernel) {
-        super(new EmvEngine(),
-                new PaxEmvBehavior(new PaxCommunicationBehavior(), new PaxPrinterBehavior(),
-                        kernel));
+        super(new EmvEngine(), new PaxEmvBehavior(kernel));
         this.kernel = kernel;
     }
 
     @Override
     protected void initializeVendor() {
-        LogUtils.i(TAG, "PAX terminal initialized (direct kernel composition)");
+        LogUtils.i(TAG, "PAX terminal initialized");
     }
 
     @Nullable
     @Override
-    public CardPresence searchCard(TransactionConfig config) {
+    public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
         stopSearch.set(false);
-        IDAL dal = EmvFlowRuntime.getDal();
+
+        if (config.isManual()) {
+            listener.onSearchStarted(config);
+            CardPresence card = CardPresence.manual(null);
+            listener.onManualEntrySelected(card);
+            return card;
+        }
+
+        IDAL dal = PaxRuntime.getDal();
         if (dal == null) {
             LogUtils.e(TAG, "DAL not ready");
+            listener.onReaderError("DAL not ready");
             return null;
         }
 
         byte mode = toSearchMode(config);
+        if (mode == 0) {
+            listener.onReaderError("No searchable entry mode enabled");
+            return null;
+        }
+
         IMag mag = null;
         IIcc icc = null;
         IPicc picc = null;
@@ -84,10 +93,12 @@ public class PaxTerminal extends PosTerminal {
                 picc.open();
             }
 
+            listener.onSearchStarted(config);
+
             long deadline = System.currentTimeMillis() + SEARCH_TIMEOUT_MS;
             while (!stopSearch.get() && !isSearchCancelled()
                     && System.currentTimeMillis() < deadline) {
-                CardPresence found = pollOnce(mag, icc, picc, mode);
+                CardPresence found = pollOnce(mag, icc, picc, mode, listener);
                 if (found != null) {
                     return found;
                 }
@@ -95,12 +106,20 @@ public class PaxTerminal extends PosTerminal {
                     Thread.sleep(POLL_INTERVAL_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    listener.onSearchCancelled();
                     return null;
                 }
+            }
+
+            if (stopSearch.get() || isSearchCancelled()) {
+                listener.onSearchCancelled();
+            } else {
+                listener.onSearchTimeout();
             }
             return null;
         } catch (Exception e) {
             LogUtils.e(TAG, "searchCard failed", e);
+            listener.onReaderError(e.getMessage() != null ? e.getMessage() : "Reader error");
             return null;
         } finally {
             if (stopSearch.get() || isSearchCancelled()) {
@@ -116,7 +135,7 @@ public class PaxTerminal extends PosTerminal {
 
     @Nullable
     private CardPresence pollOnce(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
-            byte mode) {
+            byte mode, CardSearchListener listener) {
         try {
             if (SearchMode.isSupportMag(mode) && mag != null && mag.isSwiped()) {
                 String t1;
@@ -136,61 +155,47 @@ public class PaxTerminal extends PosTerminal {
                 }
                 if (t2 != null && !t2.isEmpty()) {
                     closeQuietly(null, icc, picc);
-                    return CardPresence.magstripe(t1, t2, t3);
+                    CardPresence card = CardPresence.magstripe(t1, t2, t3);
+                    listener.onMagstripeDetected(card);
+                    return card;
                 }
             }
             if (SearchMode.isSupportIcc(mode) && icc != null && icc.detect((byte) 0)) {
                 byte[] atr = icc.init((byte) 0);
                 if (atr != null) {
                     closeQuietly(mag, null, picc);
-                    return CardPresence.contact();
+                    CardPresence card = CardPresence.chip();
+                    listener.onChipDetected(card);
+                    return card;
                 }
             }
             if (SearchMode.isSupportInternalPicc(mode) && picc != null) {
                 PiccCardInfo info = picc.detect(EDetectMode.EMV_AB);
                 if (info != null) {
                     closeQuietly(mag, icc, null);
-                    return CardPresence.contactless(info.getSerialInfo());
+                    CardPresence card = CardPresence.contactless(info.getSerialInfo());
+                    listener.onContactlessDetected(card);
+                    return card;
                 }
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "pollOnce", e);
+            listener.onReaderError(e.getMessage() != null ? e.getMessage() : "poll failed");
         }
         return null;
     }
 
     private static byte toSearchMode(TransactionConfig config) {
         byte mode = 0;
-        if (config.isContact()) {
-            mode |= SearchMode.INSERT;
-        }
-        if (config.isContactless()) {
-            mode |= SearchMode.INTERNAL_WAVE;
-        }
-        if (config.isMagstripe()) {
-            mode |= SearchMode.SWIPE;
-        }
+        if (config.allowsChip()) mode |= SearchMode.INSERT;
+        if (config.allowsContactless()) mode |= SearchMode.INTERNAL_WAVE;
+        if (config.allowsMagstripe()) mode |= SearchMode.SWIPE;
         return mode;
     }
 
     private static void closeQuietly(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc) {
-        try {
-            if (mag != null) {
-                mag.close();
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            if (icc != null) {
-                icc.close((byte) 0);
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            if (picc != null) {
-                picc.close();
-            }
-        } catch (Exception ignored) {
-        }
+        try { if (mag != null) mag.close(); } catch (Exception ignored) { }
+        try { if (icc != null) icc.close((byte) 0); } catch (Exception ignored) { }
+        try { if (picc != null) picc.close(); } catch (Exception ignored) { }
     }
 }

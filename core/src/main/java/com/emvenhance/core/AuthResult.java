@@ -5,9 +5,8 @@ import androidx.annotation.Nullable;
 /**
  * Result of an online authorization against the acquirer host.
  *
- * <p>Returned by {@link CommunicationBehavior#authorize} and fed back into
- * {@link EmvEngine#complete} so the kernel can finish issuer authentication and
- * the second GENERATE AC.
+ * <p>Created by the vendor {@link EmvBehavior} during online processing and delivered
+ * back to the kernel so it can finish issuer authentication and the second GENERATE AC.
  */
 public final class AuthResult {
 

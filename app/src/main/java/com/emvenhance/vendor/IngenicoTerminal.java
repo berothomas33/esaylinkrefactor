@@ -9,17 +9,18 @@ import com.emvenhance.core.TransactionConfig;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Fake POS terminal for off-device testing. Simulates card search and pairs
- * with {@link FakeEmvBehavior} for the EMV lifecycle.
+ * Ingenico POS terminal stub — demonstrates the extension pattern.
+ *
+ * <p>Replace the stub card search with native Tetra/Axium SDK reader APIs when the
+ * Ingenico libraries are attached. Pair with {@link IngenicoEmvBehavior} for EMV.
  */
-public class FakeTerminal extends PosTerminal {
+public class IngenicoTerminal extends PosTerminal {
 
     private static final long SEARCH_DELAY_MS = 200L;
-
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
-    public FakeTerminal() {
-        super(new EmvEngine(), new FakeEmvBehavior());
+    public IngenicoTerminal() {
+        super(new EmvEngine(), new IngenicoEmvBehavior());
     }
 
     @Nullable
@@ -28,6 +29,7 @@ public class FakeTerminal extends PosTerminal {
         stopSearch.set(false);
         listener.onSearchStarted(config);
 
+        // TODO: open Ingenico ICC/PICC/Mag readers with native SDK and poll.
         try {
             Thread.sleep(SEARCH_DELAY_MS);
         } catch (InterruptedException e) {
@@ -41,6 +43,7 @@ public class FakeTerminal extends PosTerminal {
             return null;
         }
 
+        // Stub detection so the architecture path is exercisable without the SDK.
         if (config.isManual()) {
             CardPresence card = CardPresence.manual("4111111111111111");
             listener.onManualEntrySelected(card);
@@ -52,7 +55,7 @@ public class FakeTerminal extends PosTerminal {
             return card;
         }
         if (config.isContactless()) {
-            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
+            CardPresence card = CardPresence.contactless(new byte[] {0x0A, 0x0B});
             listener.onContactlessDetected(card);
             return card;
         }
@@ -62,18 +65,13 @@ public class FakeTerminal extends PosTerminal {
             return card;
         }
         if (config.allowsContactless()) {
-            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
+            CardPresence card = CardPresence.contactless(new byte[] {0x0A, 0x0B});
             listener.onContactlessDetected(card);
             return card;
         }
         if (config.allowsMagstripe()) {
             CardPresence card = CardPresence.magstripe("CARD HOLDER", "4111111111111111=4912", null);
             listener.onMagstripeDetected(card);
-            return card;
-        }
-        if (config.allowsManual()) {
-            CardPresence card = CardPresence.manual("4111111111111111");
-            listener.onManualEntrySelected(card);
             return card;
         }
 
@@ -84,5 +82,6 @@ public class FakeTerminal extends PosTerminal {
     @Override
     protected void cancelCardSearch() {
         stopSearch.set(true);
+        // TODO: cancel native Ingenico reader wait
     }
 }

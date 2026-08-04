@@ -59,11 +59,17 @@ android {
 
 dependencies {
     implementation project(':core')
-    implementation project(':emvflow')
+
+    // PAX EMV stack (previously transitive via :emvflow)
     implementation project(':emvservice:emv')
+    implementation project(':emvservice:export')
     implementation project(':configservice:impl')
+    implementation project(':configservice:export')
     implementation project(':bizlib')
+    implementation project(':bizentity')
+    implementation project(':poslib')
     implementation project(':commonlib')
+    implementation project(':emvbase')
 
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
     implementation "com.google.android.material:material:$rootProject.material"
