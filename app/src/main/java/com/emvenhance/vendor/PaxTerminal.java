@@ -16,17 +16,15 @@ import com.pax.dal.entity.EDetectMode;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
-import com.pax.emvservice.export.EmvServiceConstant;
-import com.pax.emvservice.export.IMagCardService;
-import com.sankuai.waimai.router.Router;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * PAX POS terminal — hardware only (readers, card search, cancel).
+ * PAX POS terminal — hardware only. Owns {@link PaxKernel} and creates {@link PaxEmvBehavior}.
  *
  * <pre>
- *   PaxTerminal (this)
- *     └── PaxEmvBehavior  ← full EMV lifecycle + PAX SDK
+ *   PaxTerminal
+ *     ├── PaxKernel          (concrete PAX services, no Router)
+ *     └── PaxEmvBehavior     (implements PAX callbacks directly)
  * </pre>
  */
 public class PaxTerminal extends PosTerminal {
@@ -35,16 +33,23 @@ public class PaxTerminal extends PosTerminal {
     private static final long SEARCH_TIMEOUT_MS = 60_000L;
     private static final long POLL_INTERVAL_MS = 50L;
 
+    private final PaxKernel kernel;
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
     public PaxTerminal() {
+        this(new PaxKernel());
+    }
+
+    private PaxTerminal(PaxKernel kernel) {
         super(new EmvEngine(),
-                new PaxEmvBehavior(new PaxCommunicationBehavior(), new PaxPrinterBehavior()));
+                new PaxEmvBehavior(new PaxCommunicationBehavior(), new PaxPrinterBehavior(),
+                        kernel));
+        this.kernel = kernel;
     }
 
     @Override
     protected void initializeVendor() {
-        LogUtils.i(TAG, "PAX terminal initialized");
+        LogUtils.i(TAG, "PAX terminal initialized (direct kernel composition)");
     }
 
     @Nullable
@@ -114,17 +119,14 @@ public class PaxTerminal extends PosTerminal {
             byte mode) {
         try {
             if (SearchMode.isSupportMag(mode) && mag != null && mag.isSwiped()) {
-                String t1 = null;
-                String t2 = null;
-                String t3 = null;
-                IMagCardService magService = Router.getService(
-                        IMagCardService.class, EmvServiceConstant.EMVSERVICE_MAG_CARD);
-                if (magService != null) {
-                    magService.magRead();
-                    t1 = magService.getTrack1();
-                    t2 = magService.getTrack2();
-                    t3 = magService.getTrack3();
-                } else {
+                String t1;
+                String t2;
+                String t3;
+                kernel.mag.magRead();
+                t1 = kernel.mag.getTrack1();
+                t2 = kernel.mag.getTrack2();
+                t3 = kernel.mag.getTrack3();
+                if (t2 == null || t2.isEmpty()) {
                     TrackData data = mag.read();
                     if (data != null) {
                         t1 = data.getTrack1();

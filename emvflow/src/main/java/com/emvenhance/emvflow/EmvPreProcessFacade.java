@@ -5,23 +5,20 @@ import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IEmvParamService;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.EmvTransParam;
-import com.pax.emvservice.export.EmvServiceConstant;
 import com.pax.emvservice.export.IEmvContactService;
 import com.pax.emvservice.export.IEmvContactlessService;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.model.ModelInfo;
-import com.sankuai.waimai.router.Router;
 
 /**
- * Port of JemvDemo EmvPreProcessService.
+ * Builds EMV process parameters and runs contact / contactless preTransProcess.
  *
- * @return adjusted search card mode
+ * <p>Dependencies are injected — no service locator.
  */
 public class EmvPreProcessFacade {
     private static final String TAG = "EmvPreProcessFacade";
@@ -31,14 +28,21 @@ public class EmvPreProcessFacade {
     private final String dateTime;
     private final long traceNo;
     private byte searchCardMode;
+    private final IEmvParamService paramService;
+    private final IEmvContactService contact;
+    private final IEmvContactlessService contactless;
 
     public EmvPreProcessFacade(String procCode, long amount, String dateTime, long traceNo,
-            byte searchCardMode) {
+            byte searchCardMode, IEmvParamService paramService, IEmvContactService contact,
+            IEmvContactlessService contactless) {
         this.procCode = procCode;
         this.amount = amount;
         this.dateTime = dateTime;
         this.traceNo = traceNo;
         this.searchCardMode = searchCardMode;
+        this.paramService = paramService;
+        this.contact = contact;
+        this.contactless = contactless;
     }
 
     public byte start() {
@@ -47,13 +51,11 @@ public class EmvPreProcessFacade {
         if (!SearchMode.isSupportIcc(searchCardMode) && !SearchMode.isWave(searchCardMode)) {
             return 0;
         }
-        IEmvParamService service = Router.getService(
-                IEmvParamService.class, ConfigServiceConstant.CONFIGSERVICE_EMVPARAM);
-        if (service == null) {
-            LogUtils.e(TAG, "IEmvParamService missing");
+        if (paramService == null) {
+            LogUtils.e(TAG, "EmvParamService missing");
             return searchCardMode;
         }
-        EmvProcessParam cachedEmvParam = service.getCachedEmvParam();
+        EmvProcessParam cachedEmvParam = paramService.getCachedEmvParam();
         EmvTransParam.Builder builder = new EmvTransParam.Builder();
         builder.setTransType(proc[0])
                 .setAmount(amount)
@@ -72,23 +74,18 @@ public class EmvPreProcessFacade {
                 .setTermConfig(cachedEmvParam.getTermConfig())
                 .setCapkParam(cachedEmvParam.getCapkParam());
 
-        IEmvContactService emv = Router.getService(
-                IEmvContactService.class, EmvServiceConstant.EMVSERVICE_CONTACT);
-        IEmvContactlessService clss = Router.getService(
-                IEmvContactlessService.class, EmvServiceConstant.EMVSERVICE_CONTACTLESS);
-
-        if (SearchMode.isSupportIcc(searchCardMode) && emv != null) {
+        if (SearchMode.isSupportIcc(searchCardMode) && contact != null) {
             builder.setPciMode((byte) 1);
             processParamBuilder.setEmvTransParam(builder.create())
                     .setEmvAidList(cachedEmvParam.getEmvAidList());
-            int contactRet = emv.preTransProcess(processParamBuilder.create());
+            int contactRet = contact.preTransProcess(processParamBuilder.create());
             if (contactRet != RetCode.EMV_OK) {
                 LogUtils.e(TAG, "contact pre process failed");
                 searchCardMode = (byte) (searchCardMode & (~SearchMode.INSERT));
             }
         }
         if ((SearchMode.isSupportInternalPicc(searchCardMode)
-                || SearchMode.isSupportExternalPicc(searchCardMode)) && clss != null) {
+                || SearchMode.isSupportExternalPicc(searchCardMode)) && contactless != null) {
             if (!SearchMode.isSupportIcc(searchCardMode)) {
                 processParamBuilder.setEmvTransParam(builder.create());
             }
@@ -102,7 +99,7 @@ public class EmvPreProcessFacade {
                     .setPbocParam(cachedEmvParam.getPbocParam())
                     .setPureParam(cachedEmvParam.getPureParam())
                     .setRuPayParam(cachedEmvParam.getRuPayParam());
-            int contactlessRet = clss.preTransProcess(processParamBuilder.create());
+            int contactlessRet = contactless.preTransProcess(processParamBuilder.create());
             if (contactlessRet != RetCode.EMV_OK) {
                 LogUtils.e(TAG, "contactless pre process failed");
                 searchCardMode = (byte) (searchCardMode & (~SearchMode.WAVE));

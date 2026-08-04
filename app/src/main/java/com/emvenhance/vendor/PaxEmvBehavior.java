@@ -9,7 +9,6 @@ import com.emvenhance.core.CardReader;
 import com.emvenhance.core.CommunicationBehavior;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
-import com.emvenhance.core.EmvStepReporter;
 import com.emvenhance.core.PrinterBehavior;
 import com.emvenhance.core.TransactionConfig;
 import com.emvenhance.core.TransactionStep;
@@ -29,13 +28,11 @@ import com.pax.emvbase.process.entity.EOnlineResult;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.OnlineResultWrapper;
 import com.pax.emvbase.process.enums.TransResultEnum;
-import com.pax.emvservice.export.EmvServiceConstant;
-import com.pax.emvservice.export.IEmvContactService;
-import com.pax.emvservice.export.IEmvContactlessService;
+import com.pax.emvservice.emv.contact.EmvContactService;
+import com.pax.emvservice.emv.contactless.ContactlessService;
 import com.pax.emvservice.export.contact.IContactResultListener;
 import com.pax.emvservice.export.contactless.IContactlessResultListener;
 import com.pax.jemv.device.DeviceManager;
-import com.sankuai.waimai.router.Router;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -46,25 +43,39 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * PAX vendor EMV behavior — owns the full EMV lifecycle for PAX.
+ * PAX vendor EMV behavior — direct composition with concrete PAX kernels.
  *
- * <p>Receives PAX SDK callbacks and notifies {@link EmvEngine}, which dispatches back into
- * {@code onXxx} hooks (online authorize, print, …). Card search is requested from
- * {@link CardReader} (the {@link PaxTerminal}).
+ * <p>No Router, no service-locator lookup, no callback-adapter inner classes.
+ * This class <em>is</em> the PAX {@link IContactCallback} / {@link IContactlessCallback}
+ * (and result listeners) and notifies {@link EmvEngine} from those callbacks.
+ *
+ * <pre>
+ *   PaxTerminal ──owns──► PaxKernel (EmvContactService, ContactlessService, …)
+ *        │
+ *        └── PaxEmvBehavior ──implements──► IContactCallback / IContactlessCallback
+ *                              ──calls───► contact.startTransProcess(this)
+ * </pre>
  */
-public class PaxEmvBehavior extends AbstractEmvBehavior {
+public class PaxEmvBehavior extends AbstractEmvBehavior
+        implements IContactCallback, IContactlessCallback,
+        IContactResultListener, IContactlessResultListener {
 
     private static final String TAG = "PaxEmvBehavior";
+
+    private final PaxKernel kernel;
 
     private final AtomicReference<AuthResult> pendingAuth = new AtomicReference<>();
     private volatile CountDownLatch authLatch;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
+    /** Active gap-filler while a kernel transaction is running. */
     @Nullable
-    private volatile IEmvContactService contactService;
+    private EmvStepProgress progress;
 
-    public PaxEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer) {
+    public PaxEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer,
+            PaxKernel kernel) {
         super(communication, printer);
+        this.kernel = kernel;
     }
 
     // ─── Full lifecycle ──────────────────────────────────────────────────
@@ -75,6 +86,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
         this.engine = engine;
         this.activeConfig = config;
         cancelled.set(false);
+        progress = null;
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
@@ -101,7 +113,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
                 .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
                 .build());
 
-        runKernel(engine, card);
+        if (card.isMagstripe()) {
+            runMagstripe(card);
+        } else if (card.isContact()) {
+            runContact();
+        } else {
+            runContactless();
+        }
     }
 
     @Override
@@ -112,13 +130,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
             pendingAuth.compareAndSet(null, AuthResult.declined("17", "Cancelled"));
             latch.countDown();
         }
-        IEmvContactService contact = contactService;
-        if (contact != null) {
-            try {
-                contact.setUserCancel(true);
-            } catch (Exception e) {
-                LogUtils.e(TAG, "setUserCancel failed", e);
-            }
+        try {
+            kernel.contact.setUserCancel(true);
+        } catch (Exception e) {
+            LogUtils.e(TAG, "setUserCancel failed", e);
         }
     }
 
@@ -131,7 +146,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
         }
     }
 
-    // ─── Kernel prepare / run ────────────────────────────────────────────
+    // ─── Prepare / run ───────────────────────────────────────────────────
 
     private boolean prepareKernel(@NonNull TransactionConfig config) {
         if (config.isMagstripe() && !config.isContact() && !config.isContactless()) {
@@ -153,7 +168,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
                     config.getAmountMinor(),
                     timestamp(),
                     0,
-                    requested).start();
+                    requested,
+                    kernel.params,
+                    kernel.contact,
+                    kernel.contactless).start();
             if (adjusted == 0) {
                 LogUtils.e(TAG, "preTransProcess disabled every search mode");
                 return false;
@@ -165,172 +183,302 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
         }
     }
 
-    private void runKernel(@NonNull EmvEngine engine, @NonNull CardPresence card) {
-        if (card.isMagstripe()) {
-            runMagstripe(engine, card);
-        } else if (card.isContact()) {
-            runContact(engine);
-        } else {
-            runContactless(engine);
-        }
-    }
-
-    private static String waitingMessage(TransactionConfig config) {
-        if (config.isContact()) {
-            return "Insert card";
-        }
-        if (config.isMagstripe()) {
-            return "Swipe card";
-        }
-        return "Tap card";
-    }
-
-    // ─── Magstripe ───────────────────────────────────────────────────────
-
-    private void runMagstripe(@NonNull EmvEngine engine, @NonNull CardPresence card) {
+    private void runMagstripe(@NonNull CardPresence card) {
+        EmvEngine eng = requireEngine();
         String track2 = card.getTrack2() != null ? card.getTrack2() : "";
         String pan = panFromTrack2(track2);
-        engine.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "magstripe");
-        engine.notifyCardDetected(pan, "MAG", "", card.getModeLabel());
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        eng.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "magstripe");
+        eng.notifyCardDetected(pan, "MAG", "", card.getModeLabel());
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         pendingAuth.set(null);
         authLatch = new CountDownLatch(1);
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        AuthResult auth;
-        try {
-            authLatch.await();
-            auth = pendingAuth.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            auth = null;
-        } finally {
-            authLatch = null;
-        }
-        engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        AuthResult auth = awaitAuth();
+        eng.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
         if (auth != null && auth.isApproved()) {
-            engine.notifyApproved("MAG ONLINE APPROVED");
+            eng.notifyApproved("MAG ONLINE APPROVED");
         } else {
-            engine.notifyDeclined(auth != null ? auth.getMessage() : "MAG declined");
+            eng.notifyDeclined(auth != null ? auth.getMessage() : "MAG declined");
         }
-        engine.notifyCompleted();
+        eng.notifyCompleted();
     }
 
-    // ─── Contactless ─────────────────────────────────────────────────────
-
-    private void runContactless(@NonNull EmvEngine engine) {
-        EmvStepProgress progress = newProgress(engine);
-        IEmvContactlessService emv = null;
+    private void runContactless() {
+        EmvEngine eng = requireEngine();
+        progress = new EmvStepProgress(eng::notifyEmvStep);
+        ContactlessService emv = kernel.contactless;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-            emv = Router.getService(
-                    IEmvContactlessService.class, EmvServiceConstant.EMVSERVICE_CONTACTLESS);
-            if (emv == null) {
-                engine.notifyError("EMV service missing: IEmvContactlessService");
-                return;
-            }
             if (cancelled.get()) {
-                engine.notifyError("Transaction cancelled");
+                eng.notifyError("Transaction cancelled");
                 return;
             }
             LogUtils.d(TAG, "============ Start Contactless EMV ============");
-            int ret = emv.startTransProcess(new ContactlessCallbackAdapter(engine, emv, progress));
+            // this == IContactlessCallback — no adapter
+            int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless execution failed", e);
-            engine.notifyError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
+            eng.notifyError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
         } finally {
             closeReaders(true);
-            checkContactlessResult(engine, emv, progress);
+            if (!cancelled.get()) {
+                try {
+                    // this == IContactlessResultListener — no adapter
+                    emv.checkClsResult(this);
+                } catch (Exception e) {
+                    LogUtils.e(TAG, "checkClsResult error", e);
+                    eng.notifyError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
+                }
+            }
+            progress = null;
         }
     }
 
-    private void checkContactlessResult(@NonNull EmvEngine engine,
-            @Nullable IEmvContactlessService emv, @NonNull EmvStepProgress progress) {
-        if (emv == null || cancelled.get()) {
-            return;
-        }
-        try {
-            emv.checkClsResult(new ContactlessResultAdapter(engine, progress));
-        } catch (Exception e) {
-            LogUtils.e(TAG, "checkClsResult error", e);
-            engine.notifyError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
-        }
-    }
-
-    // ─── Contact ─────────────────────────────────────────────────────────
-
-    private void runContact(@NonNull EmvEngine engine) {
-        EmvStepProgress progress = newProgress(engine);
-        IEmvContactService emv = null;
+    private void runContact() {
+        EmvEngine eng = requireEngine();
+        progress = new EmvStepProgress(eng::notifyEmvStep);
+        EmvContactService emv = kernel.contact;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-            emv = Router.getService(
-                    IEmvContactService.class, EmvServiceConstant.EMVSERVICE_CONTACT);
-            contactService = emv;
-            if (emv == null) {
-                engine.notifyError("EMV service missing: IEmvContactService");
-                return;
-            }
             if (cancelled.get()) {
-                engine.notifyError("Transaction cancelled");
+                eng.notifyError("Transaction cancelled");
                 return;
             }
             LogUtils.d(TAG, "============ Start Contact EMV ============");
-            int ret = emv.startTransProcess(new ContactCallbackAdapter(engine, emv, progress));
+            // this == IContactCallback — no adapter
+            int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
             LogUtils.e(TAG, "contact execution failed", e);
-            engine.notifyError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
+            eng.notifyError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
         } finally {
-            contactService = null;
             closeReaders(false);
-            checkContactResult(engine, emv, progress);
+            if (!cancelled.get()) {
+                try {
+                    // this == IContactResultListener — no adapter
+                    emv.checkContactResult(this);
+                } catch (Exception e) {
+                    LogUtils.e(TAG, "checkContactResult error", e);
+                    eng.notifyError(e.getMessage() != null
+                            ? e.getMessage() : "checkContactResult failed");
+                }
+            }
+            progress = null;
         }
     }
 
-    private void checkContactResult(@NonNull EmvEngine engine, @Nullable IEmvContactService emv,
-            @NonNull EmvStepProgress progress) {
-        if (emv == null || cancelled.get()) {
-            return;
-        }
-        try {
-            emv.checkContactResult(new ContactResultAdapter(engine, progress));
-        } catch (Exception e) {
-            LogUtils.e(TAG, "checkContactResult error", e);
-            engine.notifyError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
-        }
+    // ─── IContactCallback + IContactlessCallback (shared / contactless) ──
+
+    @Override
+    public int showEnterTip() {
+        return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 
-    // ─── Shared helpers ──────────────────────────────────────────────────
+    @Override
+    public void onReadCardOk() {
+        advance(EmvStep.READ_APPLICATION_DATA, null);
+        requireEngine().notifyTransactionStep(
+                TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
+    }
 
-    private EmvStepProgress newProgress(EmvEngine engine) {
-        EmvStepReporter reporter = engine::notifyEmvStep;
-        return new EmvStepProgress(reporter);
+    @Override
+    public int confirmCard() {
+        // Contactless confirm
+        advance(EmvStep.SET_TRANSACTION_DATA, null);
+        EmvEngine eng = requireEngine();
+        eng.notifyCardDetected(safe(kernel.contactless.getPan()), "PAX Issuer",
+                safe(kernel.contactless.getCardholderName()), "Contactless");
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        return EmvConstant.ContactCallbackStatus.CONTACT_OK;
+    }
+
+    @Override
+    public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
+        int candidates = candList == null ? 0 : candList.size();
+        advance(isFirstSelect ? EmvStep.WAIT_APPLICATION_SELECTION
+                        : EmvStep.FINAL_APPLICATION_SELECTION,
+                candidates + " candidate AID(s), selecting first");
+        requireEngine().notifyTransactionStep(
+                TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
+        return EmvConstant.ContactCallbackStatus.CONTACT_OK;
+    }
+
+    @Override
+    public int showConfirmCard() {
+        // Contact confirm
+        advance(EmvStep.SET_TRANSACTION_DATA, null);
+        EmvEngine eng = requireEngine();
+        eng.notifyCardDetected(safe(kernel.contact.getPan()), "PAX Issuer",
+                safe(kernel.contact.getCardholderName()), "Contact");
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        return EmvConstant.ContactCallbackStatus.CONTACT_OK;
+    }
+
+    @Override
+    public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
+            byte[] pinData) {
+        advance(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
+        if (!isOnlinePin) {
+            advance(EmvStep.OFFLINE_PIN_VERIFICATION, null);
+        }
+        requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
+                TransactionStep.CARDHOLDER_VERIFIED)
+                .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
+                .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass)
+                .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
+                .build());
+        if (supportPINByPass) {
+            return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
+        }
+        return EmvConstant.ContactCallbackStatus.USER_CANCEL;
     }
 
     @NonNull
-    private OnlineResultWrapper awaitOnlineResult(@NonNull EmvEngine engine,
-            @NonNull EmvStepProgress progress) {
-        progress.advanceTo(EmvStep.START_ONLINE_PROCESS, null);
+    @Override
+    public OnlineResultWrapper startOnlineProcess() {
+        advance(EmvStep.START_ONLINE_PROCESS, null);
         pendingAuth.set(null);
         authLatch = new CountDownLatch(1);
-        // Dispatches to onOnlineRequired → authorize → deliverOnlineResult (unblocks latch)
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        requireEngine().notifyTransactionStep(
+                TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        AuthResult auth = awaitAuth();
+        advance(EmvStep.ISSUER_AUTHENTICATION,
+                auth != null && auth.isApproved() ? "host approved" : "host declined");
+        return toOnlineResultWrapper(auth);
+    }
 
-        AuthResult auth;
+    @Override
+    public void onRemoveCard() {
+        LogUtils.d(TAG, "remove card");
+    }
+
+    @Override
+    public void onDetect2ndTap() {
+        requireEngine().notifyTransactionStep(TransactionStepEvent.of(
+                TransactionStep.WAITING_FOR_CARD, "Present card again"));
+    }
+
+    @Override
+    public boolean needSeePhone() {
+        boolean seePhone = kernel.contactless.getIsLastNeedSeePhone();
+        kernel.contactless.setIsLastNeedSeePhone(false);
+        return seePhone;
+    }
+
+    // ─── Result listeners (contact + contactless) ────────────────────────
+
+    @Override
+    public void offlineApproved(boolean needSignature) {
+        // Contactless
+        finishApproved("RESULT_OFFLINE_APPROVED", false);
+    }
+
+    @Override
+    public void offlineApproved(boolean needSignature, boolean needSetARC) {
+        // Contact
+        finishApproved("RESULT_OFFLINE_APPROVED", false);
+    }
+
+    @Override
+    public void onlineApproved(boolean needSignature) {
+        finishApproved("RESULT_ONLINE_APPROVED", true);
+    }
+
+    @Override
+    public void onlineDenied() {
+        advance(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
+        finishDeclined("Online Denied");
+    }
+
+    @Override
+    public void onlineCardDenied(int resultCode) {
+        advance(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
+        finishDeclined("Online Card Denied code=" + resultCode);
+    }
+
+    @Override
+    public void onlineFailed() {
+        advance(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
+        requireEngine().notifyError("Online Failed: no host response");
+    }
+
+    @Override
+    public void offlineDenied(int resultCode) {
+        finishDeclined("Offline Denied code=" + resultCode);
+    }
+
+    @Override
+    public void seePhone() {
+        requireEngine().notifyError("See Phone: Continue on the phone");
+    }
+
+    @Override
+    public void tryAnotherInterface() {
+        requireEngine().notifyError("Try Another Interface: Use contact instead");
+    }
+
+    @Override
+    public void tryAgain() {
+        requireEngine().notifyError("Try Again: Present card again");
+    }
+
+    @Override
+    public void fallback() {
+        requireEngine().notifyError("Fallback: Contact fallback required");
+    }
+
+    @Override
+    public void simpleFlowEnd() {
+        finishApproved("RESULT_SIMPLE_FLOW_END", false);
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────────
+
+    private void finishApproved(String result, boolean scripts) {
+        if (scripts) {
+            advance(EmvStep.SCRIPT_PROCESSING, null);
+        }
+        advance(EmvStep.TRANSACTION_COMPLETION, result);
+        EmvEngine eng = requireEngine();
+        eng.notifyApproved(result);
+        eng.notifyCompleted();
+    }
+
+    private void finishDeclined(String reason) {
+        advance(EmvStep.TRANSACTION_COMPLETION, reason);
+        EmvEngine eng = requireEngine();
+        eng.notifyDeclined(reason);
+        eng.notifyCompleted();
+    }
+
+    private void advance(EmvStep step, @Nullable String detail) {
+        if (progress != null) {
+            progress.advanceTo(step, detail);
+        } else {
+            requireEngine().notifyEmvStep(step, detail);
+        }
+    }
+
+    @Nullable
+    private AuthResult awaitAuth() {
         try {
             authLatch.await();
-            auth = pendingAuth.get();
+            return pendingAuth.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            auth = null;
+            return null;
         } finally {
             authLatch = null;
         }
+    }
 
-        progress.advanceTo(EmvStep.ISSUER_AUTHENTICATION,
-                auth != null && auth.isApproved() ? "host approved" : "host declined");
-        return toOnlineResultWrapper(auth);
+    @NonNull
+    private EmvEngine requireEngine() {
+        if (engine == null) {
+            throw new IllegalStateException("PaxEmvBehavior used without an active engine");
+        }
+        return engine;
     }
 
     @NonNull
@@ -384,6 +532,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
         }
     }
 
+    private static String waitingMessage(TransactionConfig config) {
+        if (config.isContact()) {
+            return "Insert card";
+        }
+        if (config.isMagstripe()) {
+            return "Swipe card";
+        }
+        return "Tap card";
+    }
+
     private static String timestamp() {
         return new SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(new Date());
     }
@@ -398,292 +556,5 @@ public class PaxEmvBehavior extends AbstractEmvBehavior {
             sep = track2.indexOf('D');
         }
         return sep > 0 ? track2.substring(0, sep) : track2;
-    }
-
-    // ─── PAX contactless callbacks ───────────────────────────────────────
-
-    private final class ContactlessCallbackAdapter implements IContactlessCallback {
-        private final EmvEngine engine;
-        private final IEmvContactlessService emv;
-        private final EmvStepProgress progress;
-
-        ContactlessCallbackAdapter(EmvEngine engine, IEmvContactlessService emv,
-                EmvStepProgress progress) {
-            this.engine = engine;
-            this.emv = emv;
-            this.progress = progress;
-        }
-
-        @Override
-        public int showEnterTip() {
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        }
-
-        @Override
-        public void onReadCardOk() {
-            progress.advanceTo(EmvStep.READ_APPLICATION_DATA, null);
-            engine.notifyTransactionStep(
-                    TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
-        }
-
-        @Override
-        public int confirmCard() {
-            progress.advanceTo(EmvStep.SET_TRANSACTION_DATA, null);
-            engine.notifyCardDetected(safe(emv.getPan()), "PAX Issuer",
-                    safe(emv.getCardholderName()), "Contactless");
-            engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        }
-
-        @Override
-        public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
-                byte[] pinData) {
-            progress.advanceTo(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
-            if (!isOnlinePin) {
-                progress.advanceTo(EmvStep.OFFLINE_PIN_VERIFICATION, null);
-            }
-            engine.notifyTransactionStep(TransactionStepEvent.builder(
-                    TransactionStep.CARDHOLDER_VERIFIED)
-                    .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
-                    .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass)
-                    .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
-                    .build());
-            if (supportPINByPass) {
-                return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
-            }
-            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
-        }
-
-        @NonNull
-        @Override
-        public OnlineResultWrapper startOnlineProcess() {
-            return awaitOnlineResult(engine, progress);
-        }
-
-        @Override
-        public void onRemoveCard() {
-            LogUtils.d(TAG, "remove card");
-        }
-
-        @Override
-        public void onDetect2ndTap() {
-            engine.notifyTransactionStep(TransactionStepEvent.of(
-                    TransactionStep.WAITING_FOR_CARD, "Present card again"));
-        }
-
-        @Override
-        public boolean needSeePhone() {
-            boolean seePhone = emv.getIsLastNeedSeePhone();
-            emv.setIsLastNeedSeePhone(false);
-            return seePhone;
-        }
-    }
-
-    private final class ContactlessResultAdapter implements IContactlessResultListener {
-        private final EmvEngine engine;
-        private final EmvStepProgress progress;
-
-        ContactlessResultAdapter(EmvEngine engine, EmvStepProgress progress) {
-            this.engine = engine;
-            this.progress = progress;
-        }
-
-        @Override
-        public void offlineApproved(boolean needSignature) {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "RESULT_OFFLINE_APPROVED");
-            engine.notifyApproved("RESULT_OFFLINE_APPROVED");
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineApproved(boolean needSignature) {
-            progress.advanceTo(EmvStep.SCRIPT_PROCESSING, null);
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "RESULT_ONLINE_APPROVED");
-            engine.notifyApproved("RESULT_ONLINE_APPROVED");
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineDenied() {
-            progress.advanceTo(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Online Denied");
-            engine.notifyDeclined("Online Denied");
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineCardDenied(int resultCode) {
-            progress.advanceTo(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Online Card Denied");
-            engine.notifyDeclined("Online Card Denied code=" + resultCode);
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineFailed() {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
-            engine.notifyError("Online Failed: no host response");
-        }
-
-        @Override
-        public void offlineDenied(int resultCode) {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Offline Denied");
-            engine.notifyDeclined("Offline Denied code=" + resultCode);
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void seePhone() {
-            engine.notifyError("See Phone: Continue on the phone");
-        }
-
-        @Override
-        public void tryAnotherInterface() {
-            engine.notifyError("Try Another Interface: Use contact instead");
-        }
-
-        @Override
-        public void tryAgain() {
-            engine.notifyError("Try Again: Present card again");
-        }
-
-        @Override
-        public void simpleFlowEnd() {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "RESULT_SIMPLE_FLOW_END");
-            engine.notifyApproved("RESULT_SIMPLE_FLOW_END");
-            engine.notifyCompleted();
-        }
-    }
-
-    // ─── PAX contact callbacks ───────────────────────────────────────────
-
-    private final class ContactCallbackAdapter implements IContactCallback {
-        private final EmvEngine engine;
-        private final IEmvContactService emv;
-        private final EmvStepProgress progress;
-
-        ContactCallbackAdapter(EmvEngine engine, IEmvContactService emv,
-                EmvStepProgress progress) {
-            this.engine = engine;
-            this.emv = emv;
-            this.progress = progress;
-        }
-
-        @Override
-        public int showEnterTip() {
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        }
-
-        @Override
-        public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
-            int candidates = candList == null ? 0 : candList.size();
-            progress.advanceTo(
-                    isFirstSelect ? EmvStep.WAIT_APPLICATION_SELECTION
-                            : EmvStep.FINAL_APPLICATION_SELECTION,
-                    candidates + " candidate AID(s), selecting first");
-            engine.notifyTransactionStep(
-                    TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        }
-
-        @Override
-        public int showConfirmCard() {
-            progress.advanceTo(EmvStep.SET_TRANSACTION_DATA, null);
-            engine.notifyCardDetected(safe(emv.getPan()), "PAX Issuer",
-                    safe(emv.getCardholderName()), "Contact");
-            engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        }
-
-        @Override
-        public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
-                byte[] pinData) {
-            progress.advanceTo(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
-            if (!isOnlinePin) {
-                progress.advanceTo(EmvStep.OFFLINE_PIN_VERIFICATION, null);
-            }
-            engine.notifyTransactionStep(TransactionStepEvent.builder(
-                    TransactionStep.CARDHOLDER_VERIFIED)
-                    .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
-                    .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass)
-                    .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
-                    .build());
-            if (supportPINByPass) {
-                return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
-            }
-            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
-        }
-
-        @NonNull
-        @Override
-        public OnlineResultWrapper startOnlineProcess() {
-            return awaitOnlineResult(engine, progress);
-        }
-    }
-
-    private final class ContactResultAdapter implements IContactResultListener {
-        private final EmvEngine engine;
-        private final EmvStepProgress progress;
-
-        ContactResultAdapter(EmvEngine engine, EmvStepProgress progress) {
-            this.engine = engine;
-            this.progress = progress;
-        }
-
-        @Override
-        public void offlineApproved(boolean needSignature, boolean needSetARC) {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "RESULT_OFFLINE_APPROVED");
-            engine.notifyApproved("RESULT_OFFLINE_APPROVED");
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineApproved(boolean needSignature) {
-            progress.advanceTo(EmvStep.SCRIPT_PROCESSING, null);
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "RESULT_ONLINE_APPROVED");
-            engine.notifyApproved("RESULT_ONLINE_APPROVED");
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineDenied() {
-            progress.advanceTo(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Online Denied");
-            engine.notifyDeclined("Online Denied");
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineCardDenied(int resultCode) {
-            progress.advanceTo(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Online Card Denied");
-            engine.notifyDeclined("Online Card Denied code=" + resultCode);
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void onlineFailed() {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
-            engine.notifyError("Online Failed: no host response");
-        }
-
-        @Override
-        public void offlineDenied(int resultCode) {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "Offline Denied");
-            engine.notifyDeclined("Offline Denied code=" + resultCode);
-            engine.notifyCompleted();
-        }
-
-        @Override
-        public void fallback() {
-            engine.notifyError("Fallback: Contact fallback required");
-        }
-
-        @Override
-        public void simpleFlowEnd() {
-            progress.advanceTo(EmvStep.TRANSACTION_COMPLETION, "RESULT_SIMPLE_FLOW_END");
-            engine.notifyApproved("RESULT_SIMPLE_FLOW_END");
-            engine.notifyCompleted();
-        }
     }
 }
