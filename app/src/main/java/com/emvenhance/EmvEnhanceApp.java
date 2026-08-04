@@ -3,6 +3,7 @@ package com.emvenhance;
 import com.emvenhance.core.PosTerminal;
 import com.emvenhance.vendor.FakeTerminal;
 import com.emvenhance.vendor.IngenicoTerminal;
+import com.emvenhance.vendor.PaxRuntime;
 import com.emvenhance.vendor.PaxTerminal;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
