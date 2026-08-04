@@ -1,44 +1,42 @@
 package com.emvenhance;
 
-import com.emvenhance.core.EmvTransaction;
+import com.emvenhance.core.PosTerminal;
 import com.emvenhance.emvflow.EmvFlowRuntime;
-import com.emvenhance.vendor.FakeCommunicationBehavior;
-import com.emvenhance.vendor.FakeEmvBehavior;
-import com.emvenhance.vendor.FakePrinterBehavior;
-import com.emvenhance.vendor.PaxCommunicationBehavior;
-import com.emvenhance.vendor.PaxEmvBehavior;
-import com.emvenhance.vendor.PaxPrinterBehavior;
+import com.emvenhance.vendor.TerminalFactory;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 
 /**
- * Picks the vendor and builds the single {@link EmvTransaction} the UI talks to.
+ * Boots one vendor-agnostic {@link PosTerminal}. UI never sees Pax/Ingenico/Fake types.
  *
- * <p>This is the only place that knows which vendor is active. Adding a vendor means
- * writing its three behaviour classes and extending the branch below.
+ * <pre>
+ *   TerminalFactory.create(VENDOR) → PosTerminal
+ *     PAX      → vendor.pax.PaxTerminal
+ *     INGENICO → vendor.ingenico.IngenicoTerminal
+ *     FAKE     → vendor.fake.FakeTerminal
+ * </pre>
  */
 public class EmvEnhanceApp extends BaseApplication {
 
     private static final String TAG = "EmvEnhanceApp";
 
-    private EmvTransaction transaction;
+    private PosTerminal terminal;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        EmvFlowRuntime.init(this);
 
-        boolean pax = "PAX".equalsIgnoreCase(BuildConfig.VENDOR);
-        LogUtils.i(TAG, "vendor=" + BuildConfig.VENDOR);
+        String vendor = BuildConfig.VENDOR;
+        LogUtils.i(TAG, "vendor=" + vendor);
 
-        transaction = pax
-                ? new EmvTransaction(new PaxEmvBehavior(), new PaxPrinterBehavior(),
-                        new PaxCommunicationBehavior())
-                : new EmvTransaction(new FakeEmvBehavior(), new FakePrinterBehavior(),
-                        new FakeCommunicationBehavior());
+        if (TerminalFactory.needsPaxRuntime(vendor)) {
+            EmvFlowRuntime.init(this);
+        }
+
+        terminal = TerminalFactory.create(vendor);
     }
 
-    public EmvTransaction getTransaction() {
-        return transaction;
+    public PosTerminal getTerminal() {
+        return terminal;
     }
 }

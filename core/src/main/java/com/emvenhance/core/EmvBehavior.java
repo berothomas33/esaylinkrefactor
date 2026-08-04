@@ -1,48 +1,111 @@
 package com.emvenhance.core;
 
-import androidx.annotation.Nullable;
-
 /**
- * EMV behavior: drives the vendor kernel and reports progress.
+ * Vendor EMV lifecycle <em>after</em> {@link PosTerminal#searchCard} selects an entry method.
  *
- * <p>Card detection and PIN entry live here rather than in separate interfaces, because
- * vendor kernels already own them internally — on PAX both happen inside the kernel's
- * own callback while {@code startTransProcess} is running.
- *
- * <p>Callbacks arrive on the kernel's background thread.
+ * <p>Implement for each vendor. Shared online authorize / print live in
+ * {@link AbstractEmvBehavior}.
  */
 public interface EmvBehavior {
 
-    interface Callback {
+    /** Kernel / parameter init before card search. */
+    boolean prepare(EmvEngine engine, TransactionConfig config);
 
-        void onStep(EmvStep step, @Nullable String detail);
+    /** Run EMV for the already-selected {@link CardPresence}. Blocking. */
+    void start(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-        void onConfirmCard(String pan, String issuerName, String cardHolderName);
+    /** Cancel in-flight EMV / online wait. */
+    void cancel();
 
-        void onAskPin(boolean onlinePin, boolean bypassAllowed, int leftTimes);
+    // ─── Step dispatch (engine → hooks) ──────────────────────────────────
 
-        /** Kernel decided the transaction must go online. */
-        void onNeedOnline();
-
-        void onRemoveCard();
-
-        void onSecondTap();
-
-        void onSeePhone();
-
-        void onApproved(String result);
-
-        void onFailed(String title, @Nullable String reason);
+    default void dispatchTransactionStep(TransactionStepEvent event) {
+        switch (event.getStep()) {
+            case IDLE:
+                onIdle(event);
+                break;
+            case TRANSACTION_STARTED:
+                onTransactionStarted(event);
+                break;
+            case WAITING_FOR_CARD:
+                onWaitingForCard(event);
+                break;
+            case CARD_DETECTED:
+                onCardDetected(event);
+                break;
+            case APPLICATION_SELECTED:
+                onApplicationSelected(event);
+                break;
+            case CARD_READ:
+                onCardRead(event);
+                break;
+            case CARDHOLDER_VERIFIED:
+                onCardholderVerified(event);
+                break;
+            case ONLINE_REQUIRED:
+                onOnlineRequired(event);
+                break;
+            case ONLINE_PROCESSING:
+                onOnlineProcessing(event);
+                break;
+            case ONLINE_COMPLETED:
+                onOnlineCompleted(event);
+                break;
+            case APPROVED:
+                onApproved(event);
+                break;
+            case DECLINED:
+                onDeclined(event);
+                break;
+            case COMPLETED:
+                onCompleted(event);
+                break;
+            case ERROR:
+                onError(event);
+                break;
+            default:
+                onUnknownStep(event);
+                break;
+        }
     }
 
-    /**
-     * Terminal initialization, before any card is read.
-     *
-     * @return true when the kernel is ready to search for a card
-     */
-    boolean prepare(String procCode, long amountMinor, boolean contact, boolean contactless);
+    default void dispatchEmvStep(EmvStepEvent event) {
+        onEmvStep(event);
+    }
 
-    void startContact(Callback callback);
+    default void onIdle(TransactionStepEvent event) { }
 
-    void startContactless(Callback callback);
+    default void onTransactionStarted(TransactionStepEvent event) { }
+
+    default void onWaitingForCard(TransactionStepEvent event) { }
+
+    default void onCardDetected(TransactionStepEvent event) { }
+
+    default void onApplicationSelected(TransactionStepEvent event) { }
+
+    default void onCardRead(TransactionStepEvent event) { }
+
+    default void onCardholderVerified(TransactionStepEvent event) { }
+
+    /** Default in {@link AbstractEmvBehavior}: host authorize + unblock kernel. */
+    default void onOnlineRequired(TransactionStepEvent event) { }
+
+    default void onOnlineProcessing(TransactionStepEvent event) { }
+
+    default void onOnlineCompleted(TransactionStepEvent event) { }
+
+    /** Default in {@link AbstractEmvBehavior}: print receipt. */
+    default void onApproved(TransactionStepEvent event) { }
+
+    default void onDeclined(TransactionStepEvent event) { }
+
+    default void onPrintReceipt(TransactionStepEvent event) { }
+
+    default void onCompleted(TransactionStepEvent event) { }
+
+    default void onError(TransactionStepEvent event) { }
+
+    default void onUnknownStep(TransactionStepEvent event) { }
+
+    default void onEmvStep(EmvStepEvent event) { }
 }
