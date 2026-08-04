@@ -1,10 +1,13 @@
 package com.emvenhance.vendor;
 
+import com.emvenhance.core.AbstractEmvBehavior;
 import com.emvenhance.core.AuthResult;
 import com.emvenhance.core.CardPresence;
-import com.emvenhance.core.EmvBehavior;
+import com.emvenhance.core.CardReader;
+import com.emvenhance.core.CommunicationBehavior;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
+import com.emvenhance.core.PrinterBehavior;
 import com.emvenhance.core.TransactionConfig;
 import com.emvenhance.core.TransactionStep;
 import com.emvenhance.core.TransactionStepEvent;
@@ -13,26 +16,45 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Simulated EMV behavior — notifies the engine of each EMV stage without a vendor SDK.
+ * Fake vendor EMV behavior — full lifecycle without a real SDK.
  */
-public class FakeEmvBehavior implements EmvBehavior {
+public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     private final AtomicReference<AuthResult> pendingAuth = new AtomicReference<>();
     private volatile CountDownLatch authLatch;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
-    @Override
-    public boolean prepare(TransactionConfig config) {
-        cancelled.set(false);
-        return true;
+    public FakeEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer) {
+        super(communication, printer);
     }
 
     @Override
-    public void startEmv(EmvEngine engine, CardPresence card) {
-        if (cancelled.get()) {
-            engine.notifyError("Transaction cancelled");
+    public void start(EmvEngine engine, TransactionConfig config, CardReader cardReader) {
+        this.engine = engine;
+        this.activeConfig = config;
+        cancelled.set(false);
+
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+        engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
+
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
+                config.isContact() ? "Insert card"
+                        : config.isMagstripe() ? "Swipe card" : "Tap card"));
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD);
+
+        CardPresence card = cardReader.searchCard(config);
+        if (cardReader.isSearchCancelled() || cancelled.get()) {
             return;
         }
+        if (card == null) {
+            engine.notifyError("Card search timeout");
+            return;
+        }
+
+        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+                .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
+                .build());
+
         if (card.isContactless()) {
             executeContactless(engine);
         } else if (card.isMagstripe()) {
@@ -43,20 +65,20 @@ public class FakeEmvBehavior implements EmvBehavior {
     }
 
     @Override
-    public void completeOnline(AuthResult authResult) {
-        pendingAuth.set(authResult);
-        CountDownLatch latch = authLatch;
-        if (latch != null) {
-            latch.countDown();
-        }
-    }
-
-    @Override
     public void cancel() {
         cancelled.set(true);
         CountDownLatch latch = authLatch;
         if (latch != null) {
             pendingAuth.compareAndSet(null, AuthResult.declined("17", "Cancelled"));
+            latch.countDown();
+        }
+    }
+
+    @Override
+    protected void deliverOnlineResult(AuthResult authResult) {
+        pendingAuth.set(authResult);
+        CountDownLatch latch = authLatch;
+        if (latch != null) {
             latch.countDown();
         }
     }

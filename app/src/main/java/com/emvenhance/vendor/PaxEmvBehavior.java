@@ -2,12 +2,15 @@ package com.emvenhance.vendor;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import com.emvenhance.core.AbstractEmvBehavior;
 import com.emvenhance.core.AuthResult;
 import com.emvenhance.core.CardPresence;
-import com.emvenhance.core.EmvBehavior;
+import com.emvenhance.core.CardReader;
+import com.emvenhance.core.CommunicationBehavior;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
 import com.emvenhance.core.EmvStepReporter;
+import com.emvenhance.core.PrinterBehavior;
 import com.emvenhance.core.TransactionConfig;
 import com.emvenhance.core.TransactionStep;
 import com.emvenhance.core.TransactionStepEvent;
@@ -43,11 +46,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * PAX SDK adapter — receives every PAX callback and notifies {@link EmvEngine} immediately.
+ * PAX vendor EMV behavior — owns the full EMV lifecycle for PAX.
  *
- * <p>No card search and no business orchestration. Created by {@link PaxTerminal}.
+ * <p>Receives PAX SDK callbacks and notifies {@link EmvEngine}, which dispatches back into
+ * {@code onXxx} hooks (online authorize, print, …). Card search is requested from
+ * {@link CardReader} (the {@link PaxTerminal}).
  */
-public class PaxEmvBehavior implements EmvBehavior {
+public class PaxEmvBehavior extends AbstractEmvBehavior {
 
     private static final String TAG = "PaxEmvBehavior";
 
@@ -58,10 +63,77 @@ public class PaxEmvBehavior implements EmvBehavior {
     @Nullable
     private volatile IEmvContactService contactService;
 
+    public PaxEmvBehavior(CommunicationBehavior communication, PrinterBehavior printer) {
+        super(communication, printer);
+    }
+
+    // ─── Full lifecycle ──────────────────────────────────────────────────
+
     @Override
-    public boolean prepare(@NonNull TransactionConfig config) {
+    public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
+            @NonNull CardReader cardReader) {
+        this.engine = engine;
+        this.activeConfig = config;
         cancelled.set(false);
-        // Magstripe-only has no EMV pre-process.
+
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+        engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
+
+        if (!prepareKernel(config)) {
+            engine.notifyError("Terminal initialization failed");
+            return;
+        }
+
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
+                waitingMessage(config)));
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD, waitingMessage(config));
+
+        CardPresence card = cardReader.searchCard(config);
+        if (cardReader.isSearchCancelled() || cancelled.get()) {
+            return;
+        }
+        if (card == null) {
+            engine.notifyError("Card search timeout");
+            return;
+        }
+
+        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+                .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
+                .build());
+
+        runKernel(engine, card);
+    }
+
+    @Override
+    public void cancel() {
+        cancelled.set(true);
+        CountDownLatch latch = authLatch;
+        if (latch != null) {
+            pendingAuth.compareAndSet(null, AuthResult.declined("17", "Cancelled"));
+            latch.countDown();
+        }
+        IEmvContactService contact = contactService;
+        if (contact != null) {
+            try {
+                contact.setUserCancel(true);
+            } catch (Exception e) {
+                LogUtils.e(TAG, "setUserCancel failed", e);
+            }
+        }
+    }
+
+    @Override
+    protected void deliverOnlineResult(AuthResult authResult) {
+        pendingAuth.set(authResult);
+        CountDownLatch latch = authLatch;
+        if (latch != null) {
+            latch.countDown();
+        }
+    }
+
+    // ─── Kernel prepare / run ────────────────────────────────────────────
+
+    private boolean prepareKernel(@NonNull TransactionConfig config) {
         if (config.isMagstripe() && !config.isContact() && !config.isContactless()) {
             return true;
         }
@@ -93,48 +165,27 @@ public class PaxEmvBehavior implements EmvBehavior {
         }
     }
 
-    @Override
-    public void startEmv(@NonNull EmvEngine engine, @NonNull CardPresence card) {
-        cancelled.set(false);
+    private void runKernel(@NonNull EmvEngine engine, @NonNull CardPresence card) {
         if (card.isMagstripe()) {
             runMagstripe(engine, card);
-            return;
-        }
-        if (card.isContact()) {
+        } else if (card.isContact()) {
             runContact(engine);
-            return;
-        }
-        runContactless(engine);
-    }
-
-    @Override
-    public void completeOnline(@NonNull AuthResult authResult) {
-        pendingAuth.set(authResult);
-        CountDownLatch latch = authLatch;
-        if (latch != null) {
-            latch.countDown();
+        } else {
+            runContactless(engine);
         }
     }
 
-    @Override
-    public void cancel() {
-        cancelled.set(true);
-        CountDownLatch latch = authLatch;
-        if (latch != null) {
-            pendingAuth.compareAndSet(null, AuthResult.declined("17", "Cancelled"));
-            latch.countDown();
+    private static String waitingMessage(TransactionConfig config) {
+        if (config.isContact()) {
+            return "Insert card";
         }
-        IEmvContactService contact = contactService;
-        if (contact != null) {
-            try {
-                contact.setUserCancel(true);
-            } catch (Exception e) {
-                LogUtils.e(TAG, "setUserCancel failed", e);
-            }
+        if (config.isMagstripe()) {
+            return "Swipe card";
         }
+        return "Tap card";
     }
 
-    // ─── Magstripe (no EMV kernel) ───────────────────────────────────────
+    // ─── Magstripe ───────────────────────────────────────────────────────
 
     private void runMagstripe(@NonNull EmvEngine engine, @NonNull CardPresence card) {
         String track2 = card.getTrack2() != null ? card.getTrack2() : "";
@@ -142,11 +193,9 @@ public class PaxEmvBehavior implements EmvBehavior {
         engine.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "magstripe");
         engine.notifyCardDetected(pan, "MAG", "", card.getModeLabel());
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        // Host authorize → completeOnline unblocks nothing for mag; terminal will call
-        // completeOnline then we finish in a latch wait below for a consistent online path.
         pendingAuth.set(null);
         authLatch = new CountDownLatch(1);
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         AuthResult auth;
         try {
             authLatch.await();
@@ -252,7 +301,7 @@ public class PaxEmvBehavior implements EmvBehavior {
         }
     }
 
-    // ─── Shared ──────────────────────────────────────────────────────────
+    // ─── Shared helpers ──────────────────────────────────────────────────
 
     private EmvStepProgress newProgress(EmvEngine engine) {
         EmvStepReporter reporter = engine::notifyEmvStep;
@@ -265,6 +314,7 @@ public class PaxEmvBehavior implements EmvBehavior {
         progress.advanceTo(EmvStep.START_ONLINE_PROCESS, null);
         pendingAuth.set(null);
         authLatch = new CountDownLatch(1);
+        // Dispatches to onOnlineRequired → authorize → deliverOnlineResult (unblocks latch)
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
 
         AuthResult auth;
@@ -350,7 +400,7 @@ public class PaxEmvBehavior implements EmvBehavior {
         return sep > 0 ? track2.substring(0, sep) : track2;
     }
 
-    // ─── PAX contactless callbacks → engine ──────────────────────────────
+    // ─── PAX contactless callbacks ───────────────────────────────────────
 
     private final class ContactlessCallbackAdapter implements IContactlessCallback {
         private final EmvEngine engine;
@@ -505,7 +555,7 @@ public class PaxEmvBehavior implements EmvBehavior {
         }
     }
 
-    // ─── PAX contact callbacks → engine ──────────────────────────────────
+    // ─── PAX contact callbacks ───────────────────────────────────────────
 
     private final class ContactCallbackAdapter implements IContactCallback {
         private final EmvEngine engine;

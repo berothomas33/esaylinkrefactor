@@ -2,6 +2,7 @@ package com.emvenhance.vendor;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.CardPresence;
+import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.PosTerminal;
 import com.emvenhance.core.TransactionConfig;
 import com.emvenhance.emvflow.EmvFlowRuntime;
@@ -21,13 +22,11 @@ import com.sankuai.waimai.router.Router;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * PAX POS terminal — owns card search, creates {@link PaxEmvBehavior} / {@link PaxEmvEngine}.
+ * PAX POS terminal — hardware only (readers, card search, cancel).
  *
  * <pre>
- *   PaxTerminal
- *     ├── searchCard (MAG / ICC / PICC)
- *     ├── PaxEmvBehavior  (PAX SDK adapter)
- *     └── PaxEmvEngine    (EMV lifecycle hooks)
+ *   PaxTerminal (this)
+ *     └── PaxEmvBehavior  ← full EMV lifecycle + PAX SDK
  * </pre>
  */
 public class PaxTerminal extends PosTerminal {
@@ -39,8 +38,8 @@ public class PaxTerminal extends PosTerminal {
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
     public PaxTerminal() {
-        super(new PaxEmvEngine(), new PaxEmvBehavior(),
-                new PaxCommunicationBehavior(), new PaxPrinterBehavior());
+        super(new EmvEngine(),
+                new PaxEmvBehavior(new PaxCommunicationBehavior(), new PaxPrinterBehavior()));
     }
 
     @Override
@@ -50,7 +49,7 @@ public class PaxTerminal extends PosTerminal {
 
     @Nullable
     @Override
-    protected CardPresence searchCard(TransactionConfig config) {
+    public CardPresence searchCard(TransactionConfig config) {
         stopSearch.set(false);
         IDAL dal = EmvFlowRuntime.getDal();
         if (dal == null) {
@@ -99,8 +98,6 @@ public class PaxTerminal extends PosTerminal {
             LogUtils.e(TAG, "searchCard failed", e);
             return null;
         } finally {
-            // Leave the selected interface open for EMV; close unused ones after detection
-            // is handled inside poll success paths. On timeout/cancel, close all.
             if (stopSearch.get() || isSearchCancelled()) {
                 closeQuietly(mag, icc, picc);
             }

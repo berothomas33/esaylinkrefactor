@@ -8,11 +8,11 @@ import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 
 /**
- * Picks the vendor terminal. Each terminal creates its own EMV behavior and engine.
+ * Picks the vendor terminal. Each terminal creates its own EMV behavior.
  *
  * <pre>
- *   PAX  → PaxTerminal  → PaxEmvBehavior  → PaxEmvEngine
- *   FAKE → FakeTerminal → FakeEmvBehavior → FakeEmvEngine
+ *   PAX  → PaxTerminal  → PaxEmvBehavior
+ *   FAKE → FakeTerminal → FakeEmvBehavior
  * </pre>
  */
 public class EmvEnhanceApp extends BaseApplication {
