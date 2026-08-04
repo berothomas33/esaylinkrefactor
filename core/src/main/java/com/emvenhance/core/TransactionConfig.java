@@ -1,17 +1,17 @@
 package com.emvenhance.core;
 
 /**
- * Immutable value object holding everything the EMV engine needs to start a transaction.
- *
- * <p>New fields (currency code, cashback amount, terminal ID) can be added here without
- * touching the engine's method signature — every vendor implementation reads the same object.
+ * Immutable value object holding everything needed to start a transaction.
  */
 public final class TransactionConfig {
 
     public enum Mode {
         CONTACT,
         CONTACTLESS,
-        MAGSTRIPE
+        MAGSTRIPE,
+        MANUAL,
+        /** Chip + contactless + mag — terminal selects the first presented. */
+        ANY
     }
 
     private final String procCode;
@@ -28,7 +28,6 @@ public final class TransactionConfig {
         return procCode;
     }
 
-    /** Amount in the smallest currency unit (e.g. cents). */
     public long getAmountMinor() {
         return amountMinor;
     }
@@ -47,5 +46,25 @@ public final class TransactionConfig {
 
     public boolean isMagstripe() {
         return mode == Mode.MAGSTRIPE;
+    }
+
+    public boolean isManual() {
+        return mode == Mode.MANUAL;
+    }
+
+    public boolean allowsChip() {
+        return mode == Mode.CONTACT || mode == Mode.ANY;
+    }
+
+    public boolean allowsContactless() {
+        return mode == Mode.CONTACTLESS || mode == Mode.ANY;
+    }
+
+    public boolean allowsMagstripe() {
+        return mode == Mode.MAGSTRIPE || mode == Mode.ANY;
+    }
+
+    public boolean allowsManual() {
+        return mode == Mode.MANUAL || mode == Mode.ANY;
     }
 }

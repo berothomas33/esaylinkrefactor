@@ -3,7 +3,6 @@ package com.emvenhance.vendor;
 import com.emvenhance.core.AbstractEmvBehavior;
 import com.emvenhance.core.AuthResult;
 import com.emvenhance.core.CardPresence;
-import com.emvenhance.core.CardReader;
 import com.emvenhance.core.CommunicationBehavior;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
@@ -16,7 +15,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Fake vendor EMV behavior — full lifecycle without a real SDK.
+ * Fake vendor EMV behavior — full lifecycle after {@link FakeTerminal#searchCard} selects
+ * an entry method. No real SDK.
  */
 public class FakeEmvBehavior extends AbstractEmvBehavior {
 
@@ -29,33 +29,28 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public void start(EmvEngine engine, TransactionConfig config, CardReader cardReader) {
+    public boolean prepare(EmvEngine engine, TransactionConfig config) {
+        this.engine = engine;
+        this.activeConfig = config;
+        cancelled.set(false);
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+        engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
+        return true;
+    }
+
+    @Override
+    public void start(EmvEngine engine, TransactionConfig config, CardPresence card) {
         this.engine = engine;
         this.activeConfig = config;
         cancelled.set(false);
 
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
-        engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
-
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
-                config.isContact() ? "Insert card"
-                        : config.isMagstripe() ? "Swipe card" : "Tap card"));
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD);
-
-        CardPresence card = cardReader.searchCard(config);
-        if (cardReader.isSearchCancelled() || cancelled.get()) {
-            return;
-        }
-        if (card == null) {
-            engine.notifyError("Card search timeout");
+        if (cancelled.get()) {
             return;
         }
 
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
-                .build());
-
-        if (card.isContactless()) {
+        if (card.isManual()) {
+            executeManual(engine, card);
+        } else if (card.isContactless()) {
             executeContactless(engine);
         } else if (card.isMagstripe()) {
             executeMagstripe(engine, card);
@@ -126,6 +121,14 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         engine.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "magstripe");
         String pan = card.getTrack2() != null ? card.getTrack2().split("[=D]")[0] : "4111111111111111";
         engine.notifyCardDetected(pan, "MAG Bank", "", "Magstripe");
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        awaitOnlineAndFinish(engine, false);
+    }
+
+    private void executeManual(EmvEngine engine, CardPresence card) {
+        engine.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "manual");
+        String pan = card.getManualPan() != null ? card.getManualPan() : "";
+        engine.notifyCardDetected(pan, "MANUAL", "", "Manual");
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         awaitOnlineAndFinish(engine, false);
     }

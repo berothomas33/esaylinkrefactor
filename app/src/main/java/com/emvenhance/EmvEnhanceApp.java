@@ -3,16 +3,18 @@ package com.emvenhance;
 import com.emvenhance.core.PosTerminal;
 import com.emvenhance.emvflow.EmvFlowRuntime;
 import com.emvenhance.vendor.FakeTerminal;
+import com.emvenhance.vendor.IngenicoTerminal;
 import com.emvenhance.vendor.PaxTerminal;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 
 /**
- * Picks the vendor terminal. Each terminal creates its own EMV behavior.
+ * Picks the vendor terminal. Each terminal owns card search and creates its EmvBehavior.
  *
  * <pre>
- *   PAX  → PaxTerminal  → PaxEmvBehavior
- *   FAKE → FakeTerminal → FakeEmvBehavior
+ *   PAX      → PaxTerminal      → PaxEmvBehavior
+ *   INGENICO → IngenicoTerminal → IngenicoEmvBehavior  (stub until SDK attached)
+ *   FAKE     → FakeTerminal     → FakeEmvBehavior
  * </pre>
  */
 public class EmvEnhanceApp extends BaseApplication {
@@ -26,10 +28,16 @@ public class EmvEnhanceApp extends BaseApplication {
         super.onCreate();
         EmvFlowRuntime.init(this);
 
-        boolean pax = "PAX".equalsIgnoreCase(BuildConfig.VENDOR);
-        LogUtils.i(TAG, "vendor=" + BuildConfig.VENDOR);
+        String vendor = BuildConfig.VENDOR;
+        LogUtils.i(TAG, "vendor=" + vendor);
 
-        terminal = pax ? new PaxTerminal() : new FakeTerminal();
+        if ("PAX".equalsIgnoreCase(vendor)) {
+            terminal = new PaxTerminal();
+        } else if ("INGENICO".equalsIgnoreCase(vendor)) {
+            terminal = new IngenicoTerminal();
+        } else {
+            terminal = new FakeTerminal();
+        }
     }
 
     public PosTerminal getTerminal() {

@@ -3,20 +3,14 @@ package com.emvenhance.core;
 import androidx.annotation.Nullable;
 
 /**
- * Result of a terminal-owned card search.
+ * Result of a terminal-owned card search — the selected entry method plus any track/UID data.
  *
- * <p>Produced by {@link PosTerminal#searchCard} before EMV starts. The engine never performs
- * vendor-specific detection — it only consumes this value.
+ * <p>Produced by {@link PosTerminal#searchCard}. The engine never performs vendor-specific
+ * detection; {@link EmvBehavior#start} consumes this value to start the matching flow.
  */
 public final class CardPresence {
 
-    public enum Interface {
-        CONTACT,
-        CONTACTLESS,
-        MAGSTRIPE
-    }
-
-    private final Interface cardInterface;
+    private final EntryMethod entryMethod;
     @Nullable
     private final String track1;
     @Nullable
@@ -25,43 +19,67 @@ public final class CardPresence {
     private final String track3;
     @Nullable
     private final byte[] serialInfo;
+    @Nullable
+    private final String manualPan;
 
-    private CardPresence(Interface cardInterface, @Nullable String track1,
-            @Nullable String track2, @Nullable String track3, @Nullable byte[] serialInfo) {
-        this.cardInterface = cardInterface;
+    private CardPresence(EntryMethod entryMethod, @Nullable String track1,
+            @Nullable String track2, @Nullable String track3, @Nullable byte[] serialInfo,
+            @Nullable String manualPan) {
+        this.entryMethod = entryMethod;
         this.track1 = track1;
         this.track2 = track2;
         this.track3 = track3;
         this.serialInfo = serialInfo;
+        this.manualPan = manualPan;
     }
 
-    public static CardPresence contact() {
-        return new CardPresence(Interface.CONTACT, null, null, null, null);
+    public static CardPresence chip() {
+        return new CardPresence(EntryMethod.CHIP, null, null, null, null, null);
     }
 
     public static CardPresence contactless(@Nullable byte[] serialInfo) {
-        return new CardPresence(Interface.CONTACTLESS, null, null, null, serialInfo);
+        return new CardPresence(EntryMethod.CONTACTLESS, null, null, null, serialInfo, null);
     }
 
     public static CardPresence magstripe(@Nullable String track1, @Nullable String track2,
             @Nullable String track3) {
-        return new CardPresence(Interface.MAGSTRIPE, track1, track2, track3, null);
+        return new CardPresence(EntryMethod.MAGSTRIPE, track1, track2, track3, null, null);
     }
 
-    public Interface getInterface() {
-        return cardInterface;
+    public static CardPresence manual(@Nullable String pan) {
+        return new CardPresence(EntryMethod.MANUAL, null, null, null, null, pan);
     }
 
+    /** @deprecated use {@link #chip()} */
+    @Deprecated
+    public static CardPresence contact() {
+        return chip();
+    }
+
+    public EntryMethod getEntryMethod() {
+        return entryMethod;
+    }
+
+    public boolean isChip() {
+        return entryMethod == EntryMethod.CHIP;
+    }
+
+    /** @deprecated use {@link #isChip()} */
+    @Deprecated
     public boolean isContact() {
-        return cardInterface == Interface.CONTACT;
+        return isChip();
     }
 
     public boolean isContactless() {
-        return cardInterface == Interface.CONTACTLESS;
+        return entryMethod == EntryMethod.CONTACTLESS;
     }
 
     public boolean isMagstripe() {
-        return cardInterface == Interface.MAGSTRIPE;
+        return entryMethod == EntryMethod.MAGSTRIPE;
+    }
+
+    public boolean isManual() {
+        return entryMethod == EntryMethod.MANUAL;
     }
 
     @Nullable
@@ -84,16 +102,23 @@ public final class CardPresence {
         return serialInfo;
     }
 
+    @Nullable
+    public String getManualPan() {
+        return manualPan;
+    }
+
     public String getModeLabel() {
-        switch (cardInterface) {
-            case CONTACT:
-                return "Contact";
+        switch (entryMethod) {
+            case CHIP:
+                return "Chip";
             case CONTACTLESS:
                 return "Contactless";
             case MAGSTRIPE:
                 return "Magstripe";
+            case MANUAL:
+                return "Manual";
             default:
-                return cardInterface.name();
+                return entryMethod.name();
         }
     }
 }

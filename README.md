@@ -3,15 +3,19 @@
 ## Architecture
 
 ```text
-UI (Coroutines / RxJava)
-  → PosEmvFacade          (:core)
-      → EmvStepEngine     (7 EMV steps + print / 2nd tap / remove card)
-      → DevicePorts
-           ├─ FakeDeviceFactory
-           ├─ PaxDeviceFactory      (:emvflow + PAX libs)
-           ├─ IngenicoDeviceFactory (stub)
-           └─ SunmiDeviceFactory    (stub)
+UI
+  → PosTerminal.searchCard(config, CardSearchListener)   // vendor-owned readers
+       → EmvBehavior.start(engine, config, CardPresence) // vendor-owned EMV
+            → EmvEngine (subjects + notify* → behavior.dispatch*)
+
+  Vendors:
+    PaxTerminal      → PaxEmvBehavior      (Neptune DAL + PAX kernels)
+    IngenicoTerminal → IngenicoEmvBehavior (stub until Tetra/Axium SDK attached)
+    FakeTerminal     → FakeEmvBehavior     (UI / phone demo)
 ```
+
+Card detection is a `PosTerminal` responsibility. Adding a vendor only requires a
+vendor `PosTerminal` + matching `EmvBehavior` — no core engine / orchestration changes.
 
 ## Select vendor
 
@@ -20,9 +24,8 @@ In `app/build.gradle` / BuildConfig:
 | `VENDOR` | Adapter |
 |----------|---------|
 | `FAKE` | phone / UI demo (default debug) |
-| `PAX` | real Router EMV via `:emvflow` (default release) |
-| `INGENICO` | stub — wire Tetra/Axium later |
-| `SUNMI` | stub — wire Sunmi Pay later |
+| `PAX` | Neptune DAL search + PAX EMV kernels (default release) |
+| `INGENICO` | stub — Tetra/Axium SDK not in this repo |
 
 Gradle example: `./gradlew :app:assembleDebug -PVENDOR=PAX`
 

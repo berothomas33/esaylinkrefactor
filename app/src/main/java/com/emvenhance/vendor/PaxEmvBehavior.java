@@ -5,7 +5,6 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.AbstractEmvBehavior;
 import com.emvenhance.core.AuthResult;
 import com.emvenhance.core.CardPresence;
-import com.emvenhance.core.CardReader;
 import com.emvenhance.core.CommunicationBehavior;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
@@ -78,11 +77,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         this.kernel = kernel;
     }
 
-    // ─── Full lifecycle ──────────────────────────────────────────────────
+    // ─── Lifecycle (search is owned by PaxTerminal) ──────────────────────
 
     @Override
-    public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
-            @NonNull CardReader cardReader) {
+    public boolean prepare(@NonNull EmvEngine engine, @NonNull TransactionConfig config) {
         this.engine = engine;
         this.activeConfig = config;
         cancelled.set(false);
@@ -90,32 +88,22 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
+        return prepareKernel(config);
+    }
 
-        if (!prepareKernel(config)) {
-            engine.notifyError("Terminal initialization failed");
-            return;
-        }
+    @Override
+    public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
+            @NonNull CardPresence card) {
+        this.engine = engine;
+        this.activeConfig = config;
+        cancelled.set(false);
+        progress = null;
 
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
-                waitingMessage(config)));
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, waitingMessage(config));
-
-        CardPresence card = cardReader.searchCard(config);
-        if (cardReader.isSearchCancelled() || cancelled.get()) {
-            return;
-        }
-        if (card == null) {
-            engine.notifyError("Card search timeout");
-            return;
-        }
-
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
-                .build());
-
-        if (card.isMagstripe()) {
+        if (card.isManual()) {
+            runManual(card);
+        } else if (card.isMagstripe()) {
             runMagstripe(card);
-        } else if (card.isContact()) {
+        } else if (card.isChip()) {
             runContact();
         } else {
             runContactless();
@@ -149,14 +137,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Prepare / run ───────────────────────────────────────────────────
 
     private boolean prepareKernel(@NonNull TransactionConfig config) {
-        if (config.isMagstripe() && !config.isContact() && !config.isContactless()) {
+        // Mag / manual need no EMV preprocess.
+        if (!config.allowsChip() && !config.allowsContactless()) {
             return true;
         }
         byte requested = 0;
-        if (config.isContact()) {
+        if (config.allowsChip()) {
             requested |= SearchMode.INSERT;
         }
-        if (config.isContactless()) {
+        if (config.allowsContactless()) {
             requested |= SearchMode.INTERNAL_WAVE;
         }
         if (requested == 0) {
@@ -181,6 +170,29 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.e(TAG, "preTransProcess failed", e);
             return false;
         }
+    }
+
+    private void runManual(@NonNull CardPresence card) {
+        EmvEngine eng = requireEngine();
+        String pan = card.getManualPan() != null ? card.getManualPan() : "";
+        if (pan.isEmpty()) {
+            eng.notifyError("Manual entry requires a PAN");
+            return;
+        }
+        eng.notifyEmvStep(EmvStep.READ_APPLICATION_DATA, "manual");
+        eng.notifyCardDetected(pan, "MANUAL", "", card.getModeLabel());
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        pendingAuth.set(null);
+        authLatch = new CountDownLatch(1);
+        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        AuthResult auth = awaitAuth();
+        eng.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
+        if (auth != null && auth.isApproved()) {
+            eng.notifyApproved("MANUAL ONLINE APPROVED");
+        } else {
+            eng.notifyDeclined(auth != null ? auth.getMessage() : "MANUAL declined");
+        }
+        eng.notifyCompleted();
     }
 
     private void runMagstripe(@NonNull CardPresence card) {
@@ -530,16 +542,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         } catch (Exception e) {
             LogUtils.e(TAG, "close readers failed", e);
         }
-    }
-
-    private static String waitingMessage(TransactionConfig config) {
-        if (config.isContact()) {
-            return "Insert card";
-        }
-        if (config.isMagstripe()) {
-            return "Swipe card";
-        }
-        return "Tap card";
     }
 
     private static String timestamp() {
