@@ -76,3 +76,9 @@ Gradle: `./gradlew :app:assembleDebug -PVENDOR=PAX`
 ## Card search events
 
 `CardSearchListener`: started · chip · contactless · mag · manual · removed · timeout · cancelled · error.
+
+## Documentation
+
+Architecture reviews and design notes (PDF + Markdown):
+
+→ [`docs/architecture/`](docs/architecture/)
