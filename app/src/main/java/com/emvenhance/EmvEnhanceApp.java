@@ -2,23 +2,18 @@ package com.emvenhance;
 
 import com.emvenhance.core.PosTerminal;
 import com.emvenhance.emvflow.EmvFlowRuntime;
-import com.emvenhance.vendor.FakeCommunicationBehavior;
-import com.emvenhance.vendor.FakeEmvEngine;
-import com.emvenhance.vendor.FakePrinterBehavior;
-import com.emvenhance.vendor.PaxCommunicationBehavior;
-import com.emvenhance.vendor.PaxEmvEngine;
-import com.emvenhance.vendor.PaxPrinterBehavior;
+import com.emvenhance.vendor.FakeTerminal;
+import com.emvenhance.vendor.PaxTerminal;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 
 /**
- * Picks the vendor and builds the single {@link PosTerminal} the UI talks to.
+ * Picks the vendor terminal. Each terminal creates its own EMV behavior and engine.
  *
- * <p>This is the only place that knows which vendor is active. Adding a vendor means
- * writing its engine + communication + printer classes and extending the branch below.
- *
- * <p>For PAX, {@link PaxEmvEngine} owns the transaction lifecycle and delegates all PAX SDK
- * I/O to {@link com.emvenhance.vendor.PaxEmvBehavior} — the sole bridge to the PAX layer.
+ * <pre>
+ *   PAX  → PaxTerminal  → PaxEmvBehavior  → PaxEmvEngine
+ *   FAKE → FakeTerminal → FakeEmvBehavior → FakeEmvEngine
+ * </pre>
  */
 public class EmvEnhanceApp extends BaseApplication {
 
@@ -34,11 +29,7 @@ public class EmvEnhanceApp extends BaseApplication {
         boolean pax = "PAX".equalsIgnoreCase(BuildConfig.VENDOR);
         LogUtils.i(TAG, "vendor=" + BuildConfig.VENDOR);
 
-        terminal = pax
-                ? new PosTerminal(new PaxEmvEngine(), new PaxCommunicationBehavior(),
-                        new PaxPrinterBehavior())
-                : new PosTerminal(new FakeEmvEngine(), new FakeCommunicationBehavior(),
-                        new FakePrinterBehavior());
+        terminal = pax ? new PaxTerminal() : new FakeTerminal();
     }
 
     public PosTerminal getTerminal() {

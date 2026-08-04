@@ -1,163 +1,102 @@
 package com.emvenhance.core;
 
+import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Abstract EMV engine — owner of the transaction lifecycle and both reactive subjects.
- *
- * <h3>Design contract</h3>
- *
- * <p>The engine owns orchestration state ({@code prepare} / {@code execute} / {@code complete})
- * and the two subjects consumers observe. Vendor SDK adapters (e.g. PAX
- * {@code PaxEmvBehavior}) translate vendor callbacks into {@link #emitEmvStep} /
- * {@link #emitTransactionStep} calls. {@link PosTerminal} routes every EMV step through
- * {@code dispatchEmvStep(...)}.
- *
- * <ul>
- *   <li>{@link #emitEmvStep} → <strong>EMV Steps Subject</strong> ({@code PublishSubject}).
- *       Fine-grained kernel phases. One-shot — not replayed to late subscribers.
- *
- *   <li>{@link #emitTransactionStep} → <strong>Transaction Steps Subject</strong>
- *       ({@code BehaviorSubject}). Coarse lifecycle milestones. Sticky for rotation.
- * </ul>
+ * Abstract EMV engine — owns the EMV business flow, reactive subjects, and overridable
+ * lifecycle hooks.
  *
  * <h3>Layering</h3>
  *
  * <pre>
- *   EMV Engine (this class)     — business lifecycle + subjects
- *   Vendor adapter (e.g. PAX)   — SDK callbacks → emitEmvStep / emitTransactionStep
- *   Vendor SDK                  — kernel / contactless / contact services
+ *   PosTerminal (hardware: card search, cancel, vendor lifecycle)
+ *     → EmvEngine (business flow + dispatchEmvStep / hooks)
+ *       ← EmvBehavior (vendor SDK callbacks → notify*)
  * </pre>
  *
- * <h3>Threading</h3>
- *
- * <p>The lifecycle methods ({@code prepare}, {@code execute}, {@code complete}) are
- * blocking and are expected to be called on a background thread (typically
- * {@code Schedulers.io()}). The subjects emit on whatever thread calls the
- * {@code emit} methods; subscribers choose their own observation thread.
- *
- * <h3>Vendor implementation checklist</h3>
- *
- * <ol>
- *   <li>Override the three abstract methods.
- *   <li>In {@code prepare()}: initialize the kernel and emit
- *       {@link TransactionStep#TRANSACTION_STARTED} then
- *       {@link TransactionStep#WAITING_FOR_CARD}.
- *   <li>In {@code execute()}: run the kernel via the vendor adapter, emitting
- *       {@link #emitEmvStep} at each kernel callback and
- *       {@link #emitTransactionStep} at lifecycle boundaries.
- *   <li>In {@code complete()}: feed the {@link AuthResult} back to the adapter/kernel.
- *   <li>Always emit {@link TransactionStep#COMPLETED} or
- *       {@link TransactionStep#ERROR} as the final event so the orchestrator knows
- *       the engine is idle again.
- * </ol>
+ * <p>Behaviors call the public {@code notify*} API. Each EMV step is published on
+ * {@link #emvSteps()} and routed through {@link #dispatchEmvStep} to an overridable hook
+ * ({@link #onSearchCard}, {@link #onApplicationSelection}, …). Vendors subclass the engine
+ * and override only the hooks they need.
  */
 public abstract class EmvEngine {
 
-    // ─── The two subjects ────────────────────────────────────────────────
-
-    /**
-     * Transaction steps — BehaviorSubject (sticky).
-     *
-     * <p>A late subscriber immediately receives the latest snapshot, which is exactly
-     * what a freshly created Activity needs after rotation.
-     */
     private final BehaviorSubject<TransactionStepEvent> transactionSteps =
             BehaviorSubject.createDefault(TransactionStepEvent.idle());
 
-    /**
-     * EMV steps — PublishSubject (fire-and-forget).
-     *
-     * <p>These are diagnostic / progress events. If nobody is listening when one fires,
-     * it is simply lost — that is the correct behaviour for a progress indicator.
-     */
     private final PublishSubject<EmvStepEvent> emvSteps = PublishSubject.create();
 
-    /** Prevents a second transaction from starting while one is running. */
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    // ─── Public observables (hidden subjects) ────────────────────────────
+    @Nullable
+    private EmvBehavior behavior;
 
-    /**
-     * High-level transaction lifecycle.
-     *
-     * <p>Subscribers see: IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED
-     * → … → APPROVED/DECLINED → COMPLETED (or ERROR at any point).
-     */
+    @Nullable
+    private CardPresence activeCard;
+
+    // ─── Wiring ──────────────────────────────────────────────────────────
+
+    /** Attaches the vendor behavior created by the terminal. */
+    public final void attachBehavior(EmvBehavior behavior) {
+        this.behavior = behavior;
+    }
+
+    @Nullable
+    protected final EmvBehavior getBehavior() {
+        return behavior;
+    }
+
+    @Nullable
+    protected final CardPresence getActiveCard() {
+        return activeCard;
+    }
+
+    // ─── Observables ─────────────────────────────────────────────────────
+
     public final Observable<TransactionStepEvent> transactionSteps() {
         return transactionSteps.hide();
     }
 
-    /**
-     * Fine-grained EMV kernel progress.
-     *
-     * <p>Subscribers see each {@link EmvStep} as the kernel reaches it: terminal init,
-     * application selection, read data, ODA, CVM, risk management, online processing,
-     * issuer auth, script processing, completion.
-     */
     public final Observable<EmvStepEvent> emvSteps() {
         return emvSteps.hide();
     }
 
-    /** Returns the most recent transaction step event without subscribing. */
     public final TransactionStepEvent currentTransactionState() {
         return transactionSteps.getValue();
     }
 
-    // ─── Protected emit methods — vendor implementations call these ──────
-
-    /**
-     * Pushes a new high-level transaction milestone.
-     *
-     * <p>Call this from the abstract lifecycle methods whenever the transaction reaches
-     * a new {@link TransactionStep}.
-     */
-    protected final void emitTransactionStep(TransactionStepEvent event) {
-        transactionSteps.onNext(event);
-    }
-
-    /**
-     * Pushes a fine-grained EMV kernel step.
-     *
-     * <p>Call this every time the vendor kernel announces a new processing phase.
-     */
-    protected final void emitEmvStep(EmvStep step, String detail) {
-        emvSteps.onNext(new EmvStepEvent(step, detail));
-    }
-
-    /** Convenience overload without detail. */
-    protected final void emitEmvStep(EmvStep step) {
-        emitEmvStep(step, null);
-    }
-
-    // ─── Guard: one transaction at a time ────────────────────────────────
-
-    /**
-     * Attempts to acquire the running lock. Returns {@code true} if the engine is now
-     * owned by this caller; {@code false} if another transaction is already in progress.
-     */
-    protected final boolean acquireRunning() {
-        return running.compareAndSet(false, true);
-    }
-
-    /** Releases the running lock so a new transaction can start. */
-    protected final void releaseRunning() {
-        running.set(false);
-    }
-
-    /** Returns true if a transaction is currently in progress. */
     public final boolean isRunning() {
         return running.get();
     }
 
-    // ─── Convenience: emit a TransactionStepEvent with card data ─────────
+    // ─── Public notify API (used by EmvBehavior — no forwarding bridge) ──
 
-    protected final void emitCardDetected(String pan, String issuerName,
+    /**
+     * Publishes an EMV step and immediately dispatches it to the matching lifecycle hook.
+     */
+    public final void notifyEmvStep(EmvStep step, @Nullable String detail) {
+        EmvStepEvent event = new EmvStepEvent(step, detail);
+        emvSteps.onNext(event);
+        dispatchEmvStep(event);
+    }
+
+    public final void notifyEmvStep(EmvStep step) {
+        notifyEmvStep(step, null);
+    }
+
+    /** Publishes a high-level transaction milestone and dispatches outcome hooks. */
+    public final void notifyTransactionStep(TransactionStepEvent event) {
+        transactionSteps.onNext(event);
+        dispatchTransactionOutcome(event);
+    }
+
+    public final void notifyCardDetected(String pan, String issuerName,
             String cardHolderName, String mode) {
-        emitTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
                 .put(TransactionStepEvent.KEY_PAN, pan)
                 .put(TransactionStepEvent.KEY_ISSUER_NAME, issuerName)
                 .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, cardHolderName)
@@ -165,63 +104,319 @@ public abstract class EmvEngine {
                 .build());
     }
 
-    protected final void emitApproved(String result) {
-        emitTransactionStep(TransactionStepEvent.builder(TransactionStep.APPROVED)
+    public final void notifyApproved(String result) {
+        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.APPROVED)
                 .put(TransactionStepEvent.KEY_RESULT, result)
                 .build());
     }
 
-    protected final void emitDeclined(String reason) {
-        emitTransactionStep(TransactionStepEvent.builder(TransactionStep.DECLINED)
+    public final void notifyDeclined(String reason) {
+        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.DECLINED)
                 .put(TransactionStepEvent.KEY_ERROR, reason)
                 .build());
     }
 
-    protected final void emitError(String error) {
-        emitTransactionStep(TransactionStepEvent.builder(TransactionStep.ERROR)
+    public final void notifyError(String error) {
+        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ERROR)
                 .message(error)
                 .put(TransactionStepEvent.KEY_ERROR, error)
                 .build());
+        releaseRunning();
+        onTransactionFailed(error);
     }
 
-    // ─── Abstract lifecycle — vendor implementations fill these in ───────
+    public final void notifyCompleted() {
+        notifyTransactionStep(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        releaseRunning();
+        onTransactionCompleted();
+    }
+
+    // ─── Protected emit helpers (legacy name kept for subclasses) ────────
+
+    protected final void emitTransactionStep(TransactionStepEvent event) {
+        notifyTransactionStep(event);
+    }
+
+    protected final void emitEmvStep(EmvStep step, String detail) {
+        notifyEmvStep(step, detail);
+    }
+
+    protected final void emitEmvStep(EmvStep step) {
+        notifyEmvStep(step);
+    }
+
+    protected final void emitCardDetected(String pan, String issuerName,
+            String cardHolderName, String mode) {
+        notifyCardDetected(pan, issuerName, cardHolderName, mode);
+    }
+
+    protected final void emitApproved(String result) {
+        notifyApproved(result);
+    }
+
+    protected final void emitDeclined(String reason) {
+        notifyDeclined(reason);
+    }
+
+    protected final void emitError(String error) {
+        notifyError(error);
+    }
+
+    // ─── Running lock ────────────────────────────────────────────────────
+
+    protected final boolean acquireRunning() {
+        return running.compareAndSet(false, true);
+    }
+
+    protected final void releaseRunning() {
+        running.set(false);
+    }
+
+    // ─── Lifecycle template (terminal calls these) ───────────────────────
 
     /**
-     * Initializes the terminal and kernel for a new transaction.
-     *
-     * <p>Called on a background thread. Implementations should:
-     * <ol>
-     *   <li>Call {@link #acquireRunning()} and fail if it returns false.
-     *   <li>Initialize the vendor kernel with the given config.
-     *   <li>Emit {@link TransactionStep#TRANSACTION_STARTED} and
-     *       {@link TransactionStep#WAITING_FOR_CARD}.
-     * </ol>
-     *
-     * @return true if the kernel is ready; false on initialization failure.
+     * Initializes the engine / kernel for a new transaction (no card search).
      */
-    public abstract boolean prepare(TransactionConfig config);
+    public final boolean prepare(TransactionConfig config) {
+        if (!acquireRunning()) {
+            notifyError("A transaction is already running");
+            return false;
+        }
+        activeCard = null;
+        notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+        notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
+        boolean ok = onPrepare(config);
+        if (!ok) {
+            notifyError("Terminal initialization failed");
+        }
+        return ok;
+    }
 
     /**
-     * Runs the EMV flow until the kernel asks to go online, approves offline, or fails.
-     *
-     * <p>Called on a background thread. This is where most of the kernel interaction
-     * happens. Implementations should call {@link #emitEmvStep} at every kernel callback
-     * and {@link #emitTransactionStep} at lifecycle boundaries.
-     *
-     * <p>If the kernel decides to go online, the implementation emits
-     * {@link TransactionStep#ONLINE_REQUIRED} and returns — the orchestrator will call
-     * {@link #complete} with the host result. If the kernel approves or declines offline,
-     * the implementation emits the outcome and {@link TransactionStep#COMPLETED} directly.
+     * Runs EMV for a card already found by the terminal.
      */
-    public abstract void execute();
+    public final void execute(CardPresence card) {
+        this.activeCard = card;
+        onCardDetected(card);
+        onExecute(card);
+    }
+
+    /** Feeds host auth into the vendor behavior / kernel. */
+    public final void complete(AuthResult authResult) {
+        onComplete(authResult);
+    }
+
+    /** Cancels the in-flight EMV process. */
+    public final void cancel() {
+        onCancel();
+        if (behavior != null) {
+            behavior.cancel();
+        }
+        if (isRunning()) {
+            notifyError("Transaction cancelled");
+        }
+    }
+
+    // ─── Vendor overrides — business / kernel lifecycle ──────────────────
+
+    /** Kernel / parameter init. Default delegates to {@link EmvBehavior#prepare}. */
+    protected boolean onPrepare(TransactionConfig config) {
+        return behavior != null && behavior.prepare(config);
+    }
+
+    /** Start EMV via the attached behavior. */
+    protected void onExecute(CardPresence card) {
+        if (behavior == null) {
+            notifyError("No EMV behavior attached");
+            return;
+        }
+        try {
+            behavior.startEmv(this, card);
+        } catch (Exception e) {
+            notifyError(e.getMessage() != null ? e.getMessage() : "EMV execution failed");
+        }
+    }
+
+    /** Deliver online result. Default delegates to {@link EmvBehavior#completeOnline}. */
+    protected void onComplete(AuthResult authResult) {
+        if (behavior != null) {
+            behavior.completeOnline(authResult);
+        }
+    }
+
+    /** Vendor-specific cancel hook (before behavior.cancel). */
+    protected void onCancel() {
+        // default: no-op
+    }
+
+    // ─── EMV step dispatch (open for extension) ──────────────────────────
 
     /**
-     * Feeds the host's authorization result back to the kernel and finishes.
-     *
-     * <p>Called on a background thread after the communication behavior has returned.
-     * Implementations should run issuer authentication, script processing, and the
-     * second GENERATE AC, then emit {@link TransactionStep#APPROVED} or
-     * {@link TransactionStep#DECLINED} followed by {@link TransactionStep#COMPLETED}.
+     * Routes a fine-grained EMV kernel step to its dedicated hook.
+     * Prefer overriding individual {@code on*} methods rather than this switch.
      */
-    public abstract void complete(AuthResult authResult);
+    protected void dispatchEmvStep(EmvStepEvent event) {
+        switch (event.getStep()) {
+            case TERMINAL_INITIALIZATION:
+                onTerminalInitialization(event);
+                break;
+            case SEARCH_CARD:
+                onSearchCard(event);
+                break;
+            case APPLICATION_SELECTION:
+                onApplicationSelection(event);
+                break;
+            case WAIT_APPLICATION_SELECTION:
+                onWaitApplicationSelection(event);
+                break;
+            case FINAL_APPLICATION_SELECTION:
+                onFinalApplicationSelection(event);
+                break;
+            case READ_APPLICATION_DATA:
+                onReadApplicationData(event);
+                break;
+            case SET_TRANSACTION_DATA:
+                onSetTransactionData(event);
+                break;
+            case OFFLINE_DATA_AUTHENTICATION:
+                onOfflineDataAuthentication(event);
+                break;
+            case PROCESS_RESTRICTIONS:
+                onProcessRestrictions(event);
+                break;
+            case CARDHOLDER_VERIFICATION:
+                onCardholderVerification(event);
+                break;
+            case OFFLINE_PIN_VERIFICATION:
+                onOfflinePinVerification(event);
+                break;
+            case TERMINAL_RISK_MANAGEMENT:
+                onTerminalRiskManagement(event);
+                break;
+            case TERMINAL_ACTION_ANALYSIS:
+                onTerminalActionAnalysis(event);
+                break;
+            case START_ONLINE_PROCESS:
+                onOnlineProcessing(event);
+                break;
+            case ISSUER_AUTHENTICATION:
+                onIssuerAuthentication(event);
+                break;
+            case SCRIPT_PROCESSING:
+                onScriptProcessing(event);
+                break;
+            case TRANSACTION_COMPLETION:
+                onEmvTransactionCompletion(event);
+                break;
+            default:
+                onUnknownEmvStep(event);
+                break;
+        }
+    }
+
+    private void dispatchTransactionOutcome(TransactionStepEvent event) {
+        switch (event.getStep()) {
+            case CARD_DETECTED:
+                // Hardware detection is reported by the terminal via execute(CardPresence);
+                // this branch covers kernel-reported PAN/card details that reuse CARD_DETECTED.
+                break;
+            case APPROVED:
+            case DECLINED:
+                break;
+            case COMPLETED:
+                // release handled by notifyCompleted; hook also called there
+                break;
+            case ERROR:
+                break;
+            default:
+                break;
+        }
+    }
+
+    // ─── Overridable EMV lifecycle hooks ─────────────────────────────────
+
+    /** Called when the terminal has established card presence (before startEmv). */
+    protected void onCardDetected(CardPresence card) {
+        // default: no-op — override for vendor LED / UI
+    }
+
+    protected void onTerminalInitialization(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onSearchCard(EmvStepEvent event) {
+        // default: no-op — physical search is owned by PosTerminal
+    }
+
+    protected void onApplicationSelection(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onWaitApplicationSelection(EmvStepEvent event) {
+        // default: no-op — override to show AID chooser
+    }
+
+    protected void onFinalApplicationSelection(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onReadApplicationData(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onSetTransactionData(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onOfflineDataAuthentication(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onProcessRestrictions(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onCardholderVerification(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onOfflinePinVerification(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onTerminalRiskManagement(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onTerminalActionAnalysis(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onOnlineProcessing(EmvStepEvent event) {
+        // default: no-op — host work is driven by PosTerminal on ONLINE_REQUIRED
+    }
+
+    protected void onIssuerAuthentication(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onScriptProcessing(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onEmvTransactionCompletion(EmvStepEvent event) {
+        // default: no-op
+    }
+
+    protected void onTransactionCompleted() {
+        // default: no-op
+    }
+
+    protected void onTransactionFailed(String reason) {
+        // default: no-op
+    }
+
+    protected void onUnknownEmvStep(EmvStepEvent event) {
+        // default: no-op
+    }
 }

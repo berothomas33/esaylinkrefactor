@@ -8,7 +8,11 @@ package com.emvenhance.core;
  */
 public final class TransactionConfig {
 
-    public enum Mode { CONTACT, CONTACTLESS }
+    public enum Mode {
+        CONTACT,
+        CONTACTLESS,
+        MAGSTRIPE
+    }
 
     private final String procCode;
     private final long amountMinor;
@@ -39,5 +43,9 @@ public final class TransactionConfig {
 
     public boolean isContactless() {
         return mode == Mode.CONTACTLESS;
+    }
+
+    public boolean isMagstripe() {
+        return mode == Mode.MAGSTRIPE;
     }
 }
