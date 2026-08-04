@@ -7,7 +7,7 @@ import androidx.annotation.Nullable;
  *
  * <p>Used by progress helpers (e.g. gap-filling step reporters) so they do not depend on
  * a vendor-specific callback type. The PAX adapter forwards each report into
- * {@link EmvEngine#emitEmvStep}, which PosTerminal routes through {@code dispatchEmvStep}.
+ * {@link EmvEngine#notifyEmvStep}, which routes through {@code dispatchEmvStep}.
  */
 public interface EmvStepReporter {
 
