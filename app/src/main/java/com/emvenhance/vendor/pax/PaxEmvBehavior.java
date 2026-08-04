@@ -9,6 +9,7 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.emvflow.preprocess.EmvPreProcessFacade;
@@ -50,17 +51,21 @@ public class PaxEmvBehavior implements EmvBehavior,
     private static final String TAG = "PaxEmvBehavior";
 
     private final PaxKernel kernel;
+    private final CommunicationBehavior communication;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     @Nullable
     private EmvEngine engine;
+    @Nullable
+    private TransactionConfig activeConfig;
 
     /** Active gap-filler while a kernel transaction is running. */
     @Nullable
     private EmvStepProgress progress;
 
-    public PaxEmvBehavior(PaxKernel kernel) {
+    public PaxEmvBehavior(PaxKernel kernel, CommunicationBehavior communication) {
         this.kernel = kernel;
+        this.communication = communication;
     }
 
     // ─── Lifecycle (search is owned by PaxTerminal) ──────────────────────
@@ -68,6 +73,7 @@ public class PaxEmvBehavior implements EmvBehavior,
     @Override
     public boolean prepare(@NonNull EmvEngine engine, @NonNull TransactionConfig config) {
         this.engine = engine;
+        this.activeConfig = config;
         cancelled.set(false);
         progress = null;
 
@@ -80,6 +86,7 @@ public class PaxEmvBehavior implements EmvBehavior,
     public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
             @NonNull CardPresence card) {
         this.engine = engine;
+        this.activeConfig = config;
         cancelled.set(false);
         progress = null;
 
@@ -433,16 +440,23 @@ public class PaxEmvBehavior implements EmvBehavior,
     }
 
     /**
-     * Online decision for the EMV kernel. Host authorize is not part of EmvBehavior —
-     * stub until a dedicated host layer is wired outside this class.
+     * Online via the same {@link CommunicationBehavior} owned by {@link PaxTerminal}.
      */
     @NonNull
     private AuthResult requestOnline(@NonNull EmvEngine eng) {
         eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
-        AuthResult auth = cancelled.get()
-                ? AuthResult.declined("17", "Cancelled")
-                : AuthResult.declined("96", "Host not wired");
+        AuthResult auth;
+        if (cancelled.get()) {
+            auth = AuthResult.declined("17", "Cancelled");
+        } else {
+            try {
+                auth = communication.authorize(activeConfig).blockingGet();
+            } catch (Exception e) {
+                auth = AuthResult.declined("96",
+                        e.getMessage() != null ? e.getMessage() : "Online failed");
+            }
+        }
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
                 .build());

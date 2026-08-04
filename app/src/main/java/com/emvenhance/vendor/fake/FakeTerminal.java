@@ -3,9 +3,12 @@ package com.emvenhance.vendor.fake;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
-import com.emvenhance.core.engine.EmvEngine;
-import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.HostDefaults;
+import com.emvenhance.core.host.PrinterBehavior;
+import com.emvenhance.core.terminal.PosTerminal;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -17,7 +20,11 @@ public class FakeTerminal extends PosTerminal {
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
     public FakeTerminal() {
-        super(new EmvEngine(), new FakeEmvBehavior());
+        this(HostDefaults.approveAlways(), HostDefaults.logPrinter("FakePrinter"));
+    }
+
+    private FakeTerminal(CommunicationBehavior communication, PrinterBehavior printer) {
+        super(new EmvEngine(), new FakeEmvBehavior(communication), communication, printer);
     }
 
     @Nullable

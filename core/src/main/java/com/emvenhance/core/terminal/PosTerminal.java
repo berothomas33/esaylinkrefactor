@@ -10,16 +10,20 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.PrinterBehavior;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The only public hardware API for the app.
  *
- * <p>Works the same for every vendor: open readers, search for a card, report reader
- * events, then hand the selected {@link EntryMethod} to {@link EmvBehavior}.
+ * <p>Owns card search, host communication, and printer. EMV after entry selection is
+ * delegated to {@link EmvBehavior}.
  *
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)
@@ -27,23 +31,45 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *          ├── searchCard(config, listener)   ← vendor SDK
  *          └── EmvBehavior.start(card)        ← vendor EMV
  * </pre>
- *
- * <p>Adding a vendor = implement {@link #searchCard} + a matching {@link EmvBehavior}.
- * No engine / UI / orchestration changes.
  */
 public abstract class PosTerminal {
 
     protected final EmvEngine engine;
     protected final EmvBehavior behavior;
+    protected final CommunicationBehavior communication;
+    protected final PrinterBehavior printer;
     protected final CompositeDisposable disposables = new CompositeDisposable();
 
     private final AtomicBoolean searchCancelled = new AtomicBoolean(false);
 
-    protected PosTerminal(EmvEngine engine, EmvBehavior behavior) {
+    protected PosTerminal(EmvEngine engine,
+            EmvBehavior behavior,
+            CommunicationBehavior communication,
+            PrinterBehavior printer) {
         this.engine = engine;
         this.behavior = behavior;
+        this.communication = communication;
+        this.printer = printer;
         this.engine.attachBehavior(behavior);
         initializeVendor();
+    }
+
+    public CommunicationBehavior communication() {
+        return communication;
+    }
+
+    public PrinterBehavior printer() {
+        return printer;
+    }
+
+    /** Host authorize via the terminal-owned {@link CommunicationBehavior}. */
+    public AuthResult authorize(TransactionConfig config) {
+        return communication.authorize(config).blockingGet();
+    }
+
+    /** Print receipt lines via the terminal-owned {@link PrinterBehavior}. */
+    public void printReceipt(List<String> lines) {
+        printer.print(lines).blockingAwait();
     }
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────

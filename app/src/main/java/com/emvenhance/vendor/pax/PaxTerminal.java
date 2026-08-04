@@ -4,6 +4,9 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.HostDefaults;
+import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
@@ -36,11 +39,16 @@ public class PaxTerminal extends PosTerminal {
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
     public PaxTerminal() {
-        this(new PaxKernel());
+        this(new PaxKernel(),
+                HostDefaults.declineUntilWired(),
+                HostDefaults.logPrinter("PaxPrinter"));
     }
 
-    private PaxTerminal(PaxKernel kernel) {
-        super(new EmvEngine(), new PaxEmvBehavior(kernel));
+    private PaxTerminal(PaxKernel kernel,
+            CommunicationBehavior communication,
+            PrinterBehavior printer) {
+        super(new EmvEngine(), new PaxEmvBehavior(kernel, communication),
+                communication, printer);
         this.kernel = kernel;
     }
 

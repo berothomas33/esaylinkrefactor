@@ -4,9 +4,12 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
-import com.emvenhance.core.engine.EmvEngine;
-import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.HostDefaults;
+import com.emvenhance.core.host.PrinterBehavior;
+import com.emvenhance.core.terminal.PosTerminal;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -20,7 +23,11 @@ public class IngenicoTerminal extends PosTerminal {
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
     public IngenicoTerminal() {
-        super(new EmvEngine(), new IngenicoEmvBehavior());
+        this(HostDefaults.approveAlways(), HostDefaults.logPrinter(TAG));
+    }
+
+    private IngenicoTerminal(CommunicationBehavior communication, PrinterBehavior printer) {
+        super(new EmvEngine(), new IngenicoEmvBehavior(communication), communication, printer);
     }
 
     @Override

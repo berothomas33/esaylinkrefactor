@@ -10,25 +10,30 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Ingenico EMV stub after card search. Replace with Tetra/Axium when SDK is attached.
- * No host / printer coupling in this layer.
+ * Ingenico EMV stub. Uses the terminal-owned {@link CommunicationBehavior} for online.
  */
 public class IngenicoEmvBehavior implements EmvBehavior {
 
     private static final String TAG = "IngenicoEmvBehavior";
 
+    private final CommunicationBehavior communication;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     @Nullable
-    private EmvEngine engine;
+    private TransactionConfig activeConfig;
+
+    public IngenicoEmvBehavior(CommunicationBehavior communication) {
+        this.communication = communication;
+    }
 
     @Override
     public boolean prepare(@NonNull EmvEngine engine, @NonNull TransactionConfig config) {
-        this.engine = engine;
+        this.activeConfig = config;
         cancelled.set(false);
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION, "Ingenico stub");
@@ -39,7 +44,7 @@ public class IngenicoEmvBehavior implements EmvBehavior {
     @Override
     public void start(@NonNull EmvEngine engine, @NonNull TransactionConfig config,
             @NonNull CardPresence card) {
-        this.engine = engine;
+        this.activeConfig = config;
         cancelled.set(false);
 
         switch (card.getEntryMethod()) {
@@ -80,10 +85,7 @@ public class IngenicoEmvBehavior implements EmvBehavior {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
 
-        AuthResult auth = cancelled.get()
-                ? AuthResult.declined("17", "Cancelled")
-                : AuthResult.approved("123456", "00", null);
-
+        AuthResult auth = authorize();
         engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
                 .build());
@@ -94,5 +96,17 @@ public class IngenicoEmvBehavior implements EmvBehavior {
             engine.notifyDeclined(auth.getMessage());
         }
         engine.notifyCompleted();
+    }
+
+    private AuthResult authorize() {
+        if (cancelled.get()) {
+            return AuthResult.declined("17", "Cancelled");
+        }
+        try {
+            return communication.authorize(activeConfig).blockingGet();
+        } catch (Exception e) {
+            return AuthResult.declined("96",
+                    e.getMessage() != null ? e.getMessage() : "Online failed");
+        }
     }
 }

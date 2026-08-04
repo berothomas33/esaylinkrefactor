@@ -8,22 +8,29 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Fake vendor EMV behavior — demo lifecycle after card search. No host / printer coupling.
+ * Fake vendor EMV behavior. Uses the same {@link CommunicationBehavior} instance owned
+ * by {@link FakeTerminal} for online — printer stays on the terminal.
  */
 public class FakeEmvBehavior implements EmvBehavior {
 
+    private final CommunicationBehavior communication;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     @Nullable
-    private EmvEngine engine;
+    private TransactionConfig activeConfig;
+
+    public FakeEmvBehavior(CommunicationBehavior communication) {
+        this.communication = communication;
+    }
 
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
-        this.engine = engine;
+        this.activeConfig = config;
         cancelled.set(false);
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.TERMINAL_INITIALIZATION);
@@ -32,7 +39,7 @@ public class FakeEmvBehavior implements EmvBehavior {
 
     @Override
     public void start(EmvEngine engine, TransactionConfig config, CardPresence card) {
-        this.engine = engine;
+        this.activeConfig = config;
         cancelled.set(false);
         if (cancelled.get()) {
             return;
@@ -77,7 +84,7 @@ public class FakeEmvBehavior implements EmvBehavior {
 
         engine.notifyEmvStep(EmvStep.TERMINAL_RISK_MANAGEMENT);
         engine.notifyEmvStep(EmvStep.TERMINAL_ACTION_ANALYSIS);
-        finishOnline(engine, true, AuthResult.approved("123456", "00", null));
+        finishOnline(engine, true);
     }
 
     private void executeContactless(EmvEngine engine) {
@@ -97,7 +104,7 @@ public class FakeEmvBehavior implements EmvBehavior {
         String pan = card.getTrack2() != null ? card.getTrack2().split("[=D]")[0] : "4111111111111111";
         engine.notifyCardDetected(pan, "MAG Bank", "", "Magstripe");
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-        finishOnline(engine, false, AuthResult.approved("123456", "00", null));
+        finishOnline(engine, false);
     }
 
     private void executeManual(EmvEngine engine, CardPresence card) {
@@ -105,13 +112,15 @@ public class FakeEmvBehavior implements EmvBehavior {
         String pan = card.getManualPan() != null ? card.getManualPan() : "";
         engine.notifyCardDetected(pan, "MANUAL", "", "Manual");
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-        finishOnline(engine, false, AuthResult.approved("123456", "00", null));
+        finishOnline(engine, false);
     }
 
-    private void finishOnline(EmvEngine engine, boolean emitIssuerSteps, AuthResult auth) {
+    private void finishOnline(EmvEngine engine, boolean emitIssuerSteps) {
         engine.notifyEmvStep(EmvStep.START_ONLINE_PROCESS);
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+
+        AuthResult auth = authorize();
         engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
                 .build());
@@ -127,6 +136,18 @@ public class FakeEmvBehavior implements EmvBehavior {
             engine.notifyDeclined(auth.getMessage());
         }
         engine.notifyCompleted();
+    }
+
+    private AuthResult authorize() {
+        if (cancelled.get()) {
+            return AuthResult.declined("17", "Cancelled");
+        }
+        try {
+            return communication.authorize(activeConfig).blockingGet();
+        } catch (Exception e) {
+            return AuthResult.declined("96",
+                    e.getMessage() != null ? e.getMessage() : "Online failed");
+        }
     }
 
     private static void sleep(long ms) {
