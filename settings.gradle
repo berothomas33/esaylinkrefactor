@@ -19,7 +19,6 @@ rootProject.name = "EmvEnhanceRefactor"
 
 include ':app'
 include ':core'
-include ':emvflow'
 
 // PAX EMV stack
 include ':emvbase'
