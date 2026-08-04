@@ -1,5 +1,6 @@
 package com.emvenhance.vendor;
 
+import androidx.annotation.Nullable;
 import com.emvenhance.core.AuthResult;
 import com.emvenhance.core.EmvEngine;
 import com.emvenhance.core.EmvStep;
@@ -8,32 +9,25 @@ import com.emvenhance.core.TransactionStep;
 import com.emvenhance.core.TransactionStepEvent;
 
 /**
- * PAX vendor implementation of the EMV engine.
+ * PAX vendor implementation of the EMV engine — owns the transaction lifecycle.
  *
- * <p>This class bridges the PAX kernel's callback-based SDK to the reactive subject model.
- * Internally it still receives callbacks from the PAX kernel (that is the only way the
- * kernel communicates), but it <em>translates</em> each callback into a subject emission
- * rather than forwarding to a {@code Callback} interface.  From the architecture's
- * perspective, no callback crosses the core boundary.
- *
- * <h3>How the PAX bridge works</h3>
+ * <p>All PAX SDK I/O is delegated to {@link PaxEmvBehavior}, the single bridge between the
+ * PAX processing layer and this engine. Every kernel callback is translated by the behavior
+ * into {@link #emitEmvStep} / {@link #emitTransactionStep} emissions, which
+ * {@link com.emvenhance.core.PosTerminal} routes through {@code dispatchEmvStep(...)}.
  *
  * <pre>
- *   PAX kernel thread
- *     → ContactProcess callback (emvWaitAppSel, emvSetParam, onCardHolderPwd, …)
- *       → this class calls emitEmvStep() / emitTransactionStep()
- *         → subjects deliver to PosTerminal and UI subscribers
+ *   PosTerminal.startTransaction
+ *     → prepare()  → PaxEmvBehavior.prepare (EmvPreProcessFacade)
+ *     → execute()  → PaxEmvBehavior.executeContact / executeContactless
+ *                      → PAX callbacks → emitEmvStep / emitTransactionStep
+ *                      → ONLINE_REQUIRED → (blocks until complete)
+ *     → complete() → PaxEmvBehavior.deliverAuthResult (unblocks online)
  * </pre>
- *
- * <p>The callback lives inside this class as an anonymous implementation of the PAX
- * interfaces — it is an internal detail, not an architectural boundary.
  */
 public class PaxEmvEngine extends EmvEngine {
 
-    // TODO inject via constructor:
-    //   - EmvPreProcessFacade (or its dependencies)
-    //   - ContactEmvRunner / ContactlessEmvRunner
-    //   - EmvStepProgress (now emits into subjects instead of Callback)
+    private final PaxEmvBehavior behavior = new PaxEmvBehavior(this);
 
     private TransactionConfig config;
 
@@ -48,17 +42,14 @@ public class PaxEmvEngine extends EmvEngine {
         emitTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         emitEmvStep(EmvStep.TERMINAL_INITIALIZATION);
 
-        // TODO: call EmvPreProcessFacade.start() here
-        // byte searchMode = new EmvPreProcessFacade(
-        //         config.getProcCode(), config.getAmountMinor(), timestamp(),
-        //         0, buildSearchMode(config)).start();
-        // if (searchMode == 0) {
-        //     emitError("preTransProcess disabled every search mode");
-        //     releaseRunning();
-        //     return false;
-        // }
+        if (!behavior.prepare(config)) {
+            emitError("Terminal initialization failed");
+            releaseRunning();
+            return false;
+        }
 
-        emitTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD));
+        emitTransactionStep(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD,
+                config.isContact() ? "Insert card" : "Tap card"));
         return true;
     }
 
@@ -66,82 +57,54 @@ public class PaxEmvEngine extends EmvEngine {
     public void execute() {
         try {
             if (config.isContact()) {
-                executeContact();
+                behavior.executeContact();
             } else {
-                executeContactless();
+                behavior.executeContactless();
             }
         } catch (Exception e) {
-            emitError(e.getMessage());
-            releaseRunning();
+            reportError(e.getMessage() != null ? e.getMessage() : "EMV execution failed");
         }
     }
 
-    private void executeContact() {
-        // TODO: replace with real PAX ContactEmvRunner that pushes into subjects.
-        //
-        // The PAX kernel calls IContactCallback methods on its own thread.
-        // Each callback translates to an emit call:
-        //
-        //   @Override
-        //   public int onWaitAppSelect(...) {
-        //       emitEmvStep(EmvStep.WAIT_APPLICATION_SELECTION);
-        //       emitTransactionStep(TransactionStepEvent.of(
-        //               TransactionStep.APPLICATION_SELECTED));
-        //       // return selected index
-        //   }
-        //
-        //   @Override
-        //   public int onCardHolderPwd(boolean online, boolean bypass, int left, byte[] pin) {
-        //       emitEmvStep(EmvStep.CARDHOLDER_VERIFICATION);
-        //       emitTransactionStep(TransactionStepEvent.builder(
-        //               TransactionStep.CARDHOLDER_VERIFIED)
-        //               .put(KEY_ONLINE_PIN, online)
-        //               .put(KEY_PIN_BYPASS, bypass)
-        //               .put(KEY_PIN_TRIES_LEFT, left)
-        //               .build());
-        //       // return PIN result
-        //   }
-        //
-        //   @Override
-        //   public OnlineResultWrapper startOnlineProcess() {
-        //       emitEmvStep(EmvStep.START_ONLINE_PROCESS);
-        //       emitTransactionStep(TransactionStepEvent.of(
-        //               TransactionStep.ONLINE_REQUIRED));
-        //       // block until PosTerminal calls complete()
-        //   }
-
-        throw new UnsupportedOperationException(
-                "Wire PAX ContactEmvRunner here — see comments for the callback→subject mapping");
-    }
-
-    private void executeContactless() {
-        // TODO: same pattern as executeContact() but using ContactlessEmvRunner
-        // and IContactlessCallback → subject mapping.
-        throw new UnsupportedOperationException(
-                "Wire PAX ContactlessEmvRunner here");
-    }
-
+    /**
+     * Feeds the host authorization result back into the blocked PAX online callback.
+     *
+     * <p>Issuer authentication, script processing, and the final approved/declined emissions
+     * are produced by {@link PaxEmvBehavior} as the PAX kernel continues and the result
+     * listener fires.
+     */
     @Override
     public void complete(AuthResult authResult) {
-        try {
-            emitEmvStep(EmvStep.ISSUER_AUTHENTICATION);
-            emitEmvStep(EmvStep.SCRIPT_PROCESSING);
-            emitEmvStep(EmvStep.TRANSACTION_COMPLETION);
+        behavior.deliverAuthResult(authResult);
+    }
 
-            // TODO: call EMVCallback.EMVCompleteTrans() with the AuthResult data
-            //   IssuerRspData rsp = new IssuerRspData();
-            //   rsp.setAuthCode(authResult.getAuthCode());
-            //   rsp.setIssuerScript(authResult.getIssuerScript());
-            //   int ret = emvContactService.completeTransProcess(rsp);
+    // ─── Package bridge: PaxEmvBehavior → EmvEngine subjects ─────────────
 
-            if (authResult.isApproved()) {
-                emitApproved("ONLINE APPROVED");
-            } else {
-                emitDeclined(authResult.getMessage());
-            }
-            emitTransactionStep(TransactionStepEvent.of(TransactionStep.COMPLETED));
-        } finally {
+    void reportEmvStep(EmvStep step, @Nullable String detail) {
+        emitEmvStep(step, detail);
+    }
+
+    void reportTransactionStep(TransactionStepEvent event) {
+        emitTransactionStep(event);
+        if (event.getStep() == TransactionStep.COMPLETED) {
             releaseRunning();
         }
+    }
+
+    void reportCardDetected(String pan, String issuerName, String cardHolderName, String mode) {
+        emitCardDetected(pan, issuerName, cardHolderName, mode);
+    }
+
+    void reportApproved(String result) {
+        emitApproved(result);
+    }
+
+    void reportDeclined(String reason) {
+        emitDeclined(reason);
+    }
+
+    void reportError(String error) {
+        emitError(error);
+        releaseRunning();
     }
 }

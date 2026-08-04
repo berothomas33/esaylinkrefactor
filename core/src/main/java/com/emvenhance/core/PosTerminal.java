@@ -263,9 +263,12 @@ public class PosTerminal {
                         },
                         error -> {
                             onHandlerError(error);
-                            engine.emitError(error.getMessage() != null
-                                    ? error.getMessage()
-                                    : "Online authorization failed");
+                            // Always complete so vendor adapters blocked in startOnlineProcess
+                            // (e.g. PAX) can unblock and finish the kernel flow.
+                            engine.complete(AuthResult.declined("96",
+                                    error.getMessage() != null
+                                            ? error.getMessage()
+                                            : "Online authorization failed"));
                         }
                 ));
     }

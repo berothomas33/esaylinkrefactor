@@ -3,34 +3,34 @@ package com.emvenhance.core;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Abstract EMV engine — the single owner of both reactive subjects.
+ * Abstract EMV engine — owner of the transaction lifecycle and both reactive subjects.
  *
  * <h3>Design contract</h3>
  *
- * <p>This class replaces the old {@code EmvBehavior} + {@code EmvBehavior.Callback} pair.
- * Instead of the vendor implementation <em>receiving</em> a callback object and pushing
- * events into it, the vendor implementation <em>extends</em> this class and pushes events
- * into the two protected subjects that already live here:
+ * <p>The engine owns orchestration state ({@code prepare} / {@code execute} / {@code complete})
+ * and the two subjects consumers observe. Vendor SDK adapters (e.g. PAX
+ * {@code PaxEmvBehavior}) translate vendor callbacks into {@link #emitEmvStep} /
+ * {@link #emitTransactionStep} calls. {@link PosTerminal} routes every EMV step through
+ * {@code dispatchEmvStep(...)}.
  *
  * <ul>
- *   <li>{@link #emitEmvStep} → feeds the <strong>EMV Steps Subject</strong>
- *       ({@code PublishSubject}). Fine-grained kernel phases: application selection,
- *       ODA, CVM, risk management, etc.  One-shot — not replayed to late subscribers.
+ *   <li>{@link #emitEmvStep} → <strong>EMV Steps Subject</strong> ({@code PublishSubject}).
+ *       Fine-grained kernel phases. One-shot — not replayed to late subscribers.
  *
- *   <li>{@link #emitTransactionStep} → feeds the <strong>Transaction Steps Subject</strong>
- *       ({@code BehaviorSubject}). Coarse lifecycle milestones: card detected, approved,
- *       declined, completed.  Sticky — a late subscriber (or a rotated Activity) always
- *       sees the latest state.
+ *   <li>{@link #emitTransactionStep} → <strong>Transaction Steps Subject</strong>
+ *       ({@code BehaviorSubject}). Coarse lifecycle milestones. Sticky for rotation.
  * </ul>
  *
- * <p>Because both subjects live inside the engine, there is <strong>no callback interface
- * </strong> to implement. Consumers subscribe to {@link #emvSteps()} and
- * {@link #transactionSteps()} and react to what arrives. This keeps the engine, the
- * orchestrator, and the UI fully decoupled — none of them knows the other's type.
+ * <h3>Layering</h3>
+ *
+ * <pre>
+ *   EMV Engine (this class)     — business lifecycle + subjects
+ *   Vendor adapter (e.g. PAX)   — SDK callbacks → emitEmvStep / emitTransactionStep
+ *   Vendor SDK                  — kernel / contactless / contact services
+ * </pre>
  *
  * <h3>Threading</h3>
  *
@@ -46,11 +46,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>In {@code prepare()}: initialize the kernel and emit
  *       {@link TransactionStep#TRANSACTION_STARTED} then
  *       {@link TransactionStep#WAITING_FOR_CARD}.
- *   <li>In {@code execute()}: run the kernel's transaction loop, calling
+ *   <li>In {@code execute()}: run the kernel via the vendor adapter, emitting
  *       {@link #emitEmvStep} at each kernel callback and
- *       {@link #emitTransactionStep} at the meaningful lifecycle boundaries.
- *   <li>In {@code complete()}: feed the {@link AuthResult} to the kernel and emit
- *       {@link TransactionStep#APPROVED} or {@link TransactionStep#DECLINED}.
+ *       {@link #emitTransactionStep} at lifecycle boundaries.
+ *   <li>In {@code complete()}: feed the {@link AuthResult} back to the adapter/kernel.
  *   <li>Always emit {@link TransactionStep#COMPLETED} or
  *       {@link TransactionStep#ERROR} as the final event so the orchestrator knows
  *       the engine is idle again.
