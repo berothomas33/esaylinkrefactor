@@ -6,20 +6,12 @@ Vendor-agnostic POS EMV: **one `PosTerminal` API for any card / any vendor**.
 
 ```text
 UI  →  PosTerminal.acceptCard() / startTransaction()
-         ├── EmvBehavior.prepare()     → EmvEngine.prepareFlow (TERMINAL_INITIALIZATION)
-         ├── searchCard(...)           ← vendor readers
-         └── EmvBehavior.start(card)   → EmvEngine.runFlow (SEARCH_CARD → … → COMPLETION)
+         ├── EmvBehavior.prepare()
+         ├── searchCard(config, CardSearchListener)   ← vendor readers
+         └── EmvBehavior.start(engine, config, card)  ← vendor EMV
 
-EmvEngine — orchestrator (registry + transition policy + wait/resume) + Rx event bus
-EmvStepBehavior — one class per EmvStep (execute / onSignal)
+EmvEngine — thin subjects + notify* → behavior.dispatch*
 ```
-
-**Behavior-driven design:** see
-[`doc/architecture/emv-behavior-driven-architecture.md`](doc/architecture/emv-behavior-driven-architecture.md).
-
-Fake vendor is the first vertical slice (`FakeEmvBehavior` + `FakeKernelPort` +
-`StandardEmvBehaviors`). PAX still uses the legacy `PaxEmvBehavior` god-object
-until adapted onto `EmvKernelPort`.
 
 ## Package layout
 
@@ -28,9 +20,7 @@ until adapted onto `EmvKernelPort`.
 | Package | Contents |
 |---------|----------|
 | `terminal` | `PosTerminal` (owns host + printer), `EmvBehavior` (EMV only) |
-| `engine` | `EmvEngine` (orchestrator), `EmvContext`, `EnginePhase` |
-| `behavior` | `EmvStepBehavior`, `BehaviorResult`, `BehaviorBridge`, registry/policy interfaces |
-| `port` | `EmvKernelPort`, `EmvInteractionPort`, `EmvSignal` |
+| `engine` | `EmvEngine` |
 | `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
 | `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
 | `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult` — owned by PosTerminal |
@@ -39,14 +29,9 @@ until adapted onto `EmvKernelPort`.
 
 | Package | Contents |
 |---------|----------|
-| `behavior` | One `*Behavior` per `EmvStep` + `StandardEmvBehaviors` |
-| `registry` | `DefaultEmvBehaviorRegistry` |
-| `policy` | `DefaultEmvTransitionPolicy` |
-| `scheduler` | `EmvScheduler` |
-| `cleanup` | `DefaultEmvCleanupHandler` |
 | `runtime` | `EmvFlowRuntime` (DAL / WMRouter lazy init) |
 | `preprocess` | `EmvPreProcessFacade` |
-| `progress` | `EmvStepProgress` (legacy gap-fill; retire after PAX adapter) |
+| `progress` | `EmvStepProgress` |
 | `device` | `EmvDeviceImpl`, cipher mode |
 | `pin` | `IPinTask` |
 

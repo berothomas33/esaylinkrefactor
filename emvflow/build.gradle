@@ -48,6 +48,4 @@ dependencies {
     api project(':commonlib')
     api project(':emvbase')
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
-
-    testImplementation "junit:junit:$rootProject.junit"
 }
