@@ -11,138 +11,74 @@ import com.emvenhance.core.event.TransactionStepEvent;
  *
  * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel}.
  *
- * <p><b>Step methods</b> ({@code onTerminalInitialization} … {@code onTransactionCompletion})
- * are the behavior-driven hooks. Every vendor that extends / implements this type can
- * override each step and write its own action there. A sequential runner
- * ({@link AbstractEmvBehavior}) calls them in EMV order; kernel-driven vendors (PAX)
- * may keep a custom {@link #start} and call the same hooks from callbacks when ready.
+ * <p>Each EMV phase is a method ({@code onApplicationSelection}, …). The vendor does its
+ * work inside that method, then advances by calling
+ * {@link AbstractEmvBehavior#goToStep} (publishes on the EmvStep observable and runs the
+ * next method). No central {@code if (!run) return} chain.
  *
- * <p>EMV only — no host authorize / printer logic lives here.
+ * <p>EMV only — no host / printer logic here.
  */
 public interface EmvBehavior {
 
-    /** Kernel / parameter init before card search. Typically runs {@link #onTerminalInitialization}. */
     boolean prepare(EmvEngine engine, TransactionConfig config);
 
-    /** Run EMV for the already-selected {@link CardPresence}. Blocking. */
     void start(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    /** Cancel in-flight EMV. */
     void cancel();
 
-    // ─── EMV step hooks (override per vendor) ────────────────────────────
+    // ─── EMV step hooks — vendor writes action, then goToStep(next) ──────
 
-    /**
-     * {@code TERMINAL_INITIALIZATION} — AID/CAPK load, kernel preTrans, terminal caps.
-     * Called from {@link #prepare} by {@link AbstractEmvBehavior}.
-     */
-    default EmvStepResult onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
-        return EmvStepResult.continueResult();
-    }
+    default void onTerminalInitialization(EmvEngine engine, TransactionConfig config) { }
 
-    /**
-     * {@code SEARCH_CARD} — usually owned by {@link PosTerminal#searchCard}.
-     * Default skips; override only if the vendor needs an in-EMV search phase.
-     */
-    default EmvStepResult onSearchCard(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.skip("Card search owned by PosTerminal");
-    }
+    /** Usually owned by PosTerminal; default advances immediately. */
+    default void onSearchCard(EmvEngine engine, TransactionConfig config, CardPresence card) { }
 
-    /** {@code APPLICATION_SELECTION} — build candidate list / PPSE. */
-    default EmvStepResult onApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code WAIT_APPLICATION_SELECTION} — UI candidate picker when multiple AIDs. */
-    default EmvStepResult onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code FINAL_APPLICATION_SELECTION} — confirm selected AID with card/kernel. */
-    default EmvStepResult onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code READ_APPLICATION_DATA} — read records / AFL into TLV store. */
-    default EmvStepResult onReadApplicationData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onReadApplicationData(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code SET_TRANSACTION_DATA} — amount, date, TVR/TSI seeds, terminal TLVs. */
-    default EmvStepResult onSetTransactionData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onSetTransactionData(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code OFFLINE_DATA_AUTHENTICATION} — SDA / DDA / CDA. */
-    default EmvStepResult onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code PROCESS_RESTRICTIONS} — app version, AUC, effective/expiry dates. */
-    default EmvStepResult onProcessRestrictions(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code CARDHOLDER_VERIFICATION} — CVM list processing. */
-    default EmvStepResult onCardholderVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onCardholderVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code OFFLINE_PIN_VERIFICATION} — offline PIN with PED / card. */
-    default EmvStepResult onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code TERMINAL_RISK_MANAGEMENT} — floor limits, random, velocity. */
-    default EmvStepResult onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code TERMINAL_ACTION_ANALYSIS} — offline approve / decline / go online. */
-    default EmvStepResult onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /**
-     * {@code START_ONLINE_PROCESS} — build ARQC path; typically
-     * {@link EmvEngine#authorize(TransactionConfig)}.
-     */
-    default EmvStepResult onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code ISSUER_AUTHENTICATION} — ARPC / issuer auth data. */
-    default EmvStepResult onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code SCRIPT_PROCESSING} — issuer scripts 71/72. */
-    default EmvStepResult onScriptProcessing(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onScriptProcessing(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    /** {@code TRANSACTION_COMPLETION} — 2nd GENERATE AC / finalize approve or decline. */
-    default EmvStepResult onTransactionCompletion(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
+    default void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
+            CardPresence card) { }
 
-    // ─── Optional transaction-step observers (engine → vendor) ───────────
+    // ─── Optional transaction-step observers ─────────────────────────────
 
     default void dispatchTransactionStep(TransactionStepEvent event) {
         switch (event.getStep()) {

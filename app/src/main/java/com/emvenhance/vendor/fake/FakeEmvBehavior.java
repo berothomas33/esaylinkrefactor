@@ -4,66 +4,53 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
-import com.emvenhance.core.terminal.EmvStepResult;
 
 /**
- * Fake vendor — each EMV phase is an overridden step method on {@link AbstractEmvBehavior}.
- * Online goes through {@link EmvEngine#authorize}.
+ * Fake vendor: each step does its work, then {@link #goToStep} publishes on the EmvStep
+ * observable and runs the next vendor method.
  */
 public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Nullable
     private AuthResult lastAuth;
-    private boolean emitIssuerSteps;
 
     @Override
-    public EmvStepResult onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
+    public void onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
         lastAuth = null;
-        emitIssuerSteps = false;
-        return EmvStepResult.continueResult();
+        // Stop here — PosTerminal.searchCard runs next. Do NOT goToStep.
     }
 
     @Override
-    protected void runContactlessFlow(EmvEngine engine, TransactionConfig config,
+    public void onApplicationSelection(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Abbreviated offline CLSS demo
-        if (!run(com.emvenhance.core.event.EmvStep.APPLICATION_SELECTION,
-                () -> onApplicationSelection(engine, config, card))) {
+        if (card.isContactless()) {
+            // Abbreviated CLSS: skip wait/final/ODA/… → read → complete offline
+            goToStep(EmvStep.READ_APPLICATION_DATA, "contactless");
             return;
         }
+        goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
+    }
+
+    @Override
+    public void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        goToStep(EmvStep.FINAL_APPLICATION_SELECTION);
+    }
+
+    @Override
+    public void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
-        if (!run(com.emvenhance.core.event.EmvStep.READ_APPLICATION_DATA,
-                () -> onReadApplicationData(engine, config, card))) {
-            return;
-        }
-        run(com.emvenhance.core.event.EmvStep.TRANSACTION_COMPLETION,
-                () -> EmvStepResult.approved("OFFLINE APPROVED"));
+        goToStep(EmvStep.READ_APPLICATION_DATA);
     }
 
     @Override
-    public EmvStepResult onApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult(card.isContactless() ? "contactless" : null);
-    }
-
-    @Override
-    public EmvStepResult onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
-
-    @Override
-    public EmvStepResult onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult();
-    }
-
-    @Override
-    public EmvStepResult onReadApplicationData(EmvEngine engine, TransactionConfig config,
+    public void onReadApplicationData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (card.isChip()) {
             engine.notifyCardDetected("4111111111111111", "Demo Bank", "CARD HOLDER", "Contact");
@@ -79,101 +66,106 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         }
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         sleep(200);
-        return EmvStepResult.continueResult();
+
+        if (card.isContactless()) {
+            goToStep(EmvStep.TRANSACTION_COMPLETION);
+            return;
+        }
+        if (card.isMagstripe() || card.isManual()) {
+            goToStep(EmvStep.START_ONLINE_PROCESS);
+            return;
+        }
+        goToStep(EmvStep.SET_TRANSACTION_DATA);
     }
 
     @Override
-    public EmvStepResult onSetTransactionData(EmvEngine engine, TransactionConfig config,
+    public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.OFFLINE_DATA_AUTHENTICATION);
     }
 
     @Override
-    public EmvStepResult onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
+    public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        return EmvStepResult.continueResult("DDA");
+        goToStep(EmvStep.PROCESS_RESTRICTIONS);
     }
 
     @Override
-    public EmvStepResult onProcessRestrictions(EmvEngine engine, TransactionConfig config,
+    public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.CARDHOLDER_VERIFICATION);
     }
 
     @Override
-    public EmvStepResult onCardholderVerification(EmvEngine engine, TransactionConfig config,
+    public void onCardholderVerification(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.OFFLINE_PIN_VERIFICATION);
     }
 
     @Override
-    public EmvStepResult onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
+    public void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, true)
                 .put(TransactionStepEvent.KEY_PIN_BYPASS, true)
                 .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, 3)
                 .build());
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.TERMINAL_RISK_MANAGEMENT);
     }
 
     @Override
-    public EmvStepResult onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
+    public void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.TERMINAL_ACTION_ANALYSIS);
     }
 
     @Override
-    public EmvStepResult onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
+    public void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        emitIssuerSteps = card.isChip();
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.START_ONLINE_PROCESS);
     }
 
     @Override
-    protected boolean shouldRunIssuerSteps() {
-        return emitIssuerSteps;
-    }
-
-    @Override
-    public EmvStepResult onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
+    public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (isCancelled()) {
-            return EmvStepResult.fail("Cancelled");
+            finishError("Cancelled");
+            return;
         }
         lastAuth = engine.authorize(config);
-        return EmvStepResult.continueResult();
+        if (card.isChip()) {
+            goToStep(EmvStep.ISSUER_AUTHENTICATION);
+        } else {
+            goToStep(EmvStep.TRANSACTION_COMPLETION);
+        }
     }
 
     @Override
-    public EmvStepResult onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
+    public void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        if (!emitIssuerSteps) {
-            return EmvStepResult.skip("No issuer auth for this path");
-        }
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.SCRIPT_PROCESSING);
     }
 
     @Override
-    public EmvStepResult onScriptProcessing(EmvEngine engine, TransactionConfig config,
+    public void onScriptProcessing(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        if (!emitIssuerSteps) {
-            return EmvStepResult.skip("No scripts for this path");
-        }
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.TRANSACTION_COMPLETION);
     }
 
     @Override
-    public EmvStepResult onTransactionCompletion(EmvEngine engine, TransactionConfig config,
+    public void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        if (lastAuth != null) {
-            if (lastAuth.isApproved()) {
-                return EmvStepResult.approved("ONLINE APPROVED");
-            }
-            return EmvStepResult.declined(lastAuth.getMessage() != null
-                    ? lastAuth.getMessage() : "DECLINED");
+        if (card.isContactless() && lastAuth == null) {
+            finishApproved("OFFLINE APPROVED");
+            return;
         }
-        return EmvStepResult.approved("APPROVED");
+        if (lastAuth != null && lastAuth.isApproved()) {
+            finishApproved("ONLINE APPROVED");
+        } else if (lastAuth != null) {
+            finishDeclined(lastAuth.getMessage() != null ? lastAuth.getMessage() : "DECLINED");
+        } else {
+            finishApproved("APPROVED");
+        }
     }
 
     private static void sleep(long ms) {

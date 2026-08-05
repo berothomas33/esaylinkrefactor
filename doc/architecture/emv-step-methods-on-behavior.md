@@ -1,68 +1,51 @@
-# EMV step methods on EmvBehavior
+# EMV steps: vendor method + goToStep
 
-**Approach:** Template Method — every EMV phase is a method on {@code EmvBehavior}.
-Vendors extend {@code AbstractEmvBehavior} and override only the steps they own.
+## الفكرة
 
-## Why this (not one class per step)
+مفيش runner بيرصّ كل الخطوات في `if (!run) return`.
 
-Vendors already extend one `EmvBehavior`. Putting `onApplicationSelection()`,
-`onReadApplicationData()`, … on that type means each vendor writes its action
-in its own step method — no registry, no 17 separate classes, no giant switch
-inside `start()`.
-
-## Contract
-
-```text
-PosTerminal
-  → prepare()  → onTerminalInitialization()
-  → searchCard()          (PosTerminal / SEARCH_CARD)
-  → start()
-       → onSearchCard()   (default Skip)
-       → onApplicationSelection()
-       → onWaitApplicationSelection()
-       → onFinalApplicationSelection()
-       → onReadApplicationData()
-       → onSetTransactionData()
-       → onOfflineDataAuthentication()
-       → onProcessRestrictions()
-       → onCardholderVerification()
-       → onOfflinePinVerification()
-       → onTerminalRiskManagement()
-       → onTerminalActionAnalysis()
-       → onStartOnlineProcess()
-       → onIssuerAuthentication()
-       → onScriptProcessing()
-       → onTransactionCompletion()
-```
-
-Each method returns {@code EmvStepResult}: Continue / Skip / Fail / Approved / Declined.
-
-## Classes
-
-| Type | Role |
-|------|------|
-| `EmvBehavior` | Declares lifecycle + all `onXxx` step hooks (defaults = Continue/Skip) |
-| `EmvStepResult` | Step outcome |
-| `AbstractEmvBehavior` | Runs steps in order; vendors override `onXxx` |
-| `FakeEmvBehavior` | Demo overrides per step |
-| `IngenicoEmvBehavior` | Stub overrides; ready for SDK |
-| `PaxEmvBehavior` | Still kernel-callback `start()`; can migrate hooks later |
-
-## Vendor recipe
+1. الـ engine / `start` يدخل أول خطوة (مثلاً `APPLICATION_SELECTION`)
+2. يبلّغ على **EmvStep observable**
+3. ينادي method الـ vendor (`onApplicationSelection`)
+4. الـ vendor يخلّص شغله، وبعدين:
 
 ```java
-public class MyVendorEmvBehavior extends AbstractEmvBehavior {
-    @Override
-    public EmvStepResult onApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence card) {
-        // vendor-specific AID / PPSE work
-        return EmvStepResult.continueResult();
-    }
+goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
+```
 
-    @Override
-    public EmvStepResult onStartOnlineProcess(EmvEngine e, TransactionConfig c, CardPresence card) {
-        AuthResult auth = e.authorize(c);
-        // store auth…
-        return EmvStepResult.continueResult();
-    }
+ده ينشر الخطوة على الـ observable وينفّذ الـ method الجاية.
+
+## مثال (Fake)
+
+```java
+@Override
+public void onApplicationSelection(EmvEngine engine, TransactionConfig config, CardPresence card) {
+    // شغل الـ vendor هنا…
+    goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
+}
+
+@Override
+public void onWaitApplicationSelection(...) {
+    goToStep(EmvStep.FINAL_APPLICATION_SELECTION);
 }
 ```
+
+تخطي (CLSS / mag): اختار الخطوة الجاية بنفسك:
+
+```java
+goToStep(EmvStep.READ_APPLICATION_DATA);      // تخطي wait/final
+goToStep(EmvStep.TRANSACTION_COMPLETION);   // أو للنهاية
+```
+
+إنهاء المعاملة:
+
+```java
+finishApproved("ONLINE APPROVED");
+finishDeclined("…");
+finishError("…");
+```
+
+## ملاحظة
+
+`onTerminalInitialization` **متستدعش** `goToStep` — بعدها `PosTerminal.searchCard`.
+`start()` هو اللي يفتح أول خطوة بعد البحث.

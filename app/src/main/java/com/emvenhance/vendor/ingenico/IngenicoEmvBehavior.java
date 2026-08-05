@@ -5,15 +5,14 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
-import com.emvenhance.core.terminal.EmvStepResult;
 
 /**
- * Ingenico stub — extends {@link AbstractEmvBehavior} so each EMV step is an overridable
- * method. Replace step bodies when the Ingenico SDK is wired.
+ * Ingenico stub — each step ends with {@link #goToStep} (EmvStep observable → next method).
  */
 public class IngenicoEmvBehavior extends AbstractEmvBehavior {
 
@@ -21,84 +20,69 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
 
     @Nullable
     private AuthResult lastAuth;
+    @Nullable
+    private String stubPan;
+    @Nullable
+    private String stubMode;
 
     @Override
-    public EmvStepResult onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
+    public void onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
         lastAuth = null;
-        Log.w(TAG, "Ingenico EMV SDK not attached — stub prepare");
-        return EmvStepResult.continueResult("Ingenico stub");
+        Log.w(TAG, "Ingenico EMV SDK not attached — stub init");
+        // Do not goToStep — PosTerminal searches next.
     }
 
     @Override
-    protected void runContactFlow(EmvEngine engine, TransactionConfig config, CardPresence card) {
-        stubAbbreviated(engine, config, card, "Chip", "4111111111111111");
-    }
-
-    @Override
-    protected void runContactlessFlow(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        stubAbbreviated(engine, config, card, "Contactless", "5555444433332222");
-    }
-
-    @Override
-    protected void runMagstripeFlow(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        String pan = card.getTrack2() != null
-                ? card.getTrack2().split("[=D]")[0] : "4111111111111111";
-        stubAbbreviated(engine, config, card, "Magstripe", pan);
-    }
-
-    @Override
-    protected void runManualFlow(EmvEngine engine, TransactionConfig config, CardPresence card) {
-        stubAbbreviated(engine, config, card, "Manual",
-                card.getManualPan() != null ? card.getManualPan() : "");
-    }
-
-    private void stubAbbreviated(EmvEngine engine, TransactionConfig config, CardPresence card,
-            String mode, String pan) {
-        if (!run(com.emvenhance.core.event.EmvStep.APPLICATION_SELECTION,
-                () -> onApplicationSelection(engine, config, card))) {
-            return;
+    protected EmvStep firstStepAfterSearch(CardPresence card) {
+        stubMode = card.getModeLabel();
+        if (card.isChip()) {
+            stubPan = "4111111111111111";
+        } else if (card.isContactless()) {
+            stubPan = "5555444433332222";
+        } else if (card.isMagstripe()) {
+            stubPan = card.getTrack2() != null
+                    ? card.getTrack2().split("[=D]")[0] : "4111111111111111";
+        } else {
+            stubPan = card.getManualPan() != null ? card.getManualPan() : "";
         }
+        return EmvStep.APPLICATION_SELECTION;
+    }
+
+    @Override
+    public void onApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        goToStep(EmvStep.READ_APPLICATION_DATA, "ingenico-" + stubMode);
+    }
+
+    @Override
+    public void onReadApplicationData(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
-        if (!run(com.emvenhance.core.event.EmvStep.READ_APPLICATION_DATA, () -> {
-            engine.notifyCardDetected(pan, "Ingenico Stub", "", mode);
-            engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
-            return EmvStepResult.continueResult();
-        })) {
-            return;
-        }
-        if (!run(com.emvenhance.core.event.EmvStep.START_ONLINE_PROCESS,
-                () -> onStartOnlineProcess(engine, config, card))) {
-            return;
-        }
-        run(com.emvenhance.core.event.EmvStep.TRANSACTION_COMPLETION,
-                () -> onTransactionCompletion(engine, config, card));
+        engine.notifyCardDetected(stubPan != null ? stubPan : "", "Ingenico Stub", "",
+                stubMode != null ? stubMode : card.getModeLabel());
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
+        goToStep(EmvStep.START_ONLINE_PROCESS);
     }
 
     @Override
-    public EmvStepResult onApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        return EmvStepResult.continueResult("ingenico-" + card.getModeLabel());
-    }
-
-    @Override
-    public EmvStepResult onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
+    public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (isCancelled()) {
-            return EmvStepResult.fail("Cancelled");
+            finishError("Cancelled");
+            return;
         }
         lastAuth = engine.authorize(config);
-        return EmvStepResult.continueResult();
+        goToStep(EmvStep.TRANSACTION_COMPLETION);
     }
 
     @Override
-    public EmvStepResult onTransactionCompletion(EmvEngine engine, TransactionConfig config,
+    public void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (lastAuth != null && lastAuth.isApproved()) {
-            return EmvStepResult.approved("INGENICO STUB APPROVED");
+            finishApproved("INGENICO STUB APPROVED");
+        } else {
+            finishDeclined(lastAuth != null && lastAuth.getMessage() != null
+                    ? lastAuth.getMessage() : "DECLINED");
         }
-        return EmvStepResult.declined(lastAuth != null && lastAuth.getMessage() != null
-                ? lastAuth.getMessage() : "DECLINED");
     }
 }
