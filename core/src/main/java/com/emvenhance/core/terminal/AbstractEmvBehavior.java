@@ -89,6 +89,23 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         enterStep(step, detail);
     }
 
+    /**
+     * Publish {@code step} on the EmvStep observable <em>without</em> invoking the vendor
+     * {@code onXxx} method. Use from kernel callbacks (PAX) where the L2 process already
+     * owns the phase — only the UI/observable needs to advance.
+     */
+    protected final void announceStep(EmvStep step) {
+        announceStep(step, null);
+    }
+
+    protected final void announceStep(EmvStep step, @Nullable String detail) {
+        if (engine == null) {
+            return;
+        }
+        currentStep = step;
+        engine.notifyEmvStep(step, detail);
+    }
+
     /** Convenience: advance to the default next EMV step after {@link #currentStep()}. */
     protected final void goToNextLevel() {
         EmvStep next = defaultNext(currentStep);
