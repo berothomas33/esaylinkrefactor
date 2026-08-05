@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">EMV Enhance Refactor</string>
-    <string name="subtitle">Java + RxJava EMV flow: 17 steps, printer and communication behaviours</string>
+    <string name="subtitle">PosTerminal accepts any card; vendor owns search + EMV</string>
     <string name="vendor_label">VENDOR = %1$s</string>
     <string name="label_step">EMV step</string>
     <string name="label_pan">PAN</string>
     <string name="label_issuer">Issuer</string>
     <string name="label_result">Result</string>
-    <string name="action_contact">Start contact transaction</string>
-    <string name="action_contactless">Start contactless transaction</string>
+    <string name="action_accept_card">Present card (any)</string>
+    <string name="action_contact">Chip only</string>
+    <string name="action_contactless">Contactless only</string>
+    <string name="action_cancel">Cancel</string>
     <string name="placeholder">—</string>
 </resources>

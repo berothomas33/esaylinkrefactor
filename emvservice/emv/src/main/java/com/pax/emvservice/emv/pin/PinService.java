@@ -25,7 +25,7 @@ import com.pax.dal.IPed;
 import com.pax.dal.entity.EKeyCode;
 import com.pax.dal.entity.EPinBlockMode;
 import com.pax.dal.exceptions.PedDevException;
-import com.pax.emvservice.export.EmvServiceConstant;
+import com.pax.emvservice.export.constant.EmvServiceConstant;
 import com.pax.emvservice.export.exceptions.PinException;
 import com.pax.emvservice.export.pin.IPinService;
 import com.pax.emvservice.export.pin.PinInputCallback;

@@ -25,8 +25,8 @@ import com.pax.bizentity.entity.Issuer;
 import com.pax.bizlib.card.PanUtils;
 import com.pax.bizlib.card.TrackUtils;
 import com.pax.dal.entity.TrackData;
-import com.pax.emvservice.export.EmvServiceConstant;
-import com.pax.emvservice.export.IMagCardService;
+import com.pax.emvservice.export.constant.EmvServiceConstant;
+import com.pax.emvservice.export.mag.IMagCardService;
 import com.pax.poslib.utils.PosDeviceUtils;
 import com.sankuai.waimai.router.annotation.RouterService;
 

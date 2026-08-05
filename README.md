@@ -1,49 +1,84 @@
-# EmvEnhanceRefactor — multi-vendor EMV / POS enhance
+# EmvEnhanceRefactor
+
+Vendor-agnostic POS EMV: **one `PosTerminal` API for any card / any vendor**.
 
 ## Architecture
 
 ```text
-UI (Coroutines / RxJava)
-  → PosEmvFacade          (:core)
-      → EmvStepEngine     (7 EMV steps + print / 2nd tap / remove card)
-      → DevicePorts
-           ├─ FakeDeviceFactory
-           ├─ PaxDeviceFactory      (:emvflow + PAX libs)
-           ├─ IngenicoDeviceFactory (stub)
-           └─ SunmiDeviceFactory    (stub)
+UI  →  PosTerminal.acceptCard() / startTransaction()
+         ├── EmvBehavior.prepare()
+         ├── searchCard(config, CardSearchListener)   ← vendor readers
+         └── EmvBehavior.start(engine, config, card)  ← vendor EMV
+
+EmvEngine — thin subjects + notify* → behavior.dispatch*
 ```
 
-## Select vendor
+## Package layout
 
-In `app/build.gradle` / BuildConfig:
+### `:core` — `com.emvenhance.core.*`
 
-| `VENDOR` | Adapter |
-|----------|---------|
-| `FAKE` | phone / UI demo (default debug) |
-| `PAX` | real Router EMV via `:emvflow` (default release) |
-| `INGENICO` | stub — wire Tetra/Axium later |
-| `SUNMI` | stub — wire Sunmi Pay later |
+| Package | Contents |
+|---------|----------|
+| `terminal` | `PosTerminal` (owns host + printer), `EmvBehavior` (EMV only) |
+| `engine` | `EmvEngine` |
+| `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
+| `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
+| `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult` — owned by PosTerminal |
 
-Gradle example: `./gradlew :app:assembleDebug -PVENDOR=PAX`
+### `:emvflow` — `com.emvenhance.emvflow.*`
 
-## 7 EMV steps (`EmvStep`)
+| Package | Contents |
+|---------|----------|
+| `runtime` | `EmvFlowRuntime` (DAL / WMRouter lazy init) |
+| `preprocess` | `EmvPreProcessFacade` |
+| `progress` | `EmvStepProgress` |
+| `device` | `EmvDeviceImpl`, cipher mode |
+| `pin` | `IPinTask` |
 
-1. Application selection  
-2. Initiate application (GPO)  
-3. Read application data  
-4. Offline auth + restrictions  
-5. Cardholder verification (CVM)  
-6. Terminal risk + action analysis  
-7. Online / completion (+ **print receipt**)
+### `:emvservice:export` — `com.pax.emvservice.export.*`
 
-## State vs events
+| Package | Contents |
+|---------|----------|
+| `api` | `IEmvBase`, `IEmvCallback`, `IEmvCardInfoService`, … |
+| `contact` / `contactless` | Contact / CLSS service + result listeners |
+| `mag` / `manual` | Magstripe / manual entry APIs |
+| `pin` / `version` / `constant` / `exceptions` | Supporting APIs |
 
-- **StateFlow / BehaviorSubject** → `TransUiState` (step, PAN, result)  
-- **SharedFlow / PublishSubject** → `EmvEvent` (dialogs, print, 2nd tap, step toast)
+### `:emvservice:emv` — `com.pax.emvservice.emv.*`
 
-## Modules
+| Package | Contents |
+|---------|----------|
+| `init` | `EmvInit` |
+| `contact` / `contactless` / `mag` / `manual` / `pin` / `version` | Concrete Router services |
 
-- `:core` — ports, steps, POS behaviors, facade (no vendor SDKs)  
-- `:emvflow` — PAX Contact/Contactless runners + EmvDeviceImpl  
-- PAX stack — emvbase, emvlib, emvservice, poslib, …  
-- `:app` — UI + adapters
+### `:emvbase` — `com.pax.emvbase.*` (unchanged roots)
+
+`constant` · `param` (common/contact/clss) · `process` (contact/contactless/entity/enums) · `utils`
+
+### `:app` — vendors
+
+```text
+vendor.TerminalFactory
+vendor.pax / vendor.fake / vendor.ingenico
+```
+
+## Vendors
+
+```text
+TerminalFactory.create(VENDOR)
+  PAX      → PaxTerminal → PaxEmvBehavior
+  INGENICO → IngenicoTerminal → IngenicoEmvBehavior (stub)
+  FAKE     → FakeTerminal → FakeEmvBehavior
+```
+
+Gradle: `./gradlew :app:assembleDebug -PVENDOR=PAX`
+
+## Card search events
+
+`CardSearchListener`: started · chip · contactless · mag · manual · removed · timeout · cancelled · error.
+
+## Documentation
+
+Architecture reviews and design notes (PDF + Markdown):
+
+→ [`docs/architecture/`](docs/architecture/)
