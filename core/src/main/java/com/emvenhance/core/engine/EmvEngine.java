@@ -1,14 +1,19 @@
 package com.emvenhance.core.engine;
+import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
 
 import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -16,6 +21,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>{@link PosTerminal} owns search; {@link EmvBehavior} owns EMV; this class only
  * publishes steps and dispatches to behavior hooks.
+ *
+ * <p>{@link PosTerminal} also attaches its {@link CommunicationBehavior} and
+ * {@link PrinterBehavior} here once, at construction. {@link #authorize} and
+ * {@link #print} are pass-throughs to whatever {@code PosTerminal} attached — a vendor's
+ * {@link EmvBehavior} calls them without ever holding a reference to either port itself.
  */
 public final class EmvEngine {
 
@@ -29,6 +39,12 @@ public final class EmvEngine {
     @Nullable
     private EmvBehavior behavior;
 
+    @Nullable
+    private CommunicationBehavior communication;
+
+    @Nullable
+    private PrinterBehavior printer;
+
     public void attachBehavior(EmvBehavior behavior) {
         this.behavior = behavior;
     }
@@ -36,6 +52,16 @@ public final class EmvEngine {
     @Nullable
     public EmvBehavior getBehavior() {
         return behavior;
+    }
+
+    /** Called once by {@link com.emvenhance.core.terminal.PosTerminal}'s constructor. */
+    public void attachCommunication(CommunicationBehavior communication) {
+        this.communication = communication;
+    }
+
+    /** Called once by {@link com.emvenhance.core.terminal.PosTerminal}'s constructor. */
+    public void attachPrinter(PrinterBehavior printer) {
+        this.printer = printer;
     }
 
     public Observable<TransactionStepEvent> transactionSteps() {
@@ -123,5 +149,41 @@ public final class EmvEngine {
     public void notifyCompleted() {
         notifyTransactionStep(TransactionStepEvent.of(TransactionStep.COMPLETED));
         running.set(false);
+    }
+
+    // ─── Host ports (attached by PosTerminal, called by EmvBehavior) ──────
+
+    /**
+     * Requests host authorization through the {@link CommunicationBehavior} attached by
+     * {@link com.emvenhance.core.terminal.PosTerminal}. Publishes
+     * {@code ONLINE_REQUIRED} / {@code ONLINE_PROCESSING} / {@code ONLINE_COMPLETED} around
+     * the call, so a vendor's {@link EmvBehavior} gets the notify sequence for free instead
+     * of repeating it.
+     */
+    public AuthResult authorize(TransactionConfig config) {
+        if (communication == null) {
+            throw new IllegalStateException("No CommunicationBehavior attached to EmvEngine");
+        }
+        notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        AuthResult result;
+        try {
+            result = communication.authorize(config).blockingGet();
+        } catch (Exception e) {
+            result = AuthResult.declined("96",
+                    e.getMessage() != null ? e.getMessage() : "Online failed");
+        }
+        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+                .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
+                .build());
+        return result;
+    }
+
+    /** Prints through the {@link PrinterBehavior} attached by {@code PosTerminal}. */
+    public void print(List<String> lines) {
+        if (printer == null) {
+            throw new IllegalStateException("No PrinterBehavior attached to EmvEngine");
+        }
+        printer.print(lines).blockingAwait();
     }
 }

@@ -27,7 +27,7 @@ public class IngenicoTerminal extends PosTerminal {
     }
 
     private IngenicoTerminal(CommunicationBehavior communication, PrinterBehavior printer) {
-        super(new EmvEngine(), new IngenicoEmvBehavior(communication), communication, printer);
+        super(new EmvEngine(), new IngenicoEmvBehavior(), communication, printer);
     }
 
     @Override

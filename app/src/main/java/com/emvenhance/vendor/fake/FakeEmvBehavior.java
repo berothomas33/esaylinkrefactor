@@ -8,25 +8,20 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
-import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Fake vendor EMV behavior. Uses the same {@link CommunicationBehavior} instance owned
- * by {@link FakeTerminal} for online — printer stays on the terminal.
+ * Fake vendor EMV behavior. Online goes through {@link EmvEngine#authorize} — the engine
+ * forwards to whatever {@link com.emvenhance.core.host.CommunicationBehavior}
+ * {@link FakeTerminal} attached. This class never holds that reference itself.
  */
 public class FakeEmvBehavior implements EmvBehavior {
 
-    private final CommunicationBehavior communication;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     @Nullable
     private TransactionConfig activeConfig;
-
-    public FakeEmvBehavior(CommunicationBehavior communication) {
-        this.communication = communication;
-    }
 
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
@@ -117,13 +112,7 @@ public class FakeEmvBehavior implements EmvBehavior {
 
     private void finishOnline(EmvEngine engine, boolean emitIssuerSteps) {
         engine.notifyEmvStep(EmvStep.START_ONLINE_PROCESS);
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
-
-        AuthResult auth = authorize();
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
-                .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
-                .build());
+        AuthResult auth = authorize(engine);
 
         if (emitIssuerSteps) {
             engine.notifyEmvStep(EmvStep.ISSUER_AUTHENTICATION);
@@ -138,16 +127,11 @@ public class FakeEmvBehavior implements EmvBehavior {
         engine.notifyCompleted();
     }
 
-    private AuthResult authorize() {
+    private AuthResult authorize(EmvEngine engine) {
         if (cancelled.get()) {
             return AuthResult.declined("17", "Cancelled");
         }
-        try {
-            return communication.authorize(activeConfig).blockingGet();
-        } catch (Exception e) {
-            return AuthResult.declined("96",
-                    e.getMessage() != null ? e.getMessage() : "Online failed");
-        }
+        return engine.authorize(activeConfig);
     }
 
     private static void sleep(long ms) {

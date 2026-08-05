@@ -51,6 +51,8 @@ public abstract class PosTerminal {
         this.communication = communication;
         this.printer = printer;
         this.engine.attachBehavior(behavior);
+        this.engine.attachCommunication(communication);
+        this.engine.attachPrinter(printer);
         initializeVendor();
     }
 
@@ -62,14 +64,18 @@ public abstract class PosTerminal {
         return printer;
     }
 
-    /** Host authorize via the terminal-owned {@link CommunicationBehavior}. */
+    /**
+     * Host authorize via the terminal-owned {@link CommunicationBehavior}, through
+     * {@link EmvEngine#authorize}. Same call {@link EmvBehavior} implementations use — one
+     * implementation, whether it's the terminal or a vendor asking.
+     */
     public AuthResult authorize(TransactionConfig config) {
-        return communication.authorize(config).blockingGet();
+        return engine.authorize(config);
     }
 
-    /** Print receipt lines via the terminal-owned {@link PrinterBehavior}. */
+    /** Print receipt lines via the terminal-owned {@link PrinterBehavior}, through {@link EmvEngine#print}. */
     public void printReceipt(List<String> lines) {
-        printer.print(lines).blockingAwait();
+        engine.print(lines);
     }
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────

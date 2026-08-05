@@ -10,26 +10,22 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
-import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Ingenico EMV stub. Uses the terminal-owned {@link CommunicationBehavior} for online.
+ * Ingenico EMV stub. Online goes through {@link EmvEngine#authorize} — the engine forwards
+ * to whatever {@link com.emvenhance.core.host.CommunicationBehavior} {@code IngenicoTerminal}
+ * attached. This class never holds that reference itself.
  */
 public class IngenicoEmvBehavior implements EmvBehavior {
 
     private static final String TAG = "IngenicoEmvBehavior";
 
-    private final CommunicationBehavior communication;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     @Nullable
     private TransactionConfig activeConfig;
-
-    public IngenicoEmvBehavior(CommunicationBehavior communication) {
-        this.communication = communication;
-    }
 
     @Override
     public boolean prepare(@NonNull EmvEngine engine, @NonNull TransactionConfig config) {
@@ -82,13 +78,7 @@ public class IngenicoEmvBehavior implements EmvBehavior {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
 
         engine.notifyEmvStep(EmvStep.START_ONLINE_PROCESS);
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
-
-        AuthResult auth = authorize();
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
-                .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
-                .build());
+        AuthResult auth = authorize(engine);
         engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION);
         if (auth.isApproved()) {
             engine.notifyApproved("INGENICO STUB APPROVED");
@@ -98,15 +88,10 @@ public class IngenicoEmvBehavior implements EmvBehavior {
         engine.notifyCompleted();
     }
 
-    private AuthResult authorize() {
+    private AuthResult authorize(EmvEngine engine) {
         if (cancelled.get()) {
             return AuthResult.declined("17", "Cancelled");
         }
-        try {
-            return communication.authorize(activeConfig).blockingGet();
-        } catch (Exception e) {
-            return AuthResult.declined("96",
-                    e.getMessage() != null ? e.getMessage() : "Online failed");
-        }
+        return engine.authorize(activeConfig);
     }
 }

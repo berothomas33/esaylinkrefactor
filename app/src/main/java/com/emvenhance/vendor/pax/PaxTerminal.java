@@ -47,8 +47,7 @@ public class PaxTerminal extends PosTerminal {
     private PaxTerminal(PaxKernel kernel,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
-        super(new EmvEngine(), new PaxEmvBehavior(kernel, communication),
-                communication, printer);
+        super(new EmvEngine(), new PaxEmvBehavior(kernel), communication, printer);
         this.kernel = kernel;
     }
 

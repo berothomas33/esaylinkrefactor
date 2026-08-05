@@ -9,7 +9,6 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
-import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.emvflow.preprocess.EmvPreProcessFacade;
@@ -41,7 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * PAX vendor EMV behavior — direct composition with concrete PAX kernels.
  *
- * <p>EMV only (no host / printer). This class <em>is</em> the PAX
+ * <p>EMV only (no host / printer — those live on {@link PosTerminal}, reached through
+ * {@link EmvEngine#authorize}). This class <em>is</em> the PAX
  * {@link IContactCallback} / {@link IContactlessCallback} and notifies {@link EmvEngine}.
  */
 public class PaxEmvBehavior implements EmvBehavior,
@@ -51,7 +51,6 @@ public class PaxEmvBehavior implements EmvBehavior,
     private static final String TAG = "PaxEmvBehavior";
 
     private final PaxKernel kernel;
-    private final CommunicationBehavior communication;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     @Nullable
@@ -63,9 +62,8 @@ public class PaxEmvBehavior implements EmvBehavior,
     @Nullable
     private EmvStepProgress progress;
 
-    public PaxEmvBehavior(PaxKernel kernel, CommunicationBehavior communication) {
+    public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
-        this.communication = communication;
     }
 
     // ─── Lifecycle (search is owned by PaxTerminal) ──────────────────────
@@ -440,27 +438,16 @@ public class PaxEmvBehavior implements EmvBehavior,
     }
 
     /**
-     * Online via the same {@link CommunicationBehavior} owned by {@link PaxTerminal}.
+     * Online via {@link EmvEngine#authorize} — the engine forwards to whatever
+     * {@link com.emvenhance.core.host.CommunicationBehavior} {@link PaxTerminal} attached.
+     * This class never holds that reference itself.
      */
     @NonNull
     private AuthResult requestOnline(@NonNull EmvEngine eng) {
-        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
-        AuthResult auth;
         if (cancelled.get()) {
-            auth = AuthResult.declined("17", "Cancelled");
-        } else {
-            try {
-                auth = communication.authorize(activeConfig).blockingGet();
-            } catch (Exception e) {
-                auth = AuthResult.declined("96",
-                        e.getMessage() != null ? e.getMessage() : "Online failed");
-            }
+            return AuthResult.declined("17", "Cancelled");
         }
-        eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
-                .put(TransactionStepEvent.KEY_RESULT, auth.getMessage())
-                .build());
-        return auth;
+        return eng.authorize(activeConfig);
     }
 
     @NonNull

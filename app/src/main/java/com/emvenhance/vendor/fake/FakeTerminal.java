@@ -24,7 +24,7 @@ public class FakeTerminal extends PosTerminal {
     }
 
     private FakeTerminal(CommunicationBehavior communication, PrinterBehavior printer) {
-        super(new EmvEngine(), new FakeEmvBehavior(communication), communication, printer);
+        super(new EmvEngine(), new FakeEmvBehavior(), communication, printer);
     }
 
     @Nullable
