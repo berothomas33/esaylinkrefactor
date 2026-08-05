@@ -49,3 +49,17 @@ finishError("…");
 
 `onTerminalInitialization` **متستدعش** `goToStep` — بعدها `PosTerminal.searchCard`.
 `start()` هو اللي يفتح أول خطوة بعد البحث.
+
+## PAX
+
+`PaxEmvBehavior extends AbstractEmvBehavior`:
+
+| Path | How it advances |
+|------|-----------------|
+| Mag / Manual | `goToStep` like Fake (`READ` → `ONLINE` → `COMPLETION`) |
+| Chip / CLSS | `onApplicationSelection` starts PAX kernel; callbacks use **`announceStep`** (observable only — kernel owns the phase, no re-enter `onXxx`) |
+
+```java
+// Kernel callback example
+announceKernelStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN");
+```
