@@ -74,6 +74,8 @@ Behaviors **do not** call the next behavior directly. They return an outcome; th
 
 ## 3. UML / class diagram
 
+### 3.1 Core orchestration
+
 ```mermaid
 classDiagram
     direction TB
@@ -207,7 +209,9 @@ classDiagram
     EmvEngine ..> EmvSignal : resume(signal)
 ```
 
-### Per-step behaviors (one class each)
+### 3.2 Per-step behaviors (one class each — single `execute()`)
+
+Each EMV phase is an independent class. The engine never inlines phase logic; it only calls `execute` / `onSignal`.
 
 ```mermaid
 classDiagram
@@ -228,6 +232,74 @@ classDiagram
     EmvStepBehavior <|.. IssuerAuthenticationBehavior
     EmvStepBehavior <|.. ScriptProcessingBehavior
     EmvStepBehavior <|.. TransactionCompletionBehavior
+```
+
+| EmvStep | Behavior class | Entry method |
+|---------|----------------|--------------|
+| `TERMINAL_INITIALIZATION` | `TerminalInitializationBehavior` | `execute()` |
+| `SEARCH_CARD` | `SearchCardBehavior` | `execute()` |
+| `APPLICATION_SELECTION` | `ApplicationSelectionBehavior` | `execute()` |
+| `WAIT_APPLICATION_SELECTION` | `WaitApplicationSelectionBehavior` | `execute()` → often `WaitInteraction` |
+| `FINAL_APPLICATION_SELECTION` | `FinalApplicationSelectionBehavior` | `execute()` |
+| `READ_APPLICATION_DATA` | `ReadApplicationDataBehavior` | `execute()` |
+| `SET_TRANSACTION_DATA` | `SetTransactionDataBehavior` | `execute()` |
+| `OFFLINE_DATA_AUTHENTICATION` | `OfflineDataAuthenticationBehavior` | `execute()` |
+| `PROCESS_RESTRICTIONS` | `ProcessRestrictionsBehavior` | `execute()` |
+| `CARDHOLDER_VERIFICATION` | `CardholderVerificationBehavior` | `execute()` / `onSignal()` |
+| `OFFLINE_PIN_VERIFICATION` | `OfflinePinVerificationBehavior` | `execute()` / `onSignal()` |
+| `TERMINAL_RISK_MANAGEMENT` | `TerminalRiskManagementBehavior` | `execute()` |
+| `TERMINAL_ACTION_ANALYSIS` | `TerminalActionAnalysisBehavior` | `execute()` |
+| `START_ONLINE_PROCESS` | `StartOnlineProcessBehavior` | `execute()` → often `WaitAsync` |
+| `ISSUER_AUTHENTICATION` | `IssuerAuthenticationBehavior` | `execute()` |
+| `SCRIPT_PROCESSING` | `ScriptProcessingBehavior` | `execute()` / `onSignal()` |
+| `TRANSACTION_COMPLETION` | `TransactionCompletionBehavior` | `execute()` |
+
+### 3.3 State machine — engine + step graph
+
+Engine lifecycle (orthogonal to `EmvStep`):
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> RUNNING: begin + start(card)
+    RUNNING --> WAITING: WaitInteraction / WaitAsync
+    WAITING --> RUNNING: resume(signal) / onSignal
+    RUNNING --> RUNNING: Success/Skip → next step
+    RUNNING --> COMPLETED: last step Success
+    RUNNING --> FAILED: Failure (not retryable)
+    WAITING --> FAILED: Timeout / hard Failure
+    RUNNING --> CANCELLED: cancel()
+    WAITING --> CANCELLED: cancel() / UserCancel
+    COMPLETED --> IDLE: reset
+    FAILED --> IDLE: reset
+    CANCELLED --> IDLE: reset
+```
+
+Default contact chip transition graph (policy-owned; behaviors only write context facts):
+
+```mermaid
+stateDiagram-v2
+    [*] --> TERMINAL_INITIALIZATION
+    TERMINAL_INITIALIZATION --> SEARCH_CARD
+    SEARCH_CARD --> APPLICATION_SELECTION
+    APPLICATION_SELECTION --> WAIT_APPLICATION_SELECTION: multiple AIDs
+    APPLICATION_SELECTION --> FINAL_APPLICATION_SELECTION: single AID
+    WAIT_APPLICATION_SELECTION --> FINAL_APPLICATION_SELECTION
+    FINAL_APPLICATION_SELECTION --> READ_APPLICATION_DATA
+    READ_APPLICATION_DATA --> SET_TRANSACTION_DATA
+    SET_TRANSACTION_DATA --> OFFLINE_DATA_AUTHENTICATION
+    OFFLINE_DATA_AUTHENTICATION --> PROCESS_RESTRICTIONS
+    PROCESS_RESTRICTIONS --> CARDHOLDER_VERIFICATION
+    CARDHOLDER_VERIFICATION --> OFFLINE_PIN_VERIFICATION: CVM=OFFLINE_PIN
+    CARDHOLDER_VERIFICATION --> TERMINAL_RISK_MANAGEMENT: other CVM
+    OFFLINE_PIN_VERIFICATION --> TERMINAL_RISK_MANAGEMENT
+    TERMINAL_RISK_MANAGEMENT --> TERMINAL_ACTION_ANALYSIS
+    TERMINAL_ACTION_ANALYSIS --> START_ONLINE_PROCESS: go online
+    TERMINAL_ACTION_ANALYSIS --> TRANSACTION_COMPLETION: offline approve/decline
+    START_ONLINE_PROCESS --> ISSUER_AUTHENTICATION
+    ISSUER_AUTHENTICATION --> SCRIPT_PROCESSING
+    SCRIPT_PROCESSING --> TRANSACTION_COMPLETION
+    TRANSACTION_COMPLETION --> [*]
 ```
 
 ---
@@ -308,6 +380,19 @@ EmvEngine                         EmvStepBehavior
     │         BehaviorResult             │
 ```
 
+### 5.1 `BehaviorResult` → engine action matrix
+
+| Result | Engine action | Next behavior selected by |
+|--------|---------------|---------------------------|
+| `Success` | Advance | `EmvTransitionPolicy.next(...)` (honors optional `suggestedNext`) |
+| `Skip` | Advance (no failure) | Same policy; treat as successful bypass |
+| `WaitInteraction` | Enter `WAITING`; call `EmvInteractionPort` | Same behavior via `onSignal` when UI resumes |
+| `WaitAsync` | Enter `WAITING`; arm timeout on `AsyncToken` | Same behavior via `onSignal` when kernel/host completes |
+| `Failure` (retryable) | Optionally retry same step | Same behavior `execute` again |
+| `Failure` (hard) | Enter `FAILED`; cleanup | None — transaction ends |
+
+Behaviors do **not** “trigger the next step” by instantiating a sibling. They finish successfully; the **engine** triggers the next behavior. That still meets the product goal (“next step runs automatically after success”) while keeping behaviors isolated.
+
 Rules:
 
 1. Behaviors **never** hold a reference to another behavior.
@@ -315,7 +400,6 @@ Rules:
 3. Behaviors may suggest a next step in `Success.suggestedNext` (e.g. skip offline PIN when CVM is signature); the **policy** may accept or override.
 4. Side effects that need orchestration (host auth, UI) go through `BehaviorBridge` so the engine can publish matching `TransactionStep` events and enforce cancel/timeout.
 5. Existing Rx observers keep working: engine still emits `EmvStepEvent` / `TransactionStepEvent`.
-
 ---
 
 ## 6. How transitions between EMV steps occur

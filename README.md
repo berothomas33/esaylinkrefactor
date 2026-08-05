@@ -13,6 +13,10 @@ UI  →  PosTerminal.acceptCard() / startTransaction()
 EmvEngine — thin subjects + notify* → behavior.dispatch*
 ```
 
+**Target design (behavior-driven):** each EMV phase becomes an independent
+`EmvStepBehavior` orchestrated by `EmvEngine` via registry + transition policy.
+See [`doc/architecture/emv-behavior-driven-architecture.md`](doc/architecture/emv-behavior-driven-architecture.md)
+(design only — no implementation yet).
 ## Package layout
 
 ### `:core` — `com.emvenhance.core.*`
