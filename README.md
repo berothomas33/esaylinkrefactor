@@ -6,12 +6,16 @@ Vendor-agnostic POS EMV: **one `PosTerminal` API for any card / any vendor**.
 
 ```text
 UI  →  PosTerminal.acceptCard() / startTransaction()
-         ├── EmvBehavior.prepare()
-         ├── searchCard(config, CardSearchListener)   ← vendor readers
-         └── EmvBehavior.start(engine, config, card)  ← vendor EMV
+         ├── EmvBehavior.prepare()  → onTerminalInitialization()
+         ├── searchCard(...)        ← vendor readers
+         └── EmvBehavior.start()    → onApplicationSelection() … onTransactionCompletion()
 
 EmvEngine — thin subjects + notify* → behavior.dispatch*
 ```
+
+Vendors extend `AbstractEmvBehavior` and override EMV step methods
+(`onReadApplicationData`, `onStartOnlineProcess`, …). See
+[`doc/architecture/emv-step-methods-on-behavior.md`](doc/architecture/emv-step-methods-on-behavior.md).
 
 ## Package layout
 
