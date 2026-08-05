@@ -181,6 +181,85 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Chip/CLSS: result listeners call completeApproved / completeDeclined.
     }
 
+    // ─── Not reached via onXxx dispatch — required overrides, not stubs ──
+    //
+    // Chip/CLSS: PAX's own kernel (EmvContactService/ContactlessService.startTransProcess)
+    // runs these phases internally and reports them through announceKernelStep(), called from
+    // the IContactCallback / IContactResultListener methods further below — never through
+    // goToStep, so dispatchStepMethod never invokes the onXxx form for this path.
+    //
+    // Mag/manual: these EMV data phases don't apply. onApplicationSelection and
+    // onReadApplicationData above jump straight past them with explicit goToStep targets.
+    //
+    // EmvBehavior still requires an override for each — a compile error beats a vendor author
+    // forgetting a phase and inheriting a silent no-op.
+
+    @Override
+    public void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // See IContactCallback#onWaitAppSelect below for the chip/CLSS path.
+    }
+
+    @Override
+    public void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // See IContactCallback#onWaitAppSelect below.
+    }
+
+    @Override
+    public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // See IContactCallback#confirmCard / #showConfirmCard below.
+    }
+
+    @Override
+    public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Kernel-internal (SDA/DDA/CDA) — no callback exists; gap-filled by EmvStepProgress.
+    }
+
+    @Override
+    public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Kernel-internal — no callback exists; gap-filled by EmvStepProgress.
+    }
+
+    @Override
+    public void onCardholderVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // See IContactCallback#onCardHolderPwd below.
+    }
+
+    @Override
+    public void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // See IContactCallback#onCardHolderPwd below.
+    }
+
+    @Override
+    public void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Kernel-internal — no callback exists; gap-filled by EmvStepProgress.
+    }
+
+    @Override
+    public void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Kernel-internal — no callback exists; gap-filled by EmvStepProgress.
+    }
+
+    @Override
+    public void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // See IContactCallback#startOnlineProcess below.
+    }
+
+    @Override
+    public void onScriptProcessing(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Kernel-internal — applied inside completeApproved()'s script-processing announce.
+    }
+
     // ─── Kernel runners ──────────────────────────────────────────────────
 
     private void runContactlessKernel() {

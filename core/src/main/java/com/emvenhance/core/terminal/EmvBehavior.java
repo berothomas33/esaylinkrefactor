@@ -11,8 +11,15 @@ import com.emvenhance.core.event.TransactionStepEvent;
  *
  * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel}.
  *
- * <p>Each EMV phase is a method ({@code onApplicationSelection}, …). The vendor does its
- * work inside that method, then advances by calling
+ * <p>Each EMV phase is a method ({@code onApplicationSelection}, …), and — with the single
+ * exception of {@link #onSearchCard} — <b>every one of them is mandatory</b>: a vendor class
+ * that doesn't override all of them fails to compile. This is deliberate. A silently
+ * inherited no-op is indistinguishable from "the developer forgot this phase"; a compile
+ * error is not. For a phase your kernel drives internally with no callback, the correct body
+ * is a one-line comment saying so and, if the base class exposes it,
+ * {@link AbstractEmvBehavior#announceStep} — that is a real, considered answer, not a stub.
+ *
+ * <p>The vendor does its work inside the method, then advances by calling
  * {@link AbstractEmvBehavior#goToStep} (publishes on the EmvStep observable and runs the
  * next method). No central {@code if (!run) return} chain.
  *
@@ -26,57 +33,54 @@ public interface EmvBehavior {
 
     void cancel();
 
-    // ─── EMV step hooks — vendor writes action, then goToStep(next) ──────
+    // ─── EMV step hooks — mandatory. Vendor writes action, then goToStep(next) ────
 
-    default void onTerminalInitialization(EmvEngine engine, TransactionConfig config) { }
+    void onTerminalInitialization(EmvEngine engine, TransactionConfig config);
 
-    /** Usually owned by PosTerminal; default advances immediately. */
+    /**
+     * The one hook that stays optional. {@link PosTerminal#searchCard} is already the real,
+     * mandatory search implementation for every vendor — this method fires only if something
+     * explicitly {@code goToStep(EmvStep.SEARCH_CARD)}s, which nothing does today. Requiring
+     * an override here would force an empty body in every vendor for no benefit.
+     */
     default void onSearchCard(EmvEngine engine, TransactionConfig config, CardPresence card) { }
 
-    default void onApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onApplicationSelection(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    default void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
 
-    default void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
 
-    default void onReadApplicationData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onReadApplicationData(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    default void onSetTransactionData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onSetTransactionData(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    default void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
 
-    default void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onProcessRestrictions(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    default void onCardholderVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onCardholderVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
 
-    default void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
 
-    default void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
 
-    default void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
 
-    default void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onStartOnlineProcess(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    default void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onIssuerAuthentication(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    default void onScriptProcessing(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onScriptProcessing(EmvEngine engine, TransactionConfig config, CardPresence card);
 
-    default void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
-            CardPresence card) { }
+    void onTransactionCompletion(EmvEngine engine, TransactionConfig config, CardPresence card);
 
     // ─── Optional transaction-step observers ─────────────────────────────
 

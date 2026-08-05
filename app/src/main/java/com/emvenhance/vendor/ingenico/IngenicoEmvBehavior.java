@@ -54,6 +54,78 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
         goToStep(EmvStep.READ_APPLICATION_DATA, "ingenico-" + stubMode);
     }
 
+    // ─── Not reached — the stub jumps APPLICATION_SELECTION → READ_APPLICATION_DATA →
+    // START_ONLINE_PROCESS → TRANSACTION_COMPLETION directly above and below. These 11 exist
+    // because EmvBehavior requires every phase to be a conscious decision, not a silent
+    // inherited no-op. Wire real Ingenico SDK candidate-selection / CVM / risk-management
+    // logic into these when the SDK is attached, instead of deleting them. ─────────────────
+
+    @Override
+    public void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: no AID candidate list — the stub has exactly one application.
+    }
+
+    @Override
+    public void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: see onWaitApplicationSelection.
+    }
+
+    @Override
+    public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: no TLV set-up beyond the stub PAN/amount already in TransactionConfig.
+    }
+
+    @Override
+    public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: the stub does not simulate SDA/DDA/CDA.
+    }
+
+    @Override
+    public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: no AID/application usage-control checks in the stub.
+    }
+
+    @Override
+    public void onCardholderVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: the stub always goes straight to online, no CVM list processing.
+    }
+
+    @Override
+    public void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: see onCardholderVerification.
+    }
+
+    @Override
+    public void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: no floor limit / velocity checking in the stub.
+    }
+
+    @Override
+    public void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: the stub always requests online, so there is no TAA/GAC decision.
+    }
+
+    @Override
+    public void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: the stub's online result is final; no issuer authentication data (91) to check.
+    }
+
+    @Override
+    public void onScriptProcessing(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        // Not reached: the stub host never returns issuer scripts (71/72).
+    }
+
     @Override
     public void onReadApplicationData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
