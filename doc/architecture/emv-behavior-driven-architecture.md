@@ -1,6 +1,6 @@
 # EMV Behavior-Driven Architecture
 
-**Status:** Design (no implementation in this document)  
+**Status:** Implementation in progress (core contracts + engine orchestrator + Fake vertical slice)  
 **Audience:** POS / EMV engineers integrating contact, contactless, mag, and online flows  
 **Goal:** Replace monolithic vendor EMV logic with isolated, testable step behaviors orchestrated by a central engine
 
@@ -763,22 +763,22 @@ sequenceDiagram
 
 ## 16. Non-goals (this design phase)
 
-- No full rewrite of `:emvlib` / jemv JNI.
+- No full rewrite of `:emvlib` / jemv JNI in the first slice.
 - No change to ISO-8583 packing inside host adapters beyond using `CommunicationBehavior`.
-- No implementation code in this document — next phase is interfaces + skeleton registry + one vertical slice (e.g. Fake vendor).
+- PAX adapter (`PaxKernelPort`) is a follow-up — Fake proves orchestration first.
 
----
+## 17. Implementation status
 
-## 17. Suggested implementation order (when approved)
-
-1. Introduce `EmvStepBehavior`, `BehaviorResult`, `EmvContext`, `BehaviorBridge` in `:core`.
-2. Implement `EmvBehaviorRegistry` + `EmvTransitionPolicy` + engine wait/resume loop.
-3. Extract Fake path first (prove orchestration without PAX).
-4. Add real behaviors one-by-one behind feature flag; Pax adapter delegates kernel ops.
-5. Retire fat `PaxEmvBehavior` phase logic; keep thin vendor wiring.
-6. Remove obsolete `EmvStepProgress` gap-fill once emissions are authoritative.
-
----
+| Item | Status |
+|------|--------|
+| Core contracts (`EmvStepBehavior`, `BehaviorResult`, ports, `EmvContext`) | Done |
+| `EmvEngine` orchestrator (`prepareFlow` / `runFlow` / `resume` / cancel) | Done |
+| `DefaultEmvBehaviorRegistry` + `DefaultEmvTransitionPolicy` | Done |
+| All 17 step behaviors + `StandardEmvBehaviors` | Done |
+| Fake vertical slice (`FakeKernelPort` + `FakeEmvBehavior`) | Done |
+| Policy unit tests | Done |
+| PAX `EmvKernelPort` adapter / retire `PaxEmvBehavior` | Pending |
+| Remove `EmvStepProgress` gap-fill | Pending (after PAX) |
 
 ## 18. Summary
 

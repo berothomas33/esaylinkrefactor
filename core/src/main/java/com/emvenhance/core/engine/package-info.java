@@ -1,2 +1,2 @@
-/** Thin transaction event bus ({@code EmvEngine}). */
+/** EMV orchestrator + event bus ({@code EmvEngine}), context, cleanup. */
 package com.emvenhance.core.engine;

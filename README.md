@@ -6,17 +6,21 @@ Vendor-agnostic POS EMV: **one `PosTerminal` API for any card / any vendor**.
 
 ```text
 UI  →  PosTerminal.acceptCard() / startTransaction()
-         ├── EmvBehavior.prepare()
-         ├── searchCard(config, CardSearchListener)   ← vendor readers
-         └── EmvBehavior.start(engine, config, card)  ← vendor EMV
+         ├── EmvBehavior.prepare()     → EmvEngine.prepareFlow (TERMINAL_INITIALIZATION)
+         ├── searchCard(...)           ← vendor readers
+         └── EmvBehavior.start(card)   → EmvEngine.runFlow (SEARCH_CARD → … → COMPLETION)
 
-EmvEngine — thin subjects + notify* → behavior.dispatch*
+EmvEngine — orchestrator (registry + transition policy + wait/resume) + Rx event bus
+EmvStepBehavior — one class per EmvStep (execute / onSignal)
 ```
 
-**Target design (behavior-driven):** each EMV phase becomes an independent
-`EmvStepBehavior` orchestrated by `EmvEngine` via registry + transition policy.
-See [`doc/architecture/emv-behavior-driven-architecture.md`](doc/architecture/emv-behavior-driven-architecture.md)
-(design only — no implementation yet).
+**Behavior-driven design:** see
+[`doc/architecture/emv-behavior-driven-architecture.md`](doc/architecture/emv-behavior-driven-architecture.md).
+
+Fake vendor is the first vertical slice (`FakeEmvBehavior` + `FakeKernelPort` +
+`StandardEmvBehaviors`). PAX still uses the legacy `PaxEmvBehavior` god-object
+until adapted onto `EmvKernelPort`.
+
 ## Package layout
 
 ### `:core` — `com.emvenhance.core.*`
@@ -24,7 +28,9 @@ See [`doc/architecture/emv-behavior-driven-architecture.md`](doc/architecture/em
 | Package | Contents |
 |---------|----------|
 | `terminal` | `PosTerminal` (owns host + printer), `EmvBehavior` (EMV only) |
-| `engine` | `EmvEngine` |
+| `engine` | `EmvEngine` (orchestrator), `EmvContext`, `EnginePhase` |
+| `behavior` | `EmvStepBehavior`, `BehaviorResult`, `BehaviorBridge`, registry/policy interfaces |
+| `port` | `EmvKernelPort`, `EmvInteractionPort`, `EmvSignal` |
 | `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
 | `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
 | `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult` — owned by PosTerminal |
@@ -33,9 +39,14 @@ See [`doc/architecture/emv-behavior-driven-architecture.md`](doc/architecture/em
 
 | Package | Contents |
 |---------|----------|
+| `behavior` | One `*Behavior` per `EmvStep` + `StandardEmvBehaviors` |
+| `registry` | `DefaultEmvBehaviorRegistry` |
+| `policy` | `DefaultEmvTransitionPolicy` |
+| `scheduler` | `EmvScheduler` |
+| `cleanup` | `DefaultEmvCleanupHandler` |
 | `runtime` | `EmvFlowRuntime` (DAL / WMRouter lazy init) |
 | `preprocess` | `EmvPreProcessFacade` |
-| `progress` | `EmvStepProgress` |
+| `progress` | `EmvStepProgress` (legacy gap-fill; retire after PAX adapter) |
 | `device` | `EmvDeviceImpl`, cipher mode |
 | `pin` | `IPinTask` |
 
