@@ -12,7 +12,6 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.preprocess.EmvPreProcessFacade;
-import com.emvenhance.emvflow.progress.EmvStepProgress;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.utils.LogUtils;
@@ -42,7 +41,9 @@ import java.util.Locale;
  * <ul>
  *   <li>Mag / manual: sync {@link #goToStep} chain (same pattern as Fake).</li>
  *   <li>Chip / contactless: {@link #onApplicationSelection} starts the PAX kernel;
- *       kernel callbacks use {@link #announceStep} (observable only — kernel owns the phase).</li>
+ *       kernel callbacks use {@link #announceStep} (observable only — kernel owns the phase).
+ *       Steps the kernel handles with no callback are simply never announced individually;
+ *       the next real callback's step is published as-is, with no gap-filling.</li>
  * </ul>
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
@@ -52,10 +53,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static final String TAG = "PaxEmvBehavior";
 
     private final PaxKernel kernel;
-
-    /** Gap-filler while a kernel transaction is running. */
-    @Nullable
-    private EmvStepProgress progress;
 
     private boolean initOk = true;
 
@@ -71,7 +68,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
         initOk = true;
-        progress = null;
         lastAuth = null;
         super.prepare(engine, config);
         return initOk && !isCancelled() && engine.isRunning();
@@ -110,7 +106,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onApplicationSelection(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        progress = new EmvStepProgress(this::announceViaProgress);
         if (card.isChip()) {
             runContactKernel();
             return;
@@ -184,7 +179,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Not reached via onXxx dispatch — required overrides, not stubs ──
     //
     // Chip/CLSS: PAX's own kernel (EmvContactService/ContactlessService.startTransProcess)
-    // runs these phases internally and reports them through announceKernelStep(), called from
+    // runs these phases internally and reports them through announceStep(), called from
     // the IContactCallback / IContactResultListener methods further below — never through
     // goToStep, so dispatchStepMethod never invokes the onXxx form for this path.
     //
@@ -215,13 +210,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal (SDA/DDA/CDA) — no callback exists; gap-filled by EmvStepProgress.
+        // Kernel-internal (SDA/DDA/CDA) — no callback exists; not individually announced.
     }
 
     @Override
     public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — no callback exists; gap-filled by EmvStepProgress.
+        // Kernel-internal — no callback exists; not individually announced.
     }
 
     @Override
@@ -239,13 +234,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — no callback exists; gap-filled by EmvStepProgress.
+        // Kernel-internal — no callback exists; not individually announced.
     }
 
     @Override
     public void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — no callback exists; gap-filled by EmvStepProgress.
+        // Kernel-internal — no callback exists; not individually announced.
     }
 
     @Override
@@ -287,7 +282,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     finishError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
                 }
             }
-            progress = null;
         }
     }
 
@@ -317,7 +311,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                             ? e.getMessage() : "checkContactResult failed");
                 }
             }
-            progress = null;
         }
     }
 
@@ -365,14 +358,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onReadCardOk() {
-        announceKernelStep(EmvStep.READ_APPLICATION_DATA, null);
+        announceStep(EmvStep.READ_APPLICATION_DATA, null);
         requireEngine().notifyTransactionStep(
                 TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
     }
 
     @Override
     public int confirmCard() {
-        announceKernelStep(EmvStep.SET_TRANSACTION_DATA, null);
+        announceStep(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
         eng.notifyCardDetected(safe(kernel.contactless.getPan()), "PAX Issuer",
                 safe(kernel.contactless.getCardholderName()), "Contactless");
@@ -383,7 +376,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
         int candidates = candList == null ? 0 : candList.size();
-        announceKernelStep(isFirstSelect
+        announceStep(isFirstSelect
                         ? EmvStep.WAIT_APPLICATION_SELECTION
                         : EmvStep.FINAL_APPLICATION_SELECTION,
                 candidates + " candidate AID(s), selecting first");
@@ -394,7 +387,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public int showConfirmCard() {
-        announceKernelStep(EmvStep.SET_TRANSACTION_DATA, null);
+        announceStep(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
         eng.notifyCardDetected(safe(kernel.contact.getPan()), "PAX Issuer",
                 safe(kernel.contact.getCardholderName()), "Contact");
@@ -405,9 +398,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
             byte[] pinData) {
-        announceKernelStep(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
+        announceStep(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
         if (!isOnlinePin) {
-            announceKernelStep(EmvStep.OFFLINE_PIN_VERIFICATION, null);
+            announceStep(EmvStep.OFFLINE_PIN_VERIFICATION, null);
         }
         requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
                 TransactionStep.CARDHOLDER_VERIFIED)
@@ -424,10 +417,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @NonNull
     @Override
     public OnlineResultWrapper startOnlineProcess() {
-        announceKernelStep(EmvStep.START_ONLINE_PROCESS, null);
+        announceStep(EmvStep.START_ONLINE_PROCESS, null);
         AuthResult auth = requestOnline(requireEngine());
         lastAuth = auth;
-        announceKernelStep(EmvStep.ISSUER_AUTHENTICATION,
+        announceStep(EmvStep.ISSUER_AUTHENTICATION,
                 auth.isApproved() ? "host approved" : "host declined");
         return toOnlineResultWrapper(auth);
     }
@@ -469,19 +462,19 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onlineDenied() {
-        announceKernelStep(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
+        announceStep(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
         completeDeclined("Online Denied");
     }
 
     @Override
     public void onlineCardDenied(int resultCode) {
-        announceKernelStep(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
+        announceStep(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
         completeDeclined("Online Card Denied code=" + resultCode);
     }
 
     @Override
     public void onlineFailed() {
-        announceKernelStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
+        announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
         finishError("Online Failed: no host response");
     }
 
@@ -519,28 +512,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void completeApproved(String result, boolean scripts) {
         if (scripts) {
-            announceKernelStep(EmvStep.SCRIPT_PROCESSING, null);
+            announceStep(EmvStep.SCRIPT_PROCESSING, null);
         }
-        announceKernelStep(EmvStep.TRANSACTION_COMPLETION, result);
+        announceStep(EmvStep.TRANSACTION_COMPLETION, result);
         finishApproved(result);
     }
 
     private void completeDeclined(String reason) {
-        announceKernelStep(EmvStep.TRANSACTION_COMPLETION, reason);
+        announceStep(EmvStep.TRANSACTION_COMPLETION, reason);
         finishDeclined(reason);
-    }
-
-    /** Kernel callback → EmvStep observable (gap-fill) without re-entering onXxx. */
-    private void announceKernelStep(EmvStep step, @Nullable String detail) {
-        if (progress != null) {
-            progress.advanceTo(step, detail);
-        } else {
-            announceStep(step, detail);
-        }
-    }
-
-    private void announceViaProgress(EmvStep step, @Nullable String detail) {
-        announceStep(step, detail);
     }
 
     @NonNull
