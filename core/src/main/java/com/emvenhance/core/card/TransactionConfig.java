@@ -67,4 +67,9 @@ public final class TransactionConfig {
     public boolean allowsManual() {
         return mode == Mode.MANUAL || mode == Mode.ANY;
     }
+
+    /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
+    public TransactionConfig withMode(Mode mode) {
+        return new TransactionConfig(procCode, amountMinor, mode);
+    }
 }

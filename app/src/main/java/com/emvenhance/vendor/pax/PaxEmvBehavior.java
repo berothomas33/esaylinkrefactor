@@ -483,24 +483,49 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         completeDeclined("Offline Denied code=" + resultCode);
     }
 
+    /**
+     * Not a failure — the kernel wants the cardholder to complete CDCVM on their phone.
+     * Whether the transaction can still conclude afterward, or this is terminal, is a
+     * PAX/scheme-behavior question this codebase doesn't yet answer; treated as a hard stop
+     * until that's confirmed, unlike the three retry signals below.
+     */
     @Override
     public void seePhone() {
         finishError("See Phone: Continue on the phone");
     }
 
+    /** Scheme declined the contactless attempt outright (e.g. low-value rules) — retry contact. */
     @Override
     public void tryAnotherInterface() {
-        finishError("Try Another Interface: Use contact instead");
+        retryWithMode(TransactionConfig.Mode.CONTACT,
+                "Try Another Interface: retrying with contact");
     }
 
+    /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
     @Override
     public void tryAgain() {
-        finishError("Try Again: Present card again");
+        TransactionConfig.Mode mode = activeConfig != null ? activeConfig.getMode()
+                : TransactionConfig.Mode.ANY;
+        retryWithMode(mode, "Try Again: re-presenting card");
     }
 
+    /** Chip read failed in a way EMV fallback rules require — retry magstripe. */
     @Override
     public void fallback() {
-        finishError("Fallback: Contact fallback required");
+        retryWithMode(TransactionConfig.Mode.MAGSTRIPE, "Fallback: retrying with magstripe");
+    }
+
+    /**
+     * Requests a same-transaction retry through {@link EmvEngine#requestRetry} — never a new
+     * {@code startTransaction()} call, so it can't race the attempt that's still unwinding.
+     */
+    private void retryWithMode(TransactionConfig.Mode mode, String reason) {
+        if (isCancelled() || activeConfig == null) {
+            finishError(reason + " — cancelled");
+            return;
+        }
+        LogUtils.i(TAG, reason);
+        requireEngine().requestRetry(activeConfig.withMode(mode));
     }
 
     @Override

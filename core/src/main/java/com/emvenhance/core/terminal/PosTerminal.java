@@ -148,28 +148,43 @@ public abstract class PosTerminal {
 
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
-    private void runTransaction(TransactionConfig config) {
+    /**
+     * One {@link EmvEngine#begin()} guards the whole sequence below, including any retries a
+     * behavior requests via {@link EmvEngine#requestRetry} (PAX fallback / try-another-
+     * interface / try-again). A retry is a loop iteration on this same thread — not a new
+     * {@code startTransaction()} call — so it never races the attempt that requested it.
+     */
+    private void runTransaction(TransactionConfig initialConfig) {
         if (!engine.begin()) {
             return;
         }
 
-        if (!behavior.prepare(engine, config)) {
-            engine.notifyError("Terminal initialization failed");
-            return;
-        }
-
-        CardPresence card = searchCard(config, new EngineReportingListener(config));
-        if (searchCancelled.get()) {
-            return;
-        }
-        if (card == null) {
-            if (engine.isRunning()) {
-                engine.notifyError("Card search failed");
+        TransactionConfig config = initialConfig;
+        while (true) {
+            if (!behavior.prepare(engine, config)) {
+                engine.notifyError("Terminal initialization failed");
+                return;
             }
-            return;
-        }
 
-        behavior.start(engine, config, card);
+            CardPresence card = searchCard(config, new EngineReportingListener(config));
+            if (searchCancelled.get()) {
+                return;
+            }
+            if (card == null) {
+                if (engine.isRunning()) {
+                    engine.notifyError("Card search failed");
+                }
+                return;
+            }
+
+            behavior.start(engine, config, card);
+
+            TransactionConfig retryConfig = engine.consumePendingRetry();
+            if (retryConfig == null) {
+                return;
+            }
+            config = retryConfig;
+        }
     }
 
     /** Maps reader events → engine subjects for the UI. */

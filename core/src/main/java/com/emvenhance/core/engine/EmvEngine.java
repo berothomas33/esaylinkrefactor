@@ -186,4 +186,30 @@ public final class EmvEngine {
         }
         printer.print(lines).blockingAwait();
     }
+
+    // ─── Retry (behavior → PosTerminal's transaction loop) ────────────────
+
+    @Nullable
+    private volatile TransactionConfig pendingRetryConfig;
+
+    /**
+     * Requests that the current transaction restart with an adjusted config — e.g. a PAX
+     * {@code fallback()} forcing magstripe, or a {@code tryAnotherInterface()} forcing
+     * contact. Takes effect once the current step returns control to
+     * {@link com.emvenhance.core.terminal.PosTerminal}'s transaction loop: no new
+     * {@link #begin()} is taken and no new thread is scheduled, so this is safe to call from
+     * deep inside a vendor kernel callback — the retry runs on the same thread, right after
+     * the call stack that requested it unwinds.
+     */
+    public void requestRetry(TransactionConfig adjustedConfig) {
+        pendingRetryConfig = adjustedConfig;
+    }
+
+    /** Called once per attempt by {@code PosTerminal}'s transaction loop. */
+    @Nullable
+    public TransactionConfig consumePendingRetry() {
+        TransactionConfig config = pendingRetryConfig;
+        pendingRetryConfig = null;
+        return config;
+    }
 }
