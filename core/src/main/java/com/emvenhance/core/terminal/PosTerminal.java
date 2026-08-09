@@ -97,7 +97,7 @@ public abstract class PosTerminal {
      * Preferred UI entry point.
      */
     public final void acceptCard(String procCode, long amountMinor) {
-        startTransaction(new TransactionConfig(procCode, amountMinor, TransactionConfig.Mode.ANY));
+        startTransaction(new TransactionConfig(procCode, amountMinor, EntryMethod.ANY));
     }
 
     /** Start with an explicit reader mode. */
@@ -253,7 +253,7 @@ public abstract class PosTerminal {
     }
 
     private static String waitingMessage(TransactionConfig config) {
-        if (config.getMode() == TransactionConfig.Mode.ANY) {
+        if (config.getMode() == EntryMethod.ANY) {
             return "Insert, tap, or swipe";
         }
         if (config.isContact()) {

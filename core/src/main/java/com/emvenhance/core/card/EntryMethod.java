@@ -10,5 +10,7 @@ public enum EntryMethod {
     CHIP,
     CONTACTLESS,
     MAGSTRIPE,
-    MANUAL
+    MANUAL,
+    /** Chip + contactless + mag — terminal selects the first presented. */
+    ANY
 }

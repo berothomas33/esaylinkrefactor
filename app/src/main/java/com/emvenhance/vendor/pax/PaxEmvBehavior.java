@@ -3,6 +3,7 @@ package com.emvenhance.vendor.pax;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
+import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
@@ -497,29 +498,29 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** Scheme declined the contactless attempt outright (e.g. low-value rules) — retry contact. */
     @Override
     public void tryAnotherInterface() {
-        retryWithMode(TransactionConfig.Mode.CONTACT,
+        retryWithMode(EntryMethod.CHIP,
                 "Try Another Interface: retrying with contact");
     }
 
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
     @Override
     public void tryAgain() {
-        TransactionConfig.Mode mode = activeConfig != null ? activeConfig.getMode()
-                : TransactionConfig.Mode.ANY;
+        EntryMethod mode = activeConfig != null ? activeConfig.getMode()
+                : EntryMethod.ANY;
         retryWithMode(mode, "Try Again: re-presenting card");
     }
 
     /** Chip read failed in a way EMV fallback rules require — retry magstripe. */
     @Override
     public void fallback() {
-        retryWithMode(TransactionConfig.Mode.MAGSTRIPE, "Fallback: retrying with magstripe");
+        retryWithMode(EntryMethod.MAGSTRIPE, "Fallback: retrying with magstripe");
     }
 
     /**
      * Requests a same-transaction retry through {@link EmvEngine#requestRetry} — never a new
      * {@code startTransaction()} call, so it can't race the attempt that's still unwinding.
      */
-    private void retryWithMode(TransactionConfig.Mode mode, String reason) {
+    private void retryWithMode(EntryMethod mode, String reason) {
         if (isCancelled() || activeConfig == null) {
             finishError(reason + " — cancelled");
             return;

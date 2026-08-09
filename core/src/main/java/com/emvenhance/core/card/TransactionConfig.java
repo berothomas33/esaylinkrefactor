@@ -5,20 +5,11 @@ package com.emvenhance.core.card;
  */
 public final class TransactionConfig {
 
-    public enum Mode {
-        CONTACT,
-        CONTACTLESS,
-        MAGSTRIPE,
-        MANUAL,
-        /** Chip + contactless + mag — terminal selects the first presented. */
-        ANY
-    }
-
     private final String procCode;
     private final long amountMinor;
-    private final Mode mode;
+    private final EntryMethod mode;
 
-    public TransactionConfig(String procCode, long amountMinor, Mode mode) {
+    public TransactionConfig(String procCode, long amountMinor, EntryMethod mode) {
         this.procCode = procCode;
         this.amountMinor = amountMinor;
         this.mode = mode;
@@ -32,44 +23,44 @@ public final class TransactionConfig {
         return amountMinor;
     }
 
-    public Mode getMode() {
+    public EntryMethod getMode() {
         return mode;
     }
 
     public boolean isContact() {
-        return mode == Mode.CONTACT;
+        return mode == EntryMethod.CHIP;
     }
 
     public boolean isContactless() {
-        return mode == Mode.CONTACTLESS;
+        return mode == EntryMethod.CONTACTLESS;
     }
 
     public boolean isMagstripe() {
-        return mode == Mode.MAGSTRIPE;
+        return mode == EntryMethod.MAGSTRIPE;
     }
 
     public boolean isManual() {
-        return mode == Mode.MANUAL;
+        return mode == EntryMethod.MANUAL;
     }
 
     public boolean allowsChip() {
-        return mode == Mode.CONTACT || mode == Mode.ANY;
+        return mode == EntryMethod.CHIP || mode == EntryMethod.ANY;
     }
 
     public boolean allowsContactless() {
-        return mode == Mode.CONTACTLESS || mode == Mode.ANY;
+        return mode == EntryMethod.CONTACTLESS || mode == EntryMethod.ANY;
     }
 
     public boolean allowsMagstripe() {
-        return mode == Mode.MAGSTRIPE || mode == Mode.ANY;
+        return mode == EntryMethod.MAGSTRIPE || mode == EntryMethod.ANY;
     }
 
     public boolean allowsManual() {
-        return mode == Mode.MANUAL || mode == Mode.ANY;
+        return mode == EntryMethod.MANUAL || mode == EntryMethod.ANY;
     }
 
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
-    public TransactionConfig withMode(Mode mode) {
+    public TransactionConfig withMode(EntryMethod mode) {
         return new TransactionConfig(procCode, amountMinor, mode);
     }
 }
