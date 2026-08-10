@@ -407,11 +407,15 @@ public class EmvDeviceImpl implements IDevice {
 
     @Override
     public byte iccCommand(final ApduSendL2 apduSend, ApduRespL2 apduRecv) {
+        logApduCommand(apduSend);
+        byte result;
         if (transInterface == TransactionInterface.DEVICE_CLSS_TXNIF) {
-            return (byte) piccIsoCommandDevice(apduSend, apduRecv);
+            result = (byte) piccIsoCommandDevice(apduSend, apduRecv);
         } else {
-            return (byte) iccIsoCommandDevice(apduSend, apduRecv);
+            result = (byte) iccIsoCommandDevice(apduSend, apduRecv);
         }
+        logApduResponse(apduRecv, result);
+        return result;
     }
 
     @Override
@@ -733,6 +737,68 @@ public class EmvDeviceImpl implements IDevice {
          */
         AlgoException(Throwable cause) {
             super(cause);
+        }
+    }
+
+    private void logApduCommand(ApduSendL2 apdu) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== APDU COMMAND SENT ===\n");
+        sb.append("Interface: ").append(transInterface == TransactionInterface.DEVICE_CLSS_TXNIF ? "CONTACTLESS" : "CONTACT").append("\n");
+        sb.append("Command: ").append(bytesToHex(apdu.command)).append("\n");
+        sb.append("Data In (Lc=").append(apdu.lc).append("): ").append(bytesToHex(apdu.dataIn)).append("\n");
+        sb.append("Expected Response Length (Le): ").append(apdu.le).append("\n");
+
+        LogUtils.d(TAG, sb.toString());
+        LogUtils.fd(TAG, "APDU CMD: " + bytesToHex(apdu.command) + " | Data: " + bytesToHex(apdu.dataIn));
+    }
+
+    private void logApduResponse(ApduRespL2 apdu, byte resultCode) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== APDU RESPONSE RECEIVED ===\n");
+        sb.append("Result Code: 0x").append(String.format("%02X", resultCode)).append(" (").append(getResultCodeName(resultCode)).append(")\n");
+        sb.append("Status Word: 0x").append(String.format("%02X%02X", apdu.swa & 0xFF, apdu.swb & 0xFF)).append("\n");
+        sb.append("Data Out Length: ").append(apdu.lenOut).append("\n");
+        sb.append("Data Out: ").append(bytesToHex(apdu.dataOut, Math.min(apdu.lenOut, apdu.dataOut.length))).append("\n");
+
+        LogUtils.d(TAG, sb.toString());
+        LogUtils.fd(TAG, "APDU RSP: 0x" + String.format("%02X%02X", apdu.swa & 0xFF, apdu.swb & 0xFF) + " | Data: " +
+                   bytesToHex(apdu.dataOut, Math.min(apdu.lenOut, apdu.dataOut.length)));
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return "(empty)";
+        }
+        return bytesToHex(bytes, bytes.length);
+    }
+
+    private String bytesToHex(byte[] bytes, int length) {
+        if (bytes == null || length == 0) {
+            return "(empty)";
+        }
+        StringBuilder hex = new StringBuilder();
+        for (int i = 0; i < Math.min(length, bytes.length); i++) {
+            hex.append(String.format("%02X ", bytes[i] & 0xFF));
+        }
+        return hex.toString().trim();
+    }
+
+    private String getResultCodeName(byte code) {
+        switch (code) {
+            case DeviceRetCode.DEVICE_PICC_OK:
+                return "OK";
+            case DeviceRetCode.DEVICE_PICC_USER_CANCEL:
+                return "USER_CANCEL";
+            case DeviceRetCode.DEVICE_PICC_PROTOCOL_ERROR:
+                return "PROTOCOL_ERROR";
+            case DeviceRetCode.DEVICE_PICC_TRANSMIT_ERROR:
+                return "TRANSMIT_ERROR";
+            case DeviceRetCode.DEVICE_PICC_TIME_OUT_ERROR:
+                return "TIMEOUT";
+            case DeviceRetCode.DEVICE_PICC_OTHER_ERR:
+                return "OTHER_ERROR";
+            default:
+                return "UNKNOWN";
         }
     }
 }
