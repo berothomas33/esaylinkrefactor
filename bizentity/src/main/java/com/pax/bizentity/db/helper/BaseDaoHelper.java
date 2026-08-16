@@ -35,13 +35,10 @@ public class BaseDaoHelper<T> {
         this.entityClass = entityClass;
     }
 
+    /** Opens the DB on first use if nothing has done so yet — init() is a no-op after that. */
     static DaoSession getDaoSession() {
-        DaoSession session = DaoManager.getInstance().getDaoSession();
-        if (session == null) {
-            throw new IllegalStateException(
-                    "DaoManager not initialized — call DaoManager.getInstance().init() first");
-        }
-        return session;
+        DaoManager.getInstance().init();
+        return DaoManager.getInstance().getDaoSession();
     }
 
     protected final AbstractDao<T, Long> getDao() {

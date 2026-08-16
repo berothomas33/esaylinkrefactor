@@ -10,7 +10,6 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
-import com.pax.bizentity.db.helper.DaoManager;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
@@ -58,10 +57,8 @@ public class PaxTerminal extends PosTerminal {
 
     @Override
     protected void initializeVendor() {
-        // Opens the local SQLite/Greendao session. Must run before anything touches a
-        // BaseDaoHelper — nothing else in the app calls DaoManager.init(), so skipping this
-        // was leaving daoSession null and every DAO call (insert, loadAll, ...) threw an NPE.
-        DaoManager.getInstance().init();
+        // BaseDaoHelper.getDaoSession() now opens the DB itself on first use, so no explicit
+        // DaoManager.init() call is needed here.
         ensureEmvConfigInitialized();
         LogUtils.i(TAG, "PAX terminal initialized (direct kernel composition)");
     }
