@@ -44,7 +44,11 @@ public class DaoManager {
         return LazyHolder.INSTANCE;
     }
 
+    /** No-op if already initialized — safe to call more than once. */
     public void init(){
+        if (daoSession != null) {
+            return;
+        }
         if (BuildConfig.RELEASE) {
             openHelper = new MyEncryptedSQLiteOpenHelper(BaseApplication.getAppContext(), "data.db", null);
             database = openHelper.getEncryptedWritableDb(BuildConfig.DATABASE_PWD);

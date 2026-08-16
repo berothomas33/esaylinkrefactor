@@ -17,131 +17,52 @@
 package com.pax.bizentity.db.helper;
 
 /**
- * greendao database helper
+ * Greendao database helper lookup. Every {@code *DbHelper} already caches itself via its own
+ * {@code LazyHolder}, so these are plain delegates — no caching here to duplicate.
  */
 public class GreendaoHelper {
-    private static AcquirerDbHelper acquirerHelper;
-    private static IssuerDbHelper issuerHelper;
-    private static AcqIssuerRelationDbHelper acqIssuerRelationHelper;
-    private static CardBinDbHelper cardBinHelper;
-    private static CardBinBlackDbHelper cardBinBlackHelper;
-    private static CardRangeDbHelper cardRangeHelper;
-    private static EmvAidDbHelper emvAidHelper;
-    private static EmvCapkDbHelper emvCapkHelper;
-    private static TransDataDbHelper transDataHelper;
-    private static TransTotalDbHelper transTotalHelper;
 
     private GreendaoHelper() {
         // do nothing
     }
 
-    /**
-     * get acquirer database helper
-     * @return acquirer database helper
-     */
     public static AcquirerDbHelper getAcquirerHelper() {
-        if (acquirerHelper == null) {
-            acquirerHelper = AcquirerDbHelper.getInstance();
-        }
-        return acquirerHelper;
+        return AcquirerDbHelper.getInstance();
     }
 
-    /**
-     * get Issuer database helper
-     * @return Issuer database helper
-     */
     public static IssuerDbHelper getIssuerHelper() {
-        if (issuerHelper == null) {
-            issuerHelper = IssuerDbHelper.getInstance();
-        }
-        return issuerHelper;
+        return IssuerDbHelper.getInstance();
     }
 
-    /**
-     * get AcqIssuerRelation database helper
-     * @return AcqIssuerRelation database helper
-     */
     public static AcqIssuerRelationDbHelper getAcqIssuerRelationHelper() {
-        if (acqIssuerRelationHelper == null) {
-            acqIssuerRelationHelper = AcqIssuerRelationDbHelper.getInstance();
-        }
-        return acqIssuerRelationHelper;
+        return AcqIssuerRelationDbHelper.getInstance();
     }
 
-    /**
-     * get CardBin database helper
-     * @return CardBin database helper
-     */
     public static CardBinDbHelper getCardBinHelper() {
-        if (cardBinHelper == null) {
-            cardBinHelper = CardBinDbHelper.getInstance();
-        }
-        return cardBinHelper;
+        return CardBinDbHelper.getInstance();
     }
 
-    /**
-     * get CardBinBlack database helper
-     * @return CardBinBlack database helper
-     */
     public static CardBinBlackDbHelper getCardBinBlackHelper() {
-        if (cardBinBlackHelper == null) {
-            cardBinBlackHelper = CardBinBlackDbHelper.getInstance();
-        }
-        return cardBinBlackHelper;
+        return CardBinBlackDbHelper.getInstance();
     }
 
-    /**
-     * get CardRange database helper
-     * @return CardRange database helper
-     */
     public static CardRangeDbHelper getCardRangeHelper() {
-        if (cardRangeHelper == null) {
-            cardRangeHelper = CardRangeDbHelper.getInstance();
-        }
-        return cardRangeHelper;
+        return CardRangeDbHelper.getInstance();
     }
 
-    /**
-     * get EmvAid database helper
-     * @return EmvAid database helper
-     */
     public static EmvAidDbHelper getEmvAidHelper() {
-        if (emvAidHelper == null) {
-            emvAidHelper = EmvAidDbHelper.getInstance();
-        }
-        return emvAidHelper;
+        return EmvAidDbHelper.getInstance();
     }
 
-    /**
-     * get EmvCapk database helper
-     * @return EmvCapk database helper
-     */
     public static EmvCapkDbHelper getEmvCapkHelper() {
-        if (emvCapkHelper == null) {
-            emvCapkHelper = EmvCapkDbHelper.getInstance();
-        }
-        return emvCapkHelper;
+        return EmvCapkDbHelper.getInstance();
     }
 
-    /**
-     * get TransData database helper
-     * @return TransData database helper
-     */
     public static TransDataDbHelper getTransDataHelper() {
-        if (transDataHelper == null) {
-            transDataHelper = TransDataDbHelper.getInstance();
-        }
-        return transDataHelper;
+        return TransDataDbHelper.getInstance();
     }
 
-    /**
-     * get TransTotal database helper
-     * @return TransTotal database helper
-     */
     public static TransTotalDbHelper getTransTotalHelper() {
-        if (transTotalHelper == null) {
-            transTotalHelper = TransTotalDbHelper.getInstance();
-        }
-        return transTotalHelper;
+        return TransTotalDbHelper.getInstance();
     }
 }

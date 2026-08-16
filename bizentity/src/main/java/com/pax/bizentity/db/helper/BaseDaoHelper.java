@@ -36,7 +36,12 @@ public class BaseDaoHelper<T> {
     }
 
     static DaoSession getDaoSession() {
-        return DaoManager.getInstance().getDaoSession();
+        DaoSession session = DaoManager.getInstance().getDaoSession();
+        if (session == null) {
+            throw new IllegalStateException(
+                    "DaoManager not initialized — call DaoManager.getInstance().init() first");
+        }
+        return session;
     }
 
     protected final AbstractDao<T, Long> getDao() {
@@ -44,8 +49,9 @@ public class BaseDaoHelper<T> {
     }
 
     protected final QueryBuilder<T> getNoSessionQuery() {
-        this.getDao().detachAll();
-        return getDao().queryBuilder();
+        AbstractDao<T, Long> dao = getDao();
+        dao.detachAll();
+        return dao.queryBuilder();
     }
 
     protected final Database getDatabase() {
