@@ -11,7 +11,11 @@ import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
+import com.pax.commonlib.application.BaseApplication;
+import com.pax.commonlib.init.IModuleInit;
+import com.pax.commonlib.sp.SharedPrefUtil;
 import com.pax.commonlib.utils.LogUtils;
+import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.dal.IDAL;
 import com.pax.dal.IIcc;
 import com.pax.dal.IMag;
@@ -20,6 +24,7 @@ import com.pax.dal.entity.EDetectMode;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
+import com.sankuai.waimai.router.Router;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -34,6 +39,7 @@ public class PaxTerminal extends PosTerminal {
     private static final String TAG = "PaxTerminal";
     private static final long SEARCH_TIMEOUT_MS = 60_000L;
     private static final long POLL_INTERVAL_MS = 50L;
+    private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
     private final PaxKernel kernel;
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
@@ -53,7 +59,23 @@ public class PaxTerminal extends PosTerminal {
 
     @Override
     protected void initializeVendor() {
+        ensureEmvConfigInitialized();
         LogUtils.i(TAG, "PAX terminal initialized (direct kernel composition)");
+    }
+
+    /**
+     * Loads AID/CAPK/scheme params into the local DB, once ever — guarded by a persisted flag
+     * so a later app launch (config already on disk from a previous run) skips it instead of
+     * re-parsing every JSON asset and re-inserting into Greendao again.
+     */
+    private void ensureEmvConfigInitialized() {
+        SharedPrefUtil prefs = new SharedPrefUtil(BaseApplication.getAppContext());
+        if (prefs.getBoolean(KEY_EMV_CONFIG_INITIALIZED)) {
+            LogUtils.i(TAG, "EMV config already initialized, skipping");
+            return;
+        }
+        Router.getService(IModuleInit.class, ConfigServiceConstant.INIT_CONFIG).init();
+        prefs.putBoolean(KEY_EMV_CONFIG_INITIALIZED, true);
     }
 
     @Nullable

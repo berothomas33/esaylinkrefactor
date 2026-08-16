@@ -4,10 +4,7 @@ import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.vendor.TerminalFactory;
 import com.pax.commonlib.application.BaseApplication;
-import com.pax.commonlib.init.IModuleInit;
 import com.pax.commonlib.utils.LogUtils;
-import com.pax.configservice.export.ConfigServiceConstant;
-import com.sankuai.waimai.router.Router;
 
 /**
  * Boots one vendor-agnostic {@link PosTerminal}. UI never sees Pax/Ingenico/Fake types.
@@ -28,8 +25,6 @@ public class EmvEnhanceApp extends BaseApplication {
     @Override
     public void onCreate() {
         super.onCreate();
-
-        Router.getService(IModuleInit.class, ConfigServiceConstant.INIT_CONFIG).init();
 
         String vendor = BuildConfig.VENDOR;
         LogUtils.i(TAG, "vendor=" + vendor);
