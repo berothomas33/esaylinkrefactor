@@ -12,10 +12,9 @@ import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.application.BaseApplication;
-import com.pax.commonlib.init.IModuleInit;
 import com.pax.commonlib.sp.SharedPrefUtil;
 import com.pax.commonlib.utils.LogUtils;
-import com.pax.configservice.export.ConfigServiceConstant;
+import com.pax.configservice.impl.ConfigInit;
 import com.pax.dal.IDAL;
 import com.pax.dal.IIcc;
 import com.pax.dal.IMag;
@@ -24,7 +23,6 @@ import com.pax.dal.entity.EDetectMode;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
-import com.sankuai.waimai.router.Router;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -74,7 +72,7 @@ public class PaxTerminal extends PosTerminal {
             LogUtils.i(TAG, "EMV config already initialized, skipping");
             return;
         }
-        Router.getService(IModuleInit.class, ConfigServiceConstant.INIT_CONFIG).init();
+        new ConfigInit().init();
         prefs.putBoolean(KEY_EMV_CONFIG_INITIALIZED, true);
     }
 
