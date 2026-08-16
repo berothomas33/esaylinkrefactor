@@ -42,10 +42,7 @@ import com.pax.configservice.export.IAcquirerIssuerService;
 import com.pax.configservice.export.IConfigParamService;
 import com.pax.configservice.export.IEmvParamService;
 import com.pax.poslib.model.ModelInfo;
-import com.sankuai.waimai.router.Router;
 import com.sankuai.waimai.router.annotation.RouterService;
-import io.reactivex.rxjava3.core.Completable;
-import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -63,32 +60,33 @@ public class ConfigInit implements IModuleInit {
 
     @Override
     public void init() {
-        Completable configCompletable = Completable.fromAction(this::loadConfigParams)
-                .subscribeOn(Schedulers.io())
-                .doOnComplete(this::notifyCallback);
+        new Thread(this::runInit, "ConfigInit").start();
+    }
 
-        Completable acquirerCompletable = Completable.fromAction(this::loadAcquirerData)
-                .subscribeOn(Schedulers.io());
+    private void runInit() {
+        try {
+            loadConfigParams();
+            notifyCallback();
+            // Terminal config depends on both config params and acquirer/issuer data being present.
+            loadAcquirerData();
+            new EmvParamService().insertTerminalConfig();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "Config/acquirer/terminal config init failed", e);
+        }
 
-        // init emv params
-        // Whether it is standard EMV or P2PE EMV, all parameters will be saved in the database,
-        // even if the P2PE EMV not support some of kernel.
-        Completable.fromAction(this::loadEmvParams)
-                .subscribeOn(Schedulers.io())
-                .subscribe(() -> {}, error -> LogUtils.e(TAG, "EMV param init failed", error));
-
-        // Terminal config depends on both config params and acquirer/issuer data being present.
-        Completable.mergeArray(configCompletable, acquirerCompletable)
-                .andThen(Completable.fromAction(() ->
-                        Router.getService(IEmvParamService.class, ConfigServiceConstant.CONFIGSERVICE_EMVPARAM)
-                                .insertTerminalConfig()))
-                .subscribeOn(Schedulers.io())
-                .subscribe(() -> {}, error -> LogUtils.e(TAG, "Terminal config init failed", error));
+        try {
+            // Whether it is standard EMV or P2PE EMV, all parameters will be saved in the
+            // database, even if the P2PE EMV not support some of kernel. Independent of the
+            // config/acquirer chain above, so a failure there shouldn't skip this.
+            loadEmvParams();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "EMV param init failed", e);
+        }
     }
 
     private void loadConfigParams() {
         HashMap<String, String> paramMap = JsonProxy.getInstance().readObjFromAsset("config.json");
-        IConfigParamService configParamService = Router.getService(IConfigParamService.class, ConfigServiceConstant.CONFIGSERVICE_CONFIG);
+        IConfigParamService configParamService = new ConfigParamService();
         for (Map.Entry<String, String> entry : paramMap.entrySet()) {
             configParamService.putString(entry.getKey(), entry.getValue());
         }
@@ -98,7 +96,7 @@ public class ConfigInit implements IModuleInit {
         List<Acquirer> acquirers = JsonProxy.getInstance().readObjFromAsset("acquirer.json", new TypeReference<List<Acquirer>>(){}.getType());
         List<Issuer> issuers = JsonProxy.getInstance().readObjFromAsset("issuer.json", new TypeReference<List<Issuer>>(){}.getType());
         List<CardRange> cardRanges = JsonProxy.getInstance().readObjFromAsset("card_range.json", new TypeReference<List<CardRange>>(){}.getType());
-        IAcquirerIssuerService acquirerIssuerService = Router.getService(IAcquirerIssuerService.class, ConfigServiceConstant.CONFIGSERVICE_ACQ_ISSUER);
+        IAcquirerIssuerService acquirerIssuerService = new AcquirerIssuerService();
         acquirerIssuerService.insertIssuer(issuers);
         // Check does this device supports QR code scanning
         if (!(ModelInfo.getInstance().isSupportCamera() || ModelInfo.getInstance()
@@ -141,7 +139,7 @@ public class ConfigInit implements IModuleInit {
         PureParamBean pureParamBean = JsonProxy.getInstance().readObjFromAsset("pure.json", new TypeReference<PureParamBean>(){}.getType());
         RupayParamBean rupayParamBean = JsonProxy.getInstance().readObjFromAsset("rupay.json", new TypeReference<RupayParamBean>(){}.getType());
 
-        IEmvParamService emvParamService = Router.getService(IEmvParamService.class, ConfigServiceConstant.CONFIGSERVICE_EMVPARAM);
+        IEmvParamService emvParamService = new EmvParamService();
         emvParamService.insertEmvAid(emvAids);
         emvParamService.insertEmvCapk(capkParamBean);
         emvParamService.insertAmexParam(amexParamBean);
