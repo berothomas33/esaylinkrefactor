@@ -98,7 +98,6 @@ import com.pax.emvbase.param.common.Capk;
 import com.pax.emvbase.param.common.CapkParam;
 import com.pax.emvbase.param.common.CapkRevoke;
 import com.pax.emvbase.param.common.Config;
-import com.sankuai.waimai.router.Router;
 import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.ArrayList;
 import java.util.Currency;
@@ -1009,10 +1008,8 @@ public class EmvParamService implements IEmvParamService {
     }
 
     private Config getTerminalConfig() {
-        IConfigParamService configParamService = Router.getService(IConfigParamService.class,
-                ConfigServiceConstant.CONFIGSERVICE_CONFIG);
-        IAcquirerIssuerService acquirerIssuerService = Router.getService(IAcquirerIssuerService.class,
-                ConfigServiceConstant.CONFIGSERVICE_ACQ_ISSUER);
+        IConfigParamService configParamService = new ConfigParamService();
+        IAcquirerIssuerService acquirerIssuerService = new AcquirerIssuerService();
 
         CurrencyConverter.setDefCurrency(configParamService.getString(ConfigKeyConstant.EDC_CURRENCY_LIST));
         Currency current = Currency.getInstance(CurrencyConverter.getDefCurrency());

@@ -109,11 +109,19 @@ public class MainActivity extends AppCompatActivity {
     /** Reads whatever is currently cached/stored and shows it — does not insert anything. */
     private void showEmvParam() {
         new Thread(() -> {
-            EmvProcessParam param = new EmvParamService().getCachedEmvParam();
-            String summary = summarize(param);
+            String summary;
+            try {
+                summary = summarize(new EmvParamService().getCachedEmvParam());
+            } catch (Exception e) {
+                //noinspection CallToPrintStackTrace
+                e.printStackTrace();
+                summary = "Failed to read EMV param: "
+                        + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            }
+            String finalSummary = summary;
             runOnUiThread(() -> new AlertDialog.Builder(this)
                     .setTitle(getString(R.string.action_show_emv_param))
-                    .setMessage(summary)
+                    .setMessage(finalSummary)
                     .setPositiveButton(android.R.string.ok, null)
                     .show());
         }, "ShowEmvParam").start();
