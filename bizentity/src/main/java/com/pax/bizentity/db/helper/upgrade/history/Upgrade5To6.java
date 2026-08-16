@@ -57,7 +57,6 @@ import com.pax.bizentity.db.helper.PaywaveFloorLimitDbHelper;
 import com.pax.bizentity.db.helper.PureAidDbHelper;
 import com.pax.bizentity.db.helper.RupayAidDbHelper;
 import com.pax.bizentity.db.helper.upgrade.DbUpgrade;
-import com.pax.bizentity.db.helper.upgrade.UpgradeConst;
 import com.pax.bizentity.entity.CapkParamBean;
 import com.pax.bizentity.entity.CapkRevokeBean;
 import com.pax.bizentity.entity.EmvAid;
@@ -88,14 +87,12 @@ import com.pax.bizentity.entity.clss.rupay.RupayParamBean;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.json.JsonProxy;
 import com.pax.commonlib.utils.LogUtils;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.List;
 import org.greenrobot.greendao.database.Database;
 
 /**
  * update database from version 5 to 6
  */
-@RouterService(interfaces = DbUpgrade.class, key = UpgradeConst.UPGRADE_5_6)
 public class Upgrade5To6 extends DbUpgrade {
 
     @Override

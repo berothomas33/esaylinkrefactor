@@ -27,15 +27,12 @@ import com.pax.bizentity.db.dao.IssuerDao;
 import com.pax.bizentity.db.dao.TransDataDao;
 import com.pax.bizentity.db.dao.TransTotalDao;
 import com.pax.bizentity.db.helper.upgrade.DbUpgrade;
-import com.pax.bizentity.db.helper.upgrade.UpgradeConst;
 import com.pax.commonlib.utils.LogUtils;
-import com.sankuai.waimai.router.annotation.RouterService;
 import org.greenrobot.greendao.database.Database;
 
 /**
  * update database from version 4 to 5
  */
-@RouterService(interfaces = DbUpgrade.class, key = UpgradeConst.UPGRADE_4_5)
 public class Upgrade4To5 extends DbUpgrade {
 
     @Override

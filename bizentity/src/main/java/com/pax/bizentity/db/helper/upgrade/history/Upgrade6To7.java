@@ -12,7 +12,6 @@ import com.pax.bizentity.db.helper.PBOCAidDbHelper;
 import com.pax.bizentity.db.helper.PaypassAidDbHelper;
 import com.pax.bizentity.db.helper.RupayAidDbHelper;
 import com.pax.bizentity.db.helper.upgrade.DbUpgrade;
-import com.pax.bizentity.db.helper.upgrade.UpgradeConst;
 import com.pax.bizentity.entity.clss.dpas.DpasAidBean;
 import com.pax.bizentity.entity.clss.dpas.DpasParamBean;
 import com.pax.bizentity.entity.clss.mir.MirAidBean;
@@ -25,7 +24,6 @@ import com.pax.bizentity.entity.clss.rupay.RupayAidBean;
 import com.pax.bizentity.entity.clss.rupay.RupayParamBean;
 import com.pax.commonlib.json.JsonProxy;
 import com.pax.commonlib.utils.LogUtils;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.List;
 import org.greenrobot.greendao.database.Database;
 
@@ -35,7 +33,6 @@ import org.greenrobot.greendao.database.Database;
  * @author yehongbo
  * @date 2021/11/25
  */
-@RouterService(interfaces = DbUpgrade.class, key = UpgradeConst.UPGRADE_6_7)
 public class Upgrade6To7 extends DbUpgrade {
     private static final String TAG = "Upgrade6To7";
 

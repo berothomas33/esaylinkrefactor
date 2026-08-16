@@ -16,9 +16,12 @@
 package com.pax.bizentity.db.helper.upgrade;
 
 import android.database.SQLException;
+import com.pax.bizentity.db.helper.upgrade.history.Upgrade1To2;
+import com.pax.bizentity.db.helper.upgrade.history.Upgrade4To5;
+import com.pax.bizentity.db.helper.upgrade.history.Upgrade5To6;
+import com.pax.bizentity.db.helper.upgrade.history.Upgrade6To7;
 import com.pax.bizentity.db.helper.upgrade.migration.MigrationHelper;
 import com.pax.commonlib.utils.LogUtils;
-import com.sankuai.waimai.router.Router;
 import java.util.LinkedList;
 import java.util.List;
 import org.greenrobot.greendao.AbstractDao;
@@ -30,10 +33,26 @@ public abstract class DbUpgrade {
 
     public static void upgrade(Database db, int oldVersion, int newVersion){
         try {
-            DbUpgrade upgrade = Router.getService(DbUpgrade.class, UpgradeConst.getKey(oldVersion, newVersion));
+            DbUpgrade upgrade = createUpgrade(UpgradeConst.getKey(oldVersion, newVersion));
             upgrade.upgrade(db);
         } catch (Exception e) {
             LogUtils.e(TAG,e);
+        }
+    }
+
+    /** when a new schema version ships, add its upgrade class here */
+    private static DbUpgrade createUpgrade(String key) {
+        switch (key) {
+            case UpgradeConst.UPGRADE_1_2:
+                return new Upgrade1To2();
+            case UpgradeConst.UPGRADE_4_5:
+                return new Upgrade4To5();
+            case UpgradeConst.UPGRADE_5_6:
+                return new Upgrade5To6();
+            case UpgradeConst.UPGRADE_6_7:
+                return new Upgrade6To7();
+            default:
+                throw new IllegalArgumentException("No DbUpgrade registered for " + key);
         }
     }
 
