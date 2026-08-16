@@ -11,5 +11,7 @@
     <string name="action_contact">Chip only</string>
     <string name="action_contactless">Contactless only</string>
     <string name="action_cancel">Cancel</string>
+    <string name="action_insert_emv_param">Insert EMV param data</string>
+    <string name="action_show_emv_param">Show cached EMV param</string>
     <string name="placeholder">—</string>
 </resources>
