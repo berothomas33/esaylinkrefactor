@@ -14,8 +14,6 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.disposables.CompositeDisposable;
-import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -26,10 +24,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * delegated to {@link EmvBehavior}.
  *
  * <pre>
- *   UI → PosTerminal.startTransaction(ANY|CHIP|…)
- *          ├── EmvBehavior.prepare
- *          ├── searchCard(config, listener)   ← vendor SDK
- *          └── EmvBehavior.start(card)        ← vendor EMV
+ *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [fires, returns immediately]
+ *          └── EmvBehavior.prepare + searchCard(config, listener)   ← vendor SDK
+ *                 └── listener.onXxxDetected(card)                 ← vendor callback
+ *                        └── EmvBehavior.start(card)                ← vendor EMV, from inside the callback
  * </pre>
  */
 public abstract class PosTerminal {
@@ -38,7 +36,6 @@ public abstract class PosTerminal {
     protected final EmvBehavior behavior;
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
-    protected final CompositeDisposable disposables = new CompositeDisposable();
 
     private final AtomicBoolean searchCancelled = new AtomicBoolean(false);
 
@@ -100,20 +97,24 @@ public abstract class PosTerminal {
         startTransaction(new TransactionConfig(procCode, amountMinor, EntryMethod.ANY));
     }
 
-    /** Start with an explicit reader mode. */
+    /**
+     * Start with an explicit reader mode: triggers card search on a background thread and
+     * returns immediately. There is no return value to wait on — every outcome (card found,
+     * search cancelled, timed out, or errored) arrives as a {@link CardSearchListener} callback,
+     * which is also what starts EMV once a card is actually found (see
+     * {@link EngineReportingListener#handleCardFound}).
+     */
     public void startTransaction(TransactionConfig config) {
         searchCancelled.set(false);
-        disposables.add(
-                io.reactivex.rxjava3.core.Completable.fromAction(() -> runTransaction(config))
-                        .subscribeOn(Schedulers.io())
-                        .subscribe(() -> {}, error -> {
-                            //noinspection CallToPrintStackTrace
-                            error.printStackTrace();
-                            engine.notifyError(error.getMessage() != null
-                                    ? error.getMessage()
-                                    : "Transaction failed");
-                        })
-        );
+        new Thread(() -> {
+            try {
+                beginTransaction(config);
+            } catch (Exception e) {
+                //noinspection CallToPrintStackTrace
+                e.printStackTrace();
+                engine.notifyError(e.getMessage() != null ? e.getMessage() : "Transaction failed");
+            }
+        }, "PosTerminal-search").start();
     }
 
     public void cancelTransaction() {
@@ -124,7 +125,6 @@ public abstract class PosTerminal {
 
     public void dispose() {
         cancelTransaction();
-        disposables.clear();
     }
 
     public final boolean isSearchCancelled() {
@@ -149,48 +149,41 @@ public abstract class PosTerminal {
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One {@link EmvEngine#begin()} guards the whole sequence below, including any retries a
+     * One {@link EmvEngine#begin()} guards the whole transaction, including any retries a
      * behavior requests via {@link EmvEngine#requestRetry} (PAX fallback / try-another-
-     * interface / try-again). A retry is a loop iteration on this same thread — not a new
-     * {@code startTransaction()} call — so it never races the attempt that requested it.
+     * interface / try-again).
      */
-    private void runTransaction(TransactionConfig initialConfig) {
+    private void beginTransaction(TransactionConfig config) {
         if (!engine.begin()) {
             return;
         }
-
-        TransactionConfig config = initialConfig;
-        while (true) {
-            if (!behavior.prepare(engine, config)) {
-                engine.notifyError("Terminal initialization failed");
-                return;
-            }
-
-            CardPresence card = searchCard(config, new EngineReportingListener(config));
-            if (searchCancelled.get()) {
-                return;
-            }
-            if (card == null) {
-                if (engine.isRunning()) {
-                    engine.notifyError("Card search failed");
-                }
-                return;
-            }
-
-            behavior.start(engine, config, card);
-
-            TransactionConfig retryConfig = engine.consumePendingRetry();
-            if (retryConfig == null) {
-                return;
-            }
-            config = retryConfig;
-        }
+        triggerSearch(config);
     }
 
-    /** Maps reader events → engine subjects for the UI. */
+    /**
+     * Fires card search and returns immediately — search and EMV are not sequenced by a
+     * blocking return value here. Every {@link CardSearchListener} implementation (Pax/
+     * Ingenico/Fake) always calls exactly one listener method before it stops searching, so
+     * that callback — not this method's return — is what drives what happens next:
+     * {@link EngineReportingListener#handleCardFound} starts EMV the moment a card is found,
+     * and a behavior-requested retry re-enters this same method with the adjusted config —
+     * still on this one thread, so it never races the attempt that requested it.
+     */
+    private void triggerSearch(TransactionConfig config) {
+        if (!behavior.prepare(engine, config)) {
+            engine.notifyError("Terminal initialization failed");
+            return;
+        }
+        searchCard(config, new EngineReportingListener(config));
+    }
+
+    /** Maps reader events → engine subjects for the UI, and starts EMV once a card is found. */
     private final class EngineReportingListener implements CardSearchListener {
 
-        EngineReportingListener(TransactionConfig ignored) {
+        private final TransactionConfig config;
+
+        EngineReportingListener(TransactionConfig config) {
+            this.config = config;
         }
 
         @Override
@@ -203,22 +196,22 @@ public abstract class PosTerminal {
 
         @Override
         public void onChipDetected(CardPresence card) {
-            reportDetected(card);
+            handleCardFound(card);
         }
 
         @Override
         public void onContactlessDetected(CardPresence card) {
-            reportDetected(card);
+            handleCardFound(card);
         }
 
         @Override
         public void onMagstripeDetected(CardPresence card) {
-            reportDetected(card);
+            handleCardFound(card);
         }
 
         @Override
         public void onManualEntrySelected(CardPresence card) {
-            reportDetected(card);
+            handleCardFound(card);
         }
 
         @Override
@@ -244,11 +237,23 @@ public abstract class PosTerminal {
             engine.notifyError(message != null ? message : "Reader error");
         }
 
-        private void reportDetected(CardPresence card) {
+        /** Runs EMV right here, then re-triggers search if the behavior asked for a retry. */
+        private void handleCardFound(CardPresence card) {
             engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
                     .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
                     .put("entryMethod", card.getEntryMethod().name())
                     .build());
+
+            if (searchCancelled.get()) {
+                return;
+            }
+
+            behavior.start(engine, config, card);
+
+            TransactionConfig retryConfig = engine.consumePendingRetry();
+            if (retryConfig != null) {
+                triggerSearch(retryConfig);
+            }
         }
     }
 
