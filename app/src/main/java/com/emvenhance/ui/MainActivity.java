@@ -100,14 +100,34 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 
+    /**
+     * The local EMV param DB (DaoManager, ConfigInit, ...) is opened only by
+     * {@code PaxTerminal.initializeVendor()} — on the FAKE/Ingenico vendor it's never opened at
+     * all, so these two buttons would just NPE on a null DaoSession. BuildConfig.VENDOR only
+     * forces PAX on a release build; a debug build stays on FAKE unless run with -PVENDOR=PAX.
+     */
+    private boolean requirePaxVendor() {
+        if (!"PAX".equalsIgnoreCase(BuildConfig.VENDOR)) {
+            toast("EMV param DB is PAX-only (current vendor: " + BuildConfig.VENDOR + ")");
+            return false;
+        }
+        return true;
+    }
+
     /** Re-parses the JSON assets and re-inserts AID/CAPK/scheme params into the local DB. */
     private void insertEmvParam() {
+        if (!requirePaxVendor()) {
+            return;
+        }
         new ConfigInit().init();
         toast("Inserting EMV param data…");
     }
 
     /** Reads whatever is currently cached/stored and shows it — does not insert anything. */
     private void showEmvParam() {
+        if (!requirePaxVendor()) {
+            return;
+        }
         new Thread(() -> {
             String summary;
             try {
