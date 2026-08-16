@@ -25,8 +25,8 @@ import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.commonlib.utils.ResourceUtil;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IConfigParamService;
+import com.pax.configservice.impl.ConfigParamService;
 import com.pax.dal.IIcc;
 import com.pax.dal.IMag;
 import com.pax.dal.IPicc;
@@ -74,7 +74,7 @@ public class CardReaderHelper{
     private final AtomicBoolean isSwiped = new AtomicBoolean(false);
     private final AtomicInteger detectResult = new AtomicInteger(-1);
 
-    private final IConfigParamService configParamService = Router.getService(IConfigParamService.class, ConfigServiceConstant.CONFIGSERVICE_CONFIG);
+    private final IConfigParamService configParamService = new ConfigParamService();
 
     private ConditionVariable cv;
     private long iccUnexpectedTime = -1;

@@ -21,12 +21,11 @@ import com.pax.bizentity.entity.Acquirer;
 import com.pax.bizentity.entity.TransData;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IConfigParamService;
-import com.sankuai.waimai.router.Router;
+import com.pax.configservice.impl.ConfigParamService;
 
 public class TransactionHelper {
-    private static final IConfigParamService configParamService = Router.getService(IConfigParamService.class, ConfigServiceConstant.CONFIGSERVICE_CONFIG);
+    private static final IConfigParamService configParamService = new ConfigParamService();
 
     private static final int MAX_TRANS_NO = 999999;
     private static final int MAX_BATCH_NO = 999999;

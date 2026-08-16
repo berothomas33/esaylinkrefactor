@@ -18,16 +18,15 @@ package com.pax.bizlib.ped;
 import com.pax.bizlib.trans.Device;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IConfigParamService;
+import com.pax.configservice.impl.ConfigParamService;
 import com.pax.poslib.gl.convert.ConvertHelper;
-import com.sankuai.waimai.router.Router;
 
 /**
  * The type Inject key util.
  */
 public class InjectKeyUtil {
-    private static final IConfigParamService configParamService = Router.getService(IConfigParamService.class, ConfigServiceConstant.CONFIGSERVICE_CONFIG);
+    private static final IConfigParamService configParamService = new ConfigParamService();
 
     private InjectKeyUtil() {
         // do nothing

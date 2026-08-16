@@ -23,10 +23,10 @@ import com.pax.bizentity.entity.CardRange;
 import com.pax.bizentity.entity.Issuer;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IAcquirerIssuerService;
 import com.pax.configservice.export.IConfigParamService;
-import com.sankuai.waimai.router.Router;
+import com.pax.configservice.impl.AcquirerIssuerService;
+import com.pax.configservice.impl.ConfigParamService;
 import java.util.List;
 
 /**
@@ -37,8 +37,8 @@ public class AcqManager {
     private static final String TAG = "AcqManager";
     private static AcqManager acqmanager;
     private Acquirer acquirer;
-    private final IConfigParamService configParamService = Router.getService(IConfigParamService.class, ConfigServiceConstant.CONFIGSERVICE_CONFIG);
-    private final IAcquirerIssuerService acquirerIssuerService =  Router.getService(IAcquirerIssuerService.class, ConfigServiceConstant.CONFIGSERVICE_ACQ_ISSUER);
+    private final IConfigParamService configParamService = new ConfigParamService();
+    private final IAcquirerIssuerService acquirerIssuerService = new AcquirerIssuerService();
 
 
     /**

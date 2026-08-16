@@ -24,8 +24,8 @@ import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IConfigParamService;
+import com.pax.configservice.impl.ConfigParamService;
 import com.pax.dal.ICardReaderHelper;
 import com.pax.dal.IDAL;
 import com.pax.dal.IPed;
@@ -44,7 +44,6 @@ import com.pax.dal.exceptions.PiccDevException;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.neptune.Sdk;
 import com.pax.poslib.utils.PosDeviceUtils;
-import com.sankuai.waimai.router.Router;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -53,7 +52,7 @@ import java.util.Locale;
  * Device method
  */
 public class Device {
-    private static IConfigParamService configParamService = Router.getService(IConfigParamService.class, ConfigServiceConstant.CONFIGSERVICE_CONFIG);
+    private static IConfigParamService configParamService = new ConfigParamService();
     private static IDAL idal = Sdk.getInstance().getDal(BaseApplication.getAppContext());
     private static final String TAG = "Device";
 
