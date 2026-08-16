@@ -50,32 +50,35 @@ class ClssKernelProcessFactory {
         switch (kernelType) {
             case KernType.KERNTYPE_VIS:
                 clssParam = emvProcessParam.getPayWaveParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.PAYWAVE);
+                return new ClssPayWaveProcess();
             case KernType.KERNTYPE_MC:
                 clssParam = emvProcessParam.getPayPassParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.MC);
+                return new ClssPayPassProcess();
             case KernType.KERNTYPE_AE:
                 clssParam = emvProcessParam.getAmexParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.AMEX);
+                return new ClssAEProcess();
             case KernType.KERNTYPE_PBOC:
                 clssParam = emvProcessParam.getPbocParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.PBOC);
+                return new ClssPbocProcess();
             case KernType.KERNTYPE_EFT:
                 clssParam = emvProcessParam.getEftParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.EFT);
+                return new ClssEFTProcess();
             case KernType.KERNTYPE_JCB:
                 clssParam = emvProcessParam.getJcbParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.JCB);
+                return new ClssJcbProcess();
             case KernType.KERNTYPE_MIR:
                 clssParam = emvProcessParam.getMirParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.MIR);
+                return new ClssMirProcess();
             case KernType.KERNTYPE_PURE:
                 clssParam = emvProcessParam.getPureParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.PURE);
+                return new ClssPureProcess();
             case KernType.KERNTYPE_RUPAY:
                 clssParam = emvProcessParam.getRuPayParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.RUPAY);
+                return new ClssRuPayProcess();
             case KernType.KERNTYPE_ZIP:
+                // DPAS is dual-sourced: emvlib:dpas vs emvlib:dpas2 register the same
+                // Router key and are swapped by which module is linked in build.gradle —
+                // keep this one on Router, it's the only kernel that actually uses it.
                 clssParam = emvProcessParam.getDpasParam();
                 return Router.getService(ClssKernelProcess.class, EmvKernelConst.DPAS);
             default:
