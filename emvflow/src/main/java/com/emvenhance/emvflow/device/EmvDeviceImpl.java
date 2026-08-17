@@ -76,9 +76,9 @@ public class EmvDeviceImpl implements IDevice {
     private int transInterface = 0;
 
     private final IDAL dal;
-    private final IPed ped;
-    private final IIcc icc;
-    private final IPicc picc;
+    private IPed ped;
+    private IIcc icc;
+    private IPicc picc;
 
     private long leftTime = 0;
 
@@ -105,9 +105,42 @@ public class EmvDeviceImpl implements IDevice {
                     "Neptune DAL is null — EmvFlowRuntime.init() must obtain IDAL from "
                             + "NeptuneLiteUser.getDal(Application) before EMVCoreInit");
         }
-        ped = PedHelper.getPed();
-        icc = dal.getIcc();
-        picc = dal.getPicc(EPiccType.INTERNAL);
+        // PED/ICC/PICC are opened lazily. Opening PED here called getPedMode() which
+        // loads DeviceConfig from nepcore.dex; a missing libDeviceConfig.so is an
+        // Error (not Exception) and would kill Application.onCreate.
+    }
+
+    private IPed ped() {
+        if (ped == null) {
+            try {
+                ped = PedHelper.getPed();
+            } catch (Throwable t) {
+                LogUtils.e(TAG, "PED open failed", t);
+            }
+        }
+        return ped;
+    }
+
+    private IIcc icc() {
+        if (icc == null) {
+            try {
+                icc = dal.getIcc();
+            } catch (Throwable t) {
+                LogUtils.e(TAG, "ICC open failed", t);
+            }
+        }
+        return icc;
+    }
+
+    private IPicc picc() {
+        if (picc == null) {
+            try {
+                picc = dal.getPicc(EPiccType.INTERNAL);
+            } catch (Throwable t) {
+                LogUtils.e(TAG, "PICC open failed", t);
+            }
+        }
+        return picc;
     }
 
     /**
@@ -175,9 +208,13 @@ public class EmvDeviceImpl implements IDevice {
 
     @Override
     public int pedVerifyPlainPin(byte[] iccRespOut, byte mode) {
+        IPed p = ped();
+        if (p == null) {
+            return DeviceRetCode.DEVICE_PEDERR_OTHER;
+        }
         try {
-            ped.setKeyboardLayoutLandscape(!ViewUtils.isScreenOrientationPortrait(ActivityStack.getInstance().top()));
-            byte[] result = ped.verifyPlainPin(iccSlot, expectPinLen, mode, timeOut);
+            p.setKeyboardLayoutLandscape(!ViewUtils.isScreenOrientationPortrait(ActivityStack.getInstance().top()));
+            byte[] result = p.verifyPlainPin(iccSlot, expectPinLen, mode, timeOut);
             System.arraycopy(result, 0, iccRespOut, 0, 2);
             return DeviceRetCode.DEVICE_PROC_OK;
         } catch (PedDevException e) {
@@ -217,9 +254,13 @@ public class EmvDeviceImpl implements IDevice {
         System.arraycopy(rsaPinKeyIn.mod, 0, pinKey.getModulus(), 0, pinKey.getModulus().length);
         pinKey.setModulusLen(rsaPinKeyIn.modlen);
 
+        IPed p = ped();
+        if (p == null) {
+            return DeviceRetCode.DEVICE_PEDERR_OTHER;
+        }
         try {
-            ped.setKeyboardLayoutLandscape(!ViewUtils.isScreenOrientationPortrait(ActivityStack.getInstance().top()));
-            byte[] result = ped.verifyCipherPin(iccSlot, expectPinLen, pinKey, mode, timeOut);
+            p.setKeyboardLayoutLandscape(!ViewUtils.isScreenOrientationPortrait(ActivityStack.getInstance().top()));
+            byte[] result = p.verifyCipherPin(iccSlot, expectPinLen, pinKey, mode, timeOut);
             System.arraycopy(result, 0, iccRespOut, 0, 2);
             return DeviceRetCode.DEVICE_PROC_OK;
         } catch (PedDevException e) {
@@ -333,7 +374,11 @@ public class EmvDeviceImpl implements IDevice {
         System.arraycopy(signIn, 0, byteSignIn, 0, signInLen);
 
         try {
-            ped.SM2Verify(pubKeyIn, uid, byteMsgIn, byteSignIn);
+            IPed p = ped();
+            if (p == null) {
+                return DeviceRetCode.DEVICE_PEDERR_OTHER;
+            }
+            p.SM2Verify(pubKeyIn, uid, byteMsgIn, byteSignIn);
             return DeviceRetCode.DEVICE_PROC_OK;
         } catch (PedDevException e) {
             LogUtils.w(TAG, e);
@@ -344,9 +389,13 @@ public class EmvDeviceImpl implements IDevice {
     @Override
     public int sm3(final byte[] msgIn, int msgInLen, byte[] resultOut) {
         try {
+            IPed p = ped();
+            if (p == null) {
+                return DeviceRetCode.DEVICE_PEDERR_OTHER;
+            }
             byte[] in = new byte[msgInLen];
             System.arraycopy(msgIn, 0, in, 0, msgInLen);
-            System.arraycopy(ped.SM3(in, (byte) 0x00), 0, resultOut, 0, resultOut.length);
+            System.arraycopy(p.SM3(in, (byte) 0x00), 0, resultOut, 0, resultOut.length);
             return DeviceRetCode.DEVICE_PROC_OK;
         } catch (PedDevException e) {
             LogUtils.w(TAG, e);
@@ -397,10 +446,14 @@ public class EmvDeviceImpl implements IDevice {
     @Override
     public int iccReset() {
         try {
-            dal.getIcc().init(this.iccSlot); // ignore returned ATR
+            IIcc i = icc();
+            if (i == null) {
+                return DeviceRetCode.DEVICE_PICC_OTHER_ERR;
+            }
+            i.init(this.iccSlot); // ignore returned ATR
             return DeviceRetCode.DEVICE_PICC_OK;
-        } catch (IccDevException e) {
-            LogUtils.w(TAG, e);
+        } catch (Throwable t) {
+            LogUtils.w(TAG, t);
         }
 
         return DeviceRetCode.DEVICE_PICC_OTHER_ERR;
@@ -448,7 +501,11 @@ public class EmvDeviceImpl implements IDevice {
         send.setLe(apduSend.le);
 
         try {
-            ApduRespInfo resp = picc.isoCommandByApdu(iccSlot, send);
+            IPicc p = picc();
+            if (p == null) {
+                return DeviceRetCode.DEVICE_PICC_OTHER_ERR;
+            }
+            ApduRespInfo resp = p.isoCommandByApdu(iccSlot, send);
 
             System.arraycopy(resp.getDataOut(), 0, apduRecv.dataOut, 0, resp.getDataOut().length);
             apduRecv.lenOut = (short) resp.getDataOut().length;
@@ -485,7 +542,11 @@ public class EmvDeviceImpl implements IDevice {
 
         ApduRespInfo resp;
         try {
-            resp = icc.isoCommandByApdu(this.iccSlot, send);
+            IIcc i = icc();
+            if (i == null) {
+                return DeviceRetCode.DEVICE_PICC_OTHER_ERR;
+            }
+            resp = i.isoCommandByApdu(this.iccSlot, send);
         } catch (IccDevException e) {
             LogUtils.w(TAG, e);
             return DeviceRetCode.DEVICE_PICC_OTHER_ERR;

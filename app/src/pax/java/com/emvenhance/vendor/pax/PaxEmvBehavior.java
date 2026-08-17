@@ -321,8 +321,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         try {
             EmvFlowRuntime.init(EmvFlowRuntime.getApp());
-        } catch (Exception e) {
-            LogUtils.e(TAG, "EmvFlowRuntime.init failed", e);
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "EmvFlowRuntime.init failed", t);
         }
         if (!EmvFlowRuntime.isReady()) {
             LogUtils.e(TAG, "Neptune DAL is not ready — cannot start EMV");

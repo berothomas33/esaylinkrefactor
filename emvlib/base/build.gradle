@@ -45,3 +45,5 @@ dependencies {
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 
 }
+
+apply from: rootProject.file("gradle/package-armeabi-as-v7a.gradle")

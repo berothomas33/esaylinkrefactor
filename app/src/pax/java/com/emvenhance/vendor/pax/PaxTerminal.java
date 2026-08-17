@@ -23,6 +23,7 @@ import com.pax.dal.entity.EDetectMode;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
+import com.pax.poslib.neptune.NeptuneNativeLibs;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -96,6 +97,7 @@ public class PaxTerminal extends PosTerminal {
             listener.onReaderError("DAL not ready");
             return null;
         }
+        NeptuneNativeLibs.loadDalLibraries();
 
         byte mode = toSearchMode(config);
         if (mode == 0) {
@@ -148,9 +150,9 @@ public class PaxTerminal extends PosTerminal {
                 listener.onSearchTimeout();
             }
             return null;
-        } catch (Exception e) {
-            LogUtils.e(TAG, "searchCard failed", e);
-            listener.onReaderError(e.getMessage() != null ? e.getMessage() : "Reader error");
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "searchCard failed", t);
+            listener.onReaderError(t.getMessage() != null ? t.getMessage() : "Reader error");
             return null;
         } finally {
             if (stopSearch.get() || isSearchCancelled()) {
@@ -209,9 +211,9 @@ public class PaxTerminal extends PosTerminal {
                     return card;
                 }
             }
-        } catch (Exception e) {
-            LogUtils.e(TAG, "pollOnce", e);
-            listener.onReaderError(e.getMessage() != null ? e.getMessage() : "poll failed");
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "pollOnce", t);
+            listener.onReaderError(t.getMessage() != null ? t.getMessage() : "poll failed");
         }
         return null;
     }

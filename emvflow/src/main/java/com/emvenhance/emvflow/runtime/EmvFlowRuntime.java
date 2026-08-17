@@ -13,6 +13,7 @@ import com.pax.neptunelite.api.NeptuneLiteUser;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.gl.impl.GL;
 import com.pax.poslib.model.ModelInfo;
+import com.pax.poslib.neptune.NeptuneNativeLibs;
 import com.pax.poslib.neptune.Sdk;
 
 /**
@@ -24,6 +25,8 @@ import com.pax.poslib.neptune.Sdk;
  *
  * <ol>
  *   <li>{@code ConvertHelper.init} and activity-lifecycle registration.</li>
+ *   <li>Preload Neptune JNI ({@code DeviceConfig}/{@code DCL}/{@code HDSD}) so
+ *       PED/ICC/PICC can open without poisoning {@code DeviceConfig}.</li>
  *   <li>Neptune DAL via {@code NeptuneLiteUser.getDal(Application)} — the documented
  *       Neptune Lite entry point. {@link Sdk} is then synced so PedHelper / ModelInfo
  *       see the same {@link IDAL}.</li>
@@ -64,14 +67,15 @@ public final class EmvFlowRuntime {
             application.registerActivityLifecycleCallbacks(new AppActivityLifecycleCallbacks());
             lifecycleRegistered = true;
         }
+        NeptuneNativeLibs.loadDalLibraries();
         acquireDal();
         if (!glInitialized) {
             try {
                 GL.init(application);
                 ModelInfo.getInstance().buildCache();
                 glInitialized = true;
-            } catch (UnsatisfiedLinkError | Exception e) {
-                LogUtils.e(TAG, "GL/ModelInfo init failed", e);
+            } catch (Throwable t) {
+                LogUtils.e(TAG, "GL/ModelInfo init failed", t);
             }
         }
         loadEmvNativeLibraries();
@@ -114,21 +118,21 @@ public final class EmvFlowRuntime {
         }
         try {
             dal = NeptuneLiteUser.getInstance().getDal(app);
-        } catch (UnsatisfiedLinkError | Exception e) {
-            LogUtils.e(TAG, "NeptuneLiteUser.getDal failed", e);
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "NeptuneLiteUser.getDal failed", t);
         }
         if (dal == null) {
             try {
                 dal = Sdk.getInstance().getDal(app);
-            } catch (UnsatisfiedLinkError | Exception e) {
-                LogUtils.e(TAG, "Sdk.getDal failed", e);
+            } catch (Throwable t) {
+                LogUtils.e(TAG, "Sdk.getDal failed", t);
             }
         } else {
             // PedHelper / DefaultModel still read DAL through Sdk.
             try {
                 Sdk.getInstance().getDal(app);
-            } catch (UnsatisfiedLinkError | Exception e) {
-                LogUtils.e(TAG, "Sdk DAL sync failed", e);
+            } catch (Throwable t) {
+                LogUtils.e(TAG, "Sdk DAL sync failed", t);
             }
         }
     }
@@ -141,8 +145,8 @@ public final class EmvFlowRuntime {
             EmvUtils.loadLibrary();
             librariesLoaded = true;
             LogUtils.i(TAG, "EMV native libraries loaded");
-        } catch (UnsatisfiedLinkError | Exception e) {
-            LogUtils.e(TAG, "EMV native library load failed", e);
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "EMV native library load failed", t);
         }
     }
 
@@ -152,8 +156,8 @@ public final class EmvFlowRuntime {
         }
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-        } catch (UnsatisfiedLinkError | Exception e) {
-            LogUtils.e(TAG, "DeviceManager.setIDevice failed", e);
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "DeviceManager.setIDevice failed", t);
         }
     }
 }

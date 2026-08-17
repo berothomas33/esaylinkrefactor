@@ -43,7 +43,13 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
 }
+
+apply from: rootProject.file("gradle/package-armeabi-as-v7a.gradle")
 
 dependencies {
 
@@ -51,5 +57,6 @@ dependencies {
     api files("libs/nativetouchevent-release.aar")
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
     api project(":commonlib")
+    testImplementation "junit:junit:$rootProject.junit"
 
 }

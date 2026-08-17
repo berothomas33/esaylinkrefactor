@@ -27,6 +27,7 @@ import com.pax.dal.entity.EPedType;
 import com.pax.dal.entity.EUartPort;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.poslib.gl.convert.ConvertHelper;
+import com.pax.poslib.neptune.NeptuneNativeLibs;
 import com.pax.poslib.neptune.Sdk;
 import com.pax.poslib.ped.PedFactory;
 
@@ -34,16 +35,25 @@ import com.pax.poslib.ped.PedFactory;
  * Utils for operate Ped
  */
 public class PedHelper {
-    private static final IDAL dal = Sdk.getInstance().getDal(BaseApplication.getAppContext());
+    private static final String TAG = "PedHelper";
 
     private PedHelper() {
         // do nothing
     }
 
+    private static IDAL dal() {
+        NeptuneNativeLibs.loadDalLibraries();
+        return Sdk.getInstance().getDal(BaseApplication.getAppContext());
+    }
+
     public static IPed getPed() {
+        IDAL idal = dal();
+        if (idal == null) {
+            throw new IllegalStateException("Neptune DAL is null — cannot open PED");
+        }
         IPed ped;
         try {
-            int pedMode = dal.getSys().getPedMode();
+            int pedMode = idal.getSys().getPedMode();
             if (pedMode == 2) {
                 ped = PedFactory.getPedKeyIsolation(ParamHelper.getCurrentPed());
             } else {
@@ -53,9 +63,10 @@ public class PedHelper {
                     || ParamHelper.getCurrentPed() == EPedType.EXTERNAL_TYPEC) {
                 ped.setPort(EUartPort.PINPAD);
             }
-        } catch (Exception e) {
-            LogUtils.e(e);
-            ped = dal.getPed(ParamHelper.getCurrentPed());
+        } catch (Throwable t) {
+            // UnsatisfiedLinkError / NoClassDefFoundError are Errors, not Exception.
+            LogUtils.e(TAG, "getPedMode failed, falling back to dal.getPed", t);
+            ped = idal.getPed(ParamHelper.getCurrentPed());
         }
         return ped;
     }
@@ -66,7 +77,8 @@ public class PedHelper {
      * @return decrypted data
      */
     public static byte[] calcDes(byte[] dataIn){
-        if (dal == null){
+        IDAL idal = dal();
+        if (idal == null){
             return new byte[0];
         }
         IPed ped = getPed();

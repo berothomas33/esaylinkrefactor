@@ -1,0 +1,16 @@
+// PAX JNI libs in this repo are shipped only under jniLibs/armeabi.
+// Devices with primary ABI armeabi-v7a install nativeLibraryDir from that
+// folder only, so nepcore.dex's DexClassLoader cannot find libDeviceConfig.so
+// (or EMV F_* libs). Mirror armeabi → armeabi-v7a at build time.
+def armeabiDir = file("src/main/jniLibs/armeabi")
+if (!armeabiDir.directory) {
+    return
+}
+
+def generatedJni = file("$buildDir/generated/jniLibs")
+tasks.register("syncArmeabiToV7a", Copy) {
+    from armeabiDir
+    into file("$generatedJni/armeabi-v7a")
+}
+android.sourceSets.main.jniLibs.srcDir(generatedJni)
+tasks.named("preBuild").configure { dependsOn("syncArmeabiToV7a") }

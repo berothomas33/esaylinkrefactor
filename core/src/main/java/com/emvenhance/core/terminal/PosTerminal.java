@@ -109,10 +109,10 @@ public abstract class PosTerminal {
         new Thread(() -> {
             try {
                 beginTransaction(config);
-            } catch (Exception e) {
+            } catch (Throwable t) {
                 //noinspection CallToPrintStackTrace
-                e.printStackTrace();
-                engine.notifyError(e.getMessage() != null ? e.getMessage() : "Transaction failed");
+                t.printStackTrace();
+                engine.notifyError(t.getMessage() != null ? t.getMessage() : "Transaction failed");
             }
         }, "PosTerminal-search").start();
     }
