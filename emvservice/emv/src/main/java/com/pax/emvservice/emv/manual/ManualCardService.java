@@ -18,8 +18,8 @@
 package com.pax.emvservice.emv.manual;
 
 import com.pax.bizlib.card.PanUtils;
-import com.pax.emvservice.export.EmvServiceConstant;
-import com.pax.emvservice.export.IManualCardService;
+import com.pax.emvservice.export.constant.EmvServiceConstant;
+import com.pax.emvservice.export.manual.IManualCardService;
 import com.sankuai.waimai.router.annotation.RouterService;
 
 @RouterService(interfaces = IManualCardService.class,key = EmvServiceConstant.EMVSERVICE_MANUAL_CARD)

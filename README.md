@@ -1,49 +1,82 @@
-# EmvEnhanceRefactor — multi-vendor EMV / POS enhance
+# EmvEnhanceRefactor
+
+Vendor-agnostic POS EMV: **one `PosTerminal` API for any card / any vendor**.
 
 ## Architecture
 
 ```text
-UI (Coroutines / RxJava)
-  → PosEmvFacade          (:core)
-      → EmvStepEngine     (7 EMV steps + print / 2nd tap / remove card)
-      → DevicePorts
-           ├─ FakeDeviceFactory
-           ├─ PaxDeviceFactory      (:emvflow + PAX libs)
-           ├─ IngenicoDeviceFactory (stub)
-           └─ SunmiDeviceFactory    (stub)
+UI  →  PosTerminal
+         ├── prepare() → onTerminalInitialization()
+         ├── searchCard()
+         └── start()   → goToStep(APPLICATION_SELECTION)
+                           vendor method → goToStep(next) → EmvStep observable → next method
+                           …
+                           finishApproved() / finishDeclined()
 ```
 
-## Select vendor
+Each vendor overrides step methods and advances with `goToStep(EmvStep)`.
+See [`doc/architecture/emv-step-methods-on-behavior.md`](doc/architecture/emv-step-methods-on-behavior.md).
 
-In `app/build.gradle` / BuildConfig:
+## Package layout
 
-| `VENDOR` | Adapter |
-|----------|---------|
-| `FAKE` | phone / UI demo (default debug) |
-| `PAX` | real Router EMV via `:emvflow` (default release) |
-| `INGENICO` | stub — wire Tetra/Axium later |
-| `SUNMI` | stub — wire Sunmi Pay later |
+### `:core` — `com.emvenhance.core.*`
 
-Gradle example: `./gradlew :app:assembleDebug -PVENDOR=PAX`
+| Package | Contents |
+|---------|----------|
+| `terminal` | `PosTerminal` (owns host + printer), `EmvBehavior` (EMV only) |
+| `engine` | `EmvEngine` |
+| `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
+| `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
+| `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult` — owned by PosTerminal |
 
-## 7 EMV steps (`EmvStep`)
+### `:emvflow` — `com.emvenhance.emvflow.*`
 
-1. Application selection  
-2. Initiate application (GPO)  
-3. Read application data  
-4. Offline auth + restrictions  
-5. Cardholder verification (CVM)  
-6. Terminal risk + action analysis  
-7. Online / completion (+ **print receipt**)
+| Package | Contents |
+|---------|----------|
+| `runtime` | `EmvFlowRuntime` (DAL / WMRouter lazy init) |
+| `preprocess` | `EmvPreProcessFacade` |
+| `progress` | `EmvStepProgress` |
+| `device` | `EmvDeviceImpl`, cipher mode |
+| `pin` | `IPinTask` |
 
-## State vs events
+### `:emvservice:export` — `com.pax.emvservice.export.*`
 
-- **StateFlow / BehaviorSubject** → `TransUiState` (step, PAN, result)  
-- **SharedFlow / PublishSubject** → `EmvEvent` (dialogs, print, 2nd tap, step toast)
+| Package | Contents |
+|---------|----------|
+| `api` | `IEmvBase`, `IEmvCallback`, `IEmvCardInfoService`, … |
+| `contact` / `contactless` | Contact / CLSS service + result listeners |
+| `mag` / `manual` | Magstripe / manual entry APIs |
+| `pin` / `version` / `constant` / `exceptions` | Supporting APIs |
 
-## Modules
+### `:emvservice:emv` — `com.pax.emvservice.emv.*`
 
-- `:core` — ports, steps, POS behaviors, facade (no vendor SDKs)  
-- `:emvflow` — PAX Contact/Contactless runners + EmvDeviceImpl  
-- PAX stack — emvbase, emvlib, emvservice, poslib, …  
-- `:app` — UI + adapters
+| Package | Contents |
+|---------|----------|
+| `init` | `EmvInit` |
+| `contact` / `contactless` / `mag` / `manual` / `pin` / `version` | Concrete Router services |
+
+### `:emvbase` — `com.pax.emvbase.*` (unchanged roots)
+
+`constant` · `param` (common/contact/clss) · `process` (contact/contactless/entity/enums) · `utils`
+
+### `:app` — vendors
+
+```text
+vendor.TerminalFactory
+vendor.pax / vendor.fake / vendor.ingenico
+```
+
+## Vendors
+
+```text
+TerminalFactory.create(VENDOR)
+  PAX      → PaxTerminal → PaxEmvBehavior
+  INGENICO → IngenicoTerminal → IngenicoEmvBehavior (stub)
+  FAKE     → FakeTerminal → FakeEmvBehavior
+```
+
+Gradle: `./gradlew :app:assembleDebug -PVENDOR=PAX`
+
+## Card search events
+
+`CardSearchListener`: started · chip · contactless · mag · manual · removed · timeout · cancelled · error.

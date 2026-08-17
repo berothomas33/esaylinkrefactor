@@ -3,7 +3,7 @@ package com.emvenhance.ui;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
-import com.emvenhance.core.PosTerminal;
+import com.emvenhance.core.terminal.PosTerminal;
 
 public class MainViewModelFactory implements ViewModelProvider.Factory {
 

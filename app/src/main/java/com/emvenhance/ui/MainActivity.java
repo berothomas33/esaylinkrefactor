@@ -9,14 +9,13 @@ import androidx.lifecycle.ViewModelProvider;
 import com.emvenhance.BuildConfig;
 import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
-import com.emvenhance.core.EmvStepEvent;
-import com.emvenhance.core.TransactionStep;
-import com.emvenhance.core.TransactionStepEvent;
+import com.emvenhance.core.event.EmvStepEvent;
+import com.emvenhance.core.event.TransactionStep;
+import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.databinding.ActivityMainBinding;
 
 /**
- * Observes two LiveData fields from {@link MainViewModel}. No RxJava, no subjects, no
- * disposables, no engine, no callbacks. Just LiveData → UI binding.
+ * Observes {@link MainViewModel} only. Vendor card search is transparent via PosTerminal.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -38,15 +37,16 @@ public class MainActivity extends AppCompatActivity {
 
         binding.modeLabel.setText(getString(R.string.vendor_label, BuildConfig.VENDOR));
 
+        binding.btnAcceptCard.setOnClickListener(
+                v -> viewModel.acceptCard(PROC_CODE, AMOUNT_MINOR));
         binding.btnContact.setOnClickListener(
                 v -> viewModel.startContact(PROC_CODE, AMOUNT_MINOR));
         binding.btnContactless.setOnClickListener(
                 v -> viewModel.startContactless(PROC_CODE, AMOUNT_MINOR));
+        binding.btnCancel.setOnClickListener(v -> viewModel.cancel());
 
-        // ── Transaction lifecycle (sticky — survives rotation) ───────────
         viewModel.getTransactionStep().observe(this, this::renderTransactionStep);
 
-        // ── EMV kernel progress (consume-once — not replayed) ────────────
         viewModel.getEmvStep().observe(this, event -> {
             EmvStepEvent emvEvent = event.consume();
             if (emvEvent != null) {
@@ -58,7 +58,6 @@ public class MainActivity extends AppCompatActivity {
     private void renderTransactionStep(TransactionStepEvent event) {
         TransactionStep step = event.getStep();
 
-        // Progress spinner
         boolean busy = step != TransactionStep.IDLE
                 && step != TransactionStep.COMPLETED
                 && step != TransactionStep.ERROR
@@ -66,16 +65,13 @@ public class MainActivity extends AppCompatActivity {
                 && step != TransactionStep.DECLINED;
         binding.progress.setVisibility(busy ? View.VISIBLE : View.GONE);
 
-        // Card details (appear once CARD_DETECTED fires)
         binding.panText.setText(event.getString(TransactionStepEvent.KEY_PAN));
         binding.issuerText.setText(event.getString(TransactionStepEvent.KEY_ISSUER_NAME));
 
-        // Result / error
         String result = event.get(TransactionStepEvent.KEY_RESULT);
-        String error  = event.get(TransactionStepEvent.KEY_ERROR);
+        String error = event.get(TransactionStepEvent.KEY_ERROR);
         binding.resultText.setText(result != null ? result : (error != null ? error : "—"));
 
-        // Toast for notable milestones
         switch (step) {
             case APPROVED:
                 toast("Transaction approved");
