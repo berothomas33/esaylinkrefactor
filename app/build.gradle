@@ -14,23 +14,38 @@ android {
         versionName "1.0.0"
         multiDexEnabled true
 
-        // FAKE runs off-device, PAX drives the real terminal.
-        buildConfigField 'String', 'VENDOR', '"FAKE"'
-
         ndk {
             abiFilters 'armeabi', 'armeabi-v7a'
         }
     }
 
     buildTypes {
-        debug {
-            buildConfigField 'String', 'VENDOR',
-                    project.hasProperty('VENDOR') ? "\"${project.property('VENDOR')}\"" : '"FAKE"'
-        }
+        debug { }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // Each flavor compiles only its own vendor sources (src/pax, src/ingenico, src/fake) and
+    // pulls in only the module dependencies that vendor actually needs — an ingenico/fake build
+    // never touches the PAX SDK modules (emvlib/emvservice/configservice/bizlib/emvflow) at all.
+    flavorDimensions = ["vendor"]
+    productFlavors {
+        pax {
+            dimension "vendor"
+            applicationIdSuffix ".pax"
             buildConfigField 'String', 'VENDOR', '"PAX"'
+        }
+        ingenico {
+            dimension "vendor"
+            applicationIdSuffix ".ingenico"
+            buildConfigField 'String', 'VENDOR', '"INGENICO"'
+        }
+        fake {
+            dimension "vendor"
+            applicationIdSuffix ".fake"
+            buildConfigField 'String', 'VENDOR', '"FAKE"'
         }
     }
 
@@ -59,11 +74,14 @@ android {
 
 dependencies {
     implementation project(':core')
-    implementation project(':emvflow')
-    implementation project(':emvservice:emv')
-    implementation project(':configservice:impl')
-    implementation project(':bizlib')
     implementation project(':commonlib')
+
+    // PAX only: IngenicoTerminal/FakeTerminal never touch the PAX SDK, so the ingenico/fake
+    // flavors don't need it on their classpath at all.
+    paxImplementation project(':emvflow')
+    paxImplementation project(':emvservice:emv')
+    paxImplementation project(':configservice:impl')
+    paxImplementation project(':bizlib')
 
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
     implementation "com.google.android.material:material:$rootProject.material"

@@ -1,6 +1,5 @@
 package com.emvenhance.ui;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
@@ -14,10 +13,13 @@ import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.databinding.ActivityMainBinding;
-import com.pax.configservice.impl.ConfigInit;
 
 /**
  * Observes {@link MainViewModel} only. Vendor card search is transparent via PosTerminal.
+ *
+ * <p>The two EMV-param debug buttons are wired by {@link VendorDebugPanel} — a flavor-provided
+ * class (one implementation per pax/ingenico/fake source set) — so this class itself stays
+ * vendor-agnostic.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -46,9 +48,7 @@ public class MainActivity extends AppCompatActivity {
         binding.btnContactless.setOnClickListener(
                 v -> viewModel.startContactless(PROC_CODE, AMOUNT_MINOR));
         binding.btnCancel.setOnClickListener(v -> viewModel.cancel());
-        binding.btnInsertEmvParam.setOnClickListener(v -> insertEmvParam());
-        binding.btnShowEmvParam.setOnClickListener(
-                v -> startActivity(new Intent(this, EmvParamActivity.class)));
+        VendorDebugPanel.wire(this, binding);
 
         viewModel.getTransactionStep().observe(this, this::renderTransactionStep);
 
@@ -94,11 +94,5 @@ public class MainActivity extends AppCompatActivity {
 
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-    }
-
-    /** Re-parses the JSON assets and re-inserts AID/CAPK/scheme params into the local DB. */
-    private void insertEmvParam() {
-        new ConfigInit().init();
-        toast("Inserting EMV param data…");
     }
 }
