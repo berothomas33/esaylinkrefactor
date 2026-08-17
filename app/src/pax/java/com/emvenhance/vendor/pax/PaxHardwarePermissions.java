@@ -12,7 +12,7 @@ import com.pax.commonlib.utils.PermissionUtils;
  * <p>Must be declared in the pax flavor {@code AndroidManifest.xml} as
  * {@code com.pax.permission.*}. Missing declarations produce ICC#101 / "Not Permission for icc".
  */
-final class PaxHardwarePermissions {
+public final class PaxHardwarePermissions {
 
     private static final String TAG = "PaxHardwarePermissions";
 
@@ -27,7 +27,7 @@ final class PaxHardwarePermissions {
     private PaxHardwarePermissions() {
     }
 
-    static void request(FragmentActivity activity) {
+    public static void request(FragmentActivity activity) {
         logGrantState();
         PermissionUtils.getInstance().request(activity, ALL, denyList -> {
             if (denyList.isEmpty()) {
@@ -39,7 +39,7 @@ final class PaxHardwarePermissions {
         });
     }
 
-    static void logGrantState() {
+    public static void logGrantState() {
         for (String permission : ALL) {
             int result = BaseApplication.getAppContext().checkSelfPermission(permission);
             LogUtils.i(TAG, permission + " = "
