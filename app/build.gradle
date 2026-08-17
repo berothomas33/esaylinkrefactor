@@ -1,10 +1,10 @@
 plugins {
     id 'com.android.application'
 }
-// WMRouter registry: annotationProcessor generates each module's registrations, the
-// WMRouter plugin (applied below, app module only) merges them into the combined
-// com.sankuai.waimai.router.generated.ServiceLoaderInit that ServiceLoader.lazyInit() needs.
-apply plugin: 'WMRouter'
+// WMRouter's plugin can't run on this AGP version — see the note in the root build.gradle.
+// annotationProcessor alone (below) generates each module's own registrations, but nothing
+// combines them, so ServiceLoader.lazyInit() (in EmvFlowRuntime.init()) never finds a populated
+// registry. That's a known, permanent limitation here, not a bug to chase further.
 android {
     namespace 'com.emvenhance'
     compileSdk rootProject.ext.compileSdkVersion

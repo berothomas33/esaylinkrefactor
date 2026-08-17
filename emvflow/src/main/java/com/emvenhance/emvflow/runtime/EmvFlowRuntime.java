@@ -10,12 +10,22 @@ import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.gl.impl.GL;
 import com.pax.poslib.model.ModelInfo;
 import com.pax.poslib.neptune.Sdk;
-import com.sankuai.waimai.router.service.ServiceLoader;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
- * Runtime host for :emvflow — owns DAL and Router initialization.
+ * Runtime host for :emvflow — owns DAL initialization.
+ *
+ * <p>Does <b>not</b> call {@code ServiceLoader.lazyInit()}: WMRouter's Gradle plugin (the
+ * Transform that merges every module's annotationProcessor-generated registrations into one
+ * combined registry class) can't run on this project's AGP version — it calls the legacy
+ * Transform API, which AGP removed in 8.0+, confirmed by trying it. Without that plugin,
+ * {@code lazyInit()} can only ever throw {@code ClassNotFoundException} looking for a registry
+ * class that never gets generated, so there's no reason to call it — it bought nothing and only
+ * added a scary exception to every launch. Direct construction has already replaced
+ * {@code Router.getService()} everywhere that's safe to touch (see git history); the remaining
+ * real Router usages are inside PAX's own kernel/service modules and were already broken by
+ * this same gap before this change.
  *
  * <p>Background work runs on RxJava's IO scheduler.
  */
@@ -30,7 +40,6 @@ public final class EmvFlowRuntime {
 
     public static void init(@NonNull Application application) {
         app = application;
-        ServiceLoader.lazyInit();
         Completable.fromAction(() -> {
                     ConvertHelper.init(true);
                     application.registerActivityLifecycleCallbacks(
