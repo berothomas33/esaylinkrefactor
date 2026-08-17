@@ -13,7 +13,6 @@ import com.pax.neptunelite.api.NeptuneLiteUser;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.gl.impl.GL;
 import com.pax.poslib.model.ModelInfo;
-import com.pax.poslib.neptune.NeptuneNativeLibs;
 import com.pax.poslib.neptune.Sdk;
 
 /**
@@ -25,8 +24,6 @@ import com.pax.poslib.neptune.Sdk;
  *
  * <ol>
  *   <li>{@code ConvertHelper.init} and activity-lifecycle registration.</li>
- *   <li>Preload Neptune JNI ({@code DeviceConfig}/{@code DCL}/{@code HDSD}) so
- *       PED/ICC/PICC can open without poisoning {@code DeviceConfig}.</li>
  *   <li>Neptune DAL via {@code NeptuneLiteUser.getDal(Application)} — the documented
  *       Neptune Lite entry point. {@link Sdk} is then synced so PedHelper / ModelInfo
  *       see the same {@link IDAL}.</li>
@@ -67,7 +64,6 @@ public final class EmvFlowRuntime {
             application.registerActivityLifecycleCallbacks(new AppActivityLifecycleCallbacks());
             lifecycleRegistered = true;
         }
-        NeptuneNativeLibs.loadDalLibraries();
         acquireDal();
         if (!glInitialized) {
             try {

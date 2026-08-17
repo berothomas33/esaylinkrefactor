@@ -27,7 +27,6 @@ import com.pax.dal.entity.EPedType;
 import com.pax.dal.entity.EUartPort;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.poslib.gl.convert.ConvertHelper;
-import com.pax.poslib.neptune.NeptuneNativeLibs;
 import com.pax.poslib.neptune.Sdk;
 import com.pax.poslib.ped.PedFactory;
 
@@ -42,7 +41,6 @@ public class PedHelper {
     }
 
     private static IDAL dal() {
-        NeptuneNativeLibs.loadDalLibraries();
         return Sdk.getInstance().getDal(BaseApplication.getAppContext());
     }
 

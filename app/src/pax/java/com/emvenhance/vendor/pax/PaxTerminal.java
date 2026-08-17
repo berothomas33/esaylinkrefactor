@@ -23,7 +23,6 @@ import com.pax.dal.entity.EDetectMode;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
-import com.pax.poslib.neptune.NeptuneNativeLibs;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -97,7 +96,6 @@ public class PaxTerminal extends PosTerminal {
             listener.onReaderError("DAL not ready");
             return null;
         }
-        NeptuneNativeLibs.loadDalLibraries();
 
         byte mode = toSearchMode(config);
         if (mode == 0) {
