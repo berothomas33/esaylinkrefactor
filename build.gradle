@@ -7,7 +7,7 @@
 // There is no newer release of the plugin that migrated off Transform, so the per-module
 // @RouterService registrations this project's annotationProcessor generates can never be
 // combined into the single com.sankuai.waimai.router.generated.ServiceLoaderInit class
-// ServiceLoader.lazyInit() looks for — see EmvFlowRuntime.init() for how that's handled.
+// ServiceLoader.lazyInit() looks for — EmvFlowRuntime.init() no longer calls it.
 plugins {
     id 'com.android.application' version '8.2.2' apply false
     id 'com.android.library' version '8.2.2' apply false
