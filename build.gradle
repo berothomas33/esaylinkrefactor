@@ -1,4 +1,21 @@
 // Top-level build file — AGP 8.2 / JDK 17 multi-module, Java + RxJava only
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // WMRouter's Gradle plugin: the Transform that merges every module's
+        // annotationProcessor-generated registrations into the one
+        // com.sankuai.waimai.router.generated.ServiceLoaderInit class that
+        // ServiceLoader.lazyInit() looks up at runtime. Without this, each module's
+        // @RouterService registrations are generated but never combined — lazyInit()
+        // throws ClassNotFoundException and the registry stays empty for the whole app.
+        // Version must match routerCompiler/router below (io.github.meituan-dianping, 1.2.1).
+        classpath "io.github.meituan-dianping:plugin:1.2.1"
+    }
+}
+
 plugins {
     id 'com.android.application' version '8.2.2' apply false
     id 'com.android.library' version '8.2.2' apply false

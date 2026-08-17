@@ -1,7 +1,10 @@
 plugins {
     id 'com.android.application'
 }
-// WMRouter registry via annotationProcessor + ServiceLoader.lazyInit() (no Gradle plugin)
+// WMRouter registry: annotationProcessor generates each module's registrations, the
+// WMRouter plugin (applied below, app module only) merges them into the combined
+// com.sankuai.waimai.router.generated.ServiceLoaderInit that ServiceLoader.lazyInit() needs.
+apply plugin: 'WMRouter'
 android {
     namespace 'com.emvenhance'
     compileSdk rootProject.ext.compileSdkVersion
