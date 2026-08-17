@@ -1,4 +1,13 @@
 // Top-level build file — AGP 8.2 / JDK 17 multi-module, Java + RxJava only
+//
+// WMRouter's Gradle plugin (io.github.meituan-dianping:plugin) cannot be used on this AGP
+// version: it calls the legacy Transform API (BaseExtension.registerTransform), which AGP
+// removed entirely in 8.0+. Confirmed by trying it — `apply plugin: 'WMRouter'` in app/build.gradle
+// fails project ':app' configuration with "API 'android.registerTransform' is removed."
+// There is no newer release of the plugin that migrated off Transform, so the per-module
+// @RouterService registrations this project's annotationProcessor generates can never be
+// combined into the single com.sankuai.waimai.router.generated.ServiceLoaderInit class
+// ServiceLoader.lazyInit() looks for — EmvFlowRuntime.init() no longer calls it.
 plugins {
     id 'com.android.application' version '8.2.2' apply false
     id 'com.android.library' version '8.2.2' apply false

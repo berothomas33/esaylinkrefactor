@@ -1,7 +1,10 @@
 plugins {
     id 'com.android.application'
 }
-// WMRouter registry via annotationProcessor + ServiceLoader.lazyInit() (no Gradle plugin)
+// WMRouter's plugin can't run on this AGP version — see the note in the root build.gradle.
+// annotationProcessor alone (below) generates each module's own registrations, but nothing
+// combines them, so ServiceLoader.lazyInit() never finds a populated registry.
+// That's a known, permanent limitation here, not a bug to chase further.
 android {
     namespace 'com.emvenhance'
     compileSdk rootProject.ext.compileSdkVersion

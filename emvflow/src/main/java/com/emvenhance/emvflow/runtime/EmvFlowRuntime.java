@@ -10,14 +10,16 @@ import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.gl.impl.GL;
 import com.pax.poslib.model.ModelInfo;
 import com.pax.poslib.neptune.Sdk;
-import com.sankuai.waimai.router.service.ServiceLoader;
-import io.reactivex.rxjava3.core.Completable;
-import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
- * Runtime host for :emvflow — owns DAL and Router initialization.
+ * Runtime host for :emvflow — owns PAX Neptune SDK initialization.
  *
- * <p>Background work runs on RxJava's IO scheduler.
+ * <p>Follows the same synchronous init pattern as the PAX demo app:
+ * DAL, GL, ConvertHelper, and ModelInfo are initialized in sequence.
+ * The entire block is wrapped in a try/catch because {@code Sdk.getInstance()}
+ * loads {@code libnativetouchevent.so} — a system library only present on
+ * real PAX hardware — so {@link UnsatisfiedLinkError} is expected on
+ * emulators and non-PAX devices.
  */
 public final class EmvFlowRuntime {
     private static final String TAG = "EmvFlowRuntime";
@@ -30,19 +32,16 @@ public final class EmvFlowRuntime {
 
     public static void init(@NonNull Application application) {
         app = application;
-        ServiceLoader.lazyInit();
-        Completable.fromAction(() -> {
-                    ConvertHelper.init(true);
-                    application.registerActivityLifecycleCallbacks(
-                            new AppActivityLifecycleCallbacks());
-                    dal = Sdk.getInstance().getDal(application);
-                    GL.init(application);
-                    ModelInfo.getInstance().buildCache();
-                })
-                .subscribeOn(Schedulers.io())
-                .subscribe(
-                        () -> LogUtils.i(TAG, "EmvFlowRuntime initialized"),
-                        t -> LogUtils.e(TAG, "init failed (expected off a PAX device)", t));
+        ConvertHelper.init(true);
+        application.registerActivityLifecycleCallbacks(new AppActivityLifecycleCallbacks());
+        try {
+            dal = Sdk.getInstance().getDal(application);
+            GL.init(application);
+            ModelInfo.getInstance().buildCache();
+            LogUtils.i(TAG, "EmvFlowRuntime initialized");
+        } catch (UnsatisfiedLinkError | Exception e) {
+            LogUtils.e(TAG, "init failed (expected off a PAX device)", e);
+        }
     }
 
     @NonNull
