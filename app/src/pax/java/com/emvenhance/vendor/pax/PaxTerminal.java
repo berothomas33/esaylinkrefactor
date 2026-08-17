@@ -25,9 +25,12 @@ import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
 import com.pax.dal.exceptions.EIccDevException;
+import com.pax.dal.exceptions.EPiccDevException;
 import com.pax.dal.exceptions.IccDevException;
+import com.pax.dal.exceptions.PiccDevException;
 import com.pax.poslib.model.ModelInfo;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * PAX POS terminal — owns Neptune DAL card search and creates {@link PaxEmvBehavior}.
@@ -52,10 +55,22 @@ public class PaxTerminal extends PosTerminal {
      * rules decide (chip unreadable → fallback to magstripe).
      */
     private static final long ICC_UNREADABLE_GRACE_MS = 3_000L;
+    /** {@code PICC_ERR_NOT_OPEN} reopen budget, as in the PAX reference reader. */
+    private static final int PICC_REOPEN_ATTEMPTS = 2;
+    /** How long the contactless thread holds the field waiting for the search thread. */
+    private static final long PICC_HANDOFF_TIMEOUT_MS = 2_000L;
+    private static final long PICC_JOIN_TIMEOUT_MS = 1_000L;
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
     private final PaxKernel kernel;
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
+
+    /** False tells the contactless thread to stop and release the RF field. */
+    private final AtomicBoolean searchActive = new AtomicBoolean(false);
+    /** Published by the contactless thread, consumed by the search thread. */
+    private final AtomicReference<PiccCardInfo> piccCard = new AtomicReference<>();
+    /** Set when contactless is the winning reader, so its field stays powered for EMV. */
+    private final AtomicBoolean contactlessWon = new AtomicBoolean(false);
 
     private boolean iccCardPresent;
     private boolean iccDisabled;
@@ -126,9 +141,12 @@ public class PaxTerminal extends PosTerminal {
 
         IMag mag = null;
         IIcc icc = null;
-        IPicc picc = null;
+        Thread piccThread = null;
         iccDisabled = false;
         resetIccSearchState();
+        piccCard.set(null);
+        contactlessWon.set(false);
+        searchActive.set(true);
 
         try {
             PaxHardwarePermissions.logGrantState();
@@ -141,9 +159,10 @@ public class PaxTerminal extends PosTerminal {
                 iccNextInitAtMs = System.currentTimeMillis() + ICC_POWER_SETTLE_MS;
             }
             if (SearchMode.isSupportInternalPicc(mode)) {
-                picc = openPicc(dal);
+                piccThread = new Thread(() -> runPiccDetect(dal), "PaxTerminal-picc");
+                piccThread.start();
             }
-            if (mag == null && icc == null && picc == null) {
+            if (mag == null && icc == null && piccThread == null) {
                 listener.onReaderError(
                         "No card reader available (need com.pax.permission.ICC / MAGCARD / PICC)");
                 return null;
@@ -154,7 +173,7 @@ public class PaxTerminal extends PosTerminal {
             long deadline = System.currentTimeMillis() + SEARCH_TIMEOUT_MS;
             while (!stopSearch.get() && !isSearchCancelled()
                     && System.currentTimeMillis() < deadline) {
-                CardPresence found = pollOnce(mag, icc, picc, mode, listener);
+                CardPresence found = pollOnce(mag, icc, mode, listener);
                 if (found != null) {
                     return found;
                 }
@@ -178,9 +197,101 @@ public class PaxTerminal extends PosTerminal {
             listener.onReaderError(t.getMessage() != null ? t.getMessage() : "Reader error");
             return null;
         } finally {
+            searchActive.set(false);
+            joinQuietly(piccThread);
             if (stopSearch.get() || isSearchCancelled()) {
-                closeQuietly(mag, icc, picc);
+                closeQuietly(mag, icc);
             }
+        }
+    }
+
+    /**
+     * Contactless detection, mirroring the PAX {@code DetechInternalPicc} thread: the RF field
+     * is opened and polled here only, so it is never energized between the contact slot's
+     * {@code detect()}/{@code init()} calls on the search thread.
+     *
+     * <p>Unlike the PAX reference this does not invoke the callback itself — a found card is
+     * published for the search thread, which owns every {@link CardSearchListener} call because
+     * those run EMV synchronously.
+     */
+    private void runPiccDetect(IDAL dal) {
+        IPicc picc;
+        try {
+            picc = dal.getPicc(EPiccType.INTERNAL);
+            picc.close();
+            picc.open();
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "PICC open failed (need " + PaxHardwarePermissions.PICC + ")", t);
+            return;
+        }
+
+        try {
+            int reopenAttempts = 0;
+            while (searchActive.get() && !stopSearch.get() && !isSearchCancelled()) {
+                try {
+                    PiccCardInfo info = picc.detect(EDetectMode.EMV_AB);
+                    if (info != null) {
+                        piccCard.set(info);
+                        awaitSearchEnd();
+                        return;
+                    }
+                } catch (PiccDevException e) {
+                    if (e.getErrCode() == EPiccDevException.ERROR_DISABLED.getErrCodeFromBasement()) {
+                        LogUtils.w(TAG, "PICC reader disabled");
+                        return;
+                    }
+                    if (e.getErrCode() == EPiccDevException.PICC_ERR_NOT_OPEN.getErrCodeFromBasement()
+                            && reopenAttempts++ < PICC_REOPEN_ATTEMPTS) {
+                        LogUtils.w(TAG, "PICC not open — reopening");
+                        try {
+                            picc.open();
+                            continue;
+                        } catch (Throwable reopenFailed) {
+                            LogUtils.e(TAG, "PICC reopen failed", reopenFailed);
+                            return;
+                        }
+                    }
+                    LogUtils.w(TAG, "PICC poll: " + e.getErrMsg());
+                    return;
+                } catch (Throwable t) {
+                    LogUtils.w(TAG, "PICC poll: " + t.getMessage());
+                    return;
+                }
+                try {
+                    Thread.sleep(POLL_INTERVAL_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        } finally {
+            if (!contactlessWon.get()) {
+                closeQuietly(picc);
+            }
+        }
+    }
+
+    /** Waits for the search thread to consume a published tap before releasing the field. */
+    private void awaitSearchEnd() {
+        long deadline = System.currentTimeMillis() + PICC_HANDOFF_TIMEOUT_MS;
+        while (searchActive.get() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(POLL_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private static void joinQuietly(@Nullable Thread thread) {
+        if (thread == null) {
+            return;
+        }
+        try {
+            thread.join(PICC_JOIN_TIMEOUT_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -190,21 +301,37 @@ public class PaxTerminal extends PosTerminal {
     }
 
     @Nullable
-    private CardPresence pollOnce(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
+    private CardPresence pollOnce(@Nullable IMag mag, @Nullable IIcc icc,
             byte mode, CardSearchListener listener) {
-        CardPresence magCard = pollMag(mag, icc, picc, mode, listener);
+        CardPresence magCard = pollMag(mag, icc, mode, listener);
         if (magCard != null) {
             return magCard;
         }
-        CardPresence chip = pollIcc(mag, icc, picc, mode, listener);
+        CardPresence chip = pollIcc(mag, icc, mode, listener);
         if (chip != null) {
             return chip;
         }
-        return pollPicc(mag, icc, picc, mode, listener);
+        return takeContactless(mag, icc, listener);
+    }
+
+    /** Reports a tap found by {@link #runPiccDetect}, keeping listener calls on this thread. */
+    @Nullable
+    private CardPresence takeContactless(@Nullable IMag mag, @Nullable IIcc icc,
+            CardSearchListener listener) {
+        PiccCardInfo info = piccCard.getAndSet(null);
+        if (info == null) {
+            return null;
+        }
+        contactlessWon.set(true);
+        searchActive.set(false);
+        closeQuietly(mag, icc);
+        CardPresence card = CardPresence.contactless(info.getSerialInfo());
+        listener.onContactlessDetected(card);
+        return card;
     }
 
     @Nullable
-    private CardPresence pollMag(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
+    private CardPresence pollMag(@Nullable IMag mag, @Nullable IIcc icc,
             byte mode, CardSearchListener listener) {
         if (!SearchMode.isSupportMag(mode) || mag == null) {
             return null;
@@ -229,7 +356,8 @@ public class PaxTerminal extends PosTerminal {
                 }
             }
             if (t2 != null && !t2.isEmpty()) {
-                closeQuietly(null, icc, picc);
+                searchActive.set(false);
+                closeQuietly(null, icc);
                 CardPresence card = CardPresence.magstripe(t1, t2, t3);
                 listener.onMagstripeDetected(card);
                 return card;
@@ -241,7 +369,7 @@ public class PaxTerminal extends PosTerminal {
     }
 
     @Nullable
-    private CardPresence pollIcc(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
+    private CardPresence pollIcc(@Nullable IMag mag, @Nullable IIcc icc,
             byte mode, CardSearchListener listener) {
         if (!SearchMode.isSupportIcc(mode) || icc == null || iccDisabled) {
             return null;
@@ -259,7 +387,8 @@ public class PaxTerminal extends PosTerminal {
             if (isIccUnreadableTooLong()) {
                 LogUtils.w(TAG, "ICC still no ATR after " + ICC_UNREADABLE_GRACE_MS
                         + "ms — handing to EMV so fallback rules apply");
-                closeQuietly(mag, null, picc);
+                searchActive.set(false);
+                closeQuietly(mag, null);
                 CardPresence card = CardPresence.chip();
                 listener.onChipDetected(card);
                 return card;
@@ -273,7 +402,8 @@ public class PaxTerminal extends PosTerminal {
                 onIccInitFailed(icc, "empty ATR");
                 return null;
             }
-            closeQuietly(mag, null, picc);
+            searchActive.set(false);
+            closeQuietly(mag, null);
             CardPresence card = CardPresence.chip();
             listener.onChipDetected(card);
             return card;
@@ -337,27 +467,6 @@ public class PaxTerminal extends PosTerminal {
     }
 
     @Nullable
-    private CardPresence pollPicc(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
-            byte mode, CardSearchListener listener) {
-        if (!SearchMode.isSupportInternalPicc(mode) || picc == null) {
-            return null;
-        }
-        try {
-            PiccCardInfo info = picc.detect(EDetectMode.EMV_AB);
-            if (info == null) {
-                return null;
-            }
-            closeQuietly(mag, icc, null);
-            CardPresence card = CardPresence.contactless(info.getSerialInfo());
-            listener.onContactlessDetected(card);
-            return card;
-        } catch (Throwable t) {
-            LogUtils.w(TAG, "PICC poll: " + t.getMessage());
-            return null;
-        }
-    }
-
-    @Nullable
     private static IMag openMag(IDAL dal) {
         try {
             IMag mag = dal.getMag();
@@ -383,19 +492,6 @@ public class PaxTerminal extends PosTerminal {
         }
     }
 
-    @Nullable
-    private static IPicc openPicc(IDAL dal) {
-        try {
-            IPicc picc = dal.getPicc(EPiccType.INTERNAL);
-            picc.close();
-            picc.open();
-            return picc;
-        } catch (Throwable t) {
-            LogUtils.e(TAG, "PICC open failed (need " + PaxHardwarePermissions.PICC + ")", t);
-            return null;
-        }
-    }
-
     private static byte toSearchMode(TransactionConfig config) {
         byte mode = 0;
         if (config.allowsChip()) {
@@ -410,7 +506,7 @@ public class PaxTerminal extends PosTerminal {
         return mode;
     }
 
-    private static void closeQuietly(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc) {
+    private static void closeQuietly(@Nullable IMag mag, @Nullable IIcc icc) {
         try {
             if (mag != null) {
                 mag.close();
@@ -423,6 +519,9 @@ public class PaxTerminal extends PosTerminal {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private static void closeQuietly(@Nullable IPicc picc) {
         try {
             if (picc != null) {
                 picc.close();
