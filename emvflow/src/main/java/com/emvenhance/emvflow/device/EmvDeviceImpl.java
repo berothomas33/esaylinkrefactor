@@ -102,7 +102,8 @@ public class EmvDeviceImpl implements IDevice {
         dal = EmvFlowRuntime.getDal();
         if (dal == null) {
             throw new IllegalStateException(
-                    "DAL is null — call EmvFlowRuntime.init() on a PAX device before EMV");
+                    "Neptune DAL is null — EmvFlowRuntime.init() must obtain IDAL from "
+                            + "NeptuneLiteUser.getDal(Application) before EMVCoreInit");
         }
         ped = PedHelper.getPed();
         icc = dal.getIcc();

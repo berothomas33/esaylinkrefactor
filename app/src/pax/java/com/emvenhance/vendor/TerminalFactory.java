@@ -16,7 +16,11 @@ public final class TerminalFactory {
     private TerminalFactory() {
     }
 
-    /** PAX needs the Neptune DAL / WMRouter kernel registry brought up before anything else. */
+    /**
+     * PAX needs Neptune DAL + EMV JNI libs before any kernel call.
+     * {@link EmvFlowRuntime#init} is the documented bootstrap (NeptuneLiteUser.getDal,
+     * then {@code EmvUtils.loadLibrary}, then {@code DeviceManager.setIDevice}).
+     */
     @NonNull
     public static PosTerminal create(Application application) {
         EmvFlowRuntime.init(application);

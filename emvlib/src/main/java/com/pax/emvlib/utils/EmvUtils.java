@@ -20,6 +20,7 @@ package com.pax.emvlib.utils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.emvlib.base.IEmvLoadLibCallback;
 import com.sankuai.waimai.router.Router;
+import java.util.ArrayList;
 import java.util.List;
 
 public class EmvUtils {
@@ -31,15 +32,11 @@ public class EmvUtils {
 
     public static void loadLibrary(){
         try {
-            List<IEmvLoadLibCallback> callbackList = Router.getAllServices(IEmvLoadLibCallback.class);
-            if (callbackList != null && !callbackList.isEmpty()) {
-                for (IEmvLoadLibCallback callback : callbackList) {
-                    callback.load();
-                }
-            } else {
-                LogUtils.e(TAG, "No Load Library Callback Implementation");
+            List<IEmvLoadLibCallback> callbackList = resolveLoadCallbacks();
+            for (IEmvLoadLibCallback callback : callbackList) {
+                callback.load();
             }
-        } catch (Exception e) {
+        } catch (UnsatisfiedLinkError | Exception e) {
             LogUtils.e(TAG, "Load EMV Library Failed", e);
         }
 
@@ -78,5 +75,31 @@ public class EmvUtils {
         //load eft
         System.loadLibrary("F_EFT_LIB_PayDroid");
         System.loadLibrary("JNI_EFT_v101_D1");
+    }
+
+    /**
+     * WMRouter's Gradle plugin cannot run on AGP 8+, so {@code @RouterService}
+     * {@link IEmvLoadLibCallback} registrations are never merged. Fall back to
+     * constructing the base (DEVICE/ENTRY) and dpas (EMV/DPAS) loaders directly.
+     */
+    static List<IEmvLoadLibCallback> resolveLoadCallbacks() {
+        List<IEmvLoadLibCallback> callbackList = null;
+        try {
+            callbackList = Router.getAllServices(IEmvLoadLibCallback.class);
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "Router IEmvLoadLibCallback lookup failed", t);
+        }
+        if (callbackList != null && !callbackList.isEmpty()) {
+            return callbackList;
+        }
+        LogUtils.w(TAG, "No WMRouter IEmvLoadLibCallback; loading DEVICE/EMV kernels directly");
+        return directKernelLoaders();
+    }
+
+    static List<IEmvLoadLibCallback> directKernelLoaders() {
+        List<IEmvLoadLibCallback> direct = new ArrayList<>(2);
+        direct.add(new com.pax.emvlib.base.EmvLoadLibImpl());
+        direct.add(new com.pax.emvlib.dpas.EmvLoadLibImpl());
+        return direct;
     }
 }

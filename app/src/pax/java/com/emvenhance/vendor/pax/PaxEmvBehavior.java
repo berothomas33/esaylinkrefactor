@@ -319,6 +319,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (!config.allowsChip() && !config.allowsContactless()) {
             return true;
         }
+        try {
+            EmvFlowRuntime.init(EmvFlowRuntime.getApp());
+        } catch (Exception e) {
+            LogUtils.e(TAG, "EmvFlowRuntime.init failed", e);
+        }
+        if (!EmvFlowRuntime.isReady()) {
+            LogUtils.e(TAG, "Neptune DAL is not ready — cannot start EMV");
+            return false;
+        }
         byte requested = 0;
         if (config.allowsChip()) {
             requested |= SearchMode.INSERT;

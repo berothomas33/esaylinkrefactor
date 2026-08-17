@@ -32,8 +32,6 @@ public class Sdk {
 
     }
 
-    private final TouchEvent touchEvent = new TouchEvent();
-
     private Sdk() {
     }
 
@@ -45,22 +43,34 @@ public class Sdk {
     }
 
     public IDAL getDal(Context context) {
+        if (dal != null) {
+            return dal;
+        }
         if (Utils.isPaxDevice()) {
             LogUtils.i(TAG, "before NeptuneUser");
             try {
                 dal = NeptuneLiteUser.getInstance().getDal(context);
             } catch (Exception e) {
-                LogUtils.w(TAG, e);
+                LogUtils.e(TAG, "NeptuneLiteUser.getDal failed", e);
             }
             LogUtils.i(TAG, "after NeptuneUser");
         } else {
-            return new DemoDal(context);
+            dal = new DemoDal(context);
         }
         return dal;
     }
 
+    /**
+     * TouchEvent loads {@code libnativetouchevent.so}. Keep that off the DAL path —
+     * constructing it from a field initializer made {@link #getDal} fail with
+     * {@link UnsatisfiedLinkError} before Neptune was even called.
+     */
     public TouchEvent getTouchEvent(){
-        return touchEvent;
+        return TouchEventHolder.INSTANCE;
+    }
+
+    private static final class TouchEventHolder {
+        private static final TouchEvent INSTANCE = new TouchEvent();
     }
 
     public static boolean isPaxDevice() {
