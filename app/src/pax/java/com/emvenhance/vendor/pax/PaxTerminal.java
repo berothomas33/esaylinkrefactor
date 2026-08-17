@@ -108,20 +108,20 @@ public class PaxTerminal extends PosTerminal {
         IPicc picc = null;
 
         try {
+            PaxHardwarePermissions.logGrantState();
             if (SearchMode.isSupportMag(mode)) {
-                mag = dal.getMag();
-                mag.close();
-                mag.open();
-                mag.reset();
+                mag = openMag(dal);
             }
             if (SearchMode.isSupportIcc(mode)) {
-                icc = dal.getIcc();
-                icc.close((byte) 0);
+                icc = openIcc(dal);
             }
             if (SearchMode.isSupportInternalPicc(mode)) {
-                picc = dal.getPicc(EPiccType.INTERNAL);
-                picc.close();
-                picc.open();
+                picc = openPicc(dal);
+            }
+            if (mag == null && icc == null && picc == null) {
+                listener.onReaderError(
+                        "No card reader available (need com.pax.permission.ICC / MAGCARD / PICC)");
+                return null;
             }
 
             listener.onSearchStarted(config);
@@ -214,6 +214,45 @@ public class PaxTerminal extends PosTerminal {
             listener.onReaderError(t.getMessage() != null ? t.getMessage() : "poll failed");
         }
         return null;
+    }
+
+    @Nullable
+    private static IMag openMag(IDAL dal) {
+        try {
+            IMag mag = dal.getMag();
+            mag.close();
+            mag.open();
+            mag.reset();
+            return mag;
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "MAG open failed (need " + PaxHardwarePermissions.MAGCARD + ")", t);
+            return null;
+        }
+    }
+
+    @Nullable
+    private static IIcc openIcc(IDAL dal) {
+        try {
+            IIcc icc = dal.getIcc();
+            icc.close((byte) 0);
+            return icc;
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "ICC open failed (need " + PaxHardwarePermissions.ICC + ")", t);
+            return null;
+        }
+    }
+
+    @Nullable
+    private static IPicc openPicc(IDAL dal) {
+        try {
+            IPicc picc = dal.getPicc(EPiccType.INTERNAL);
+            picc.close();
+            picc.open();
+            return picc;
+        } catch (Throwable t) {
+            LogUtils.e(TAG, "PICC open failed (need " + PaxHardwarePermissions.PICC + ")", t);
+            return null;
+        }
     }
 
     private static byte toSearchMode(TransactionConfig config) {

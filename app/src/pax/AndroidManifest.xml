@@ -1,5 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      PAX Neptune / PayDroid hardware permissions (Neptune Lite DAL).
+      Without these, IccManager/MagManager/PiccManager throw:
+        IccException "Not Permission for icc"
+        IccDevException ICC#101 (no permission error)
+      and the same pattern for MAG / PICC.
+
+      Mapping to dal.get*():
+        ICC     → contact chip     dal.getIcc()
+        PICC    → contactless      dal.getPicc(INTERNAL)
+        MAGCARD → magstripe        dal.getMag()
+        PED     → PIN pad
+        PRINTER → receipt printer
+
+      On typical PayDroid builds these are install-time / signature permissions:
+      declaring them here is what grants access. Runtime request is extra for
+      firmware that treats them as dangerous.
+    -->
+    <uses-permission android:name="com.pax.permission.ICC" />
+    <uses-permission android:name="com.pax.permission.PICC" />
+    <uses-permission android:name="com.pax.permission.MAGCARD" />
+    <uses-permission android:name="com.pax.permission.PED" />
+    <uses-permission android:name="com.pax.permission.PRINTER" />
+
     <application>
         <activity
             android:name=".ui.EmvParamActivity"

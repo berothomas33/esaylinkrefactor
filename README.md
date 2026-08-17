@@ -77,6 +77,22 @@ TerminalFactory.create(VENDOR)
 
 Gradle: `./gradlew :app:assembleDebug -PVENDOR=PAX`
 
+PAX card readers (chip / mag / contactless / PIN) need Neptune Lite permissions in
+the **pax** flavor manifest (`app/src/pax/AndroidManifest.xml`):
+
+```xml
+<uses-permission android:name="com.pax.permission.ICC" />
+<uses-permission android:name="com.pax.permission.PICC" />
+<uses-permission android:name="com.pax.permission.MAGCARD" />
+<uses-permission android:name="com.pax.permission.PED" />
+<uses-permission android:name="com.pax.permission.PRINTER" />
+```
+
+Missing `ICC` is `IccDevException ICC#101` / `IccException: Not Permission for icc` on
+`icc.close()`. Rebuild and reinstall the **pax** APK after adding them. If they stay
+denied on the device, install via PAXSTORE / a PAX-signed package — PayDroid treats
+these as signature permissions on some firmware.
+
 ## Card search events
 
 `CardSearchListener`: started · chip · contactless · mag · manual · removed · timeout · cancelled · error.
