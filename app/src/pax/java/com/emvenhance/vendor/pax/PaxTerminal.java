@@ -37,12 +37,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class PaxTerminal extends PosTerminal {
 
     private static final String TAG = "PaxTerminal";
+    private static final byte ICC_SLOT = 0;
     private static final long SEARCH_TIMEOUT_MS = 60_000L;
     private static final long POLL_INTERVAL_MS = 50L;
+    /** VCC settle after {@code icc.close()} before the next {@code init()}. */
+    private static final long ICC_POWER_SETTLE_MS = 200L;
+    /** Minimum gap between failed ATR attempts so the chip is not held mute. */
+    private static final long ICC_RETRY_MS = 400L;
+    /** After this many failed inits on the same insertion, wait for remove. */
+    private static final int ICC_MAX_INIT_PER_INSERT = 3;
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
     private final PaxKernel kernel;
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
+
+    private boolean iccCardPresent;
+    private boolean iccDisabled;
+    private int iccInitAttempts;
+    private long iccNextInitAtMs;
+    private boolean iccInitWarned;
 
     public PaxTerminal() {
         this(new PaxKernel(),
@@ -108,6 +121,8 @@ public class PaxTerminal extends PosTerminal {
         IMag mag = null;
         IIcc icc = null;
         IPicc picc = null;
+        iccDisabled = false;
+        resetIccSearchState();
 
         try {
             PaxHardwarePermissions.logGrantState();
@@ -116,6 +131,8 @@ public class PaxTerminal extends PosTerminal {
             }
             if (SearchMode.isSupportIcc(mode)) {
                 icc = openIcc(dal);
+                // close() at open powers the slot off; wait before the first init().
+                iccNextInitAtMs = System.currentTimeMillis() + ICC_POWER_SETTLE_MS;
             }
             if (SearchMode.isSupportInternalPicc(mode)) {
                 picc = openPicc(dal);
@@ -212,7 +229,7 @@ public class PaxTerminal extends PosTerminal {
                 return card;
             }
         } catch (Throwable t) {
-            LogUtils.w(TAG, "MAG poll", t);
+            LogUtils.w(TAG, "MAG poll: " + t.getMessage());
         }
         return null;
     }
@@ -220,16 +237,27 @@ public class PaxTerminal extends PosTerminal {
     @Nullable
     private CardPresence pollIcc(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
             byte mode, CardSearchListener listener) {
-        if (!SearchMode.isSupportIcc(mode) || icc == null) {
+        if (!SearchMode.isSupportIcc(mode) || icc == null || iccDisabled) {
             return null;
         }
         try {
-            if (!icc.detect((byte) 0)) {
+            boolean present = icc.detect(ICC_SLOT);
+            if (!present) {
+                if (iccCardPresent) {
+                    resetIccSearchState();
+                }
                 return null;
             }
-            byte[] atr = icc.init((byte) 0);
-            if (atr == null) {
-                LogUtils.w(TAG, "ICC detect but ATR empty — reseat chip or swipe");
+            iccCardPresent = true;
+
+            long now = System.currentTimeMillis();
+            if (iccInitAttempts >= ICC_MAX_INIT_PER_INSERT || now < iccNextInitAtMs) {
+                return null;
+            }
+
+            byte[] atr = icc.init(ICC_SLOT);
+            if (atr == null || atr.length == 0) {
+                onIccInitFailed(icc, "empty ATR");
                 return null;
             }
             closeQuietly(mag, null, picc);
@@ -237,19 +265,45 @@ public class PaxTerminal extends PosTerminal {
             listener.onChipDetected(card);
             return card;
         } catch (IccDevException e) {
-            // ICC#97 DEVICES_ERR_UNEXPECTED: slot thinks a card is in, but power-on/ATR
-            // failed (upside-down, not fully seated, mag-only card in the hybrid slot).
-            // PAX CardReaderHelper keeps polling; treating it as onReaderError aborts search.
-            if (e.getErrCode() == EIccDevException.DEVICES_ERR_UNEXPECTED.getErrCodeFromBasement()) {
-                LogUtils.w(TAG, "ICC#97 unexpected on init — keep searching (reseat chip or swipe)");
+            if (e.getErrCode() == EIccDevException.ERROR_DISABLED.getErrCodeFromBasement()) {
+                iccDisabled = true;
+                LogUtils.w(TAG, "ICC reader disabled");
                 return null;
             }
-            LogUtils.e(TAG, "ICC poll", e);
+            // Native IccManager.iccInit throws IccException: 51 (no ATR / card mute).
+            // DAL wraps that as ICC#97 DEVICES_ERR_UNEXPECTED. Retrying init() every
+            // poll without close() keeps VCC in a bad state and floods System.err.
+            onIccInitFailed(icc, e.getErrCode() + " " + e.getErrMsg());
             return null;
         } catch (Throwable t) {
-            LogUtils.w(TAG, "ICC poll", t);
+            onIccInitFailed(icc, t.getMessage());
             return null;
         }
+    }
+
+    private void onIccInitFailed(@Nullable IIcc icc, @Nullable String detail) {
+        iccInitAttempts++;
+        iccNextInitAtMs = System.currentTimeMillis() + ICC_RETRY_MS;
+        if (icc != null) {
+            try {
+                icc.close(ICC_SLOT);
+            } catch (Exception ignored) {
+            }
+        }
+        if (!iccInitWarned) {
+            iccInitWarned = true;
+            LogUtils.w(TAG, "ICC init failed (" + detail
+                    + "). Native IccException 51 / DAL ICC#97. Power-cycled slot; reseat chip or swipe."
+                    + " Further inits wait for card remove after "
+                    + ICC_MAX_INIT_PER_INSERT + " attempts.");
+        }
+    }
+
+    private void resetIccSearchState() {
+        iccCardPresent = false;
+        iccInitAttempts = 0;
+        iccNextInitAtMs = 0;
+        iccInitWarned = false;
     }
 
     @Nullable
@@ -268,7 +322,7 @@ public class PaxTerminal extends PosTerminal {
             listener.onContactlessDetected(card);
             return card;
         } catch (Throwable t) {
-            LogUtils.w(TAG, "PICC poll", t);
+            LogUtils.w(TAG, "PICC poll: " + t.getMessage());
             return null;
         }
     }
@@ -291,7 +345,7 @@ public class PaxTerminal extends PosTerminal {
     private static IIcc openIcc(IDAL dal) {
         try {
             IIcc icc = dal.getIcc();
-            icc.close((byte) 0);
+            icc.close(ICC_SLOT);
             return icc;
         } catch (Throwable t) {
             LogUtils.e(TAG, "ICC open failed (need " + PaxHardwarePermissions.ICC + ")", t);
@@ -335,7 +389,7 @@ public class PaxTerminal extends PosTerminal {
         }
         try {
             if (icc != null) {
-                icc.close((byte) 0);
+                icc.close(ICC_SLOT);
             }
         } catch (Exception ignored) {
         }
