@@ -1,5 +1,6 @@
 package com.emvenhance.vendor.pax;
 
+import android.os.Build;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
@@ -25,6 +26,7 @@ import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
 import com.pax.dal.exceptions.EIccDevException;
 import com.pax.dal.exceptions.IccDevException;
+import com.pax.poslib.model.ModelInfo;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -44,8 +46,12 @@ public class PaxTerminal extends PosTerminal {
     private static final long ICC_POWER_SETTLE_MS = 200L;
     /** Minimum gap between failed ATR attempts so the chip is not held mute. */
     private static final long ICC_RETRY_MS = 400L;
-    /** After this many failed inits on the same insertion, wait for remove. */
-    private static final int ICC_MAX_INIT_PER_INSERT = 3;
+    /**
+     * How long a card may sit in the slot failing ATR before it is handed to EMV anyway.
+     * Matches PAX {@code CardReaderHelper}: after this the kernel runs and EMV fallback
+     * rules decide (chip unreadable → fallback to magstripe).
+     */
+    private static final long ICC_UNREADABLE_GRACE_MS = 3_000L;
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
     private final PaxKernel kernel;
@@ -53,7 +59,7 @@ public class PaxTerminal extends PosTerminal {
 
     private boolean iccCardPresent;
     private boolean iccDisabled;
-    private int iccInitAttempts;
+    private long iccFirstFailureAtMs;
     private long iccNextInitAtMs;
     private boolean iccInitWarned;
 
@@ -250,8 +256,15 @@ public class PaxTerminal extends PosTerminal {
             }
             iccCardPresent = true;
 
-            long now = System.currentTimeMillis();
-            if (iccInitAttempts >= ICC_MAX_INIT_PER_INSERT || now < iccNextInitAtMs) {
+            if (isIccUnreadableTooLong()) {
+                LogUtils.w(TAG, "ICC still no ATR after " + ICC_UNREADABLE_GRACE_MS
+                        + "ms — handing to EMV so fallback rules apply");
+                closeQuietly(mag, null, picc);
+                CardPresence card = CardPresence.chip();
+                listener.onChipDetected(card);
+                return card;
+            }
+            if (System.currentTimeMillis() < iccNextInitAtMs) {
                 return null;
             }
 
@@ -270,9 +283,8 @@ public class PaxTerminal extends PosTerminal {
                 LogUtils.w(TAG, "ICC reader disabled");
                 return null;
             }
-            // Native IccManager.iccInit throws IccException: 51 (no ATR / card mute).
-            // DAL wraps that as ICC#97 DEVICES_ERR_UNEXPECTED. Retrying init() every
-            // poll without close() keeps VCC in a bad state and floods System.err.
+            // Native IccManager.iccInit throws IccException: 51 (no ATR / card mute) and the
+            // DAL prints that stack to System.err itself before wrapping it as ICC#97.
             onIccInitFailed(icc, e.getErrCode() + " " + e.getErrMsg());
             return null;
         } catch (Throwable t) {
@@ -281,9 +293,17 @@ public class PaxTerminal extends PosTerminal {
         }
     }
 
+    private boolean isIccUnreadableTooLong() {
+        return iccFirstFailureAtMs > 0
+                && System.currentTimeMillis() - iccFirstFailureAtMs >= ICC_UNREADABLE_GRACE_MS;
+    }
+
     private void onIccInitFailed(@Nullable IIcc icc, @Nullable String detail) {
-        iccInitAttempts++;
-        iccNextInitAtMs = System.currentTimeMillis() + ICC_RETRY_MS;
+        long now = System.currentTimeMillis();
+        if (iccFirstFailureAtMs <= 0) {
+            iccFirstFailureAtMs = now;
+        }
+        iccNextInitAtMs = now + ICC_RETRY_MS;
         if (icc != null) {
             try {
                 icc.close(ICC_SLOT);
@@ -292,18 +312,28 @@ public class PaxTerminal extends PosTerminal {
         }
         if (!iccInitWarned) {
             iccInitWarned = true;
-            LogUtils.w(TAG, "ICC init failed (" + detail
-                    + "). Native IccException 51 / DAL ICC#97. Power-cycled slot; reseat chip or swipe."
-                    + " Further inits wait for card remove after "
-                    + ICC_MAX_INIT_PER_INSERT + " attempts.");
+            LogUtils.w(TAG, "ICC init failed (" + detail + ") on " + describeDevice()
+                    + ". Native IccException 51 / DAL ICC#97 = no ATR."
+                    + " Slot power-cycled; reseat the chip or swipe.");
         }
     }
 
     private void resetIccSearchState() {
         iccCardPresent = false;
-        iccInitAttempts = 0;
+        iccFirstFailureAtMs = 0;
         iccNextInitAtMs = 0;
         iccInitWarned = false;
+    }
+
+    /** Model traits that explain a mute chip: no ICC module, or a shared mag/ICC slot. */
+    private static String describeDevice() {
+        try {
+            ModelInfo info = ModelInfo.getInstance();
+            return Build.MODEL + " (iccSupported=" + info.isSupportIcc()
+                    + ", magIccConflict=" + info.isMagIccConflict() + ")";
+        } catch (Throwable t) {
+            return Build.MODEL;
+        }
     }
 
     @Nullable
