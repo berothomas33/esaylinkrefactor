@@ -23,6 +23,8 @@ import com.pax.dal.entity.EDetectMode;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.PiccCardInfo;
 import com.pax.dal.entity.TrackData;
+import com.pax.dal.exceptions.EIccDevException;
+import com.pax.dal.exceptions.IccDevException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -167,53 +169,108 @@ public class PaxTerminal extends PosTerminal {
     @Nullable
     private CardPresence pollOnce(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
             byte mode, CardSearchListener listener) {
+        CardPresence magCard = pollMag(mag, icc, picc, mode, listener);
+        if (magCard != null) {
+            return magCard;
+        }
+        CardPresence chip = pollIcc(mag, icc, picc, mode, listener);
+        if (chip != null) {
+            return chip;
+        }
+        return pollPicc(mag, icc, picc, mode, listener);
+    }
+
+    @Nullable
+    private CardPresence pollMag(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
+            byte mode, CardSearchListener listener) {
+        if (!SearchMode.isSupportMag(mode) || mag == null) {
+            return null;
+        }
         try {
-            if (SearchMode.isSupportMag(mode) && mag != null && mag.isSwiped()) {
-                String t1;
-                String t2;
-                String t3;
-                kernel.mag.magRead();
-                t1 = kernel.mag.getTrack1();
-                t2 = kernel.mag.getTrack2();
-                t3 = kernel.mag.getTrack3();
-                if (t2 == null || t2.isEmpty()) {
-                    TrackData data = mag.read();
-                    if (data != null) {
-                        t1 = data.getTrack1();
-                        t2 = data.getTrack2();
-                        t3 = data.getTrack3();
-                    }
-                }
-                if (t2 != null && !t2.isEmpty()) {
-                    closeQuietly(null, icc, picc);
-                    CardPresence card = CardPresence.magstripe(t1, t2, t3);
-                    listener.onMagstripeDetected(card);
-                    return card;
+            if (!mag.isSwiped()) {
+                return null;
+            }
+            String t1;
+            String t2;
+            String t3;
+            kernel.mag.magRead();
+            t1 = kernel.mag.getTrack1();
+            t2 = kernel.mag.getTrack2();
+            t3 = kernel.mag.getTrack3();
+            if (t2 == null || t2.isEmpty()) {
+                TrackData data = mag.read();
+                if (data != null) {
+                    t1 = data.getTrack1();
+                    t2 = data.getTrack2();
+                    t3 = data.getTrack3();
                 }
             }
-            if (SearchMode.isSupportIcc(mode) && icc != null && icc.detect((byte) 0)) {
-                byte[] atr = icc.init((byte) 0);
-                if (atr != null) {
-                    closeQuietly(mag, null, picc);
-                    CardPresence card = CardPresence.chip();
-                    listener.onChipDetected(card);
-                    return card;
-                }
-            }
-            if (SearchMode.isSupportInternalPicc(mode) && picc != null) {
-                PiccCardInfo info = picc.detect(EDetectMode.EMV_AB);
-                if (info != null) {
-                    closeQuietly(mag, icc, null);
-                    CardPresence card = CardPresence.contactless(info.getSerialInfo());
-                    listener.onContactlessDetected(card);
-                    return card;
-                }
+            if (t2 != null && !t2.isEmpty()) {
+                closeQuietly(null, icc, picc);
+                CardPresence card = CardPresence.magstripe(t1, t2, t3);
+                listener.onMagstripeDetected(card);
+                return card;
             }
         } catch (Throwable t) {
-            LogUtils.e(TAG, "pollOnce", t);
-            listener.onReaderError(t.getMessage() != null ? t.getMessage() : "poll failed");
+            LogUtils.w(TAG, "MAG poll", t);
         }
         return null;
+    }
+
+    @Nullable
+    private CardPresence pollIcc(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
+            byte mode, CardSearchListener listener) {
+        if (!SearchMode.isSupportIcc(mode) || icc == null) {
+            return null;
+        }
+        try {
+            if (!icc.detect((byte) 0)) {
+                return null;
+            }
+            byte[] atr = icc.init((byte) 0);
+            if (atr == null) {
+                LogUtils.w(TAG, "ICC detect but ATR empty — reseat chip or swipe");
+                return null;
+            }
+            closeQuietly(mag, null, picc);
+            CardPresence card = CardPresence.chip();
+            listener.onChipDetected(card);
+            return card;
+        } catch (IccDevException e) {
+            // ICC#97 DEVICES_ERR_UNEXPECTED: slot thinks a card is in, but power-on/ATR
+            // failed (upside-down, not fully seated, mag-only card in the hybrid slot).
+            // PAX CardReaderHelper keeps polling; treating it as onReaderError aborts search.
+            if (e.getErrCode() == EIccDevException.DEVICES_ERR_UNEXPECTED.getErrCodeFromBasement()) {
+                LogUtils.w(TAG, "ICC#97 unexpected on init — keep searching (reseat chip or swipe)");
+                return null;
+            }
+            LogUtils.e(TAG, "ICC poll", e);
+            return null;
+        } catch (Throwable t) {
+            LogUtils.w(TAG, "ICC poll", t);
+            return null;
+        }
+    }
+
+    @Nullable
+    private CardPresence pollPicc(@Nullable IMag mag, @Nullable IIcc icc, @Nullable IPicc picc,
+            byte mode, CardSearchListener listener) {
+        if (!SearchMode.isSupportInternalPicc(mode) || picc == null) {
+            return null;
+        }
+        try {
+            PiccCardInfo info = picc.detect(EDetectMode.EMV_AB);
+            if (info == null) {
+                return null;
+            }
+            closeQuietly(mag, icc, null);
+            CardPresence card = CardPresence.contactless(info.getSerialInfo());
+            listener.onContactlessDetected(card);
+            return card;
+        } catch (Throwable t) {
+            LogUtils.w(TAG, "PICC poll", t);
+            return null;
+        }
     }
 
     @Nullable
