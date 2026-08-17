@@ -1,82 +1,46 @@
 package com.emvenhance.vendor.pax;
 
-import android.os.Build;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
+import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
-import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
-import com.pax.bizentity.entity.SearchMode;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.impl.ConfigInit;
+import com.pax.dal.ICardReaderHelper;
 import com.pax.dal.IDAL;
-import com.pax.dal.IIcc;
-import com.pax.dal.IMag;
-import com.pax.dal.IPicc;
-import com.pax.dal.entity.EDetectMode;
-import com.pax.dal.entity.EPiccType;
-import com.pax.dal.entity.PiccCardInfo;
-import com.pax.dal.entity.TrackData;
-import com.pax.dal.exceptions.EIccDevException;
-import com.pax.dal.exceptions.EPiccDevException;
+import com.pax.dal.entity.EReaderType;
+import com.pax.dal.entity.PollingResult;
 import com.pax.dal.exceptions.IccDevException;
+import com.pax.dal.exceptions.MagDevException;
 import com.pax.dal.exceptions.PiccDevException;
-import com.pax.poslib.model.ModelInfo;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * PAX POS terminal — owns Neptune DAL card search and creates {@link PaxEmvBehavior}.
+ * PAX POS terminal — uses {@link ICardReaderHelper} for card search and
+ * creates {@link PaxEmvBehavior} for EMV processing.
  *
- * <p>Card detection uses the native PAX SDK ({@link IIcc}/{@link IPicc}/{@link IMag}) and
- * reports every reader event through {@link CardSearchListener}. EMV after entry selection
- * is owned by {@link PaxEmvBehavior}.
+ * <p>Card detection delegates to the Neptune DAL's {@link ICardReaderHelper#polling},
+ * which internally manages all readers (MAG / ICC / PICC) and returns a
+ * {@link PollingResult} when a card is detected, the search times out, or is cancelled.
+ * This replaces manual reader polling and matches the PAX reference demo app pattern.
  */
 public class PaxTerminal extends PosTerminal {
 
     private static final String TAG = "PaxTerminal";
-    private static final byte ICC_SLOT = 0;
-    private static final long SEARCH_TIMEOUT_MS = 60_000L;
-    private static final long POLL_INTERVAL_MS = 50L;
-    /** VCC settle after {@code icc.close()} before the next {@code init()}. */
-    private static final long ICC_POWER_SETTLE_MS = 200L;
-    /** Minimum gap between failed ATR attempts so the chip is not held mute. */
-    private static final long ICC_RETRY_MS = 400L;
-    /**
-     * How long a card may sit in the slot failing ATR before it is handed to EMV anyway.
-     * Matches PAX {@code CardReaderHelper}: after this the kernel runs and EMV fallback
-     * rules decide (chip unreadable → fallback to magstripe).
-     */
-    private static final long ICC_UNREADABLE_GRACE_MS = 3_000L;
-    /** {@code PICC_ERR_NOT_OPEN} reopen budget, as in the PAX reference reader. */
-    private static final int PICC_REOPEN_ATTEMPTS = 2;
-    /** How long the contactless thread holds the field waiting for the search thread. */
-    private static final long PICC_HANDOFF_TIMEOUT_MS = 2_000L;
-    private static final long PICC_JOIN_TIMEOUT_MS = 1_000L;
+    private static final int SEARCH_TIMEOUT_MS = 60_000;
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
     private final PaxKernel kernel;
-    private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
-    /** False tells the contactless thread to stop and release the RF field. */
-    private final AtomicBoolean searchActive = new AtomicBoolean(false);
-    /** Published by the contactless thread, consumed by the search thread. */
-    private final AtomicReference<PiccCardInfo> piccCard = new AtomicReference<>();
-    /** Set when contactless is the winning reader, so its field stays powered for EMV. */
-    private final AtomicBoolean contactlessWon = new AtomicBoolean(false);
-
-    private boolean iccCardPresent;
-    private boolean iccDisabled;
-    private long iccFirstFailureAtMs;
-    private long iccNextInitAtMs;
-    private boolean iccInitWarned;
+    @Nullable
+    private volatile ICardReaderHelper activeCardReaderHelper;
 
     public PaxTerminal() {
         this(new PaxKernel(),
@@ -93,17 +57,10 @@ public class PaxTerminal extends PosTerminal {
 
     @Override
     protected void initializeVendor() {
-        // BaseDaoHelper.getDaoSession() now opens the DB itself on first use, so no explicit
-        // DaoManager.init() call is needed here.
         ensureEmvConfigInitialized();
-        LogUtils.i(TAG, "PAX terminal initialized (direct kernel composition)");
+        LogUtils.i(TAG, "PAX terminal initialized (ICardReaderHelper)");
     }
 
-    /**
-     * Loads AID/CAPK/scheme params into the local DB, once ever — guarded by a persisted flag
-     * so a later app launch (config already on disk from a previous run) skips it instead of
-     * re-parsing every JSON asset and re-inserting into Greendao again.
-     */
     private void ensureEmvConfigInitialized() {
         SharedPrefUtil prefs = new SharedPrefUtil(BaseApplication.getAppContext());
         if (prefs.getBoolean(KEY_EMV_CONFIG_INITIALIZED)) {
@@ -117,8 +74,6 @@ public class PaxTerminal extends PosTerminal {
     @Nullable
     @Override
     public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-        stopSearch.set(false);
-
         if (config.isManual()) {
             listener.onSearchStarted(config);
             CardPresence card = CardPresence.manual(null);
@@ -133,400 +88,147 @@ public class PaxTerminal extends PosTerminal {
             return null;
         }
 
-        byte mode = toSearchMode(config);
-        if (mode == 0) {
+        EReaderType readerType = toReaderType(config);
+        if (readerType == EReaderType.DEFAULT) {
             listener.onReaderError("No searchable entry mode enabled");
             return null;
         }
 
-        IMag mag = null;
-        IIcc icc = null;
-        Thread piccThread = null;
-        iccDisabled = false;
-        resetIccSearchState();
-        piccCard.set(null);
-        contactlessWon.set(false);
-        searchActive.set(true);
+        ICardReaderHelper cardReaderHelper = dal.getCardReaderHelper();
+        if (cardReaderHelper == null) {
+            listener.onReaderError("CardReaderHelper not available");
+            return null;
+        }
 
+        activeCardReaderHelper = cardReaderHelper;
         try {
             PaxHardwarePermissions.logGrantState();
-            if (SearchMode.isSupportMag(mode)) {
-                mag = openMag(dal);
-            }
-            if (SearchMode.isSupportIcc(mode)) {
-                icc = openIcc(dal);
-                // close() at open powers the slot off; wait before the first init().
-                iccNextInitAtMs = System.currentTimeMillis() + ICC_POWER_SETTLE_MS;
-            }
-            if (SearchMode.isSupportInternalPicc(mode)) {
-                piccThread = new Thread(() -> runPiccDetect(dal), "PaxTerminal-picc");
-                piccThread.start();
-            }
-            if (mag == null && icc == null && piccThread == null) {
-                listener.onReaderError(
-                        "No card reader available (need com.pax.permission.ICC / MAGCARD / PICC)");
-                return null;
-            }
-
             listener.onSearchStarted(config);
 
-            long deadline = System.currentTimeMillis() + SEARCH_TIMEOUT_MS;
-            while (!stopSearch.get() && !isSearchCancelled()
-                    && System.currentTimeMillis() < deadline) {
-                CardPresence found = pollOnce(mag, icc, mode, listener);
-                if (found != null) {
-                    return found;
-                }
-                try {
-                    Thread.sleep(POLL_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    listener.onSearchCancelled();
-                    return null;
-                }
-            }
-
-            if (stopSearch.get() || isSearchCancelled()) {
-                listener.onSearchCancelled();
-            } else {
-                listener.onSearchTimeout();
-            }
+            PollingResult result = cardReaderHelper.polling(readerType, SEARCH_TIMEOUT_MS);
+            return handlePollingResult(result, listener);
+        } catch (MagDevException e) {
+            LogUtils.e(TAG, "MAG error during search", e);
+            listener.onReaderError("MAG: " + e.getErrMsg());
+            return null;
+        } catch (IccDevException e) {
+            LogUtils.e(TAG, "ICC error during search", e);
+            listener.onReaderError("ICC: " + e.getErrMsg());
+            return null;
+        } catch (PiccDevException e) {
+            LogUtils.e(TAG, "PICC error during search", e);
+            listener.onReaderError("PICC: " + e.getErrMsg());
             return null;
         } catch (Throwable t) {
             LogUtils.e(TAG, "searchCard failed", t);
             listener.onReaderError(t.getMessage() != null ? t.getMessage() : "Reader error");
             return null;
         } finally {
-            searchActive.set(false);
-            joinQuietly(piccThread);
-            if (stopSearch.get() || isSearchCancelled()) {
-                closeQuietly(mag, icc);
-            }
-        }
-    }
-
-    /**
-     * Contactless detection, mirroring the PAX {@code DetechInternalPicc} thread: the RF field
-     * is opened and polled here only, so it is never energized between the contact slot's
-     * {@code detect()}/{@code init()} calls on the search thread.
-     *
-     * <p>Unlike the PAX reference this does not invoke the callback itself — a found card is
-     * published for the search thread, which owns every {@link CardSearchListener} call because
-     * those run EMV synchronously.
-     */
-    private void runPiccDetect(IDAL dal) {
-        IPicc picc;
-        try {
-            picc = dal.getPicc(EPiccType.INTERNAL);
-            picc.close();
-            picc.open();
-        } catch (Throwable t) {
-            LogUtils.e(TAG, "PICC open failed (need " + PaxHardwarePermissions.PICC + ")", t);
-            return;
-        }
-
-        try {
-            int reopenAttempts = 0;
-            while (searchActive.get() && !stopSearch.get() && !isSearchCancelled()) {
-                try {
-                    PiccCardInfo info = picc.detect(EDetectMode.EMV_AB);
-                    if (info != null) {
-                        piccCard.set(info);
-                        awaitSearchEnd();
-                        return;
-                    }
-                } catch (PiccDevException e) {
-                    if (e.getErrCode() == EPiccDevException.ERROR_DISABLED.getErrCodeFromBasement()) {
-                        LogUtils.w(TAG, "PICC reader disabled");
-                        return;
-                    }
-                    if (e.getErrCode() == EPiccDevException.PICC_ERR_NOT_OPEN.getErrCodeFromBasement()
-                            && reopenAttempts++ < PICC_REOPEN_ATTEMPTS) {
-                        LogUtils.w(TAG, "PICC not open — reopening");
-                        try {
-                            picc.open();
-                            continue;
-                        } catch (Throwable reopenFailed) {
-                            LogUtils.e(TAG, "PICC reopen failed", reopenFailed);
-                            return;
-                        }
-                    }
-                    LogUtils.w(TAG, "PICC poll: " + e.getErrMsg());
-                    return;
-                } catch (Throwable t) {
-                    LogUtils.w(TAG, "PICC poll: " + t.getMessage());
-                    return;
-                }
-                try {
-                    Thread.sleep(POLL_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-            }
-        } finally {
-            if (!contactlessWon.get()) {
-                closeQuietly(picc);
-            }
-        }
-    }
-
-    /** Waits for the search thread to consume a published tap before releasing the field. */
-    private void awaitSearchEnd() {
-        long deadline = System.currentTimeMillis() + PICC_HANDOFF_TIMEOUT_MS;
-        while (searchActive.get() && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-        }
-    }
-
-    private static void joinQuietly(@Nullable Thread thread) {
-        if (thread == null) {
-            return;
-        }
-        try {
-            thread.join(PICC_JOIN_TIMEOUT_MS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            activeCardReaderHelper = null;
         }
     }
 
     @Override
     protected void cancelCardSearch() {
-        stopSearch.set(true);
+        ICardReaderHelper helper = activeCardReaderHelper;
+        if (helper != null) {
+            helper.stopPolling();
+        }
     }
 
     @Nullable
-    private CardPresence pollOnce(@Nullable IMag mag, @Nullable IIcc icc,
-            byte mode, CardSearchListener listener) {
-        CardPresence magCard = pollMag(mag, icc, mode, listener);
-        if (magCard != null) {
-            return magCard;
-        }
-        CardPresence chip = pollIcc(mag, icc, mode, listener);
-        if (chip != null) {
-            return chip;
-        }
-        return takeContactless(mag, icc, listener);
-    }
-
-    /** Reports a tap found by {@link #runPiccDetect}, keeping listener calls on this thread. */
-    @Nullable
-    private CardPresence takeContactless(@Nullable IMag mag, @Nullable IIcc icc,
-            CardSearchListener listener) {
-        PiccCardInfo info = piccCard.getAndSet(null);
-        if (info == null) {
+    private CardPresence handlePollingResult(PollingResult result, CardSearchListener listener) {
+        if (result == null) {
+            listener.onSearchTimeout();
             return null;
         }
-        contactlessWon.set(true);
-        searchActive.set(false);
-        closeQuietly(mag, icc);
-        CardPresence card = CardPresence.contactless(info.getSerialInfo());
-        listener.onContactlessDetected(card);
-        return card;
-    }
 
-    @Nullable
-    private CardPresence pollMag(@Nullable IMag mag, @Nullable IIcc icc,
-            byte mode, CardSearchListener listener) {
-        if (!SearchMode.isSupportMag(mode) || mag == null) {
+        PollingResult.EOperationType operation = result.getOperationType();
+        if (operation == PollingResult.EOperationType.TIMEOUT) {
+            listener.onSearchTimeout();
             return null;
         }
-        try {
-            if (!mag.isSwiped()) {
-                return null;
-            }
-            String t1;
-            String t2;
-            String t3;
-            kernel.mag.magRead();
-            t1 = kernel.mag.getTrack1();
-            t2 = kernel.mag.getTrack2();
-            t3 = kernel.mag.getTrack3();
-            if (t2 == null || t2.isEmpty()) {
-                TrackData data = mag.read();
-                if (data != null) {
-                    t1 = data.getTrack1();
-                    t2 = data.getTrack2();
-                    t3 = data.getTrack3();
+        if (operation == PollingResult.EOperationType.CANCEL) {
+            listener.onSearchCancelled();
+            return null;
+        }
+        if (operation != PollingResult.EOperationType.OK) {
+            listener.onSearchTimeout();
+            return null;
+        }
+
+        EReaderType detectedReader = result.getReaderType();
+        if (detectedReader == null) {
+            listener.onReaderError("Card detected but reader type is null");
+            return null;
+        }
+
+        switch (detectedReader) {
+            case MAG: {
+                String t1 = result.getTrack1();
+                String t2 = result.getTrack2();
+                String t3 = result.getTrack3();
+                if (t2 == null || t2.isEmpty()) {
+                    kernel.mag.magRead();
+                    t1 = kernel.mag.getTrack1();
+                    t2 = kernel.mag.getTrack2();
+                    t3 = kernel.mag.getTrack3();
                 }
-            }
-            if (t2 != null && !t2.isEmpty()) {
-                searchActive.set(false);
-                closeQuietly(null, icc);
+                if (t2 == null || t2.isEmpty()) {
+                    listener.onReaderError("Magnetic stripe read failed — no track 2 data");
+                    return null;
+                }
                 CardPresence card = CardPresence.magstripe(t1, t2, t3);
                 listener.onMagstripeDetected(card);
                 return card;
             }
-        } catch (Throwable t) {
-            LogUtils.w(TAG, "MAG poll: " + t.getMessage());
-        }
-        return null;
-    }
 
-    @Nullable
-    private CardPresence pollIcc(@Nullable IMag mag, @Nullable IIcc icc,
-            byte mode, CardSearchListener listener) {
-        if (!SearchMode.isSupportIcc(mode) || icc == null || iccDisabled) {
-            return null;
-        }
-        try {
-            boolean present = icc.detect(ICC_SLOT);
-            if (!present) {
-                if (iccCardPresent) {
-                    resetIccSearchState();
-                }
-                return null;
-            }
-            iccCardPresent = true;
-
-            if (isIccUnreadableTooLong()) {
-                LogUtils.w(TAG, "ICC still no ATR after " + ICC_UNREADABLE_GRACE_MS
-                        + "ms — handing to EMV so fallback rules apply");
-                searchActive.set(false);
-                closeQuietly(mag, null);
+            case ICC: {
                 CardPresence card = CardPresence.chip();
                 listener.onChipDetected(card);
                 return card;
             }
-            if (System.currentTimeMillis() < iccNextInitAtMs) {
+
+            case PICC:
+            case PICCEXTERNAL: {
+                byte[] serialInfo = result.getSerialInfo();
+                CardPresence card = CardPresence.contactless(serialInfo);
+                listener.onContactlessDetected(card);
+                return card;
+            }
+
+            default:
+                listener.onReaderError("Unsupported reader type: " + detectedReader);
                 return null;
-            }
-
-            byte[] atr = icc.init(ICC_SLOT);
-            if (atr == null || atr.length == 0) {
-                onIccInitFailed(icc, "empty ATR");
-                return null;
-            }
-            searchActive.set(false);
-            closeQuietly(mag, null);
-            CardPresence card = CardPresence.chip();
-            listener.onChipDetected(card);
-            return card;
-        } catch (IccDevException e) {
-            if (e.getErrCode() == EIccDevException.ERROR_DISABLED.getErrCodeFromBasement()) {
-                iccDisabled = true;
-                LogUtils.w(TAG, "ICC reader disabled");
-                return null;
-            }
-            // Native IccManager.iccInit throws IccException: 51 (no ATR / card mute) and the
-            // DAL prints that stack to System.err itself before wrapping it as ICC#97.
-            onIccInitFailed(icc, e.getErrCode() + " " + e.getErrMsg());
-            return null;
-        } catch (Throwable t) {
-            onIccInitFailed(icc, t.getMessage());
-            return null;
         }
     }
 
-    private boolean isIccUnreadableTooLong() {
-        return iccFirstFailureAtMs > 0
-                && System.currentTimeMillis() - iccFirstFailureAtMs >= ICC_UNREADABLE_GRACE_MS;
-    }
+    private static EReaderType toReaderType(TransactionConfig config) {
+        boolean mag = config.allowsMagstripe();
+        boolean icc = config.allowsChip();
+        boolean picc = config.allowsContactless();
 
-    private void onIccInitFailed(@Nullable IIcc icc, @Nullable String detail) {
-        long now = System.currentTimeMillis();
-        if (iccFirstFailureAtMs <= 0) {
-            iccFirstFailureAtMs = now;
+        if (mag && icc && picc) {
+            return EReaderType.MAG_ICC_PICC;
         }
-        iccNextInitAtMs = now + ICC_RETRY_MS;
-        if (icc != null) {
-            try {
-                icc.close(ICC_SLOT);
-            } catch (Exception ignored) {
-            }
+        if (mag && icc) {
+            return EReaderType.MAG_ICC;
         }
-        if (!iccInitWarned) {
-            iccInitWarned = true;
-            LogUtils.w(TAG, "ICC init failed (" + detail + ") on " + describeDevice()
-                    + ". Native IccException 51 / DAL ICC#97 = no ATR."
-                    + " Slot power-cycled; reseat the chip or swipe.");
+        if (mag && picc) {
+            return EReaderType.MAG_PICC;
         }
-    }
-
-    private void resetIccSearchState() {
-        iccCardPresent = false;
-        iccFirstFailureAtMs = 0;
-        iccNextInitAtMs = 0;
-        iccInitWarned = false;
-    }
-
-    /** Model traits that explain a mute chip: no ICC module, or a shared mag/ICC slot. */
-    private static String describeDevice() {
-        try {
-            ModelInfo info = ModelInfo.getInstance();
-            return Build.MODEL + " (iccSupported=" + info.isSupportIcc()
-                    + ", magIccConflict=" + info.isMagIccConflict() + ")";
-        } catch (Throwable t) {
-            return Build.MODEL;
+        if (icc && picc) {
+            return EReaderType.ICC_PICC;
         }
-    }
-
-    @Nullable
-    private static IMag openMag(IDAL dal) {
-        try {
-            IMag mag = dal.getMag();
-            mag.close();
-            mag.open();
-            mag.reset();
-            return mag;
-        } catch (Throwable t) {
-            LogUtils.e(TAG, "MAG open failed (need " + PaxHardwarePermissions.MAGCARD + ")", t);
-            return null;
+        if (mag) {
+            return EReaderType.MAG;
         }
-    }
-
-    @Nullable
-    private static IIcc openIcc(IDAL dal) {
-        try {
-            IIcc icc = dal.getIcc();
-            icc.close(ICC_SLOT);
-            return icc;
-        } catch (Throwable t) {
-            LogUtils.e(TAG, "ICC open failed (need " + PaxHardwarePermissions.ICC + ")", t);
-            return null;
+        if (icc) {
+            return EReaderType.ICC;
         }
-    }
-
-    private static byte toSearchMode(TransactionConfig config) {
-        byte mode = 0;
-        if (config.allowsChip()) {
-            mode |= SearchMode.INSERT;
+        if (picc) {
+            return EReaderType.PICC;
         }
-        if (config.allowsContactless()) {
-            mode |= SearchMode.INTERNAL_WAVE;
-        }
-        if (config.allowsMagstripe()) {
-            mode |= SearchMode.SWIPE;
-        }
-        return mode;
-    }
-
-    private static void closeQuietly(@Nullable IMag mag, @Nullable IIcc icc) {
-        try {
-            if (mag != null) {
-                mag.close();
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            if (icc != null) {
-                icc.close(ICC_SLOT);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void closeQuietly(@Nullable IPicc picc) {
-        try {
-            if (picc != null) {
-                picc.close();
-            }
-        } catch (Exception ignored) {
-        }
+        return EReaderType.DEFAULT;
     }
 }
