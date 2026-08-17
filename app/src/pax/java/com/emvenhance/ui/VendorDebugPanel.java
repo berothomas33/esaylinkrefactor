@@ -3,6 +3,7 @@ package com.emvenhance.ui;
 import android.content.Intent;
 import android.widget.Toast;
 import com.emvenhance.databinding.ActivityMainBinding;
+import com.emvenhance.vendor.pax.PaxHardwarePermissions;
 import com.pax.configservice.impl.ConfigInit;
 
 /** PAX flavor: wires the EMV param debug buttons to the local Greendao DB. */
@@ -12,6 +13,7 @@ final class VendorDebugPanel {
     }
 
     static void wire(MainActivity activity, ActivityMainBinding binding) {
+        PaxHardwarePermissions.request(activity);
         binding.btnInsertEmvParam.setOnClickListener(v -> {
             new ConfigInit().init();
             Toast.makeText(activity, "Inserting EMV param data…", Toast.LENGTH_SHORT).show();
