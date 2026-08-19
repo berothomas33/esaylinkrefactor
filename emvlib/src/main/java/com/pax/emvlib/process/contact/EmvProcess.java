@@ -32,13 +32,9 @@ import com.sankuai.waimai.router.Router;
 public class EmvProcess extends EmvBase {
     private static final String TAG = "EmvProcess";
 
-    private final BaseContactProcess contactProcess;
+    private volatile BaseContactProcess contactProcess;
 
     private EmvProcess() {
-        contactProcess = Router.getService(BaseContactProcess.class, EmvKernelConst.EMV);
-        if (contactProcess == null) {
-            LogUtils.e(TAG, "Cannot get contact process!!!");
-        }
     }
 
     private static class Holder {
@@ -49,61 +45,94 @@ public class EmvProcess extends EmvBase {
         return Holder.INSTANCE;
     }
 
+    /**
+     * Resolves and caches the routed contact process on first real use, not at singleton
+     * construction. {@link #getInstance()} can fire (via the {@link Holder} lazy-init) before
+     * WMRouter has finished registering {@code @RouterService}s — caching a null lookup from
+     * that moment in a {@code final} field would strand every later call on the EMV_DENIAL
+     * fallback for the rest of the process's life. Re-attempting here instead means a call that
+     * arrives after the router is actually ready still gets a working service.
+     */
+    private BaseContactProcess getContactProcess() {
+        BaseContactProcess process = contactProcess;
+        if (process == null) {
+            synchronized (this) {
+                process = contactProcess;
+                if (process == null) {
+                    process = Router.getService(BaseContactProcess.class, EmvKernelConst.EMV);
+                    if (process == null) {
+                        LogUtils.e(TAG, "Cannot get contact process!!!");
+                    }
+                    contactProcess = process;
+                }
+            }
+        }
+        return process;
+    }
+
     public void registerEmvProcessListener(IContactCallback emvTransProcessListener) {
-        if (contactProcess != null) {
-            contactProcess.registerEmvProcessListener(emvTransProcessListener);
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            process.registerEmvProcessListener(emvTransProcessListener);
         }
     }
 
     @Override
     public int preTransProcess(EmvProcessParam emvProcessParam) {
-        if (contactProcess != null) {
-            return contactProcess.preTransProcess(emvProcessParam);
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            return process.preTransProcess(emvProcessParam);
         }
         return RetCode.EMV_DENIAL;
     }
 
     public TransResult selectApplication() {
-        if (contactProcess != null) {
-            return contactProcess.selectApplication();
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            return process.selectApplication();
         }
         return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
     }
 
     public TransResult readApplicationData() {
-        if (contactProcess != null) {
-            return contactProcess.readApplicationData();
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            return process.readApplicationData();
         }
         return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
     }
 
     public TransResult cardAuthentication() {
-        if (contactProcess != null) {
-            return contactProcess.cardAuthentication();
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            return process.cardAuthentication();
         }
         return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
     }
 
     @Override
     public TransResult startTransProcess() {
-        if (contactProcess != null) {
-            return contactProcess.startTransProcess();
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            return process.startTransProcess();
         }
         return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
     }
 
     @Override
     public TransResult completeTransProcess(IssuerRspData issuerRspData) {
-        if (contactProcess != null) {
-            return contactProcess.completeTransProcess(issuerRspData);
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            return process.completeTransProcess(issuerRspData);
         }
         return new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_CARD_DENIED, CvmResultEnum.CVM_NO_CVM);
     }
 
     @Override
     public byte[] getTlv(int tag) {
-        if (contactProcess != null) {
-            return contactProcess.getTlv(tag);
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            return process.getTlv(tag);
         }
         return new byte[0];
     }
@@ -116,8 +145,9 @@ public class EmvProcess extends EmvBase {
      */
     @Override
     public void setTlv(int tag, byte[] value) {
-        if (contactProcess != null) {
-            contactProcess.setTlv(tag, value);
+        BaseContactProcess process = getContactProcess();
+        if (process != null) {
+            process.setTlv(tag, value);
         }
     }
 }
