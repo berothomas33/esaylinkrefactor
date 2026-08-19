@@ -18,12 +18,11 @@ package com.pax.emvlib.process.contactless;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.clss.BaseParam;
 import com.pax.emvbase.process.contactless.IContactlessCallback;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
+import com.pax.emvlib.dpas.contactless.ClssDpasProcess;
 import com.pax.jemv.clcommon.Clss_PreProcInterInfo;
 import com.pax.jemv.clcommon.Clss_TransParam;
 import com.pax.jemv.clcommon.KernType;
-import com.sankuai.waimai.router.Router;
 
 class ClssKernelProcessFactory {
     private int kernelType;
@@ -77,10 +76,14 @@ class ClssKernelProcessFactory {
                 return new ClssRuPayProcess();
             case KernType.KERNTYPE_ZIP:
                 // DPAS is dual-sourced: emvlib:dpas vs emvlib:dpas2 register the same
-                // Router key and are swapped by which module is linked in build.gradle —
-                // keep this one on Router, it's the only kernel that actually uses it.
+                // Router key, but Router.getService(...) can never succeed on this project's
+                // AGP version (see EmvProcess's class doc / root build.gradle) — it isn't a
+                // fallback path, it's the only route this case had, and it always returned
+                // null, which .build() below would immediately NPE on. emvlib only depends on
+                // emvlib:dpas (not dpas2), so that's the one actually reachable here; construct
+                // it directly instead, matching PaxKernel's "direct composition" pattern.
                 clssParam = emvProcessParam.getDpasParam();
-                return Router.getService(ClssKernelProcess.class, EmvKernelConst.DPAS);
+                return new ClssDpasProcess();
             default:
                 throw new IllegalArgumentException("Unsupported Kernel " + kernelType);
         }
