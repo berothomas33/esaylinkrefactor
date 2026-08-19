@@ -98,7 +98,32 @@ public class EmvContactService implements IEmvContactService {
     }
 
     /**
-     * start contact process,need handle timeout situation
+     * EMV application selection only. Must be called, and must succeed, before
+     * {@link #startTransProcess(IContactCallback)}.
+     *
+     * @param contactCallback contactCallback
+     * @return emv l2 lib api return code (RetCode.EMV_OK on success)
+     */
+    @Override
+    public int selectApplication(IContactCallback contactCallback) {
+        //reset every transaction
+        cachedTrack2Data = null;
+        timeOut(false);
+        setUserCancel(false);
+        EmvProcess.getInstance().registerEmvProcessListener(contactCallback);
+        transResult = EmvProcess.getInstance().selectApplication();
+        int resultCode = transResult.getResultCode();
+        if (resultCode != RetCode.EMV_OK) {
+            // Selection failed — the transaction ends here; release the listener now since
+            // startTransProcess() (and its own unregister in finally) will never run.
+            EmvProcess.getInstance().registerEmvProcessListener(null);
+        }
+        return resultCode;
+    }
+
+    /**
+     * continue contact process after a successful {@link #selectApplication(IContactCallback)}
+     * call,need handle timeout situation
      *
      * @param contactCallback contactCallback
      * @return result
@@ -106,10 +131,6 @@ public class EmvContactService implements IEmvContactService {
     @Override
     public int startTransProcess(IContactCallback contactCallback) {
         try{
-            //reset every transaction
-            cachedTrack2Data = null;
-            timeOut(false);
-            setUserCancel(false);
             EmvProcess.getInstance().registerEmvProcessListener(contactCallback);
             transResult = EmvProcess.getInstance().startTransProcess();
             int resultCode = transResult.getResultCode();

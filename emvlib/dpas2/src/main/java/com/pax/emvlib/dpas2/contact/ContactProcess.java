@@ -176,12 +176,11 @@ public class ContactProcess extends BaseContactProcess {
     }
 
     @Override
-    public TransResult startTransProcess() {
-        LogUtils.i(TAG, "startTransProcess");
-        //After detected card,start emv process
+    public TransResult selectApplication() {
+        LogUtils.i(TAG, "selectApplication");
         //1.App select
         int ret = EMVCallback.EMVAppSelect(0, transParam.getTransTraceNo());
-        LogUtils.i(TAG, "startTransProcess, EMVAppSelect ret:" + ret);
+        LogUtils.i(TAG, "selectApplication, EMVAppSelect ret:" + ret);
         if (ret != RetCode.EMV_OK) {
             switch (ret) {
                 case RetCode.EMV_DATA_ERR:
@@ -195,8 +194,15 @@ public class ContactProcess extends BaseContactProcess {
                     return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
             }
         }
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    @Override
+    public TransResult startTransProcess() {
+        LogUtils.i(TAG, "startTransProcess");
+        //Application already selected via selectApplication()
         //2.Read App Data
-        ret = EMVCallback.EMVReadAppData();
+        int ret = EMVCallback.EMVReadAppData();
         LogUtils.i(TAG, "startTransProcess, EMVReadAppData ret:" + ret);
         if (ret != RetCode.EMV_OK) {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);

@@ -29,6 +29,7 @@ import com.pax.emvservice.emv.contact.EmvContactService;
 import com.pax.emvservice.emv.contactless.ContactlessService;
 import com.pax.emvservice.export.contact.IContactResultListener;
 import com.pax.emvservice.export.contactless.IContactlessResultListener;
+import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -41,10 +42,13 @@ import java.util.Locale;
  *
  * <ul>
  *   <li>Mag / manual: sync {@link #goToStep} chain (same pattern as Fake).</li>
- *   <li>Chip / contactless: {@link #onApplicationSelection} starts the PAX kernel;
- *       kernel callbacks use {@link #announceStep} (observable only — kernel owns the phase).
- *       Steps the kernel handles with no callback are simply never announced individually;
- *       the next real callback's step is published as-is, with no gap-filling.</li>
+ *   <li>Chip: {@link #onApplicationSelection} calls EMV app select directly
+ *       ({@link #runContactAppSelect}) before handing the rest of the flow to the PAX kernel
+ *       ({@link #runContactKernel}). Contactless: {@link #onApplicationSelection} starts the
+ *       PAX kernel directly — app select isn't split out there.
+ *       Either way, kernel callbacks use {@link #announceStep} (observable only — kernel owns
+ *       the phase). Steps the kernel handles with no callback are simply never announced
+ *       individually; the next real callback's step is published as-is, with no gap-filling.</li>
  * </ul>
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
@@ -108,7 +112,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void onApplicationSelection(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (card.isChip()) {
-            runContactKernel();
+            runContactAppSelect();
             return;
         }
         if (card.isContactless()) {
@@ -286,16 +290,56 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    private void runContactKernel() {
-        EmvEngine eng = requireEngine();
+    /**
+     * Runs EMV application selection (EMVCallback.EMVAppSelect, via
+     * {@link EmvContactService#selectApplication}) directly from the APPLICATION_SELECTION
+     * step. On success the kernel-owned rest of the flow (read app data → card auth → GAC)
+     * continues in {@link #runContactKernel}; on failure the transaction ends here.
+     */
+    private void runContactAppSelect() {
+        requireEngine();
         EmvContactService emv = kernel.contact;
+        boolean selected;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
             if (isCancelled()) {
                 finishError("Transaction cancelled");
                 return;
             }
-            LogUtils.d(TAG, "============ Start Contact EMV ============");
+            LogUtils.d(TAG, "============ Start Contact EMV: App Select ============");
+            int ret = emv.selectApplication(this);
+            LogUtils.d(TAG, "selectApplication ret=" + ret);
+            selected = ret == RetCode.EMV_OK;
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contact app select failed", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV app select failed");
+            return;
+        }
+        if (selected) {
+            runContactKernel();
+            return;
+        }
+        closeReaders(false);
+        if (!isCancelled()) {
+            try {
+                emv.checkContactResult(this);
+            } catch (Exception e) {
+                LogUtils.e(TAG, "checkContactResult error", e);
+                finishError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
+            }
+        }
+    }
+
+    /** Continues the contact kernel flow after a successful {@link #runContactAppSelect}. */
+    private void runContactKernel() {
+        EmvEngine eng = requireEngine();
+        EmvContactService emv = kernel.contact;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Continue Contact EMV ============");
             int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {

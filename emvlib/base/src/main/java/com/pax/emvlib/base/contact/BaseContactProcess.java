@@ -18,6 +18,7 @@ package com.pax.emvlib.base.contact;
 
 import com.pax.emvbase.process.EmvBase;
 import com.pax.emvbase.process.contact.IContactCallback;
+import com.pax.emvbase.process.entity.TransResult;
 
 /**
  * File description
@@ -27,4 +28,11 @@ import com.pax.emvbase.process.contact.IContactCallback;
  */
 public abstract class BaseContactProcess extends EmvBase {
     public abstract void registerEmvProcessListener(IContactCallback emvTransProcessListener);
+
+    /**
+     * EMV application selection only. Must be called, and must succeed (resultCode ==
+     * RetCode.EMV_OK), before {@link #startTransProcess()} — which then continues from
+     * Read App Data onward.
+     */
+    public abstract TransResult selectApplication();
 }

@@ -53,7 +53,19 @@ public interface IEmvContactService extends IEmvBase{
     int preTransProcess(EmvProcessParam emvProcessParam);
 
     /**
-     * start contact process,need handle timeout situation
+     * EMV application selection (app select) only. Resets per-transaction state, registers
+     * {@code contactCallback} for the whole transaction, and runs app select. Must be called,
+     * and must return RetCode.EMV_OK, before {@link #startTransProcess(IContactCallback)}.
+     * On any other result the transaction is finished — the caller should invoke
+     * {@link #checkContactResult(IContactResultListener)} and not call startTransProcess.
+     * @param contactCallback contactCallback
+     * @return emv l2 lib api return code (RetCode.EMV_OK on success)
+     */
+    int selectApplication(IContactCallback contactCallback);
+
+    /**
+     * continue contact process after a successful {@link #selectApplication(IContactCallback)}
+     * call — read app data through card auth / online processing. Need handle timeout situation.
      * @param contactCallback contactCallback
      * @return result
      */

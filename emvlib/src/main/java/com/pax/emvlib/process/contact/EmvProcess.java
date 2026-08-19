@@ -63,6 +63,13 @@ public class EmvProcess extends EmvBase {
         return RetCode.EMV_DENIAL;
     }
 
+    public TransResult selectApplication() {
+        if (contactProcess != null) {
+            return contactProcess.selectApplication();
+        }
+        return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+    }
+
     @Override
     public TransResult startTransProcess() {
         if (contactProcess != null) {
