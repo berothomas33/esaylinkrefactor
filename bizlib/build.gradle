@@ -44,6 +44,5 @@ dependencies {
     api project(':bizentity')
     api project(':configservice:export')
     api project(':configservice:impl')
-    api project(':emvservice:export')
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 }
