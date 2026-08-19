@@ -54,22 +54,44 @@ public interface IEmvContactService extends IEmvBase{
 
     /**
      * EMV application selection (app select) only. Resets per-transaction state, registers
-     * {@code contactCallback} for the whole transaction, and runs app select. Must be called,
-     * and must return RetCode.EMV_OK, before {@link #startTransProcess(IContactCallback)}.
-     * On any other result the transaction is finished — the caller should invoke
-     * {@link #checkContactResult(IContactResultListener)} and not call startTransProcess.
+     * {@code contactCallback} for the whole transaction, and runs app select.
      * @param contactCallback contactCallback
      * @return emv l2 lib api return code (RetCode.EMV_OK on success)
      */
     int selectApplication(IContactCallback contactCallback);
 
     /**
-     * continue contact process after a successful {@link #selectApplication(IContactCallback)}
-     * call — read app data through card auth / online processing. Need handle timeout situation.
+     * Read application data (+ confirm-card callback) only.
+     * @return emv l2 lib api return code (RetCode.EMV_OK on success)
+     */
+    int readApplicationData();
+
+    /**
+     * CAPK lookup + card authentication (EMVCardAuth) only.
+     * @return emv l2 lib api return code (RetCode.EMV_OK on success)
+     */
+    int cardAuthentication();
+
+    /**
+     * continue contact process after a successful {@link #cardAuthentication()} call —
+     * processing restrictions / cardholder verification / terminal risk management / terminal
+     * action analysis / 1st GAC (all inside EMVStartTrans, no separate kernel entry point for
+     * each), then online processing if required. Need handle timeout situation.
      * @param contactCallback contactCallback
      * @return result
      */
     int startTransProcess(IContactCallback contactCallback);
+
+    /**
+     * Each contact stage — {@link #selectApplication}, {@link #readApplicationData},
+     * {@link #cardAuthentication} — must be called in order, and after each the caller must
+     * check this before running the next stage. True means the transaction has already reached
+     * a terminal state (kernel error, fallback, or a business result like simple-flow-end) even
+     * though the stage's own return code may still be RetCode.EMV_OK; the caller should stop
+     * and call {@link #checkContactResult(IContactResultListener)} instead of continuing.
+     * @return true if the transaction is finished and no further stage should run
+     */
+    boolean isTransactionFinished();
 
     /**
      * check contact result

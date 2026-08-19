@@ -31,8 +31,21 @@ public abstract class BaseContactProcess extends EmvBase {
 
     /**
      * EMV application selection only. Must be called, and must succeed (resultCode ==
-     * RetCode.EMV_OK), before {@link #startTransProcess()} — which then continues from
-     * Read App Data onward.
+     * RetCode.EMV_OK, transResult still unset), before {@link #readApplicationData()}.
      */
     public abstract TransResult selectApplication();
+
+    /**
+     * Read application data (+ confirm-card callback). Must be called, and must succeed, after
+     * {@link #selectApplication()} and before {@link #cardAuthentication()}.
+     */
+    public abstract TransResult readApplicationData();
+
+    /**
+     * CAPK lookup + card authentication (EMVCardAuth). Must be called, and must succeed with
+     * transResult still unset, after {@link #readApplicationData()} and before
+     * {@link #startTransProcess()}. A set transResult here (e.g. RESULT_SIMPLE_FLOW_END) means
+     * the transaction is already finished — do not call startTransProcess().
+     */
+    public abstract TransResult cardAuthentication();
 }

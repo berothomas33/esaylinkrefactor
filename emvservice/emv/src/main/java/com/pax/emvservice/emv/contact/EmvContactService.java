@@ -122,8 +122,52 @@ public class EmvContactService implements IEmvContactService {
     }
 
     /**
-     * continue contact process after a successful {@link #selectApplication(IContactCallback)}
-     * call,need handle timeout situation
+     * Read application data (+ confirm-card callback) only. Must be called, and must succeed
+     * with {@link #isTransactionFinished()} still false, before {@link #cardAuthentication()}.
+     *
+     * @return emv l2 lib api return code (RetCode.EMV_OK on success)
+     */
+    @Override
+    public int readApplicationData() {
+        transResult = EmvProcess.getInstance().readApplicationData();
+        if (isTransactionFinished()) {
+            // Read app data failed — the transaction ends here; release the listener now since
+            // startTransProcess() (and its own unregister in finally) will never run.
+            EmvProcess.getInstance().registerEmvProcessListener(null);
+        }
+        return transResult.getResultCode();
+    }
+
+    /**
+     * CAPK lookup + card authentication (EMVCardAuth) only. Must be called, and must succeed
+     * with {@link #isTransactionFinished()} still false, before
+     * {@link #startTransProcess(IContactCallback)}.
+     *
+     * @return emv l2 lib api return code (RetCode.EMV_OK on success)
+     */
+    @Override
+    public int cardAuthentication() {
+        transResult = EmvProcess.getInstance().cardAuthentication();
+        if (isTransactionFinished()) {
+            // Card auth failed, or the flow already ended here (e.g. simple flow) — release the
+            // listener now since startTransProcess() (and its own unregister) will never run.
+            EmvProcess.getInstance().registerEmvProcessListener(null);
+        }
+        return transResult.getResultCode();
+    }
+
+    /**
+     * True once {@code transResult} carries a concrete outcome (set by any stage's terminal
+     * return), meaning the transaction is finished and no further stage should run.
+     */
+    @Override
+    public boolean isTransactionFinished() {
+        return transResult != null && transResult.getTransResult() != null;
+    }
+
+    /**
+     * continue contact process after a successful {@link #cardAuthentication()} call,need
+     * handle timeout situation
      *
      * @param contactCallback contactCallback
      * @return result
@@ -295,7 +339,20 @@ public class EmvContactService implements IEmvContactService {
     public void checkContactResult(IContactResultListener listener) {
         int resultCode = transResult.getResultCode();
         TransResultEnum transResultEnum = transResult.getTransResult();
+        if (transResultEnum == null) {
+            // No stage ever reached a terminal result — e.g. an exception aborted the chain
+            // before that stage's own transResult assignment ran, leaving the "continue"
+            // sentinel (RetCode.EMV_OK, no enum) from the prior successful stage in place.
+            // Fail closed instead of NPE-ing on the switch below.
+            LogUtils.e(TAG, "check result: no terminal result recorded, code = " + resultCode
+                    + " — treating as offline denied");
+            listener.offlineDenied(resultCode);
+            return;
+        }
         CvmResultEnum cvmResult = transResult.getCvmResult();
+        if (cvmResult == null) {
+            cvmResult = CvmResultEnum.CVM_NO_CVM;
+        }
         LogUtils.d(TAG, "check result: code = " + resultCode
                 + ", enum = " + transResultEnum.name()
                 + ", cvm = " + cvmResult.name());

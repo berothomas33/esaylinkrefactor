@@ -196,12 +196,11 @@ public class ContactProcess extends BaseContactProcess {
     }
 
     @Override
-    public TransResult startTransProcess() {
-        LogUtils.i(TAG, "startTransProcess");
-        //Application already selected via selectApplication()
+    public TransResult readApplicationData() {
+        LogUtils.i(TAG, "readApplicationData");
         //2.Read App Data
         int ret = EMVCallback.EMVReadAppData();
-        LogUtils.i(TAG, "startTransProcess, EMVReadAppData ret:" + ret);
+        LogUtils.i(TAG, "readApplicationData, EMVReadAppData ret:" + ret);
         if (ret != RetCode.EMV_OK) {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
@@ -213,12 +212,17 @@ public class ContactProcess extends BaseContactProcess {
         }
 
         changeTAG9CValue();//PAX emv kernel not define the refund(0x20) trans,and the value will be transfer to 0x40
+        return new TransResult(RetCode.EMV_OK);
+    }
 
+    @Override
+    public TransResult cardAuthentication() {
+        LogUtils.i(TAG, "cardAuthentication");
         //3.Add Capk revoke and Card Auth
-        ret = addCapk();  //ignore return value for some case which the card doesn't has the capk index
-        LogUtils.i(TAG, "startTransProcess, addCapk ret:" + ret);
+        int ret = addCapk();  //ignore return value for some case which the card doesn't has the capk index
+        LogUtils.i(TAG, "cardAuthentication, addCapk ret:" + ret);
         ret = EMVCallback.EMVCardAuth();
-        LogUtils.i(TAG, "startTransProcess, EMVCardAuth ret:" + ret);
+        LogUtils.i(TAG, "cardAuthentication, EMVCardAuth ret:" + ret);
         if (ret != RetCode.EMV_OK) {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
@@ -226,7 +230,13 @@ public class ContactProcess extends BaseContactProcess {
         if (transParam.getFlowType() == EmvTransParam.FLOWTYPE_SIMPLE){
             return new TransResult(ret, TransResultEnum.RESULT_SIMPLE_FLOW_END, CvmResultEnum.CVM_NO_CVM);
         }
+        return new TransResult(RetCode.EMV_OK);
+    }
 
+    @Override
+    public TransResult startTransProcess() {
+        LogUtils.i(TAG, "startTransProcess");
+        //Read App Data and Card Auth already done via readApplicationData() / cardAuthentication()
         //4. Processing restrictions->CardHolder verification->Terminal risk management->First GAC
         ACType acType = new ACType();
         long authAmt = transParam.getAmount();

@@ -42,10 +42,13 @@ import java.util.Locale;
  *
  * <ul>
  *   <li>Mag / manual: sync {@link #goToStep} chain (same pattern as Fake).</li>
- *   <li>Chip: {@link #onApplicationSelection} calls EMV app select directly
- *       ({@link #runContactAppSelect}) before handing the rest of the flow to the PAX kernel
- *       ({@link #runContactKernel}). Contactless: {@link #onApplicationSelection} starts the
- *       PAX kernel directly — app select isn't split out there.
+ *   <li>Chip: {@link #onApplicationSelection} drives the PAX kernel one native call at a time —
+ *       {@link #runContactAppSelect} → {@link #runContactReadAppData} →
+ *       {@link #runContactCardAuth} → {@link #runContactStartTransaction} — instead of one
+ *       monolithic kernel call, chaining forward only while
+ *       {@link com.pax.emvservice.emv.contact.EmvContactService#isTransactionFinished()} stays
+ *       false. Contactless: {@link #onApplicationSelection} starts the PAX kernel directly —
+ *       its native API has no equivalent per-stage entry points, so it isn't split out.
  *       Either way, kernel callbacks use {@link #announceStep} (observable only — kernel owns
  *       the phase). Steps the kernel handles with no callback are simply never announced
  *       individually; the next real callback's step is published as-is, with no gap-filling.</li>
@@ -291,47 +294,108 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Runs EMV application selection (EMVCallback.EMVAppSelect, via
-     * {@link EmvContactService#selectApplication}) directly from the APPLICATION_SELECTION
-     * step. On success the kernel-owned rest of the flow (read app data → card auth → GAC)
-     * continues in {@link #runContactKernel}; on failure the transaction ends here.
+     * Contact chip flow, driven one kernel stage at a time from here instead of one monolithic
+     * kernel call: {@link #runContactAppSelect} → {@link #runContactReadAppData} →
+     * {@link #runContactCardAuth} → {@link #runContactStartTransaction}. Each stage calls the
+     * matching {@link EmvContactService} method (which itself calls a single top-level
+     * EMVCallback.EMV___ native call), then either advances to the next stage or — on error,
+     * or a terminal business result such as simple-flow-end, per
+     * {@link EmvContactService#isTransactionFinished()} — stops and reports via
+     * {@link #finishContactStage}.
+     *
+     * <p>Processing restrictions, cardholder verification, terminal risk management and
+     * terminal action analysis stay bundled inside {@link #runContactStartTransaction}'s
+     * EMVStartTrans call — the PAX kernel has no separate native entry point for each, so they
+     * can't be split out any further.
      */
     private void runContactAppSelect() {
         requireEngine();
         EmvContactService emv = kernel.contact;
-        boolean selected;
+        boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
             if (isCancelled()) {
                 finishError("Transaction cancelled");
                 return;
             }
-            LogUtils.d(TAG, "============ Start Contact EMV: App Select ============");
+            LogUtils.d(TAG, "============ Contact EMV: App Select ============");
             int ret = emv.selectApplication(this);
             LogUtils.d(TAG, "selectApplication ret=" + ret);
-            selected = ret == RetCode.EMV_OK;
+            proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact app select failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV app select failed");
-            return;
-        }
-        if (selected) {
-            runContactKernel();
-            return;
-        }
-        closeReaders(false);
-        if (!isCancelled()) {
-            try {
-                emv.checkContactResult(this);
-            } catch (Exception e) {
-                LogUtils.e(TAG, "checkContactResult error", e);
-                finishError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
+        } finally {
+            // Readers stay open (and nothing is reported yet) only while we're about to chain
+            // into the next stage — every other exit (cancel, exception, terminal result) must
+            // close them here, since no later stage will run to do it.
+            if (!proceed) {
+                finishContactStage(emv);
             }
+        }
+        if (proceed) {
+            runContactReadAppData();
         }
     }
 
-    /** Continues the contact kernel flow after a successful {@link #runContactAppSelect}. */
-    private void runContactKernel() {
+    /** Read App Data stage, after a successful {@link #runContactAppSelect}. */
+    private void runContactReadAppData() {
+        EmvContactService emv = kernel.contact;
+        boolean proceed = false;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
+            int ret = emv.readApplicationData();
+            LogUtils.d(TAG, "readApplicationData ret=" + ret);
+            proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contact read app data failed", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV read app data failed");
+        } finally {
+            if (!proceed) {
+                finishContactStage(emv);
+            }
+        }
+        if (proceed) {
+            runContactCardAuth();
+        }
+    }
+
+    /** Card Auth (CAPK + EMVCardAuth) stage, after a successful {@link #runContactReadAppData}. */
+    private void runContactCardAuth() {
+        EmvContactService emv = kernel.contact;
+        boolean proceed = false;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
+            int ret = emv.cardAuthentication();
+            LogUtils.d(TAG, "cardAuthentication ret=" + ret);
+            proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contact card auth failed", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV card auth failed");
+        } finally {
+            if (!proceed) {
+                finishContactStage(emv);
+            }
+        }
+        if (proceed) {
+            runContactStartTransaction();
+        }
+    }
+
+    /**
+     * Final stage: EMVStartTrans (processing restrictions → CVM → terminal risk management →
+     * terminal action analysis → 1st GAC, bundled — see class doc), then online processing if
+     * the kernel requested it. Always terminal — always reports via {@link #finishContactStage}.
+     */
+    private void runContactStartTransaction() {
         EmvEngine eng = requireEngine();
         EmvContactService emv = kernel.contact;
         try {
@@ -339,22 +403,26 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishError("Transaction cancelled");
                 return;
             }
-            LogUtils.d(TAG, "============ Continue Contact EMV ============");
+            LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
             int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
             LogUtils.e(TAG, "contact execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
         } finally {
-            closeReaders(false);
-            if (!isCancelled()) {
-                try {
-                    emv.checkContactResult(this);
-                } catch (Exception e) {
-                    LogUtils.e(TAG, "checkContactResult error", e);
-                    finishError(e.getMessage() != null
-                            ? e.getMessage() : "checkContactResult failed");
-                }
+            finishContactStage(emv);
+        }
+    }
+
+    /** Common tail once a contact stage chain has reached a terminal outcome. */
+    private void finishContactStage(EmvContactService emv) {
+        closeReaders(false);
+        if (!isCancelled()) {
+            try {
+                emv.checkContactResult(this);
+            } catch (Exception e) {
+                LogUtils.e(TAG, "checkContactResult error", e);
+                finishError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
             }
         }
     }

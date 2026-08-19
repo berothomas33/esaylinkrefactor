@@ -70,6 +70,20 @@ public class EmvProcess extends EmvBase {
         return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
     }
 
+    public TransResult readApplicationData() {
+        if (contactProcess != null) {
+            return contactProcess.readApplicationData();
+        }
+        return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+    }
+
+    public TransResult cardAuthentication() {
+        if (contactProcess != null) {
+            return contactProcess.cardAuthentication();
+        }
+        return new TransResult(RetCode.EMV_DENIAL, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+    }
+
     @Override
     public TransResult startTransProcess() {
         if (contactProcess != null) {
