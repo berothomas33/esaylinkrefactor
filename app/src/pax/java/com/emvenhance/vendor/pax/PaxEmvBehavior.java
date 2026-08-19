@@ -42,23 +42,24 @@ import java.util.Locale;
  *
  * <ul>
  *   <li>Mag / manual: sync {@link #goToStep} chain (same pattern as Fake).</li>
- *   <li>Chip: {@link #onApplicationSelection} drives the PAX kernel one native call at a time —
- *       {@link #runContactAppSelect} → {@link #runContactReadAppData} →
- *       {@link #runContactCardAuth} → {@link #runContactStartTransaction} — instead of one
- *       monolithic kernel call, chaining forward only while
+ *   <li>Chip: {@link #onApplicationSelection} drives the PAX kernel one native call at a time,
+ *       through the very same {@link #goToStep} engine that drives mag/manual — each stage's
+ *       run* method ({@link #runContactAppSelect} → {@link #runContactReadAppData} →
+ *       {@link #runContactCardAuth} → {@link #runContactStartTransaction}) advances by calling
+ *       {@code goToStep(EmvStep.NEXT)} rather than the next run* method directly, so
+ *       {@code goToStep} both publishes that step on the observable and dispatches to its onXxx
+ *       method (e.g. {@link #onReadApplicationData}), which hands straight back to the matching
+ *       run* method for chip. Chaining continues only while
  *       {@link com.pax.emvservice.emv.contact.EmvContactService#isTransactionFinished()} stays
- *       false. Each stage publishes its matching {@link EmvStep} on the observable via
- *       {@link #announceStep} <em>before</em> making its native call (APPLICATION_SELECTION
- *       comes from the framework's own {@link #goToStep} instead, since that's what invoked
- *       {@link #onApplicationSelection} in the first place) — so the observable actually moves
- *       stage-by-stage now, instead of jumping straight from APPLICATION_SELECTION to whatever
- *       the first kernel callback happened to announce. Sub-phases with no kernel callback and
- *       no dedicated stage of their own (terminal risk management, terminal action analysis —
- *       both folded into {@link #runContactStartTransaction}'s EMVStartTrans call) still can't
- *       be announced individually; CVM only gets announced when the kernel actually asks for it,
- *       via {@code onCardHolderPwd} below. Contactless: {@link #onApplicationSelection} starts
- *       the PAX kernel directly — its native API has no equivalent per-stage entry points, so it
- *       isn't split out, and its steps are still announced purely from kernel callbacks.</li>
+ *       false; APPLICATION_SELECTION itself is entered the normal way, via the framework's own
+ *       goToStep call that invoked {@link #onApplicationSelection} in the first place. Sub-phases
+ *       with no kernel callback and no dedicated stage of their own (terminal risk management,
+ *       terminal action analysis — both folded into {@link #runContactStartTransaction}'s
+ *       EMVStartTrans call) still can't be announced individually; CVM only gets announced when
+ *       the kernel actually asks for it, via {@code onCardHolderPwd} below. Contactless:
+ *       {@link #onApplicationSelection} starts the PAX kernel directly — its native API has no
+ *       equivalent per-stage entry points, so it isn't split out, and its steps are still
+ *       announced purely from kernel callbacks, never through goToStep.</li>
  * </ul>
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
@@ -155,7 +156,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             goToStep(EmvStep.START_ONLINE_PROCESS, "magstripe");
             return;
         }
-        // Chip/CLSS: announced from kernel callbacks — nothing to chain here.
+        if (card.isChip()) {
+            // Reached via runContactAppSelect's goToStep(READ_APPLICATION_DATA) — never via the
+            // framework's own cancellation short-circuit in goToStep, which returns before
+            // dispatchStepMethod runs at all.
+            runContactReadAppData();
+        }
+        // CLSS: still announced purely from kernel callbacks — nothing to chain here.
     }
 
     @Override
@@ -191,6 +198,31 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Chip/CLSS: result listeners call completeApproved / completeDeclined.
     }
 
+    // Chip: reached via goToStep from the previous run* stage — dispatchStepMethod invokes
+    // these, and each hands off to its run* method. See the class doc and runContactAppSelect
+    // for the full chain.
+
+    @Override
+    public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        if (card.isChip()) {
+            // Reached via runContactReadAppData's goToStep(OFFLINE_DATA_AUTHENTICATION).
+            runContactCardAuth();
+        }
+        // CLSS: kernel-internal — no callback exists; not individually announced.
+    }
+
+    @Override
+    public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
+            CardPresence card) {
+        if (card.isChip()) {
+            // Reached via runContactCardAuth's goToStep(PROCESS_RESTRICTIONS) — the entry point
+            // into runContactStartTransaction's bundled EMVStartTrans call (see class doc).
+            runContactStartTransaction();
+        }
+        // CLSS: kernel-internal — no callback exists; not individually announced.
+    }
+
     // ─── Not reached via onXxx dispatch — required overrides, not stubs ──
     //
     // Chip/CLSS: PAX's own kernel (EmvContactService/ContactlessService.startTransProcess)
@@ -220,20 +252,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         // See IContactCallback#confirmCard / #showConfirmCard below.
-    }
-
-    @Override
-    public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        // Chip: announced directly from runContactCardAuth (CAPK + EMVCardAuth) — no kernel
-        // callback exists for this phase, so it can't come through dispatchStepMethod here.
-    }
-
-    @Override
-    public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
-        // Chip: announced directly from runContactStartTransaction, as the entry point into the
-        // EMVStartTrans bundle — no kernel callback exists for this phase specifically.
     }
 
     @Override
@@ -307,10 +325,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * kernel call: {@link #runContactAppSelect} → {@link #runContactReadAppData} →
      * {@link #runContactCardAuth} → {@link #runContactStartTransaction}. Each stage calls the
      * matching {@link EmvContactService} method (which itself calls a single top-level
-     * EMVCallback.EMV___ native call), then either advances to the next stage or — on error,
-     * or a terminal business result such as simple-flow-end, per
-     * {@link EmvContactService#isTransactionFinished()} — stops and reports via
+     * EMVCallback.EMV___ native call), then either advances via {@link #goToStep} — which
+     * publishes the next {@link EmvStep} on the observable and dispatches to that step's onXxx
+     * method, which hands straight back to the matching run* method — or, on error or a
+     * terminal business result such as simple-flow-end, per
+     * {@link EmvContactService#isTransactionFinished()}, stops and reports via
      * {@link #finishContactStage}.
+     *
+     * <p>Since {@link #goToStep} itself returns early on cancellation, before dispatching at
+     * all, a cancel() landing in the narrow window between one stage finishing and the next
+     * stage's goToStep call means that next run* method — and its closeReaders/checkContactResult
+     * cleanup — never runs. This mirrors every other goToStep transition in this class (mag/
+     * manual, APPLICATION_SELECTION) and isn't special-cased here.
      *
      * <p>Processing restrictions, cardholder verification, terminal risk management and
      * terminal action analysis stay bundled inside {@link #runContactStartTransaction}'s
@@ -343,11 +369,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            runContactReadAppData();
+            goToStep(EmvStep.READ_APPLICATION_DATA);
         }
     }
 
-    /** Read App Data stage, after a successful {@link #runContactAppSelect}. */
+    /** Read App Data stage — reached via {@link #onReadApplicationData}'s chip branch. */
     private void runContactReadAppData() {
         EmvContactService emv = kernel.contact;
         boolean proceed = false;
@@ -357,7 +383,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
-            announceStep(EmvStep.READ_APPLICATION_DATA, null);
             int ret = emv.readApplicationData();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
@@ -370,11 +395,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            runContactCardAuth();
+            goToStep(EmvStep.OFFLINE_DATA_AUTHENTICATION);
         }
     }
 
-    /** Card Auth (CAPK + EMVCardAuth) stage, after a successful {@link #runContactReadAppData}. */
+    /**
+     * Card Auth (CAPK + EMVCardAuth) stage — reached via
+     * {@link #onOfflineDataAuthentication}'s chip branch.
+     */
     private void runContactCardAuth() {
         EmvContactService emv = kernel.contact;
         boolean proceed = false;
@@ -384,7 +412,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
-            announceStep(EmvStep.OFFLINE_DATA_AUTHENTICATION, null);
             int ret = emv.cardAuthentication();
             LogUtils.d(TAG, "cardAuthentication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
@@ -397,14 +424,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            runContactStartTransaction();
+            goToStep(EmvStep.PROCESS_RESTRICTIONS);
         }
     }
 
     /**
-     * Final stage: EMVStartTrans (processing restrictions → CVM → terminal risk management →
-     * terminal action analysis → 1st GAC, bundled — see class doc), then online processing if
-     * the kernel requested it. Always terminal — always reports via {@link #finishContactStage}.
+     * Final stage — reached via {@link #onProcessRestrictions}'s chip branch. EMVStartTrans
+     * (processing restrictions → CVM → terminal risk management → terminal action analysis →
+     * 1st GAC, bundled — see class doc), then online processing if the kernel requested it.
+     * Always terminal — always reports via {@link #finishContactStage}.
      */
     private void runContactStartTransaction() {
         EmvEngine eng = requireEngine();
@@ -415,10 +443,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
-            // Entry into the EMVStartTrans bundle (see class doc): CVM is separately announced
-            // from onCardHolderPwd below when the kernel actually asks for it; terminal risk
-            // management and terminal action analysis have no callback and stay unannounced.
-            announceStep(EmvStep.PROCESS_RESTRICTIONS, null);
+            // CVM is separately announced from onCardHolderPwd below when the kernel actually
+            // asks for it; terminal risk management and terminal action analysis have no
+            // callback and stay unannounced (see class doc).
             int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
