@@ -325,18 +325,21 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * kernel call: {@link #runContactAppSelect} → {@link #runContactReadAppData} →
      * {@link #runContactCardAuth} → {@link #runContactStartTransaction}. Each stage calls the
      * matching {@link EmvContactService} method (which itself calls a single top-level
-     * EMVCallback.EMV___ native call), then either advances via {@link #goToStep} — which
-     * publishes the next {@link EmvStep} on the observable and dispatches to that step's onXxx
-     * method, which hands straight back to the matching run* method — or, on error or a
-     * terminal business result such as simple-flow-end, per
-     * {@link EmvContactService#isTransactionFinished()}, stops and reports via
-     * {@link #finishContactStage}.
+     * EMVCallback.EMV___ native call), then either advances via {@link #advanceContactStage} —
+     * which normally calls {@link #goToStep}, publishing the next {@link EmvStep} on the
+     * observable and dispatching to that step's onXxx method, which hands straight back to the
+     * matching run* method — or, on error or a terminal business result such as
+     * simple-flow-end, per {@link EmvContactService#isTransactionFinished()}, stops and reports
+     * via {@link #finishContactStage}.
      *
-     * <p>Since {@link #goToStep} itself returns early on cancellation, before dispatching at
-     * all, a cancel() landing in the narrow window between one stage finishing and the next
-     * stage's goToStep call means that next run* method — and its closeReaders/checkContactResult
-     * cleanup — never runs. This mirrors every other goToStep transition in this class (mag/
-     * manual, APPLICATION_SELECTION) and isn't special-cased here.
+     * <p>{@link #goToStep} itself returns early on cancellation, before dispatching at all —
+     * which for every other goToStep transition in this class (mag/manual,
+     * APPLICATION_SELECTION) is fine, since there's no vendor-owned resource left open to clean
+     * up. For chip the ICC reader stays activated across the whole app-select → start-transaction
+     * span, so {@link #advanceContactStage} re-checks {@link #isCancelled()} itself right before
+     * calling goToStep and falls back to {@link #finishContactStage} instead, guaranteeing
+     * closeReaders/checkContactResult still run even if cancel() lands in the narrow window
+     * between one stage finishing and the next stage's transition.
      *
      * <p>Processing restrictions, cardholder verification, terminal risk management and
      * terminal action analysis stay bundled inside {@link #runContactStartTransaction}'s
@@ -369,7 +372,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            goToStep(EmvStep.READ_APPLICATION_DATA);
+            advanceContactStage(emv, EmvStep.READ_APPLICATION_DATA);
         }
     }
 
@@ -395,7 +398,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            goToStep(EmvStep.OFFLINE_DATA_AUTHENTICATION);
+            advanceContactStage(emv, EmvStep.OFFLINE_DATA_AUTHENTICATION);
         }
     }
 
@@ -424,7 +427,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            goToStep(EmvStep.PROCESS_RESTRICTIONS);
+            advanceContactStage(emv, EmvStep.PROCESS_RESTRICTIONS);
+        }
+    }
+
+    /**
+     * Advances to {@code next} via {@link #goToStep} — unless {@code cancel()} landed in the
+     * window between a stage's own work finishing and this call, in which case {@code goToStep}
+     * would silently swallow it: it returns before {@code dispatchStepMethod} runs at all, so
+     * the next run* method (and its {@link #finishContactStage} cleanup) would never fire.
+     * Re-checking {@link #isCancelled()} here and falling back to {@link #finishContactStage}
+     * directly closes that window instead of leaving readers open / the result unreported.
+     */
+    private void advanceContactStage(EmvContactService emv, EmvStep next) {
+        if (isCancelled()) {
+            finishContactStage(emv);
+        } else {
+            goToStep(next);
         }
     }
 
