@@ -47,11 +47,18 @@ import java.util.Locale;
  *       {@link #runContactCardAuth} → {@link #runContactStartTransaction} — instead of one
  *       monolithic kernel call, chaining forward only while
  *       {@link com.pax.emvservice.emv.contact.EmvContactService#isTransactionFinished()} stays
- *       false. Contactless: {@link #onApplicationSelection} starts the PAX kernel directly —
- *       its native API has no equivalent per-stage entry points, so it isn't split out.
- *       Either way, kernel callbacks use {@link #announceStep} (observable only — kernel owns
- *       the phase). Steps the kernel handles with no callback are simply never announced
- *       individually; the next real callback's step is published as-is, with no gap-filling.</li>
+ *       false. Each stage publishes its matching {@link EmvStep} on the observable via
+ *       {@link #announceStep} <em>before</em> making its native call (APPLICATION_SELECTION
+ *       comes from the framework's own {@link #goToStep} instead, since that's what invoked
+ *       {@link #onApplicationSelection} in the first place) — so the observable actually moves
+ *       stage-by-stage now, instead of jumping straight from APPLICATION_SELECTION to whatever
+ *       the first kernel callback happened to announce. Sub-phases with no kernel callback and
+ *       no dedicated stage of their own (terminal risk management, terminal action analysis —
+ *       both folded into {@link #runContactStartTransaction}'s EMVStartTrans call) still can't
+ *       be announced individually; CVM only gets announced when the kernel actually asks for it,
+ *       via {@code onCardHolderPwd} below. Contactless: {@link #onApplicationSelection} starts
+ *       the PAX kernel directly — its native API has no equivalent per-stage entry points, so it
+ *       isn't split out, and its steps are still announced purely from kernel callbacks.</li>
  * </ul>
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
@@ -218,13 +225,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal (SDA/DDA/CDA) — no callback exists; not individually announced.
+        // Chip: announced directly from runContactCardAuth (CAPK + EMVCardAuth) — no kernel
+        // callback exists for this phase, so it can't come through dispatchStepMethod here.
     }
 
     @Override
     public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — no callback exists; not individually announced.
+        // Chip: announced directly from runContactStartTransaction, as the entry point into the
+        // EMVStartTrans bundle — no kernel callback exists for this phase specifically.
     }
 
     @Override
@@ -348,6 +357,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
+            announceStep(EmvStep.READ_APPLICATION_DATA, null);
             int ret = emv.readApplicationData();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
@@ -374,6 +384,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
+            announceStep(EmvStep.OFFLINE_DATA_AUTHENTICATION, null);
             int ret = emv.cardAuthentication();
             LogUtils.d(TAG, "cardAuthentication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
@@ -404,6 +415,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
+            // Entry into the EMVStartTrans bundle (see class doc): CVM is separately announced
+            // from onCardHolderPwd below when the kernel actually asks for it; terminal risk
+            // management and terminal action analysis have no callback and stay unannounced.
+            announceStep(EmvStep.PROCESS_RESTRICTIONS, null);
             int ret = emv.startTransProcess(this);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
