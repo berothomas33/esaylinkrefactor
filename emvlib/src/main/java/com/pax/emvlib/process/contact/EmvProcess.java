@@ -38,10 +38,20 @@ import com.pax.emvlib.dpas.contact.ContactProcess;
  * emvlib/build.gradle) — {@code emvlib:dpas2}'s {@code ContactProcess} is a second
  * {@code @RouterService} registered under the same key but isn't linked into this build at all,
  * so it was never reachable via Router either way.
+ *
+ * <p>{@link #contactProcess} is rebuilt fresh in {@link #preTransProcess} on every transaction
+ * attempt rather than held as a single instance for {@link EmvProcess}'s own process-lifetime
+ * singleton: {@code ContactProcess}'s {@code @RouterService} annotation never set
+ * {@code singleton = true} (unlike e.g. {@code EmvContactService}, which does), so a fresh
+ * instance per lookup was the original intent even though the Router lookup itself never
+ * actually worked. It's a low-cost, low-risk match to that original intent, and rules out
+ * {@code ContactProcess}'s own mutable state (emvParam/mckParam/aidList/etc. — all otherwise
+ * already reset inside {@link ContactProcess#preTransProcess}) persisting oddly across repeated
+ * attempts as a contributor to anything downstream.
  */
 public class EmvProcess extends EmvBase {
 
-    private final BaseContactProcess contactProcess = new ContactProcess();
+    private BaseContactProcess contactProcess = new ContactProcess();
 
     private EmvProcess() {
     }
@@ -60,6 +70,7 @@ public class EmvProcess extends EmvBase {
 
     @Override
     public int preTransProcess(EmvProcessParam emvProcessParam) {
+        contactProcess = new ContactProcess();
         return contactProcess.preTransProcess(emvProcessParam);
     }
 
