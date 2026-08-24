@@ -15,17 +15,22 @@ import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.preprocess.EmvPreProcessFacade;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
+import com.pax.bizlib.card.TrackUtils;
+import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.entity.EPiccType;
 import com.pax.emvbase.constant.EmvConstant;
+import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.contact.IContactCallback;
 import com.pax.emvbase.process.contactless.IContactlessCallback;
 import com.pax.emvbase.process.entity.EOnlineResult;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.OnlineResultWrapper;
+import com.pax.emvbase.process.entity.TransResult;
+import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
-import com.pax.emvservice.emv.contact.EmvContactService;
+import com.pax.emvlib.dpas.contact.ContactProcess;
 import com.pax.emvservice.emv.contactless.ContactlessService;
 import com.pax.emvservice.export.contact.IContactResultListener;
 import com.pax.emvservice.export.contactless.IContactlessResultListener;
@@ -50,17 +55,24 @@ import java.util.Locale;
  *       {@code goToStep} both publishes that step on the observable and dispatches to its onXxx
  *       method (e.g. {@link #onReadApplicationData}), which hands straight back to the matching
  *       run* method for chip. Chaining continues only while
- *       {@link com.pax.emvservice.emv.contact.EmvContactService#isTransactionFinished()} stays
- *       false; APPLICATION_SELECTION itself is entered the normal way, via the framework's own
- *       goToStep call that invoked {@link #onApplicationSelection} in the first place. Sub-phases
- *       with no kernel callback and no dedicated stage of their own (terminal risk management,
- *       terminal action analysis — both folded into {@link #runContactStartTransaction}'s
- *       EMVStartTrans call) still can't be announced individually; CVM only gets announced when
- *       the kernel actually asks for it, via {@code onCardHolderPwd} below. Contactless:
- *       {@link #onApplicationSelection} starts the PAX kernel directly — its native API has no
- *       equivalent per-stage entry points, so it isn't split out, and its steps are still
- *       announced purely from kernel callbacks, never through goToStep.</li>
+ *       {@link #isContactTransactionFinished()} stays false; APPLICATION_SELECTION itself is
+ *       entered the normal way, via the framework's own goToStep call that invoked
+ *       {@link #onApplicationSelection} in the first place. Sub-phases with no kernel callback
+ *       and no dedicated stage of their own (terminal risk management, terminal action analysis
+ *       — both folded into {@link #runContactStartTransaction}'s EMVStartTrans call) still can't
+ *       be announced individually; CVM only gets announced when the kernel actually asks for it,
+ *       via {@code onCardHolderPwd} below. Contactless: {@link #onApplicationSelection} starts
+ *       the PAX kernel directly — its native API has no equivalent per-stage entry points, so it
+ *       isn't split out, and its steps are still announced purely from kernel callbacks, never
+ *       through goToStep.</li>
  * </ul>
+ *
+ * <p><b>Experiment branch:</b> talks to {@link ContactProcess} (emvlib:dpas) directly — no
+ * {@code EmvContactService} service layer. Everything that used to live there — per-transaction
+ * state ({@link #transResult}, {@link #cachedTrack2Data}), the online-processing decision inside
+ * {@link #startContactTransProcess}, PAN/track2 derivation ({@link #getContactPan}), and the
+ * result-to-callback mapping in {@link #checkContactResult()} — now lives here instead. See the
+ * structure diagram (panel 09/10) for why this was tried and what it cost.
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
         implements IContactCallback, IContactlessCallback,
@@ -75,6 +87,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Nullable
     private AuthResult lastAuth;
 
+    @Nullable
+    private TransResult transResult;
+    @Nullable
+    private String cachedTrack2Data;
+
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
     }
@@ -87,16 +104,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         lastAuth = null;
         super.prepare(engine, config);
         return initOk && !isCancelled() && engine.isRunning();
-    }
-
-    @Override
-    public void cancel() {
-        super.cancel();
-        try {
-            kernel.contact.setUserCancel(true);
-        } catch (Exception e) {
-            LogUtils.e(TAG, "setUserCancel failed", e);
-        }
     }
 
     @Override
@@ -225,7 +232,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     // ─── Not reached via onXxx dispatch — required overrides, not stubs ──
     //
-    // Chip/CLSS: PAX's own kernel (EmvContactService/ContactlessService.startTransProcess)
+    // Chip/CLSS: PAX's own kernel (startContactTransProcess/ContactlessService.startTransProcess)
     // runs these phases internally and reports them through announceStep(), called from
     // the IContactCallback / IContactResultListener methods further below — never through
     // goToStep, so dispatchStepMethod never invokes the onXxx form for this path.
@@ -324,12 +331,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * Contact chip flow, driven one kernel stage at a time from here instead of one monolithic
      * kernel call: {@link #runContactAppSelect} → {@link #runContactReadAppData} →
      * {@link #runContactCardAuth} → {@link #runContactStartTransaction}. Each stage calls the
-     * matching {@link EmvContactService} method (which itself calls a single top-level
+     * matching {@link ContactProcess} method (which itself calls a single top-level
      * EMVCallback.EMV___ native call), then either advances via {@link #advanceContactStage} —
      * which normally calls {@link #goToStep}, publishing the next {@link EmvStep} on the
      * observable and dispatching to that step's onXxx method, which hands straight back to the
      * matching run* method — or, on error or a terminal business result such as
-     * simple-flow-end, per {@link EmvContactService#isTransactionFinished()}, stops and reports
+     * simple-flow-end, per {@link #isContactTransactionFinished()}, stops and reports
      * via {@link #finishContactStage}.
      *
      * <p>{@link #goToStep} itself returns early on cancellation, before dispatching at all —
@@ -348,7 +355,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void runContactAppSelect() {
         requireEngine();
-        EmvContactService emv = kernel.contact;
+        ContactProcess process = kernel.contact;
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
@@ -357,9 +364,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: App Select ============");
-            int ret = emv.selectApplication(this);
+            // reset every transaction — mirrors EmvContactService#selectApplication
+            cachedTrack2Data = null;
+            process.registerEmvProcessListener(this);
+            transResult = process.selectApplication();
+            int ret = transResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
-            proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
+            proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
+            if (!proceed) {
+                // Selection failed — the transaction ends here; release the listener now since
+                // startTransProcess() (and its own unregister) will never run.
+                process.registerEmvProcessListener(null);
+            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact app select failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV app select failed");
@@ -368,17 +384,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // into the next stage — every other exit (cancel, exception, terminal result) must
             // close them here, since no later stage will run to do it.
             if (!proceed) {
-                finishContactStage(emv);
+                finishContactStage();
             }
         }
         if (proceed) {
-            advanceContactStage(emv, EmvStep.READ_APPLICATION_DATA);
+            advanceContactStage(EmvStep.READ_APPLICATION_DATA);
         }
     }
 
     /** Read App Data stage — reached via {@link #onReadApplicationData}'s chip branch. */
     private void runContactReadAppData() {
-        EmvContactService emv = kernel.contact;
+        ContactProcess process = kernel.contact;
         boolean proceed = false;
         try {
             if (isCancelled()) {
@@ -386,19 +402,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
-            int ret = emv.readApplicationData();
+            transResult = process.readApplicationData();
+            int ret = transResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
-            proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
+            proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
+            if (!proceed) {
+                process.registerEmvProcessListener(null);
+            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact read app data failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV read app data failed");
         } finally {
             if (!proceed) {
-                finishContactStage(emv);
+                finishContactStage();
             }
         }
         if (proceed) {
-            advanceContactStage(emv, EmvStep.OFFLINE_DATA_AUTHENTICATION);
+            advanceContactStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
         }
     }
 
@@ -407,7 +427,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@link #onOfflineDataAuthentication}'s chip branch.
      */
     private void runContactCardAuth() {
-        EmvContactService emv = kernel.contact;
+        ContactProcess process = kernel.contact;
         boolean proceed = false;
         try {
             if (isCancelled()) {
@@ -415,19 +435,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
-            int ret = emv.cardAuthentication();
+            transResult = process.cardAuthentication();
+            int ret = transResult.getResultCode();
             LogUtils.d(TAG, "cardAuthentication ret=" + ret);
-            proceed = ret == RetCode.EMV_OK && !emv.isTransactionFinished();
+            proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
+            if (!proceed) {
+                process.registerEmvProcessListener(null);
+            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact card auth failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV card auth failed");
         } finally {
             if (!proceed) {
-                finishContactStage(emv);
+                finishContactStage();
             }
         }
         if (proceed) {
-            advanceContactStage(emv, EmvStep.PROCESS_RESTRICTIONS);
+            advanceContactStage(EmvStep.PROCESS_RESTRICTIONS);
         }
     }
 
@@ -439,9 +463,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * Re-checking {@link #isCancelled()} here and falling back to {@link #finishContactStage}
      * directly closes that window instead of leaving readers open / the result unreported.
      */
-    private void advanceContactStage(EmvContactService emv, EmvStep next) {
+    private void advanceContactStage(EmvStep next) {
         if (isCancelled()) {
-            finishContactStage(emv);
+            finishContactStage();
         } else {
             goToStep(next);
         }
@@ -454,8 +478,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * Always terminal — always reports via {@link #finishContactStage}.
      */
     private void runContactStartTransaction() {
-        EmvEngine eng = requireEngine();
-        EmvContactService emv = kernel.contact;
+        requireEngine();
+        ContactProcess process = kernel.contact;
         try {
             if (isCancelled()) {
                 finishError("Transaction cancelled");
@@ -465,27 +489,175 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // CVM is separately announced from onCardHolderPwd below when the kernel actually
             // asks for it; terminal risk management and terminal action analysis have no
             // callback and stay unannounced (see class doc).
-            int ret = emv.startTransProcess(this);
+            int ret = startContactTransProcess(process);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
             LogUtils.e(TAG, "contact execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
         } finally {
-            finishContactStage(emv);
+            process.registerEmvProcessListener(null);
+            finishContactStage();
         }
     }
 
+    /**
+     * Runs EMVStartTrans and, if the kernel requests it, the online-authorization round trip
+     * (host authorize via {@link #startOnlineProcess()} → EMVCompleteTrans). Ported from
+     * {@code EmvContactService#startTransProcess} — the AET-146 comment below is carried over
+     * verbatim.
+     */
+    private int startContactTransProcess(ContactProcess process) {
+        process.registerEmvProcessListener(this);
+        transResult = process.startTransProcess();
+        int resultCode = transResult.getResultCode();
+        TransResultEnum transResultEnum = transResult.getTransResult();
+        if (resultCode != RetCode.EMV_OK) {
+            return resultCode;
+        }
+        if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
+            OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
+            IssuerRspData issuerRspData = onlineResultWrapper.getIssuerRspData();
+            int onlineResultCode = onlineResultWrapper.getResultCode();
+            transResult.setResultCode(onlineResultWrapper.getResultCode());
+            transResult.setTransResult(onlineResultWrapper.getTransResultEnum());
+            /*
+             * //AET-146
+             * Whatever value it returns from startOnlineProcess(), 2nd GAC should be performed as per EMV Book 3
+             * The right way to fix AET-146 is to map ABORT_TERMINATED to ONLINE_FAILED so that
+             * EMVApi#EMVCompleteTrans will not return -30: emv param error
+             *
+             * should ensure script.length will not throw Null Pointer Exception
+             * If Field 39 responsed from host is not 00, EMVCallback.EMVCompleteTrans will return -11(EMV DENIAL)
+             *
+             * 1st param of EMVApi#EMVCompleteTrans only accept 3 values:
+             * ONLINE_APPROVE, ONLINE_DENIAL, and ONLINE_FAILED,
+             * reference to the API doc of JNI_EMV_LIB_v102
+             */
+            TransResult secondTransResult = process.completeTransProcess(issuerRspData);
+            transResult.setResultCode(secondTransResult.getResultCode());
+            if (onlineResultCode == EOnlineResult.APPROVE.getResultCode()) {
+                transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
+                        ? TransResultEnum.RESULT_ONLINE_CARD_DENIED : TransResultEnum.RESULT_ONLINE_APPROVED);
+            } else if (onlineResultCode == EOnlineResult.FAILED.getResultCode()) {
+                transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
+                        ? TransResultEnum.RESULT_ONLINE_FAILED : TransResultEnum.RESULT_ONLINE_FAILED_CARD_APPROVED);
+            } else {
+                transResult.setTransResult(TransResultEnum.RESULT_ONLINE_DENIED);
+            }
+            return secondTransResult.getResultCode();
+        }
+        return 0;
+    }
+
+    /** True once a stage has recorded a terminal outcome — no further stage should run. */
+    private boolean isContactTransactionFinished() {
+        return transResult != null && transResult.getTransResult() != null;
+    }
+
     /** Common tail once a contact stage chain has reached a terminal outcome. */
-    private void finishContactStage(EmvContactService emv) {
+    private void finishContactStage() {
         closeReaders(false);
         if (!isCancelled()) {
             try {
-                emv.checkContactResult(this);
+                checkContactResult();
             } catch (Exception e) {
                 LogUtils.e(TAG, "checkContactResult error", e);
                 finishError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
             }
         }
+    }
+
+    /**
+     * Maps the recorded {@link #transResult} to the matching {@code IContactResultListener}
+     * callback on {@code this} — ported from {@code EmvContactService#checkContactResult}.
+     */
+    private void checkContactResult() {
+        if (transResult == null) {
+            LogUtils.e(TAG, "check result: no transResult recorded — treating as offline denied");
+            offlineDenied(-1);
+            return;
+        }
+        int resultCode = transResult.getResultCode();
+        TransResultEnum transResultEnum = transResult.getTransResult();
+        if (transResultEnum == null) {
+            // No stage ever reached a terminal result — e.g. an exception aborted the chain
+            // before that stage's own transResult assignment ran, leaving the "continue"
+            // sentinel (RetCode.EMV_OK, no enum) from the prior successful stage in place.
+            // Fail closed instead of NPE-ing on the switch below.
+            LogUtils.e(TAG, "check result: no terminal result recorded, code = " + resultCode
+                    + " — treating as offline denied");
+            offlineDenied(resultCode);
+            return;
+        }
+        CvmResultEnum cvmResult = transResult.getCvmResult();
+        if (cvmResult == null) {
+            cvmResult = CvmResultEnum.CVM_NO_CVM;
+        }
+        LogUtils.d(TAG, "check result: code = " + resultCode
+                + ", enum = " + transResultEnum.name()
+                + ", cvm = " + cvmResult.name());
+        boolean isNeedSignature = cvmResult == CvmResultEnum.CVM_SIG || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG;
+        switch (transResultEnum) {
+            case RESULT_OFFLINE_APPROVED:
+                offlineApproved(isNeedSignature, true);
+                break;
+            case RESULT_ONLINE_APPROVED:
+                onlineApproved(isNeedSignature);
+                break;
+            case RESULT_ONLINE_CARD_DENIED:
+                onlineCardDenied(resultCode);
+                break;
+            case RESULT_ONLINE_FAILED_CARD_APPROVED:
+                offlineApproved(isNeedSignature, false);
+                break;
+            case RESULT_ONLINE_FAILED:
+                onlineFailed();
+                break;
+            case RESULT_ONLINE_DENIED:
+                onlineDenied();
+                break;
+            case RESULT_OFFLINE_DENIED:
+                offlineDenied(resultCode);
+                break;
+            case RESULT_SIMPLE_FLOW_END:
+                simpleFlowEnd();
+                break;
+            case RESULT_FALLBACK:
+                fallback();
+                break;
+            default:
+                LogUtils.e(TAG, "Cannot handle this statement");
+                offlineDenied(resultCode);
+                break;
+        }
+    }
+
+    /** Ported from {@code EmvContactService#getPan}. */
+    private String getContactPan() {
+        if (cachedTrack2Data != null && !cachedTrack2Data.isEmpty()) {
+            return TrackUtils.getPan(cachedTrack2Data);
+        }
+        String track2Data = getContactTrack2Data();
+        if (track2Data != null && !track2Data.isEmpty()) {
+            return TrackUtils.getPan(track2Data);
+        }
+        // some cards don't have track2 data
+        byte[] panBytes = kernel.contact.getTlv(TagsTable.PAN);
+        String pan = ConvertUtils.bcd2Str(panBytes, panBytes.length);
+        int indexF = pan.indexOf('F');
+        return pan.substring(0, indexF != -1 ? indexF : pan.length());
+    }
+
+    /** Ported from {@code EmvContactService#getTrack2Data}. */
+    private String getContactTrack2Data() {
+        cachedTrack2Data = TrackUtils.getTrack2FromTag57(kernel.contact.getTlv(TagsTable.TRACK2));
+        return cachedTrack2Data;
+    }
+
+    /** Ported from {@code EmvContactService#getCardholderName}. */
+    private String getContactCardholderName() {
+        byte[] cardholderName = kernel.contact.getTlv(TagsTable.CARDHOLDER_NAME);
+        return ConvertUtils.bcd2Str(cardholderName);
     }
 
     private boolean prepareKernel(@NonNull TransactionConfig config) {
@@ -512,6 +684,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return false;
         }
         try {
+            // Fresh kernel object per transaction attempt, not a process-lifetime singleton —
+            // this reset used to live inside EmvContactService#preTransProcess.
+            kernel.contact = new ContactProcess();
             byte adjusted = new EmvPreProcessFacade(
                     config.getProcCode(),
                     config.getAmountMinor(),
@@ -572,8 +747,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public int showConfirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
-        eng.notifyCardDetected(safe(kernel.contact.getPan()), "PAX Issuer",
-                safe(kernel.contact.getCardholderName()), "Contact");
+        eng.notifyCardDetected(safe(getContactPan()), "PAX Issuer",
+                safe(getContactCardholderName()), "Contact");
         eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }

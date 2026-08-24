@@ -43,7 +43,7 @@ public interface IContactCallback{
     int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes, byte[] pinData);
 
     /**
-     * need show card confirm ui,include timeout condition,can use IEmvContactService to get card info
+     * need show card confirm ui,include timeout condition,can use BaseContactProcess to get card info
      * @return result
      */
     int showConfirmCard();

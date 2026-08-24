@@ -8,7 +8,7 @@ import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.IEmvParamService;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.EmvTransParam;
-import com.pax.emvservice.export.contact.IEmvContactService;
+import com.pax.emvlib.dpas.contact.ContactProcess;
 import com.pax.emvservice.export.contactless.IEmvContactlessService;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
@@ -19,6 +19,11 @@ import com.pax.poslib.model.ModelInfo;
  * Builds EMV process parameters and runs contact / contactless preTransProcess.
  *
  * <p>Dependencies are injected — no service locator.
+ *
+ * <p><b>Experiment branch:</b> {@code contact} is {@link ContactProcess} directly, not
+ * {@code IEmvContactService} — the caller (PaxEmvBehavior.prepareKernel) is responsible for
+ * handing in a freshly-built instance each transaction, since that reset used to happen inside
+ * {@code EmvContactService.preTransProcess} and there's no service layer left to own it.
  */
 public class EmvPreProcessFacade {
     private static final String TAG = "EmvPreProcessFacade";
@@ -29,11 +34,11 @@ public class EmvPreProcessFacade {
     private final long traceNo;
     private byte searchCardMode;
     private final IEmvParamService paramService;
-    private final IEmvContactService contact;
+    private final ContactProcess contact;
     private final IEmvContactlessService contactless;
 
     public EmvPreProcessFacade(String procCode, long amount, String dateTime, long traceNo,
-            byte searchCardMode, IEmvParamService paramService, IEmvContactService contact,
+            byte searchCardMode, IEmvParamService paramService, ContactProcess contact,
             IEmvContactlessService contactless) {
         this.procCode = procCode;
         this.amount = amount;
