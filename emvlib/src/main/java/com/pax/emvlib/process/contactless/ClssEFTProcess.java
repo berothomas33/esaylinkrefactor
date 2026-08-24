@@ -25,7 +25,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.emvlib.base.utils.EmvParamConvert;
 import com.pax.jemv.clcommon.ACType;
@@ -38,9 +37,7 @@ import com.pax.jemv.clcommon.OnlineResult;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.eftpos.api.ClssEFTPOSApi;
 import com.pax.jemv.eftpos.model.Clss_EFTAidParam;
-import com.sankuai.waimai.router.annotation.RouterService;
 
-@RouterService(interfaces = ClssKernelProcess.class, key = EmvKernelConst.EFT)
 public class ClssEFTProcess extends ClssKernelProcess<EFTParam> {
 
     private static final String TAG = "ClssEFTProcess";

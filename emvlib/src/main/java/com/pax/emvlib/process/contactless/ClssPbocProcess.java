@@ -27,7 +27,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.emvlib.base.utils.EmvParamConvert;
 import com.pax.jemv.clcommon.ACType;
@@ -42,10 +41,8 @@ import com.pax.jemv.clcommon.TransactionPath;
 import com.pax.jemv.qpboc.api.ClssPbocApi;
 import com.pax.jemv.qpboc.model.Clss_PbocAidParam;
 import com.pax.jemv.qpboc.model.Clss_PbocTornConfig;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.Locale;
 
-@RouterService(interfaces = ClssKernelProcess.class, key = EmvKernelConst.PBOC)
 public class ClssPbocProcess extends ClssKernelProcess<PbocParam> {
 
     private static final String TAG = "ClssPbocProcess";

@@ -26,7 +26,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.emvlib.base.utils.EmvParamConvert;
 import com.pax.jemv.clcommon.ACType;
@@ -43,11 +42,9 @@ import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.clcommon.TransactionPath;
 import com.pax.jemv.entrypoint.api.ClssEntryApi;
 import com.pax.jemv.paywave.api.ClssWaveApi;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.Arrays;
 import java.util.List;
 
-@RouterService(interfaces = ClssKernelProcess.class, key = EmvKernelConst.PAYWAVE)
 public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
     private static final String TAG = "ClssPayWaveProcess";
     private String track2 = null;

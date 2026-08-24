@@ -25,7 +25,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.jemv.clcommon.ByteArray;
 import com.pax.jemv.clcommon.EMV_CAPK;
@@ -33,9 +32,7 @@ import com.pax.jemv.clcommon.EMV_REVOCLIST;
 import com.pax.jemv.clcommon.OutcomeParam;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.mir.api.ClssMIRApi;
-import com.sankuai.waimai.router.annotation.RouterService;
 
-@RouterService(interfaces = ClssKernelProcess.class, key = EmvKernelConst.MIR)
 public class ClssMirProcess extends ClssKernelProcess<MirParam> {
     private static final String TAG = "ClssMirProcess";
     public static final int MIR_PROTOCOL_01 = 0x01;

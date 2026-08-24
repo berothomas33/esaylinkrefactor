@@ -25,7 +25,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.jemv.clcommon.ACType;
 import com.pax.jemv.clcommon.ByteArray;
@@ -39,9 +38,7 @@ import com.pax.jemv.device.model.ApduSendL2;
 import com.pax.jemv.paypass.api.ClssPassApi;
 import com.pax.jemv.paypass.listener.ClssPassCBFunApi;
 import com.pax.jemv.paypass.listener.IClssPassCBFun;
-import com.sankuai.waimai.router.annotation.RouterService;
 
-@RouterService(interfaces = ClssKernelProcess.class, key = EmvKernelConst.MC)
 public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
     private static final String TAG = "ClssPayPassProcess";
     private ClssPassListener clssPassListener = new ClssPassListener();

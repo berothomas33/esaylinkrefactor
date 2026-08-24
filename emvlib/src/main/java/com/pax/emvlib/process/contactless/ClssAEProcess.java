@@ -25,7 +25,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.jemv.amex.api.ClssAmexApi;
 import com.pax.jemv.amex.model.CLSS_AEAIDPARAM;
@@ -42,13 +41,11 @@ import com.pax.jemv.clcommon.EMV_CAPK;
 import com.pax.jemv.clcommon.EMV_REVOCLIST;
 import com.pax.jemv.clcommon.OnlineResult;
 import com.pax.jemv.clcommon.RetCode;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.Arrays;
 import java.util.List;
 
 import static com.pax.jemv.clcommon.RetCode.EMV_OK;
 
-@RouterService(interfaces = ClssKernelProcess.class, key = EmvKernelConst.AMEX)
 public class ClssAEProcess extends ClssKernelProcess<AmexParam> {
     private static final String TAG = "ClssAEProcess";
     private TransactionMode transMode;

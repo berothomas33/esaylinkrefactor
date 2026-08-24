@@ -33,7 +33,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contact.BaseContactProcess;
 import com.pax.emvlib.base.utils.EmvParamConvert;
 import com.pax.jemv.clcommon.ACType;
@@ -46,7 +45,6 @@ import com.pax.jemv.device.DeviceManager;
 import com.pax.jemv.emv.api.EMVCallback;
 import com.pax.jemv.emv.model.EmvMCKParam;
 import com.pax.jemv.emv.model.EmvParam;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -57,7 +55,6 @@ import java.util.List;
  * @author yehongbo
  * @date 2022/4/15
  */
-@RouterService(interfaces = BaseContactProcess.class, key = EmvKernelConst.EMV)
 public class ContactProcess extends BaseContactProcess {
     private static final String TAG = "EmvProcess";
     private static final boolean enableDebugLog = BuildConfig.DEBUG;

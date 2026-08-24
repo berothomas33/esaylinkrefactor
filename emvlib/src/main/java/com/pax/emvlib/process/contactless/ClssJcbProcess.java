@@ -25,7 +25,6 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvbase.utils.EmvDebugger;
-import com.pax.emvlib.base.consts.EmvKernelConst;
 import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.jemv.clcommon.ByteArray;
 import com.pax.jemv.clcommon.EMV_CAPK;
@@ -35,9 +34,7 @@ import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.clcommon.TransactionPath;
 import com.pax.jemv.entrypoint.api.ClssEntryApi;
 import com.pax.jemv.jcb.api.ClssJCBApi;
-import com.sankuai.waimai.router.annotation.RouterService;
 
-@RouterService(interfaces = ClssKernelProcess.class, key = EmvKernelConst.JCB)
 public class ClssJcbProcess extends ClssKernelProcess<JcbParam> {
     private static final String TAG = "ClssJcbProcess";
 
