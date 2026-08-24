@@ -24,6 +24,7 @@ import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.contact.IContactCallback;
 import com.pax.emvbase.process.contactless.IContactlessCallback;
+import com.pax.emvbase.param.EmvTransParam;
 import com.pax.emvbase.process.entity.EOnlineResult;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.OnlineResultWrapper;
@@ -31,7 +32,7 @@ import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvlib.dpas.contact.ContactProcess;
-import com.pax.emvservice.emv.contactless.ContactlessService;
+import com.pax.emvlib.process.contactless.ClssProcess;
 import com.pax.emvservice.export.contact.IContactResultListener;
 import com.pax.emvservice.export.contactless.IContactlessResultListener;
 import com.pax.jemv.clcommon.RetCode;
@@ -71,14 +72,22 @@ import java.util.Locale;
  * {@code EmvContactService} service layer. Everything that used to live there — per-transaction
  * state ({@link #transResult}, {@link #cachedTrack2Data}), the online-processing decision inside
  * {@link #startContactTransProcess}, PAN/track2 derivation ({@link #getContactPan}), and the
- * result-to-callback mapping in {@link #checkContactResult()} — now lives here instead. See the
- * structure diagram (panel 09/10) for why this was tried and what it cost.
+ * result-to-callback mapping in {@link #checkContactResult()} — now lives here instead. The
+ * contactless path got the same treatment: talks to {@link ClssProcess} (emvlib) directly — no
+ * {@code ContactlessService} layer — with its own mirrored state
+ * ({@link #clsTransResult}/{@link #clsCachedTrack2Data}/{@link #clsLastNeedSeePhone}), online
+ * decision ({@link #startContactlessTransProcess}), PAN derivation
+ * ({@link #getContactlessPan}), and result mapping ({@link #checkContactlessResult()}). See the
+ * structure diagram (panel 10/11) for why this was tried and what it cost.
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
         implements IContactCallback, IContactlessCallback,
         IContactResultListener, IContactlessResultListener {
 
     private static final String TAG = "PaxEmvBehavior";
+
+    /** See {@link #startContactlessTransProcess} javadoc for why this is a constant. */
+    private static final int CONTACTLESS_FLOW_TYPE = EmvTransParam.FLOWTYPE_COMPLETE;
 
     private final PaxKernel kernel;
 
@@ -91,6 +100,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private TransResult transResult;
     @Nullable
     private String cachedTrack2Data;
+
+    @Nullable
+    private TransResult clsTransResult;
+    @Nullable
+    private String clsCachedTrack2Data;
+    private boolean clsLastNeedSeePhone;
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
@@ -232,7 +247,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     // ─── Not reached via onXxx dispatch — required overrides, not stubs ──
     //
-    // Chip/CLSS: PAX's own kernel (startContactTransProcess/ContactlessService.startTransProcess)
+    // Chip/CLSS: PAX's own kernel (startContactTransProcess/startContactlessTransProcess)
     // runs these phases internally and reports them through announceStep(), called from
     // the IContactCallback / IContactResultListener methods further below — never through
     // goToStep, so dispatchStepMethod never invokes the onXxx form for this path.
@@ -300,8 +315,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Kernel runners ──────────────────────────────────────────────────
 
     private void runContactlessKernel() {
-        EmvEngine eng = requireEngine();
-        ContactlessService emv = kernel.contactless;
+        requireEngine();
+        ClssProcess process = kernel.contactless;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
             if (isCancelled()) {
@@ -309,22 +324,181 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Start Contactless EMV ============");
-            int ret = emv.startTransProcess(this);
+            int ret = startContactlessTransProcess(process);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
         } finally {
+            process.unregisterClssProcessListener();
             closeReaders(true);
             if (!isCancelled()) {
                 try {
-                    emv.checkClsResult(this);
+                    checkContactlessResult();
                 } catch (Exception e) {
                     LogUtils.e(TAG, "checkClsResult error", e);
                     finishError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
                 }
             }
         }
+    }
+
+    /**
+     * Runs the full contactless kernel transaction — app selection through 1st GAC, CVM prompt,
+     * and (if the kernel requests it) the online-authorization round trip including the 2nd-tap
+     * check. Ported from {@code ContactlessService#startTransProcess}.
+     *
+     * <p>{@code CONTACTLESS_FLOW_TYPE} mirrors the one hardcoded value {@code EmvPreProcessFacade}
+     * ever builds ({@code EmvTransParam.FLOWTYPE_COMPLETE}) — verified repo-wide, nothing ever
+     * requests {@code FLOWTYPE_SIMPLE} for contactless — so the branch below is unreachable today,
+     * kept only for parity with the ported logic in case that ever changes. {@link ClssProcess}
+     * itself has no getter for the flow type it was built with, and per its own header comment it
+     * shouldn't be touched to add one.
+     */
+    private int startContactlessTransProcess(ClssProcess process) {
+        // reset every transaction
+        clsCachedTrack2Data = null;
+        process.registerClssProcessListener(this);
+        clsTransResult = process.startTransProcess();
+        CvmResultEnum cvmResult = clsTransResult.getCvmResult();
+        int resultCode = clsTransResult.getResultCode();
+        TransResultEnum transResultEnum = clsTransResult.getTransResult();
+        if (resultCode != RetCode.EMV_OK) {
+            return resultCode;
+        }
+        int ret = confirmCard();
+        LogUtils.d(TAG, "confirm card: " + ret);
+        if (ret != RetCode.EMV_OK) {
+            // for example, timeout/data_error
+            clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+            return ret;
+        }
+        if (CONTACTLESS_FLOW_TYPE == EmvTransParam.FLOWTYPE_SIMPLE) {
+            clsTransResult = new TransResult(0, TransResultEnum.RESULT_SIMPLE_FLOW_END, CvmResultEnum.CVM_NO_CVM);
+            return 0;
+        }
+        if (cvmResult == CvmResultEnum.CVM_ONLINE_PIN || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
+            ret = onCardHolderPwd(true, true, 0, null);
+            // Because PIN Bypass is supported, it is necessary to exclude the case where the
+            // returned result is NO PASSWORD.
+            if (ret != RetCode.EMV_OK && ret != RetCode.EMV_NO_PASSWORD) {
+                clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
+                return ret;
+            }
+        }
+        // check whether need goes online
+        if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
+            OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
+            IssuerRspData issuerRspData = onlineResultWrapper.getIssuerRspData();
+            TransResultEnum onlineTransResultEnum = onlineResultWrapper.getTransResultEnum();
+            // handle online result after second GAC
+            if (TransResultEnum.RESULT_ONLINE_APPROVED != onlineTransResultEnum) {
+                clsTransResult.setTransResult(onlineTransResultEnum);
+                clsTransResult.setResultCode(onlineTransResultEnum.ordinal());
+                return onlineTransResultEnum.ordinal();
+            }
+            boolean needSecondTap = process.isNeedSecondTap(issuerRspData);
+            if (needSecondTap) {
+                onDetect2ndTap();
+                clsTransResult = process.completeTransProcess(issuerRspData);
+            } else {
+                clsTransResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
+            }
+            // restore signature
+            if (cvmResult == CvmResultEnum.CVM_SIG || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
+                clsTransResult.setCvmResult(CvmResultEnum.CVM_SIG);
+            }
+        }
+        return clsTransResult.getResultCode();
+    }
+
+    /**
+     * Maps the recorded {@link #clsTransResult} to the matching {@code IContactlessResultListener}
+     * callback on {@code this} — ported from {@code ContactlessService#checkClsResult}.
+     */
+    private void checkContactlessResult() {
+        if (clsTransResult == null) {
+            LogUtils.e(TAG, "check result: no clsTransResult recorded — treating as offline denied");
+            offlineDenied(-1);
+            return;
+        }
+        int resultCode = clsTransResult.getResultCode();
+        TransResultEnum transResultEnum = clsTransResult.getTransResult();
+        CvmResultEnum cvmResult = clsTransResult.getCvmResult();
+        LogUtils.d(TAG, "result code: " + resultCode
+                + ", trans result: " + transResultEnum.name()
+                + ", cvm result: " + cvmResult.name());
+        if (resultCode == RetCode.EMV_OK) {
+            if (cvmResult == CvmResultEnum.CVM_CONSUMER_DEVICE) {
+                clsLastNeedSeePhone = true;
+                seePhone();
+                return;
+            }
+            if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
+                offlineApproved(cvmResult == CvmResultEnum.CVM_SIG);
+            } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_APPROVED) {
+                onlineApproved(cvmResult == CvmResultEnum.CVM_SIG);
+            } else if (transResultEnum == TransResultEnum.RESULT_SIMPLE_FLOW_END) {
+                simpleFlowEnd();
+            } else {
+                // Unknown status
+                offlineDenied(RetCode.CLSS_DECLINE);
+            }
+        } else {
+            if (transResultEnum == TransResultEnum.RESULT_CLSS_SEE_PHONE) {
+                clsLastNeedSeePhone = true;
+                seePhone();
+            } else if (transResultEnum == TransResultEnum.RESULT_CLSS_TRY_ANOTHER_INTERFACE
+                    || resultCode == RetCode.CLSS_USE_CONTACT) {
+                // restart detect icc card and transaction
+                tryAnotherInterface();
+            } else if (transResultEnum == TransResultEnum.RESULT_TRY_AGAIN) {
+                // PICC return USE_CONTACT 1.restart detect card and transaction
+                tryAgain();
+            } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_DENIED) {
+                // host reject, prompt has been showed during online
+                onlineDenied();
+            } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_FAILED) {
+                // such as connect error, receive error, pack error, prompt has been showed during online
+                onlineFailed();
+            } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_CARD_DENIED) {
+                onlineCardDenied(resultCode);
+            } else if (transResultEnum == TransResultEnum.RESULT_OFFLINE_DENIED) {
+                // here we need prompt details by resultCode
+                offlineDenied(resultCode);
+            } else {
+                // Unknown status
+                offlineDenied(resultCode);
+            }
+        }
+    }
+
+    /** Ported from {@code ContactlessService#getPan}. */
+    private String getContactlessPan() {
+        if (clsCachedTrack2Data != null && !clsCachedTrack2Data.isEmpty()) {
+            return TrackUtils.getPan(clsCachedTrack2Data);
+        }
+        String track2Data = getContactlessTrack2Data();
+        if (track2Data != null && !track2Data.isEmpty()) {
+            return TrackUtils.getPan(track2Data);
+        }
+        // some cards don't have track2 data
+        byte[] panBytes = kernel.contactless.getTlv(TagsTable.PAN);
+        String pan = ConvertUtils.bcd2Str(panBytes, panBytes.length);
+        int indexF = pan.indexOf('F');
+        return pan.substring(0, indexF != -1 ? indexF : pan.length());
+    }
+
+    /** Ported from {@code ContactlessService#getTrack2Data}. */
+    private String getContactlessTrack2Data() {
+        clsCachedTrack2Data = TrackUtils.getTrack2FromTag57(kernel.contactless.getTlv(TagsTable.TRACK2));
+        return clsCachedTrack2Data;
+    }
+
+    /** Ported from {@code ContactlessService#getCardholderName}. */
+    private String getContactlessCardholderName() {
+        byte[] cardholderName = kernel.contactless.getTlv(TagsTable.CARDHOLDER_NAME);
+        return ConvertUtils.bcd2Str(cardholderName);
     }
 
     /**
@@ -725,8 +899,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public int confirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
-        eng.notifyCardDetected(safe(kernel.contactless.getPan()), "PAX Issuer",
-                safe(kernel.contactless.getCardholderName()), "Contactless");
+        eng.notifyCardDetected(safe(getContactlessPan()), "PAX Issuer",
+                safe(getContactlessCardholderName()), "Contactless");
         eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
@@ -796,8 +970,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public boolean needSeePhone() {
-        boolean seePhone = kernel.contactless.getIsLastNeedSeePhone();
-        kernel.contactless.setIsLastNeedSeePhone(false);
+        boolean seePhone = clsLastNeedSeePhone;
+        clsLastNeedSeePhone = false;
         return seePhone;
     }
 

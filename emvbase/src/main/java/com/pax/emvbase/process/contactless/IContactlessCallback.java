@@ -38,7 +38,7 @@ public interface IContactlessCallback  {
     boolean needSeePhone();
 
     /**
-     * here can  get card info from IEmvContactlessService
+     * here can  get card info from ClssProcess
      * @return result
      */
     int confirmCard();

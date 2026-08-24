@@ -9,7 +9,7 @@ import com.pax.configservice.export.IEmvParamService;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.EmvTransParam;
 import com.pax.emvlib.dpas.contact.ContactProcess;
-import com.pax.emvservice.export.contactless.IEmvContactlessService;
+import com.pax.emvlib.process.contactless.ClssProcess;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
@@ -24,6 +24,9 @@ import com.pax.poslib.model.ModelInfo;
  * {@code IEmvContactService} — the caller (PaxEmvBehavior.prepareKernel) is responsible for
  * handing in a freshly-built instance each transaction, since that reset used to happen inside
  * {@code EmvContactService.preTransProcess} and there's no service layer left to own it.
+ * {@code contactless} is {@link ClssProcess} directly too, not {@code IEmvContactlessService} —
+ * {@code ClssProcess} is a process-lifetime singleton on its own, so unlike {@code contact} there
+ * was never a "fresh instance" to hand in.
  */
 public class EmvPreProcessFacade {
     private static final String TAG = "EmvPreProcessFacade";
@@ -35,11 +38,11 @@ public class EmvPreProcessFacade {
     private byte searchCardMode;
     private final IEmvParamService paramService;
     private final ContactProcess contact;
-    private final IEmvContactlessService contactless;
+    private final ClssProcess contactless;
 
     public EmvPreProcessFacade(String procCode, long amount, String dateTime, long traceNo,
             byte searchCardMode, IEmvParamService paramService, ContactProcess contact,
-            IEmvContactlessService contactless) {
+            ClssProcess contactless) {
         this.procCode = procCode;
         this.amount = amount;
         this.dateTime = dateTime;
