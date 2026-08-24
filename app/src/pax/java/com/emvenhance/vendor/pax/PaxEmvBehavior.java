@@ -12,19 +12,20 @@ import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
-import com.emvenhance.emvflow.preprocess.EmvPreProcessFacade;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.bizlib.card.TrackUtils;
+import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.entity.EPiccType;
 import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
+import com.pax.emvbase.param.EmvProcessParam;
+import com.pax.emvbase.param.EmvTransParam;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.contact.IContactCallback;
 import com.pax.emvbase.process.contactless.IContactlessCallback;
-import com.pax.emvbase.param.EmvTransParam;
 import com.pax.emvbase.process.entity.EOnlineResult;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.OnlineResultWrapper;
@@ -37,6 +38,8 @@ import com.pax.emvservice.export.contact.IContactResultListener;
 import com.pax.emvservice.export.contactless.IContactlessResultListener;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
+import com.pax.poslib.gl.convert.ConvertHelper;
+import com.pax.poslib.model.ModelInfo;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -348,7 +351,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * and (if the kernel requests it) the online-authorization round trip including the 2nd-tap
      * check. Ported from {@code ContactlessService#startTransProcess}.
      *
-     * <p>{@code CONTACTLESS_FLOW_TYPE} mirrors the one hardcoded value {@code EmvPreProcessFacade}
+     * <p>{@code CONTACTLESS_FLOW_TYPE} mirrors the one hardcoded value {@link #runPreTransProcess}
      * ever builds ({@code EmvTransParam.FLOWTYPE_COMPLETE}) — verified repo-wide, nothing ever
      * requests {@code FLOWTYPE_SIMPLE} for contactless — so the branch below is unreachable today,
      * kept only for parity with the ported logic in case that ever changes. {@link ClssProcess}
@@ -861,15 +864,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // Fresh kernel object per transaction attempt, not a process-lifetime singleton —
             // this reset used to live inside EmvContactService#preTransProcess.
             kernel.contact = new ContactProcess();
-            byte adjusted = new EmvPreProcessFacade(
-                    config.getProcCode(),
-                    config.getAmountMinor(),
-                    timestamp(),
-                    0,
-                    requested,
-                    kernel.params,
-                    kernel.contact,
-                    kernel.contactless).start();
+            byte adjusted = runPreTransProcess(config, requested);
             if (adjusted == 0) {
                 LogUtils.e(TAG, "preTransProcess disabled every search mode");
                 return false;
@@ -879,6 +874,78 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.e(TAG, "preTransProcess failed", e);
             return false;
         }
+    }
+
+    /**
+     * Builds {@link EmvTransParam}/{@link EmvProcessParam} from {@code config} and the cached
+     * EMV parameters, then runs contact / contactless {@code preTransProcess}, clearing the
+     * corresponding {@link SearchMode} bit for whichever one fails. Ported from
+     * {@code EmvPreProcessFacade#start} — single caller, no service-locator indirection, and
+     * {@code emvflow} (the module it used to live in) is PAX-only already, so nothing else needed
+     * it as a separate object.
+     */
+    private byte runPreTransProcess(@NonNull TransactionConfig config, byte searchCardMode) {
+        DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
+        byte[] proc = ConvertHelper.getConvert().strToBcdPaddingRight(config.getProcCode());
+        if (!SearchMode.isSupportIcc(searchCardMode) && !SearchMode.isWave(searchCardMode)) {
+            return 0;
+        }
+        if (kernel.params == null) {
+            LogUtils.e(TAG, "EmvParamService missing");
+            return searchCardMode;
+        }
+        EmvProcessParam cachedEmvParam = kernel.params.getCachedEmvParam();
+        String dateTime = timestamp();
+        EmvTransParam.Builder builder = new EmvTransParam.Builder();
+        builder.setTransType(proc[0])
+                .setAmount(config.getAmountMinor())
+                .setAmountOther(0L)
+                .setTerminalID(ModelInfo.getInstance().getSN().getBytes())
+                .setTransCurrencyCode(CurrencyConverter.getCurrencyCode())
+                .setTransCurrencyExponent((byte) CurrencyConverter.getDigitsNum())
+                .setTransDate(ConvertUtils.strToBcdPaddingLeft(dateTime.substring(2, 8)))
+                .setTransTime(ConvertUtils.strToBcdPaddingLeft(dateTime.substring(8)))
+                .setTransTraceNo(Long.parseLong(ConvertUtils.getPaddedNumber(0, 6)))
+                .setFlowType(EmvTransParam.FLOWTYPE_COMPLETE)
+                .setMaskPattern("")
+                .setPinLenSet("0,4,5,6,7,8,9,10,11,12\0".getBytes())
+                .setPciTimeout(60 * 1000);
+        EmvProcessParam.Builder processParamBuilder = new EmvProcessParam.Builder()
+                .setTermConfig(cachedEmvParam.getTermConfig())
+                .setCapkParam(cachedEmvParam.getCapkParam());
+
+        if (SearchMode.isSupportIcc(searchCardMode) && kernel.contact != null) {
+            builder.setPciMode((byte) 1);
+            processParamBuilder.setEmvTransParam(builder.create())
+                    .setEmvAidList(cachedEmvParam.getEmvAidList());
+            int contactRet = kernel.contact.preTransProcess(processParamBuilder.create());
+            if (contactRet != RetCode.EMV_OK) {
+                LogUtils.e(TAG, "contact pre process failed");
+                searchCardMode = (byte) (searchCardMode & (~SearchMode.INSERT));
+            }
+        }
+        if ((SearchMode.isSupportInternalPicc(searchCardMode)
+                || SearchMode.isSupportExternalPicc(searchCardMode)) && kernel.contactless != null) {
+            if (!SearchMode.isSupportIcc(searchCardMode)) {
+                processParamBuilder.setEmvTransParam(builder.create());
+            }
+            processParamBuilder.setAmexParam(cachedEmvParam.getAmexParam())
+                    .setPassParam(cachedEmvParam.getPayPassParam())
+                    .setPayWaveParam(cachedEmvParam.getPayWaveParam())
+                    .setDpasParam(cachedEmvParam.getDpasParam())
+                    .setEFTParam(cachedEmvParam.getEftParam())
+                    .setJcbParam(cachedEmvParam.getJcbParam())
+                    .setMirParam(cachedEmvParam.getMirParam())
+                    .setPbocParam(cachedEmvParam.getPbocParam())
+                    .setPureParam(cachedEmvParam.getPureParam())
+                    .setRuPayParam(cachedEmvParam.getRuPayParam());
+            int contactlessRet = kernel.contactless.preTransProcess(processParamBuilder.create());
+            if (contactlessRet != RetCode.EMV_OK) {
+                LogUtils.e(TAG, "contactless pre process failed");
+                searchCardMode = (byte) (searchCardMode & (~SearchMode.WAVE));
+            }
+        }
+        return searchCardMode;
     }
 
     // ─── IContactCallback + IContactlessCallback ─────────────────────────
