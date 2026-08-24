@@ -244,7 +244,7 @@ public class ContactProcess extends BaseContactProcess {
         if (authAmt > 0xFFFFFFFF) {
             EMVCallback.EMVSetAmount(transParam.getAmountBytes(), transParam.getAmountOtherBytes());
         }
-        ret = EMVCallback.EMVStartTrans(authAmt, cashbackAmt, acType);
+       int ret = EMVCallback.EMVStartTrans(authAmt, cashbackAmt, acType);
         LogUtils.i(TAG, "startTransProcess, EMVStartTrans ret:" + ret + ", acType:" + acType.type);
         if (ret != RetCode.EMV_OK) {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
