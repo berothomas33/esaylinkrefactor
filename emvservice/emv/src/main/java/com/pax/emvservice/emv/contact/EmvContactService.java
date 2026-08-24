@@ -34,17 +34,28 @@ import com.pax.emvbase.process.entity.OnlineResultWrapper;
 import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
-import com.pax.emvlib.process.contact.EmvProcess;
+import com.pax.emvlib.base.contact.BaseContactProcess;
+import com.pax.emvlib.dpas.contact.ContactProcess;
 import com.pax.emvservice.export.constant.EmvServiceConstant;
 import com.pax.emvservice.export.contact.IEmvContactService;
 import com.pax.emvservice.export.contact.IContactResultListener;
 import com.pax.jemv.clcommon.RetCode;
 import com.sankuai.waimai.router.annotation.RouterService;
 
+/**
+ * Constructs {@link ContactProcess} directly — no separate {@code EmvProcess} facade layer.
+ * That facade used to pick between kernel implementations via WMRouter, but WMRouter can't
+ * work on this project's AGP version (see {@code PaxKernel}'s and the root build.gradle's own
+ * notes on this) and {@code emvlib:dpas2}, the only real second implementation, was removed as
+ * dead code — so there was exactly one implementation left to select, and the facade was pure
+ * pass-through. {@code contactProcess} is typed as {@link BaseContactProcess}, not the concrete
+ * class, so a genuinely different future kernel is still a one-line swap here, not a redesign.
+ */
 @RouterService(interfaces = IEmvContactService.class,key = EmvServiceConstant.EMVSERVICE_CONTACT,singleton = true)
 public class EmvContactService implements IEmvContactService {
     private static final String TAG = "EmvContactService";
 
+    private BaseContactProcess contactProcess = new ContactProcess();
     private TransResult transResult;
     private String cachedTrack2Data = null;
     private boolean userCancel;
@@ -94,7 +105,10 @@ public class EmvContactService implements IEmvContactService {
      */
     @Override
     public int preTransProcess(EmvProcessParam emvProcessParam) {
-        return EmvProcess.getInstance().preTransProcess(emvProcessParam);
+        // Fresh kernel object per transaction attempt, not a process-lifetime singleton — see
+        // class doc.
+        contactProcess = new ContactProcess();
+        return contactProcess.preTransProcess(emvProcessParam);
     }
 
     /**
@@ -110,13 +124,13 @@ public class EmvContactService implements IEmvContactService {
         cachedTrack2Data = null;
         timeOut(false);
         setUserCancel(false);
-        EmvProcess.getInstance().registerEmvProcessListener(contactCallback);
-        transResult = EmvProcess.getInstance().selectApplication();
+        contactProcess.registerEmvProcessListener(contactCallback);
+        transResult = contactProcess.selectApplication();
         int resultCode = transResult.getResultCode();
         if (resultCode != RetCode.EMV_OK) {
             // Selection failed — the transaction ends here; release the listener now since
             // startTransProcess() (and its own unregister in finally) will never run.
-            EmvProcess.getInstance().registerEmvProcessListener(null);
+            contactProcess.registerEmvProcessListener(null);
         }
         return resultCode;
     }
@@ -129,11 +143,11 @@ public class EmvContactService implements IEmvContactService {
      */
     @Override
     public int readApplicationData() {
-        transResult = EmvProcess.getInstance().readApplicationData();
+        transResult = contactProcess.readApplicationData();
         if (isTransactionFinished()) {
             // Read app data failed — the transaction ends here; release the listener now since
             // startTransProcess() (and its own unregister in finally) will never run.
-            EmvProcess.getInstance().registerEmvProcessListener(null);
+            contactProcess.registerEmvProcessListener(null);
         }
         return transResult.getResultCode();
     }
@@ -147,11 +161,11 @@ public class EmvContactService implements IEmvContactService {
      */
     @Override
     public int cardAuthentication() {
-        transResult = EmvProcess.getInstance().cardAuthentication();
+        transResult = contactProcess.cardAuthentication();
         if (isTransactionFinished()) {
             // Card auth failed, or the flow already ended here (e.g. simple flow) — release the
             // listener now since startTransProcess() (and its own unregister) will never run.
-            EmvProcess.getInstance().registerEmvProcessListener(null);
+            contactProcess.registerEmvProcessListener(null);
         }
         return transResult.getResultCode();
     }
@@ -175,8 +189,8 @@ public class EmvContactService implements IEmvContactService {
     @Override
     public int startTransProcess(IContactCallback contactCallback) {
         try{
-            EmvProcess.getInstance().registerEmvProcessListener(contactCallback);
-            transResult = EmvProcess.getInstance().startTransProcess();
+            contactProcess.registerEmvProcessListener(contactCallback);
+            transResult = contactProcess.startTransProcess();
             int resultCode = transResult.getResultCode();
             TransResultEnum transResultEnum = transResult.getTransResult();
             if(resultCode != RetCode.EMV_OK){
@@ -206,7 +220,7 @@ public class EmvContactService implements IEmvContactService {
                  * ONLINE_APPROVE, ONLINE_DENIAL, and ONLINE_FAILED,
                  * reference to the API doc of JNI_EMV_LIB_v102
                  */
-                TransResult secondTransResult = EmvProcess.getInstance().completeTransProcess(issuerRspData);
+                TransResult secondTransResult = contactProcess.completeTransProcess(issuerRspData);
                 transResult.setResultCode(secondTransResult.getResultCode());
 
                 // Check result
@@ -236,7 +250,7 @@ public class EmvContactService implements IEmvContactService {
             }
             return 0;
         }finally {
-            EmvProcess.getInstance().registerEmvProcessListener(null);
+            contactProcess.registerEmvProcessListener(null);
         }
     }
 
@@ -401,11 +415,11 @@ public class EmvContactService implements IEmvContactService {
 
     @Override
     public byte[] getTlv(int tag) {
-        return EmvProcess.getInstance().getTlv(tag);
+        return contactProcess.getTlv(tag);
     }
 
     @Override
     public void setTlv(int tag, byte[] value) {
-        EmvProcess.getInstance().setTlv(tag, value);
+        contactProcess.setTlv(tag, value);
     }
 }
