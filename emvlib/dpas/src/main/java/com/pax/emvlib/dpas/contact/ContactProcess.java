@@ -485,6 +485,11 @@ public class ContactProcess extends BaseContactProcess {
             if (emvProcessListener != null) {
                 int index = emvProcessListener.onWaitAppSelect(tryCnt <= 0, candidateAIDS);
                 emvCallback.setCallBackResult(index);
+            } else {
+                // Not calling setCallBackResult would leave the kernel waiting for a reply
+                // that never comes — the transaction hangs instead of failing. Fail closed.
+                LogUtils.e(TAG, "emvWaitAppSel: no listener registered — failing closed");
+                emvCallback.setCallBackResult(RetCode.EMV_DATA_ERR);
             }
         }
 
@@ -543,7 +548,11 @@ public class ContactProcess extends BaseContactProcess {
                 return;
             }
             int result;
-            if (isOnline) {
+            if (emvProcessListener == null) {
+                // No listener registered — fail closed instead of NPE-ing mid native call.
+                LogUtils.e(TAG, "emvGetHolderPwd: no listener registered — failing closed");
+                result = RetCode.EMV_DATA_ERR;
+            } else if (isOnline) {
                 result = emvProcessListener.onCardHolderPwd(true, isSelectedAIDSupportPINByPass, remainCnt, null);
             } else {
                 result = emvProcessListener.onCardHolderPwd(false, isSelectedAIDSupportPINByPass, this.tmpRemainCount, pinData);
