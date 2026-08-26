@@ -16,6 +16,7 @@
 
 package com.pax.emvlib.dpas.contact;
 
+import com.emvenhance.core.engine.EmvEngine;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.emvbase.BuildConfig;
@@ -64,6 +65,15 @@ public class ContactProcess extends BaseContactProcess {
     private EMVCallback emvCallback;
     private IContactCallback emvProcessListener;
 
+    /**
+     * Experiment branch: {@code emvlib:dpas} now depends on {@code core} so this kernel class
+     * (and {@link EmvCallBackListener}, its inner class) can reach {@link EmvEngine} directly,
+     * instead of only ever through {@code emvProcessListener}. Set by {@link #setEngine} — the
+     * caller (PaxEmvBehavior) is responsible for calling it before any stage runs, the same way
+     * it's responsible for {@link #registerEmvProcessListener}.
+     */
+    private EmvEngine engine;
+
     private ArrayList<Capk> capkParamList;
     private ArrayList<CapkRevoke> revokeList;
     private List<EmvAid> aidList;
@@ -75,6 +85,14 @@ public class ContactProcess extends BaseContactProcess {
     @Override
     public void registerEmvProcessListener(IContactCallback emvTransProcessListener) {
         this.emvProcessListener = emvTransProcessListener;
+    }
+
+    /**
+     * Experiment branch only — see the {@link #engine} field doc. Not part of
+     * {@link BaseContactProcess}; callers on the approved line never call this.
+     */
+    public void setEngine(EmvEngine engine) {
+        this.engine = engine;
     }
 
     @Override
@@ -626,6 +644,13 @@ public class ContactProcess extends BaseContactProcess {
                 LogUtils.d(TAG, "emvSetParam aid =" + ConvertUtils.bcd2Str(aid));
             }
             resetParam(aid);
+            // Experiment branch: emvSetParam has no corresponding EmvStep and never reached
+            // emvProcessListener before — proving `engine` is reachable here without inventing
+            // a step announcement. Read-only: no notifyXxx call, so no new event reaches the
+            // UI/host observable streams from this branch.
+            if (engine != null) {
+                LogUtils.d(TAG, "emvSetParam: engine reachable directly, isRunning=" + engine.isRunning());
+            }
             return RetCode.EMV_OK;
         }
 

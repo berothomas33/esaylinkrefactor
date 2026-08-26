@@ -42,6 +42,9 @@ dependencies {
 
     api fileTree(include: ["*.jar"], dir: "libs")
     api project(":emvlib:base")
+    // Experiment branch: ContactProcess/EmvCallBackListener talk to EmvEngine directly — see
+    // ContactProcess#setEngine. Not needed by anything else in this module.
+    api project(":core")
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 
 }

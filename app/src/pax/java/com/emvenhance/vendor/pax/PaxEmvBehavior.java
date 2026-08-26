@@ -82,6 +82,19 @@ import java.util.Locale;
  * decision ({@link #startContactlessTransProcess}), PAN derivation
  * ({@link #getContactlessPan}), and result mapping ({@link #checkContactlessResult()}). See the
  * structure diagram (panel 10/11) for why this was tried and what it cost.
+ *
+ * <p><b>Sub-branch on top of the above:</b> {@link ContactProcess} (and its inner
+ * {@code EmvCallBackListener}) now also holds a direct {@link EmvEngine} reference, set via
+ * {@link ContactProcess#setEngine} alongside every {@code registerEmvProcessListener} call
+ * below. This is a second, parallel path to the engine — {@code IContactCallback}
+ * (this class) is still the primary one. Only one call site currently uses it
+ * ({@code emvSetParam}, read-only — logs {@code engine.isRunning()}, no {@code notifyXxx} call),
+ * specifically because it's the one native mid-call callback with no existing path to either
+ * {@code emvProcessListener} or an {@code EmvStep}. Adding a real {@code notifyXxx}/
+ * {@code announceStep} call from inside {@code EmvCallBackListener} for a callback that
+ * <em>already</em> reaches {@code emvProcessListener} (e.g. {@code emvWaitAppSel},
+ * {@code emvGetHolderPwd}) would fire that event twice — once from here, once from the existing
+ * {@code onXxx} override — so deliberately not done.
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
         implements IContactCallback, IContactlessCallback,
@@ -544,6 +557,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // reset every transaction — mirrors EmvContactService#selectApplication
             cachedTrack2Data = null;
             process.registerEmvProcessListener(this);
+            // Experiment branch: ContactProcess/EmvCallBackListener can now reach EmvEngine
+            // directly too — see ContactProcess#setEngine.
+            process.setEngine(requireEngine());
             transResult = process.selectApplication();
             int ret = transResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
@@ -685,6 +701,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private int startContactTransProcess(ContactProcess process) {
         process.registerEmvProcessListener(this);
+        process.setEngine(requireEngine());
         transResult = process.startTransProcess();
         int resultCode = transResult.getResultCode();
         TransResultEnum transResultEnum = transResult.getTransResult();
