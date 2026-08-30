@@ -35,15 +35,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Nullable
     protected CardPresence activeCard;
 
-    @Nullable
-    private EmvStep currentStep;
-
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
         this.engine = engine;
         this.activeConfig = config;
         this.activeCard = null;
-        this.currentStep = null;
         cancelled.set(false);
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
@@ -102,22 +98,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         if (engine == null) {
             return;
         }
-        currentStep = step;
         engine.notifyEmvStep(step, detail);
-    }
-
-    /** Convenience: advance to the default next EMV step after {@link #currentStep()}. */
-    protected final void goToNextLevel() {
-        EmvStep next = defaultNext(currentStep);
-        if (next == null) {
-            return;
-        }
-        goToStep(next);
-    }
-
-    @Nullable
-    protected final EmvStep currentStep() {
-        return currentStep;
     }
 
     protected final void finishApproved(String message) {
@@ -155,60 +136,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return EmvStep.APPLICATION_SELECTION;
     }
 
-    /**
-     * Default linear next-step map (contact). Vendors usually call {@link #goToStep}
-     * with an explicit next step instead of relying on this.
-     */
-    @Nullable
-    protected EmvStep defaultNext(@Nullable EmvStep from) {
-        if (from == null) {
-            return EmvStep.APPLICATION_SELECTION;
-        }
-        switch (from) {
-            case TERMINAL_INITIALIZATION:
-                return EmvStep.SEARCH_CARD;
-            case SEARCH_CARD:
-                return EmvStep.APPLICATION_SELECTION;
-            case APPLICATION_SELECTION:
-                return EmvStep.WAIT_APPLICATION_SELECTION;
-            case WAIT_APPLICATION_SELECTION:
-                return EmvStep.FINAL_APPLICATION_SELECTION;
-            case FINAL_APPLICATION_SELECTION:
-                return EmvStep.READ_APPLICATION_DATA;
-            case READ_APPLICATION_DATA:
-                return EmvStep.SET_TRANSACTION_DATA;
-            case SET_TRANSACTION_DATA:
-                return EmvStep.OFFLINE_DATA_AUTHENTICATION;
-            case OFFLINE_DATA_AUTHENTICATION:
-                return EmvStep.PROCESS_RESTRICTIONS;
-            case PROCESS_RESTRICTIONS:
-                return EmvStep.CARDHOLDER_VERIFICATION;
-            case CARDHOLDER_VERIFICATION:
-                return EmvStep.OFFLINE_PIN_VERIFICATION;
-            case OFFLINE_PIN_VERIFICATION:
-                return EmvStep.TERMINAL_RISK_MANAGEMENT;
-            case TERMINAL_RISK_MANAGEMENT:
-                return EmvStep.TERMINAL_ACTION_ANALYSIS;
-            case TERMINAL_ACTION_ANALYSIS:
-                return EmvStep.START_ONLINE_PROCESS;
-            case START_ONLINE_PROCESS:
-                return EmvStep.ISSUER_AUTHENTICATION;
-            case ISSUER_AUTHENTICATION:
-                return EmvStep.SCRIPT_PROCESSING;
-            case SCRIPT_PROCESSING:
-                return EmvStep.TRANSACTION_COMPLETION;
-            case TRANSACTION_COMPLETION:
-            default:
-                return null;
-        }
-    }
-
     private void enterStep(EmvStep step) {
         enterStep(step, null);
     }
 
     private void enterStep(EmvStep step, @Nullable String detail) {
-        currentStep = step;
         engine.notifyEmvStep(step, detail); // EmvStep observable → UI + dispatchEmvStep
         if (cancelled.get()) {
             return;
