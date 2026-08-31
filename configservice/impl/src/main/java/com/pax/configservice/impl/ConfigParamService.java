@@ -20,14 +20,11 @@ package com.pax.configservice.impl;
 import android.text.TextUtils;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IConfigParamService;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-@RouterService(interfaces = IConfigParamService.class,key = ConfigServiceConstant.CONFIGSERVICE_CONFIG,singleton = true)
 public class ConfigParamService implements IConfigParamService {
     SharedPrefUtil defaultSp = new SharedPrefUtil(BaseApplication.getAppContext());
     /**

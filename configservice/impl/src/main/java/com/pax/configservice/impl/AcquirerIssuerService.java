@@ -22,11 +22,8 @@ import com.pax.bizentity.entity.AcqIssuerRelation;
 import com.pax.bizentity.entity.Acquirer;
 import com.pax.bizentity.entity.CardRange;
 import com.pax.bizentity.entity.Issuer;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IAcquirerIssuerService;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.List;
-@RouterService(interfaces = IAcquirerIssuerService.class,key = ConfigServiceConstant.CONFIGSERVICE_ACQ_ISSUER)
 public class AcquirerIssuerService implements IAcquirerIssuerService {
     /**
      * insert acquirers

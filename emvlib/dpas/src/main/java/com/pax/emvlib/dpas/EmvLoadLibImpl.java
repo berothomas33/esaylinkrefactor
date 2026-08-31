@@ -17,7 +17,6 @@
 package com.pax.emvlib.dpas;
 
 import com.pax.emvlib.base.IEmvLoadLibCallback;
-import com.sankuai.waimai.router.annotation.RouterService;
 
 /**
  * File description
@@ -25,7 +24,6 @@ import com.sankuai.waimai.router.annotation.RouterService;
  * @author yehongbo
  * @date 2022/4/15
  */
-@RouterService(interfaces = IEmvLoadLibCallback.class)
 public class EmvLoadLibImpl implements IEmvLoadLibCallback {
     @Override
     public void load() {

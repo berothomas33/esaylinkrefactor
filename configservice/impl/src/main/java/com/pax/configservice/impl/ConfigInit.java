@@ -37,12 +37,10 @@ import com.pax.bizentity.entity.clss.rupay.RupayParamBean;
 import com.pax.commonlib.init.IModuleInit;
 import com.pax.commonlib.json.JsonProxy;
 import com.pax.commonlib.utils.LogUtils;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IAcquirerIssuerService;
 import com.pax.configservice.export.IConfigParamService;
 import com.pax.configservice.export.IEmvParamService;
 import com.pax.poslib.model.ModelInfo;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -51,7 +49,6 @@ import java.util.Map;
 /**
  * init all required parameters by application
  */
-@RouterService(interfaces = IModuleInit.class,key = ConfigServiceConstant.INIT_CONFIG)
 public class ConfigInit implements IModuleInit {
 
     private static final String TAG = "ConfigInit";

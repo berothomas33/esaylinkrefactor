@@ -16,12 +16,9 @@
 
 package com.pax.emvlib.base;
 
-import com.sankuai.waimai.router.annotation.RouterService;
-
 /**
  * Load DEVICE、PUBLIC、ENTRY Library.
  */
-@RouterService(interfaces = IEmvLoadLibCallback.class)
 public class EmvLoadLibImpl implements IEmvLoadLibCallback {
     @Override
     public void load() {

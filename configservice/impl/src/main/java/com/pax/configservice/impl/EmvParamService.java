@@ -66,7 +66,6 @@ import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.ConfigServiceConstant;
 import com.pax.configservice.export.IAcquirerIssuerService;
 import com.pax.configservice.export.IConfigParamService;
 import com.pax.configservice.export.IEmvParamService;
@@ -98,13 +97,11 @@ import com.pax.emvbase.param.common.Capk;
 import com.pax.emvbase.param.common.CapkParam;
 import com.pax.emvbase.param.common.CapkRevoke;
 import com.pax.emvbase.param.common.Config;
-import com.sankuai.waimai.router.annotation.RouterService;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
 import java.util.Locale;
 
-@RouterService(interfaces = IEmvParamService.class,key = ConfigServiceConstant.CONFIGSERVICE_EMVPARAM,singleton = true)
 public class EmvParamService implements IEmvParamService {
     private static final String TAG = "EmvParamService";
 
