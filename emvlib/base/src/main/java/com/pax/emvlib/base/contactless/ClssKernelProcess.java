@@ -57,8 +57,56 @@ public abstract class ClssKernelProcess<T extends BaseParam<? extends BaseAid>> 
     protected static final boolean enableDebugLog = BuildConfig.DEBUG;
 
     /**
+     * True if this brand's native SDK exposes read/offline-auth/restrictions as separate calls
+     * (see {@link com.pax.emvlib.process.contactless.ClssEFTProcess},
+     * {@link com.pax.emvlib.process.contactless.ClssPayPassProcess}). False (the default) means
+     * the kernel's entire transaction runs inside one blocking {@link #startTransProcess()}
+     * call — a genuine vendor SDK limitation, not an implementation gap.
+     * {@code ClssProcess}/{@code PaxEmvBehavior} skip straight from application selection to
+     * the {@link #startTransProcess()} bundle for these kernels; {@link #readApplicationData()},
+     * {@link #offlineDataAuthentication()}, and {@link #processRestrictions()} are never called.
+     */
+    public boolean supportsGranularSteps() {
+        return false;
+    }
+
+    /**
+     * EMV "Read Application Data" (Initiate Application Processing + Read Application Data).
+     * Only called when {@link #supportsGranularSteps()} is true — see its doc for kernels that
+     * can't separate this from {@link #startTransProcess()}.
+     */
+    public TransResult readApplicationData() {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support granular steps");
+    }
+
+    /**
+     * EMV "Offline Data Authentication" (SDA/DDA/CDA). Only called when
+     * {@link #supportsGranularSteps()} is true.
+     */
+    public TransResult offlineDataAuthentication() {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support granular steps");
+    }
+
+    /**
+     * EMV "Processing Restrictions". Only called when {@link #supportsGranularSteps()} is true.
+     */
+    public TransResult processRestrictions() {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support granular steps");
+    }
+
+    /**
      * 1.core init.
      * 2.different clss kernel's process is a little different
+     *
+     * <p>For a kernel that overrides {@link #readApplicationData()},
+     * {@link #offlineDataAuthentication()}, and {@link #processRestrictions()} individually
+     * (granular steps), this is what remains after those: cardholder verification through the
+     * first GENERATE AC — the same bundle {@code ContactProcess#startTransProcess()} means for
+     * the chip path. For a kernel that doesn't override them (the default, non-granular case),
+     * this is the one call that runs the entire transaction.
      */
     public abstract TransResult startTransProcess();
 

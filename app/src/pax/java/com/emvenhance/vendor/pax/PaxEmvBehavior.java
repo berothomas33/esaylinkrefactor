@@ -152,7 +152,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         if (card.isContactless()) {
-            runContactlessKernel();
+            runContactlessAppSelect();
             return;
         }
         // Mag/manual should not land here
@@ -187,7 +187,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // dispatchStepMethod runs at all.
             runContactReadAppData();
         }
-        // CLSS: still announced purely from kernel callbacks — nothing to chain here.
+        if (card.isContactless()) {
+            // Reached via runContactlessAppSelect's goToStep(READ_APPLICATION_DATA) — only for a
+            // kernel whose SDK actually exposes this as its own call (see
+            // ClssKernelProcess#supportsGranularSteps()).
+            runContactlessReadAppData();
+        }
     }
 
     @Override
@@ -234,7 +239,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // Reached via runContactReadAppData's goToStep(OFFLINE_DATA_AUTHENTICATION).
             runContactCardAuth();
         }
-        // CLSS: kernel-internal — no callback exists; not individually announced.
+        if (card.isContactless()) {
+            // Reached via runContactlessReadAppData's goToStep(OFFLINE_DATA_AUTHENTICATION).
+            runContactlessCardAuth();
+        }
     }
 
     @Override
@@ -245,7 +253,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // into runContactStartTransaction's bundled EMVStartTrans call (see class doc).
             runContactStartTransaction();
         }
-        // CLSS: kernel-internal — no callback exists; not individually announced.
+        if (card.isContactless()) {
+            // Reached via runContactlessCardAuth's goToStep(PROCESS_RESTRICTIONS) for a granular
+            // kernel, or directly from runContactlessAppSelect for an atomic one — either way
+            // this is the entry point into runContactlessStartTransaction's bundled call.
+            runContactlessProcessRestrictions();
+        }
     }
 
     // ─── Not reached via onXxx dispatch — required overrides, not stubs ──
@@ -317,16 +330,166 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     // ─── Kernel runners ──────────────────────────────────────────────────
 
-    private void runContactlessKernel() {
+    private void runContactlessAppSelect() {
         requireEngine();
         ClssProcess process = kernel.contactless;
+        boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
             if (isCancelled()) {
                 finishError("Transaction cancelled");
                 return;
             }
-            LogUtils.d(TAG, "============ Start Contactless EMV ============");
+            LogUtils.d(TAG, "============ Contactless EMV: App Select ============");
+            // reset every transaction
+            clsCachedTrack2Data = null;
+            process.registerClssProcessListener(this);
+            clsTransResult = process.selectApplication();
+            int ret = clsTransResult.getResultCode();
+            LogUtils.d(TAG, "selectApplication ret=" + ret);
+            proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
+            if (!proceed) {
+                process.unregisterClssProcessListener();
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contactless app select failed", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV app select failed");
+        } finally {
+            if (!proceed) {
+                finishContactlessStage();
+            }
+        }
+        if (proceed) {
+            // EFT/PayPass expose read/offline-auth/restrictions as their own calls; the other
+            // eight brands' SDKs bundle the whole transaction into one call instead — see
+            // ClssKernelProcess#supportsGranularSteps().
+            advanceContactlessStage(process.supportsGranularSteps()
+                    ? EmvStep.READ_APPLICATION_DATA
+                    : EmvStep.PROCESS_RESTRICTIONS);
+        }
+    }
+
+    /** Read App Data stage — reached via {@link #onReadApplicationData}'s contactless branch. */
+    private void runContactlessReadAppData() {
+        ClssProcess process = kernel.contactless;
+        boolean proceed = false;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contactless EMV: Read App Data ============");
+            clsTransResult = process.readApplicationData();
+            int ret = clsTransResult.getResultCode();
+            LogUtils.d(TAG, "readApplicationData ret=" + ret);
+            proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
+            if (!proceed) {
+                process.unregisterClssProcessListener();
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contactless read app data failed", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV read app data failed");
+        } finally {
+            if (!proceed) {
+                finishContactlessStage();
+            }
+        }
+        if (proceed) {
+            advanceContactlessStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
+        }
+    }
+
+    /**
+     * Offline Data Authentication stage — reached via {@link #onOfflineDataAuthentication}'s
+     * contactless branch.
+     */
+    private void runContactlessCardAuth() {
+        ClssProcess process = kernel.contactless;
+        boolean proceed = false;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contactless EMV: Offline Data Authentication ============");
+            clsTransResult = process.offlineDataAuthentication();
+            int ret = clsTransResult.getResultCode();
+            LogUtils.d(TAG, "offlineDataAuthentication ret=" + ret);
+            proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
+            if (!proceed) {
+                process.unregisterClssProcessListener();
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contactless offline data authentication failed", e);
+            finishError(e.getMessage() != null
+                    ? e.getMessage() : "Contactless EMV offline data authentication failed");
+        } finally {
+            if (!proceed) {
+                finishContactlessStage();
+            }
+        }
+        if (proceed) {
+            advanceContactlessStage(EmvStep.PROCESS_RESTRICTIONS);
+        }
+    }
+
+    /**
+     * Processing Restrictions stage — reached via {@link #onProcessRestrictions}'s contactless
+     * branch. A granular kernel (EFT, PayPass) runs {@code process.processRestrictions()} here;
+     * an atomic kernel arrives here directly from {@link #runContactlessAppSelect} — its SDK has
+     * no call for this phase — and skips straight to {@link #runContactlessStartTransaction},
+     * the same way mag/manual skip straight to {@link EmvStep#START_ONLINE_PROCESS} on the
+     * contact side.
+     */
+    private void runContactlessProcessRestrictions() {
+        ClssProcess process = kernel.contactless;
+        if (!process.supportsGranularSteps()) {
+            runContactlessStartTransaction();
+            return;
+        }
+        boolean proceed = false;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contactless EMV: Processing Restrictions ============");
+            clsTransResult = process.processRestrictions();
+            int ret = clsTransResult.getResultCode();
+            LogUtils.d(TAG, "processRestrictions ret=" + ret);
+            proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
+            if (!proceed) {
+                process.unregisterClssProcessListener();
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contactless processing restrictions failed", e);
+            finishError(e.getMessage() != null
+                    ? e.getMessage() : "Contactless EMV processing restrictions failed");
+        } finally {
+            if (!proceed) {
+                finishContactlessStage();
+            }
+        }
+        if (proceed) {
+            runContactlessStartTransaction();
+        }
+    }
+
+    /**
+     * Final stage — reached via {@link #runContactlessProcessRestrictions}. Cardholder
+     * verification through the first GENERATE AC (bundled — see
+     * {@code ClssKernelProcess#startTransProcess()}'s doc), then online processing if the kernel
+     * requested it. Always terminal — always reports via {@link #finishContactlessStage}.
+     */
+    private void runContactlessStartTransaction() {
+        requireEngine();
+        ClssProcess process = kernel.contactless;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contactless EMV: Start Transaction ============");
             int ret = startContactlessTransProcess(process);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
         } catch (Exception e) {
@@ -334,22 +497,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
         } finally {
             process.unregisterClssProcessListener();
-            closeReaders(true);
-            if (!isCancelled()) {
-                try {
-                    checkContactlessResult();
-                } catch (Exception e) {
-                    LogUtils.e(TAG, "checkClsResult error", e);
-                    finishError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
-                }
-            }
+            finishContactlessStage();
         }
     }
 
     /**
-     * Runs the full contactless kernel transaction — app selection through 1st GAC, CVM prompt,
-     * and (if the kernel requests it) the online-authorization round trip including the 2nd-tap
-     * check. Ported from {@code ContactlessService#startTransProcess}.
+     * Runs the remaining contactless bundle — cardholder verification through 1st GAC — then, if
+     * the kernel requests it, the online-authorization round trip including the 2nd-tap check.
+     * Ported from {@code ContactlessService#startTransProcess}; application selection (and, for a
+     * granular kernel, read data / offline data auth / processing restrictions) has already run
+     * by the time this is reached — see {@link #runContactlessAppSelect} through
+     * {@link #runContactlessProcessRestrictions}.
      *
      * <p>{@code CONTACTLESS_FLOW_TYPE} mirrors the one hardcoded value {@link #runPreTransProcess}
      * ever builds ({@code EmvTransParam.FLOWTYPE_COMPLETE}) — verified repo-wide, nothing ever
@@ -359,9 +517,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * shouldn't be touched to add one.
      */
     private int startContactlessTransProcess(ClssProcess process) {
-        // reset every transaction
-        clsCachedTrack2Data = null;
-        process.registerClssProcessListener(this);
         clsTransResult = process.startTransProcess();
         CvmResultEnum cvmResult = clsTransResult.getCvmResult();
         int resultCode = clsTransResult.getResultCode();
@@ -413,6 +568,37 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         return clsTransResult.getResultCode();
+    }
+
+    /** True once a stage has recorded a terminal outcome — no further stage should run. */
+    private boolean isContactlessTransactionFinished() {
+        return clsTransResult != null && clsTransResult.getTransResult() != null;
+    }
+
+    /** Common tail once a contactless stage chain has reached a terminal outcome. */
+    private void finishContactlessStage() {
+        closeReaders(true);
+        if (!isCancelled()) {
+            try {
+                checkContactlessResult();
+            } catch (Exception e) {
+                LogUtils.e(TAG, "checkClsResult error", e);
+                finishError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
+            }
+        }
+    }
+
+    /**
+     * Advances to {@code next} via {@link #goToStep} — unless {@code cancel()} landed in the
+     * window between a stage's own work finishing and this call; see {@link #advanceContactStage}
+     * for why that window matters.
+     */
+    private void advanceContactlessStage(EmvStep next) {
+        if (isCancelled()) {
+            finishContactlessStage();
+        } else {
+            goToStep(next);
+        }
     }
 
     /**

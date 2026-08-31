@@ -42,8 +42,18 @@ public class ClssEFTProcess extends ClssKernelProcess<EFTParam> {
 
     private static final String TAG = "ClssEFTProcess";
 
+    /**
+     * EFTPOS is the most separable of the ten contactless kernels — every EMV Book 3 phase
+     * below has its own native call, so it doesn't need the shared atomic-kernel default.
+     */
     @Override
-    public TransResult startTransProcess() {
+    public boolean supportsGranularSteps() {
+        return true;
+    }
+
+    /** EMV "Read Application Data" (kernel init/config + Initiate + Read Application Data). */
+    @Override
+    public TransResult readApplicationData() {
         // Kernel Initialization
         int ret = ClssEFTPOSApi.Clss_CoreInit_EFT();
         if (ret != RetCode.EMV_OK) {
@@ -80,9 +90,15 @@ public class ClssEFTProcess extends ClssKernelProcess<EFTParam> {
                     CvmResultEnum.CVM_NO_CVM);
         }
 
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    /** EMV "Offline Data Authentication" (pre-TAA, then CAPK/revocation list + card auth). */
+    @Override
+    public TransResult offlineDataAuthentication() {
         // Pre-terminal action analysis
         ACType preAcType = new ACType();
-        ret = ClssEFTPOSApi.Clss_PreTAAProc_EFT(preAcType);
+        int ret = ClssEFTPOSApi.Clss_PreTAAProc_EFT(preAcType);
         if (ret != RetCode.EMV_OK){
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED,
                     CvmResultEnum.CVM_NO_CVM);
@@ -106,12 +122,22 @@ public class ClssEFTProcess extends ClssKernelProcess<EFTParam> {
                     CvmResultEnum.CVM_NO_CVM);
         }
 
-        // Processing restrictions
-        ClssEFTPOSApi.Clss_ProcRestrict_EFT();
+        return new TransResult(RetCode.EMV_OK);
+    }
 
+    /** EMV "Processing Restrictions". */
+    @Override
+    public TransResult processRestrictions() {
+        ClssEFTPOSApi.Clss_ProcRestrict_EFT();
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    /** Cardholder verification through the first GENERATE AC — see class doc on {@link ClssKernelProcess#startTransProcess()}. */
+    @Override
+    public TransResult startTransProcess() {
         // Cardholder verification
         CvmType cvmType = new CvmType();
-        ret = ClssEFTPOSApi.Clss_CVMProc_EFT(cvmType);
+        int ret = ClssEFTPOSApi.Clss_CVMProc_EFT(cvmType);
         if (ret != RetCode.EMV_OK){
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED,
                     CvmResultEnum.CVM_NO_CVM);

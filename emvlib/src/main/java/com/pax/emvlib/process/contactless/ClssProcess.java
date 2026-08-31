@@ -87,21 +87,21 @@ public class ClssProcess extends EmvBase {
     }
 
     /**
-     * Process as below:
-     * 1.detected card
-     * 2.select application
-     * 3.application initialization
-     * 4.read application data
-     * 5.offline data authentication
-     * 6.terminal risk management
-     * 7.ardholder authentication
-     * 8.terminal behavior analysis
-     * 9.First Generate AC
+     * EMV "Application Selection" (contactless): builds the candidate list, final-selects one
+     * application, and constructs the matching {@link ClssKernelProcess} for it via
+     * {@link ClssKernelProcessFactory} — but does not run it. A candidate that fails final
+     * selection (RSP_ERR / APP_BLOCK / ICC_BLOCK / RESELECT_APP) is deleted and the next one
+     * tried, exactly like the original single-method flow did, until one succeeds or the
+     * candidate list is exhausted. Kernel-internal — {@code Clss_GetPreProcInterFlg_Entry} and
+     * {@code Clss_GetFinalSelectData_Entry} are plain data fetches feeding the kernel build, not
+     * separate EMV steps.
      */
-    @Override
-    public TransResult startTransProcess() {
-
-        startMs = System.currentTimeMillis();
+    public TransResult selectApplication() {
+        if (clssKernelProcess == null) {
+            // Only stamp the transaction's start once — startTransProcess() re-calls this on a
+            // CLSS_RESELECT_APP retry, which must not reset the "time-consuming" measurement.
+            startMs = System.currentTimeMillis();
+        }
         int ret = ClssEntryApi.Clss_AppSlt_Entry(0, 0);
         if (ret != RetCode.EMV_OK) {
             LogUtils.e(TAG, "Clss_AppSlt_Entry ret = " + ret);
@@ -164,12 +164,52 @@ public class ClssProcess extends EmvBase {
                     .setClssStatusListener(clssStatusListener)
                     .build();
 
+            return new TransResult(RetCode.EMV_OK);
+        }
+    }
+
+    /** True if the selected kernel exposes read/offline-auth/restrictions as separate calls. */
+    public boolean supportsGranularSteps() {
+        return clssKernelProcess != null && clssKernelProcess.supportsGranularSteps();
+    }
+
+    /** EMV "Read Application Data" — only called when {@link #supportsGranularSteps()} is true. */
+    public TransResult readApplicationData() {
+        return clssKernelProcess.readApplicationData();
+    }
+
+    /** EMV "Offline Data Authentication" — only called when {@link #supportsGranularSteps()} is true. */
+    public TransResult offlineDataAuthentication() {
+        return clssKernelProcess.offlineDataAuthentication();
+    }
+
+    /** EMV "Processing Restrictions" — only called when {@link #supportsGranularSteps()} is true. */
+    public TransResult processRestrictions() {
+        return clssKernelProcess.processRestrictions();
+    }
+
+    /**
+     * The remaining bundle after application selection (and, for a granular kernel, after read
+     * data / offline data auth / processing restrictions too): cardholder verification through
+     * the first GENERATE AC. {@code CLSS_RESELECT_APP} can only be discovered once a kernel
+     * actually runs, so the reselect-and-retry loop lives here rather than in
+     * {@link #selectApplication()} — a failing candidate is deleted and application selection is
+     * re-run for the next one, exactly like the original single-method flow did.
+     */
+    @Override
+    public TransResult startTransProcess() {
+        while (true) {
             TransResult transResult = clssKernelProcess.startTransProcess();
             if (transResult.getResultCode() == RetCode.CLSS_RESELECT_APP) {
-                ret = ClssEntryApi.Clss_DelCurCandApp_Entry();
+                int ret = ClssEntryApi.Clss_DelCurCandApp_Entry();
                 if (ret != RetCode.EMV_OK) {
                     LogUtils.e(TAG, "Clss_DelCurCandApp_Entry ret = " + ret);
                     return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+                }
+                TransResult reselect = selectApplication();
+                if (reselect.getTransResult() != null) {
+                    // selection itself ended terminally (e.g. candidate list exhausted)
+                    return reselect;
                 }
                 continue;
             }

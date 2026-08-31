@@ -83,8 +83,21 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
         return ClssPassApi.Clss_SetFinalSelectData_MC(finalSelectData, finalSelectDataLen);
     }
 
+    /**
+     * PayPass is partially separable: application initiation and read data are their own native
+     * calls, but everything from card authentication through the first GENERATE AC is bundled
+     * into one native call ({@code Clss_TransProc_MC_MChip}/{@code Clss_TransProc_MC_Mag}) with
+     * no further boundary the SDK exposes — a genuine vendor SDK limitation, not an
+     * implementation gap. See {@link #offlineDataAuthentication()} / {@link #processRestrictions()}.
+     */
     @Override
-    public TransResult startTransProcess() {
+    public boolean supportsGranularSteps() {
+        return true;
+    }
+
+    /** EMV "Read Application Data" (kernel init/config + Initiate Application + Read Data). */
+    @Override
+    public TransResult readApplicationData() {
         int ret = coreInit();
         if(ret != RetCode.EMV_OK){
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
@@ -104,8 +117,38 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
 
+        return new TransResult(RetCode.EMV_OK);
+    }
 
+    /**
+     * Vendor SDK limitation: PayPass's native API doesn't expose offline data authentication as
+     * its own call — it's bundled inside {@link #startTransProcess()}'s
+     * {@code Clss_TransProc_MC_MChip}/{@code Clss_TransProc_MC_Mag} call. Nothing to do here.
+     */
+    @Override
+    public TransResult offlineDataAuthentication() {
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    /**
+     * Vendor SDK limitation: same as {@link #offlineDataAuthentication()} — processing
+     * restrictions has no call of its own on this kernel either.
+     */
+    @Override
+    public TransResult processRestrictions() {
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    /**
+     * Card authentication through the first GENERATE AC, bundled into one native call — see
+     * {@link #supportsGranularSteps()} doc.
+     */
+    @Override
+    public TransResult startTransProcess() {
         ACType acType = new ACType();
+        // readApplicationData() only returns having already confirmed EMV_OK, so that's ret's
+        // value here if neither branch below matches — matching the original single-method flow.
+        int ret = RetCode.EMV_OK;
         if (transactionPath.path == TransactionPath.CLSS_MC_MCHIP) {
             ret = processMChip(acType);
         } else if (transactionPath.path == TransactionPath.CLSS_MC_MAG) {
