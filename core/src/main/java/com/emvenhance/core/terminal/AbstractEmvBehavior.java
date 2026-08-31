@@ -141,7 +141,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     private void enterStep(EmvStep step, @Nullable String detail) {
-        engine.notifyEmvStep(step, detail); // EmvStep observable → UI + dispatchEmvStep
+        engine.notifyEmvStep(step, detail); // EmvStep observable → UI
         if (cancelled.get()) {
             return;
         }

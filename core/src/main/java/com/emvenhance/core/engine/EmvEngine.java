@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Thin event bus for one in-flight transaction. No vendor logic.
  *
  * <p>{@link PosTerminal} owns search; {@link EmvBehavior} owns EMV; this class only
- * publishes steps and dispatches to behavior hooks.
+ * publishes steps on the {@link #transactionSteps()} / {@link #emvSteps()} observables.
  *
  * <p>{@link PosTerminal} also attaches its {@link CommunicationBehavior} and
  * {@link PrinterBehavior} here once, at construction. {@link #authorize} and
@@ -98,11 +98,7 @@ public final class EmvEngine {
     }
 
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
-        EmvStepEvent event = new EmvStepEvent(step, detail);
-        emvSteps.onNext(event);
-        if (behavior != null) {
-            behavior.dispatchEmvStep(event);
-        }
+        emvSteps.onNext(new EmvStepEvent(step, detail));
     }
 
     public void notifyEmvStep(EmvStep step) {
@@ -111,9 +107,6 @@ public final class EmvEngine {
 
     public void notifyTransactionStep(TransactionStepEvent event) {
         transactionSteps.onNext(event);
-        if (behavior != null) {
-            behavior.dispatchTransactionStep(event);
-        }
     }
 
     public void notifyCardDetected(String pan, String issuerName,
