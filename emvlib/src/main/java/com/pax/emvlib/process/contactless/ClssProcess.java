@@ -175,17 +175,36 @@ public class ClssProcess extends EmvBase {
 
     /** EMV "Read Application Data" — only called when {@link #supportsGranularSteps()} is true. */
     public TransResult readApplicationData() {
+        if (clssKernelProcess == null) {
+            return noKernelSelectedResult("readApplicationData");
+        }
         return clssKernelProcess.readApplicationData();
     }
 
     /** EMV "Offline Data Authentication" — only called when {@link #supportsGranularSteps()} is true. */
     public TransResult offlineDataAuthentication() {
+        if (clssKernelProcess == null) {
+            return noKernelSelectedResult("offlineDataAuthentication");
+        }
         return clssKernelProcess.offlineDataAuthentication();
     }
 
     /** EMV "Processing Restrictions" — only called when {@link #supportsGranularSteps()} is true. */
     public TransResult processRestrictions() {
+        if (clssKernelProcess == null) {
+            return noKernelSelectedResult("processRestrictions");
+        }
         return clssKernelProcess.processRestrictions();
+    }
+
+    /**
+     * Fail closed instead of NPE-ing when a caller reaches one of the per-phase methods before
+     * {@link #selectApplication()} has actually built a kernel — a caller-ordering bug, not a
+     * card/kernel error, but the transaction must still end cleanly rather than crash.
+     */
+    private TransResult noKernelSelectedResult(String method) {
+        LogUtils.e(TAG, method + ": no kernel selected — failing closed");
+        return new TransResult(RetCode.EMV_DATA_ERR, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
     }
 
     /**
@@ -198,6 +217,9 @@ public class ClssProcess extends EmvBase {
      */
     @Override
     public TransResult startTransProcess() {
+        if (clssKernelProcess == null) {
+            return noKernelSelectedResult("startTransProcess");
+        }
         while (true) {
             TransResult transResult = clssKernelProcess.startTransProcess();
             if (transResult.getResultCode() == RetCode.CLSS_RESELECT_APP) {

@@ -1143,7 +1143,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onReadCardOk() {
-        announceStep(EmvStep.READ_APPLICATION_DATA, null);
+        if (!kernel.contactless.supportsGranularSteps()) {
+            // Atomic kernels never pass through READ_APPLICATION_DATA via goToStep — this
+            // announce is the only place it reaches the EmvStep observable. A granular kernel
+            // (EFT, PayPass) already visited it for real via runContactlessReadAppData(), so
+            // announcing it again here would be a duplicate EmvStepEvent.
+            announceStep(EmvStep.READ_APPLICATION_DATA, null);
+        }
         requireEngine().notifyTransactionStep(
                 TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
     }
