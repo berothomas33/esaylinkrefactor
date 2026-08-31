@@ -53,12 +53,6 @@ public interface IContactlessCallback  {
     int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes, byte[] pinData);
 
     /**
-     * need show enterTip ui
-     * @return result
-     */
-    int showEnterTip();
-
-    /**
      * need show online process
      * @return OnlineResultWrapper
      */

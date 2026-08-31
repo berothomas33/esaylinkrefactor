@@ -49,12 +49,6 @@ public interface IContactCallback{
     int showConfirmCard();
 
     /**
-     * need show enterTip ui
-     * @return result
-     */
-    int showEnterTip();
-
-    /**
      * need show online process
      * @return OnlineResultWrapper
      */

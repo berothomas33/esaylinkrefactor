@@ -1137,11 +1137,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── IContactCallback + IContactlessCallback ─────────────────────────
 
     @Override
-    public int showEnterTip() {
-        return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-    }
-
-    @Override
     public void onReadCardOk() {
         if (!kernel.contactless.supportsGranularSteps()) {
             // Atomic kernels never pass through READ_APPLICATION_DATA via goToStep — this
