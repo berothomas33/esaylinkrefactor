@@ -128,9 +128,21 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return cancelled.get();
     }
 
+    /**
+     * True for entry methods with no EMV kernel involved at all — magstripe and manual PAN
+     * entry. Both {@link #firstStepAfterSearch} and a vendor's own step methods (typically
+     * {@code onReadApplicationData}, {@code onStartOnlineProcess}, {@code onTransactionCompletion})
+     * ask this same question to jump straight past the EMV-only phases; one named, overridable
+     * predicate here instead of {@code card.isMagstripe() || card.isManual()} repeated at every
+     * one of those call sites.
+     */
+    protected boolean isSynchronousEntry(CardPresence card) {
+        return card.isMagstripe() || card.isManual();
+    }
+
     /** Which step {@link #start} enters after card search. Override per entry method. */
     protected EmvStep firstStepAfterSearch(CardPresence card) {
-        if (card.isMagstripe() || card.isManual()) {
+        if (isSynchronousEntry(card)) {
             return EmvStep.READ_APPLICATION_DATA;
         }
         return EmvStep.APPLICATION_SELECTION;

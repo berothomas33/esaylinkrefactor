@@ -133,14 +133,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Do not goToStep — PosTerminal.searchCard runs next.
     }
 
-    @Override
-    protected EmvStep firstStepAfterSearch(CardPresence card) {
-        if (card.isMagstripe() || card.isManual()) {
-            return EmvStep.READ_APPLICATION_DATA;
-        }
-        // Chip / CLSS: enter APPLICATION_SELECTION → starts PAX kernel
-        return EmvStep.APPLICATION_SELECTION;
-    }
+    // firstStepAfterSearch: no override needed — AbstractEmvBehavior's default already does
+    // exactly this (isSynchronousEntry → READ_APPLICATION_DATA, else APPLICATION_SELECTION,
+    // which starts the PAX kernel for chip/CLSS).
 
     // ─── Step methods (goToStep / kernel start) ──────────────────────────
 
@@ -199,7 +194,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         // Mag / manual sync path
-        if (card.isMagstripe() || card.isManual()) {
+        if (isSynchronousEntry(card)) {
             if (isCancelled()) {
                 finishError("Cancelled");
                 return;
@@ -215,7 +210,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         // Mag / manual sync path
-        if (card.isMagstripe() || card.isManual()) {
+        if (isSynchronousEntry(card)) {
             if (lastAuth != null && lastAuth.isApproved()) {
                 String msg = card.isManual() ? "MANUAL ONLINE APPROVED" : "MAG ONLINE APPROVED";
                 finishApproved(msg);

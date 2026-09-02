@@ -71,7 +71,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
-        if (card.isMagstripe() || card.isManual()) {
+        if (isSynchronousEntry(card)) {
             goToStep(EmvStep.START_ONLINE_PROCESS);
             return;
         }
