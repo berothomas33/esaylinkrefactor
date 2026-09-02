@@ -45,6 +45,13 @@ public final class EmvEngine {
     @Nullable
     private PrinterBehavior printer;
 
+    public EmvEngine() {
+        // Mirrors emvSteps' shape: notify → onNext → Observer → single dispatch point.
+        // Subscribing here, first, means this runs before any external subscriber
+        // (PosTerminal/MainViewModel) sees the same event.
+        transactionSteps.subscribe(event -> dispatchTransactionStepMethod(event.getStep()));
+    }
+
     public void attachBehavior(EmvBehavior behavior) {
         this.behavior = behavior;
     }
@@ -109,6 +116,23 @@ public final class EmvEngine {
         transactionSteps.onNext(event);
     }
 
+    /**
+     * Single dispatch point for engine-side transaction-step handling — every
+     * {@link #notifyTransactionStep} eventually reaches here via the {@link #transactionSteps}
+     * subscription above, exactly like {@code AbstractEmvBehavior#dispatchStepMethod} centralizes
+     * per-{@link EmvStep} handling instead of scattering it across call sites.
+     */
+    private void dispatchTransactionStepMethod(TransactionStep step) {
+        switch (step) {
+            case ERROR:
+            case COMPLETED:
+                running.set(false);
+                break;
+            default:
+                break;
+        }
+    }
+
     public void notifyApproved(String result) {
         notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.APPROVED)
                 .put(TransactionStepEvent.KEY_RESULT, result)
@@ -126,12 +150,10 @@ public final class EmvEngine {
                 .message(error)
                 .put(TransactionStepEvent.KEY_ERROR, error)
                 .build());
-        running.set(false);
     }
 
     public void notifyCompleted() {
         notifyTransactionStep(TransactionStepEvent.of(TransactionStep.COMPLETED));
-        running.set(false);
     }
 
     // ─── Host ports (attached by PosTerminal, called by EmvBehavior) ──────
