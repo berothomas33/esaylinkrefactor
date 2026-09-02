@@ -17,8 +17,10 @@ package com.emvenhance.emvflow.device;
 
 import android.os.SystemClock;
 import androidx.annotation.Nullable;
+import com.emvenhance.emvflow.BuildConfig;
 import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.application.ActivityStack;
+import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.commonlib.utils.TickTimer;
 import com.pax.commonlib.utils.ViewUtils;
@@ -67,6 +69,8 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public class EmvDeviceImpl implements IDevice {
     private static final String TAG = "DeviceImplNeptune";
+    /** Raw APDU trans log — release-gated, same convention as {@code EmvDebugger}/{@code ClssKernelProcess#enableDebugLog}: never log cardholder data in a release build. */
+    private static final boolean LOG_APDU = BuildConfig.DEBUG;
 
     private String expectPinLen = "0,4,5,6,7,8,9,10,11,12";
     private int timeOut = 30000;
@@ -499,6 +503,7 @@ public class EmvDeviceImpl implements IDevice {
         send.setDataIn(apduSend.dataIn);
         send.setLc(apduSend.lc);
         send.setLe(apduSend.le);
+        logApduSend("PICC", apduSend);
 
         try {
             IPicc p = picc();
@@ -511,6 +516,7 @@ public class EmvDeviceImpl implements IDevice {
             apduRecv.lenOut = (short) resp.getDataOut().length;
             apduRecv.swa = resp.getSwA();
             apduRecv.swb = resp.getSwB();
+            logApduResp("PICC", apduRecv.swa, apduRecv.swb, resp.getDataOut());
 
             return DeviceRetCode.DEVICE_PICC_OK;
         } catch (PiccDevException e) {
@@ -539,6 +545,7 @@ public class EmvDeviceImpl implements IDevice {
         send.setDataIn(apduSend.dataIn);
         send.setLc(apduSend.lc);
         send.setLe(apduSend.le);
+        logApduSend("ICC", apduSend);
 
         ApduRespInfo resp;
         try {
@@ -556,8 +563,42 @@ public class EmvDeviceImpl implements IDevice {
         apduRecv.lenOut = (short) resp.getDataOut().length;
         apduRecv.swa = resp.getSwA();
         apduRecv.swb = resp.getSwB();
+        logApduResp("ICC", apduRecv.swa, apduRecv.swb, resp.getDataOut());
 
         return DeviceRetCode.DEVICE_PICC_OK;
+    }
+
+    /**
+     * Logs an outgoing APDU command — command bytes, Lc/Le, and data-in when present. Gated by
+     * {@link #LOG_APDU}: the hex conversion itself is skipped in a release build, not just the
+     * log call, since {@link ConvertUtils#bcd2Str} isn't free and this runs on every APDU in an
+     * EMV transaction.
+     */
+    private static void logApduSend(String channel, ApduSendL2 apduSend) {
+        if (!LOG_APDU) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder(channel)
+                .append(" APDU >> cmd=").append(ConvertUtils.bcd2Str(apduSend.command))
+                .append(" lc=").append(apduSend.lc)
+                .append(" le=").append(apduSend.le);
+        if (apduSend.dataIn != null && apduSend.dataIn.length > 0) {
+            sb.append(" data=").append(ConvertUtils.bcd2Str(apduSend.dataIn));
+        }
+        LogUtils.d(TAG, sb.toString());
+    }
+
+    /** Logs the matching APDU response — status word (SW1SW2) and data-out when present. */
+    private static void logApduResp(String channel, byte swa, byte swb, @Nullable byte[] dataOut) {
+        if (!LOG_APDU) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder(channel)
+                .append(" APDU << sw=").append(String.format("%02X%02X", swa & 0xFF, swb & 0xFF));
+        if (dataOut != null && dataOut.length > 0) {
+            sb.append(" data=").append(ConvertUtils.bcd2Str(dataOut));
+        }
+        LogUtils.d(TAG, sb.toString());
     }
 
     @Override
