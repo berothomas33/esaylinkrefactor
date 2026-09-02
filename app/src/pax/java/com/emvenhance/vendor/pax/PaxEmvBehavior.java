@@ -164,7 +164,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             engine.notifyCardDetected(pan, "MANUAL", "", card.getModeLabel());
-            engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
             goToStep(EmvStep.START_ONLINE_PROCESS, "manual");
             return;
         }
@@ -172,7 +171,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             String track2 = card.getTrack2() != null ? card.getTrack2() : "";
             String pan = panFromTrack2(track2);
             engine.notifyCardDetected(pan, "MAG", "", card.getModeLabel());
-            engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
             goToStep(EmvStep.START_ONLINE_PROCESS, "magstripe");
             return;
         }
@@ -1150,7 +1148,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         EmvEngine eng = requireEngine();
         eng.notifyCardDetected(safe(getContactlessPan()), "PAX Issuer",
                 safe(getContactlessCardholderName()), "Contactless");
-        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 
@@ -1172,7 +1169,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         EmvEngine eng = requireEngine();
         eng.notifyCardDetected(safe(getContactPan()), "PAX Issuer",
                 safe(getContactCardholderName()), "Contact");
-        eng.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 

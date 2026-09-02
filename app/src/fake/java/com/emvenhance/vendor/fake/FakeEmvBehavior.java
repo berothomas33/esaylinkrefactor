@@ -64,7 +64,6 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
             String pan = card.getManualPan() != null ? card.getManualPan() : "";
             engine.notifyCardDetected(pan, "MANUAL", "", "Manual");
         }
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         sleep(200);
 
         if (card.isContactless()) {

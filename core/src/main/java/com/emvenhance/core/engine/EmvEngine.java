@@ -109,6 +109,15 @@ public final class EmvEngine {
         transactionSteps.onNext(event);
     }
 
+    /**
+     * Reports a card whose PAN/issuer/holder data is already known — every call site across all
+     * three vendors (Pax, Ingenico, Fake) only calls this once that data has been read, and every
+     * one of them immediately followed it with a separate {@code notifyTransactionStep(...
+     * CARD_READ)} call. Folded in here so the two can't drift apart: CARD_DETECTED and CARD_READ
+     * fire together, always. {@link com.emvenhance.core.terminal.PosTerminal}'s own bare
+     * CARD_DETECTED (physical detection, no PAN yet, before EMV processing starts) is a genuinely
+     * different moment and stays separate — see its {@code handleCardFound}.
+     */
     public void notifyCardDetected(String pan, String issuerName,
             String cardHolderName, String mode) {
         notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
@@ -117,6 +126,7 @@ public final class EmvEngine {
                 .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, cardHolderName)
                 .put(TransactionStepEvent.KEY_MODE, mode)
                 .build());
+        notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
     }
 
     public void notifyApproved(String result) {

@@ -132,7 +132,6 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
         engine.notifyCardDetected(stubPan != null ? stubPan : "", "Ingenico Stub", "",
                 stubMode != null ? stubMode : card.getModeLabel());
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.CARD_READ));
         goToStep(EmvStep.START_ONLINE_PROCESS);
     }
 
