@@ -163,14 +163,24 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishError("Manual entry requires a PAN");
                 return;
             }
-            engine.notifyCardDetected(pan, "MANUAL", "", card.getModeLabel());
+            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                    .put(TransactionStepEvent.KEY_PAN, pan)
+                    .put(TransactionStepEvent.KEY_ISSUER_NAME, "MANUAL")
+                    .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
+                    .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
+                    .build());
             goToStep(EmvStep.START_ONLINE_PROCESS, "manual");
             return;
         }
         if (card.isMagstripe()) {
             String track2 = card.getTrack2() != null ? card.getTrack2() : "";
             String pan = panFromTrack2(track2);
-            engine.notifyCardDetected(pan, "MAG", "", card.getModeLabel());
+            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                    .put(TransactionStepEvent.KEY_PAN, pan)
+                    .put(TransactionStepEvent.KEY_ISSUER_NAME, "MAG")
+                    .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
+                    .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
+                    .build());
             goToStep(EmvStep.START_ONLINE_PROCESS, "magstripe");
             return;
         }
@@ -1146,8 +1156,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public int confirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
-        eng.notifyCardDetected(safe(getContactlessPan()), "PAX Issuer",
-                safe(getContactlessCardholderName()), "Contactless");
+        eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                .put(TransactionStepEvent.KEY_PAN, safe(getContactlessPan()))
+                .put(TransactionStepEvent.KEY_ISSUER_NAME, "PAX Issuer")
+                .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, safe(getContactlessCardholderName()))
+                .put(TransactionStepEvent.KEY_MODE, "Contactless")
+                .build());
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 
@@ -1167,8 +1181,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public int showConfirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
         EmvEngine eng = requireEngine();
-        eng.notifyCardDetected(safe(getContactPan()), "PAX Issuer",
-                safe(getContactCardholderName()), "Contact");
+        eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
+                .put(TransactionStepEvent.KEY_ISSUER_NAME, "PAX Issuer")
+                .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, safe(getContactCardholderName()))
+                .put(TransactionStepEvent.KEY_MODE, "Contact")
+                .build());
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 

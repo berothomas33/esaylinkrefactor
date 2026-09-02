@@ -53,16 +53,36 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     public void onReadApplicationData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (card.isChip()) {
-            engine.notifyCardDetected("4111111111111111", "Demo Bank", "CARD HOLDER", "Contact");
+            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                    .put(TransactionStepEvent.KEY_PAN, "4111111111111111")
+                    .put(TransactionStepEvent.KEY_ISSUER_NAME, "Demo Bank")
+                    .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "CARD HOLDER")
+                    .put(TransactionStepEvent.KEY_MODE, "Contact")
+                    .build());
         } else if (card.isContactless()) {
-            engine.notifyCardDetected("5555444433332222", "Demo Bank", "CL HOLDER", "Contactless");
+            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                    .put(TransactionStepEvent.KEY_PAN, "5555444433332222")
+                    .put(TransactionStepEvent.KEY_ISSUER_NAME, "Demo Bank")
+                    .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "CL HOLDER")
+                    .put(TransactionStepEvent.KEY_MODE, "Contactless")
+                    .build());
         } else if (card.isMagstripe()) {
             String pan = card.getTrack2() != null
                     ? card.getTrack2().split("[=D]")[0] : "4111111111111111";
-            engine.notifyCardDetected(pan, "MAG Bank", "", "Magstripe");
+            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                    .put(TransactionStepEvent.KEY_PAN, pan)
+                    .put(TransactionStepEvent.KEY_ISSUER_NAME, "MAG Bank")
+                    .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
+                    .put(TransactionStepEvent.KEY_MODE, "Magstripe")
+                    .build());
         } else if (card.isManual()) {
             String pan = card.getManualPan() != null ? card.getManualPan() : "";
-            engine.notifyCardDetected(pan, "MANUAL", "", "Manual");
+            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+                    .put(TransactionStepEvent.KEY_PAN, pan)
+                    .put(TransactionStepEvent.KEY_ISSUER_NAME, "MANUAL")
+                    .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
+                    .put(TransactionStepEvent.KEY_MODE, "Manual")
+                    .build());
         }
         sleep(200);
 
