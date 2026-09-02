@@ -6,8 +6,6 @@ import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.terminal.PosTerminal;
-import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.event.TransactionStepEvent;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -47,16 +45,6 @@ public class MainViewModel extends ViewModel {
     /** Preferred: accept chip / tap / swipe — vendor terminal decides. */
     public void acceptCard(String procCode, long amountMinor) {
         terminal.acceptCard(procCode, amountMinor);
-    }
-
-    public void startContact(String procCode, long amountMinor) {
-        terminal.startTransaction(
-                new TransactionConfig(procCode, amountMinor, EntryMethod.CHIP));
-    }
-
-    public void startContactless(String procCode, long amountMinor) {
-        terminal.startTransaction(
-                new TransactionConfig(procCode, amountMinor, EntryMethod.CONTACTLESS));
     }
 
     public void cancel() {

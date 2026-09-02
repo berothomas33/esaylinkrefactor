@@ -19,8 +19,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Thin event bus for one in-flight transaction. No vendor logic.
  *
- * <p>{@link PosTerminal} owns search; {@link EmvBehavior} owns EMV; this class only
- * publishes steps on the {@link #transactionSteps()} / {@link #emvSteps()} observables.
+ * <p>{@link PosTerminal} owns search; {@link EmvBehavior} owns EMV; this class publishes
+ * steps on the {@link #transactionSteps()} / {@link #emvSteps()} observables. It also
+ * subscribes to its own {@link #transactionSteps()} to run {@code dispatchTransactionStepMethod}
+ * — the one place engine-side bookkeeping tied to a specific step (e.g. clearing the running
+ * flag on ERROR/COMPLETED) lives, instead of scattering it across the {@code notifyXxx} methods.
  *
  * <p>{@link PosTerminal} also attaches its {@link CommunicationBehavior} and
  * {@link PrinterBehavior} here once, at construction. {@link #authorize} and
