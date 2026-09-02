@@ -1,5 +1,6 @@
 package com.emvenhance.ui;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
@@ -20,11 +21,11 @@ import com.emvenhance.databinding.ActivityMainBinding;
  * <p>The two EMV-param debug buttons are wired by {@link VendorDebugPanel} — a flavor-provided
  * class (one implementation per pax/ingenico/fake source set) — so this class itself stays
  * vendor-agnostic.
+ *
+ * <p>Starting a transaction is delegated to {@link AmountActivity}/{@link AmountFragment} — the
+ * old inline buttons here always used a hardcoded amount; this screen now only shows live status.
  */
 public class MainActivity extends AppCompatActivity {
-
-    private static final String PROC_CODE = "000000";
-    private static final long AMOUNT_MINOR = 1000L;
 
     private ActivityMainBinding binding;
     private MainViewModel viewModel;
@@ -41,12 +42,8 @@ public class MainActivity extends AppCompatActivity {
 
         binding.modeLabel.setText(getString(R.string.vendor_label, BuildConfig.VENDOR));
 
-        binding.btnAcceptCard.setOnClickListener(
-                v -> viewModel.acceptCard(PROC_CODE, AMOUNT_MINOR));
-        binding.btnContact.setOnClickListener(
-                v -> viewModel.startContact(PROC_CODE, AMOUNT_MINOR));
-        binding.btnContactless.setOnClickListener(
-                v -> viewModel.startContactless(PROC_CODE, AMOUNT_MINOR));
+        binding.btnStartTransaction.setOnClickListener(
+                v -> startActivity(new Intent(this, AmountActivity.class)));
         binding.btnCancel.setOnClickListener(v -> viewModel.cancel());
         VendorDebugPanel.wire(this, binding);
 

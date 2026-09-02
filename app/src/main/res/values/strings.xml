@@ -7,12 +7,13 @@
     <string name="label_pan">PAN</string>
     <string name="label_issuer">Issuer</string>
     <string name="label_result">Result</string>
-    <string name="action_accept_card">Present card (any)</string>
-    <string name="action_contact">Chip only</string>
-    <string name="action_contactless">Contactless only</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_insert_emv_param">Insert EMV param data</string>
     <string name="action_show_emv_param">Show cached EMV param</string>
+    <string name="action_start_transaction">Start transaction</string>
+    <string name="label_amount">Amount</string>
+    <string name="hint_amount">0.00</string>
+    <string name="amount_invalid">Enter a valid amount</string>
     <string name="emv_param_empty">No rows in this category</string>
     <string name="emv_param_load_failed">Failed to load — see logcat</string>
     <string name="placeholder">—</string>
