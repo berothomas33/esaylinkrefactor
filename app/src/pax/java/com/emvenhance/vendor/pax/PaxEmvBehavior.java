@@ -92,6 +92,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** See {@link #startContactlessTransProcess} javadoc for why this is a constant. */
     private static final int CONTACTLESS_FLOW_TYPE = EmvTransParam.FLOWTYPE_COMPLETE;
 
+    /**
+     * Retry budget for {@link #selectApplicationWithRetry} — restores tuning a previous session
+     * (commit {@code aa200e0}) arrived at on real hardware for native {@code IccException: 51} /
+     * DAL {@code ICC#97} ("no ATR" — chip not seated, upside-down, or a mag-only card in the
+     * hybrid slot): power-cycle the slot, wait for VCC to settle, retry a bounded number of times.
+     */
+    private static final int ICC_APP_SELECT_MAX_ATTEMPTS = 3;
+    private static final long ICC_POWER_SETTLE_MS = 200L;
+
     private final PaxKernel kernel;
 
     private boolean initOk = true;
@@ -733,7 +742,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // reset every transaction — mirrors EmvContactService#selectApplication
             cachedTrack2Data = null;
             process.registerEmvProcessListener(this);
-            transResult = process.selectApplication();
+            transResult = selectApplicationWithRetry(process);
             int ret = transResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
@@ -756,6 +765,38 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (proceed) {
             advanceContactStage(EmvStep.READ_APPLICATION_DATA);
         }
+    }
+
+    /**
+     * Retries {@code selectApplication()} up to {@link #ICC_APP_SELECT_MAX_ATTEMPTS} times,
+     * power-cycling the ICC slot between attempts, when the first attempt comes back non-OK.
+     * Native {@code IccException: 51} (no ATR) surfaces here as a plain {@code ret == -1} — the
+     * kernel catches the exception internally and returns a result code, so there's nothing to
+     * catch on our side, only the code to react to. Restarting app selection from scratch on
+     * retry is safe: nothing has been selected yet at this point in the flow.
+     */
+    private TransResult selectApplicationWithRetry(ContactProcess process) {
+        TransResult result = process.selectApplication();
+        for (int attempt = 1; result.getResultCode() != RetCode.EMV_OK
+                && attempt < ICC_APP_SELECT_MAX_ATTEMPTS && !isCancelled(); attempt++) {
+            LogUtils.w(TAG, "selectApplication ret=" + result.getResultCode() + " (attempt "
+                    + attempt + "/" + ICC_APP_SELECT_MAX_ATTEMPTS
+                    + ") — power-cycling ICC and retrying");
+            try {
+                EmvFlowRuntime.getDal().getIcc().close((byte) 0);
+            } catch (Exception ignored) {
+                // Expected if the slot is already in a bad state — closing here is only to
+                // force a fresh power-on for the next attempt, not to succeed cleanly.
+            }
+            try {
+                Thread.sleep(ICC_POWER_SETTLE_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            result = process.selectApplication();
+        }
+        return result;
     }
 
     /** Read App Data stage — reached via {@link #onReadApplicationData}'s chip branch. */
