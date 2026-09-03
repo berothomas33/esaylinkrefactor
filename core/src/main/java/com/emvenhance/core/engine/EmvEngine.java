@@ -8,6 +8,7 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
+import com.emvenhance.core.util.EmvLog;
 
 import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Observable;
@@ -108,7 +109,9 @@ public final class EmvEngine {
     }
 
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
-        emvSteps.onNext(new EmvStepEvent(step, detail));
+        EmvStepEvent event = new EmvStepEvent(step, detail);
+        EmvLog.d("EmvStep: " + event);
+        emvSteps.onNext(event);
     }
 
     public void notifyEmvStep(EmvStep step) {
@@ -116,6 +119,7 @@ public final class EmvEngine {
     }
 
     public void notifyTransactionStep(TransactionStepEvent event) {
+        EmvLog.d("TransactionStep: " + event);
         transactionSteps.onNext(event);
     }
 
