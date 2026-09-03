@@ -15,10 +15,15 @@ import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.bizlib.card.TrackUtils;
+import com.pax.bizlib.ped.Constants;
+import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
+import com.pax.dal.IPed;
+import com.pax.dal.entity.EPinBlockMode;
 import com.pax.dal.entity.EPiccType;
+import com.pax.dal.exceptions.PedDevException;
 import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.param.EmvProcessParam;
@@ -101,6 +106,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static final int ICC_APP_SELECT_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
 
+    /** Same accepted-PIN-length set the terminal is configured with in {@link #runPreTransProcess}. */
+    private static final byte[] PIN_LEN_SET = "0,4,5,6,7,8,9,10,11,12\0".getBytes();
+    private static final int ONLINE_PIN_TIMEOUT_SEC = 60;
+
     private final PaxKernel kernel;
 
     private boolean initOk = true;
@@ -118,6 +127,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Nullable
     private String clsCachedTrack2Data;
     private boolean clsLastNeedSeePhone;
+
+    /**
+     * Encrypted online PIN block from the most recent {@link #onCardHolderPwd}, for whenever
+     * {@link com.emvenhance.core.host.CommunicationBehavior} is wired to a real host and needs
+     * it for the authorization message — not consumed anywhere yet.
+     */
+    @Nullable
+    private byte[] lastOnlinePinBlock;
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
@@ -1145,7 +1162,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .setTransTraceNo(Long.parseLong(ConvertUtils.getPaddedNumber(0, 6)))
                 .setFlowType(EmvTransParam.FLOWTYPE_COMPLETE)
                 .setMaskPattern("")
-                .setPinLenSet("0,4,5,6,7,8,9,10,11,12\0".getBytes())
+                .setPinLenSet(PIN_LEN_SET)
                 .setPciTimeout(60 * 1000);
         EmvProcessParam.Builder processParamBuilder = new EmvProcessParam.Builder()
                 .setTermConfig(cachedEmvParam.getTermConfig())
@@ -1251,10 +1268,33 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass)
                 .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
                 .build());
-        if (supportPINByPass) {
-            return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
+
+        if (!isOnlinePin) {
+            // Offline PIN is already the kernel's job, not ours: once we say CONTACT_OK, it
+            // calls EmvDeviceImpl#pedVerifyPlainPin / #pedVerifyCipherPin (the native IDevice
+            // callback) directly, which is already fully wired to IPed#verifyPlainPin /
+            // #verifyCipherPin — real secure PIN pad, real verification against the ICC. This
+            // callback firing again on a retry, with pinData[0] carrying the previous attempt's
+            // status, is handled by ContactProcess itself before it ever reaches us (see
+            // emvGetHolderPwd) — we only ever see the "start this attempt" call.
+            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
         }
-        return EmvConstant.ContactCallbackStatus.USER_CANCEL;
+
+        // Online PIN never touches the card, so nothing in the native kernel collects it for
+        // us — show the secure pad ourselves via IPed#getPinBlock (same call shape PAX's own
+        // offline path uses under the hood) and hold onto the encrypted block.
+        try {
+            IPed ped = PedHelper.getPed();
+            lastOnlinePinBlock = ped.getPinBlock(Constants.INDEX_TPK, safe(getContactPan()),
+                    PIN_LEN_SET, EPinBlockMode.ISO9564_0, ONLINE_PIN_TIMEOUT_SEC);
+            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
+        } catch (PedDevException e) {
+            LogUtils.e(TAG, "online PIN entry failed: " + e.getErrCode() + " " + e.getErrMsg(), e);
+            if (supportPINByPass) {
+                return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
+            }
+            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
+        }
     }
 
     @NonNull
