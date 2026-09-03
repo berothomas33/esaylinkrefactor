@@ -222,7 +222,7 @@ public abstract class PosTerminal {
 
         @Override
         public void onSearchTimeout() {
-            engine.notifyError("Card search timeout");
+            engine.notifyError("Search timed out — try again");
         }
 
         @Override

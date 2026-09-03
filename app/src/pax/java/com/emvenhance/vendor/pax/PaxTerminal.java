@@ -37,6 +37,14 @@ public class PaxTerminal extends PosTerminal {
     private static final int SEARCH_TIMEOUT_MS = 60_000;
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
+    /**
+     * Retry budget for ICC#97/"no ATR" during search — same tuning as
+     * {@code PaxEmvBehavior#selectApplicationWithRetry}: power-cycle the slot, wait for VCC to
+     * settle, retry a bounded number of times before giving up.
+     */
+    private static final int ICC_SEARCH_MAX_ATTEMPTS = 3;
+    private static final long ICC_POWER_SETTLE_MS = 200L;
+
     private final PaxKernel kernel;
 
     @Nullable
@@ -105,7 +113,7 @@ public class PaxTerminal extends PosTerminal {
             PaxHardwarePermissions.logGrantState();
             listener.onSearchStarted(config);
 
-            PollingResult result = cardReaderHelper.polling(readerType, SEARCH_TIMEOUT_MS);
+            PollingResult result = pollWithIccRetry(cardReaderHelper, dal, readerType);
             return handlePollingResult(result, listener);
         } catch (MagDevException e) {
             LogUtils.e(TAG, "MAG error during search", e);
@@ -125,6 +133,43 @@ public class PaxTerminal extends PosTerminal {
             return null;
         } finally {
             activeCardReaderHelper = null;
+        }
+    }
+
+    /**
+     * Retries {@code polling()} up to {@link #ICC_SEARCH_MAX_ATTEMPTS} times, power-cycling the
+     * ICC slot between attempts, when it throws {@link IccDevException}. Native
+     * {@code IccException: 51} (no ATR) surfacing here means the chip didn't answer this time —
+     * momentarily mis-seated, or a mag-only card in the hybrid slot — not that the reader is
+     * broken; PAX's own reference pattern keeps searching through this instead of aborting.
+     * Mag/Picc failures are not retried here — only ICC has this known transient-failure shape.
+     */
+    @Nullable
+    private PollingResult pollWithIccRetry(ICardReaderHelper cardReaderHelper, IDAL dal,
+            EReaderType readerType) throws MagDevException, IccDevException, PiccDevException {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return cardReaderHelper.polling(readerType, SEARCH_TIMEOUT_MS);
+            } catch (IccDevException e) {
+                if (attempt >= ICC_SEARCH_MAX_ATTEMPTS || isSearchCancelled()) {
+                    throw e;
+                }
+                LogUtils.w(TAG, "ICC error during search, code=" + e.getErrCode() + " (attempt "
+                        + attempt + "/" + ICC_SEARCH_MAX_ATTEMPTS
+                        + ") — power-cycling ICC and retrying");
+                try {
+                    dal.getIcc().close((byte) 0);
+                } catch (Exception ignored) {
+                    // Expected if the slot is already in a bad state — closing here is only to
+                    // force a fresh power-on for the next attempt, not to succeed cleanly.
+                }
+                try {
+                    Thread.sleep(ICC_POWER_SETTLE_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
         }
     }
 
