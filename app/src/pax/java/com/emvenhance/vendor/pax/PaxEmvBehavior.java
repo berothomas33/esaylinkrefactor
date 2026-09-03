@@ -15,7 +15,6 @@ import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.bizlib.card.TrackUtils;
-import com.pax.bizlib.ped.Constants;
 import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
@@ -45,6 +44,7 @@ import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.model.ModelInfo;
+import com.pax.poslib.utils.PosDeviceUtils;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -106,9 +106,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static final int ICC_APP_SELECT_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
 
-    /** Same accepted-PIN-length set the terminal is configured with in {@link #runPreTransProcess}. */
-    private static final byte[] PIN_LEN_SET = "0,4,5,6,7,8,9,10,11,12\0".getBytes();
-    private static final int ONLINE_PIN_TIMEOUT_SEC = 60;
+    /** Matches {@code IPinService#getEncryptedPinData}'s timeout (60s, in ms). */
+    private static final int ONLINE_PIN_TIMEOUT_MS = 60 * 1000;
 
     private final PaxKernel kernel;
 
@@ -1162,7 +1161,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .setTransTraceNo(Long.parseLong(ConvertUtils.getPaddedNumber(0, 6)))
                 .setFlowType(EmvTransParam.FLOWTYPE_COMPLETE)
                 .setMaskPattern("")
-                .setPinLenSet(PIN_LEN_SET)
+                .setPinLenSet("0,4,5,6,7,8,9,10,11,12\0".getBytes())
                 .setPciTimeout(60 * 1000);
         EmvProcessParam.Builder processParamBuilder = new EmvProcessParam.Builder()
                 .setTermConfig(cachedEmvParam.getTermConfig())
@@ -1281,12 +1280,21 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
 
         // Online PIN never touches the card, so nothing in the native kernel collects it for
-        // us — show the secure pad ourselves via IPed#getPinBlock (same call shape PAX's own
-        // offline path uses under the hood) and hold onto the encrypted block.
+        // us — show the secure pad ourselves. Matches emvservice's own (orphaned but correct)
+        // PinService#getEncryptedPinData exactly: getPinBlock(keyIndex, pinLenCsv, panBytes,
+        // mode, timeoutMs) — NOT (keyIndex, pan, pinLenSet, mode, timeoutSec), which is the
+        // param order/units this code had before and why nothing showed: a 60ms timeout on
+        // pan/pinLen swapped into the wrong slots fails near-instantly and silently falls
+        // through to the PedDevException branch below.
         try {
             IPed ped = PedHelper.getPed();
-            lastOnlinePinBlock = ped.getPinBlock(Constants.INDEX_TPK, safe(getContactPan()),
-                    PIN_LEN_SET, EPinBlockMode.ISO9564_0, ONLINE_PIN_TIMEOUT_SEC);
+            String pinLenCsv = "4,5,6,7,8,9,10,11,12";
+            if (supportPINByPass) {
+                pinLenCsv = "0," + pinLenCsv;
+            }
+            lastOnlinePinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_TPK, pinLenCsv,
+                    safe(getContactPan()).getBytes(), EPinBlockMode.ISO9564_0,
+                    ONLINE_PIN_TIMEOUT_MS);
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
         } catch (PedDevException e) {
             LogUtils.e(TAG, "online PIN entry failed: " + e.getErrCode() + " " + e.getErrMsg(), e);
