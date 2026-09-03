@@ -2,6 +2,7 @@ package com.emvenhance.vendor.pax;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import com.emvenhance.BuildConfig;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
@@ -20,6 +21,8 @@ import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.IPed;
+import com.pax.dal.entity.ECheckMode;
+import com.pax.dal.entity.EPedKeyType;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.emvbase.constant.EmvConstant;
@@ -45,6 +48,7 @@ import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.model.ModelInfo;
+import com.pax.poslib.utils.PosDeviceUtils;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -106,6 +110,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static final int ICC_APP_SELECT_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
 
+    /** DEBUG-only: tried at most once per process — see {@link #ensureTestOnlinePinKey}. */
+    private static boolean testOnlinePinKeyAttempted;
 
     private final PaxKernel kernel;
 
@@ -1301,6 +1307,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // key-event listener always has a live dialog to update. Uses PinService directly
         // (same object for both the listener and the actual collection) instead of duplicating
         // its already-correct getPinBlock(keyIndex, pinLenCsv, panBytes, mode, timeoutMs) call.
+        ensureTestOnlinePinKey();
+
         PaxPinPad pad = new PaxPinPad("Enter Online PIN");
         activePinPad = pad;
         pad.showAndWait();
@@ -1320,6 +1328,38 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         } finally {
             pinService.setInputPinListener(null);
             pad.dismiss();
+        }
+    }
+
+    /**
+     * DEBUG-only, tried at most once per process: writes a fixed test TPK at
+     * {@link PosDeviceUtils#INDEX_TPK} so {@code getPinBlock} has a key to encrypt an online PIN
+     * with, instead of always failing "Key does not exist" — exactly the gap this was added to
+     * work around. Same shape as {@code PedHelper#writeTDKForDecrypt}, already in this repo: the
+     * new key is written wrapped under whatever key already sits at {@code EPedKeyType.TMK}
+     * index 0 — this assumes that TMK is already present, true on PAX SDK demo/dev units, which
+     * ship with a factory TMK specifically so a call like this one can load a working key under
+     * it. If no TMK is loaded either, this fails the same "Key does not exist" way and is logged,
+     * not fatal. Never runs in a release build — a real terminal's keys come from a proper
+     * secure key-injection process, never a hardcoded value in source.
+     */
+    private void ensureTestOnlinePinKey() {
+        if (!BuildConfig.DEBUG || testOnlinePinKeyAttempted) {
+            return;
+        }
+        testOnlinePinKeyAttempted = true;
+        byte[] testTpk = {
+                0x01, 0x23, 0x45, 0x67, (byte) 0x89, (byte) 0xAB, (byte) 0xCD, (byte) 0xEF,
+                (byte) 0xFE, (byte) 0xDC, (byte) 0xBA, (byte) 0x98, 0x76, 0x54, 0x32, 0x10,
+        };
+        try {
+            PedHelper.getPed().writeKey(EPedKeyType.TMK, (byte) 0,
+                    EPedKeyType.TPK, PosDeviceUtils.INDEX_TPK, testTpk, ECheckMode.KCV_NONE, null);
+            LogUtils.w(TAG, "Loaded fixed test TPK at index " + PosDeviceUtils.INDEX_TPK
+                    + " for online-PIN testing (debug build only)");
+        } catch (PedDevException e) {
+            LogUtils.e(TAG, "Test TPK load failed — no TMK at index 0? Online PIN will keep "
+                    + "failing 'Key does not exist' until real keys are injected.", e);
         }
     }
 
