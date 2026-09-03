@@ -1039,6 +1039,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.e(TAG, "Neptune DAL is not ready — cannot start EMV");
             return false;
         }
+
+        // Defensive reset: close every reader before this attempt touches any of them, in case
+        // the previous transaction (crash, process death, a partial closeReaders() failure) left
+        // one open. Closing an already-closed reader is a no-op, so this is safe to run
+        // unconditionally on every attempt, not just after a known-bad prior transaction.
+        closeReaders(true);
+
         byte requested = 0;
         if (config.allowsChip()) {
             requested |= SearchMode.INSERT;
@@ -1395,18 +1402,37 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return wrapper;
     }
 
+    /**
+     * Closes mag/icc/picc independently — each in its own try/catch — so one reader's close
+     * failing (e.g. a reader already in a bad state) can't skip the rest. The previous
+     * single-try version stopped at the first exception, silently leaving whatever came after it
+     * open; that's the likely root cause of a "reader already open" failure on the next attempt.
+     */
     private void closeReaders(boolean contactless) {
+        if (EmvFlowRuntime.getDal() == null) {
+            return;
+        }
         try {
-            if (EmvFlowRuntime.getDal() != null) {
-                EmvFlowRuntime.getDal().getMag().close();
-                EmvFlowRuntime.getDal().getIcc().close((byte) 0);
-                EmvFlowRuntime.getDal().getPicc(EPiccType.INTERNAL).close();
-                if (contactless) {
-                    EmvFlowRuntime.getDal().getPicc(EPiccType.EXTERNAL).close();
-                }
-            }
+            EmvFlowRuntime.getDal().getMag().close();
         } catch (Exception e) {
-            LogUtils.e(TAG, "close readers failed", e);
+            LogUtils.e(TAG, "close mag reader failed", e);
+        }
+        try {
+            EmvFlowRuntime.getDal().getIcc().close((byte) 0);
+        } catch (Exception e) {
+            LogUtils.e(TAG, "close icc reader failed", e);
+        }
+        try {
+            EmvFlowRuntime.getDal().getPicc(EPiccType.INTERNAL).close();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "close internal picc reader failed", e);
+        }
+        if (contactless) {
+            try {
+                EmvFlowRuntime.getDal().getPicc(EPiccType.EXTERNAL).close();
+            } catch (Exception e) {
+                LogUtils.e(TAG, "close external picc reader failed", e);
+            }
         }
     }
 
