@@ -17,4 +17,16 @@
     <string name="emv_param_empty">No rows in this category</string>
     <string name="emv_param_load_failed">Failed to load — see logcat</string>
     <string name="placeholder">—</string>
+
+    <string name="search_card_waiting">Waiting to start…</string>
+    <string name="search_card_subtitle">Accepted payment methods</string>
+    <string name="label_amount_due">Amount due</string>
+    <string name="method_magstripe_title">Swipe magnetic card</string>
+    <string name="method_magstripe_subtitle">Swipe the card through the reader</string>
+    <string name="method_chip_title">Insert chip card</string>
+    <string name="method_chip_subtitle">Insert the card into the slot</string>
+    <string name="method_contactless_title">Tap wireless card</string>
+    <string name="method_contactless_subtitle">Hold the card near the reader</string>
+    <string name="action_manual_entry">Manual entry</string>
+    <string name="manual_entry_not_implemented">Manual entry isn\'t implemented yet</string>
 </resources>

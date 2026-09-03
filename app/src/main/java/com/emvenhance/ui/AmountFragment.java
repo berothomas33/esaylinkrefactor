@@ -9,16 +9,13 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
-import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
 
 /**
- * Collects the transaction amount and starts it. The only entry point left into a transaction —
- * {@link MainActivity}'s old "present card / chip only / contactless only" buttons always used a
- * hardcoded amount and are gone; this fragment is what replaces them, via {@link
- * MainViewModel#acceptCard} — the same "any entry method" path, same ViewModel bridge, {@link
- * MainActivity} used, so UI code never talks to {@code PosTerminal} directly.
+ * Collects the transaction amount, then hands off to {@link SearchCardFragment} — the only entry
+ * point left into a transaction. {@link MainActivity}'s old "present card / chip only /
+ * contactless only" buttons always used a hardcoded amount and are gone; this fragment is what
+ * replaces them.
  */
 public class AmountFragment extends Fragment {
 
@@ -39,10 +36,6 @@ public class AmountFragment extends Fragment {
         EditText amountInput = view.findViewById(R.id.amountInput);
         TextView amountError = view.findViewById(R.id.amountError);
 
-        MainViewModel viewModel = new ViewModelProvider(requireActivity(),
-                new MainViewModelFactory(((EmvEnhanceApp) requireActivity().getApplication()).getTerminal()))
-                .get(MainViewModel.class);
-
         view.findViewById(R.id.btnConfirmAmount).setOnClickListener(v -> {
             Long amountMinor = parseAmountMinor(amountInput.getText().toString());
             if (amountMinor == null) {
@@ -50,8 +43,10 @@ public class AmountFragment extends Fragment {
                 return;
             }
             amountError.setVisibility(View.GONE);
-            viewModel.acceptCard(PROC_CODE, amountMinor);
-            requireActivity().finish();
+            requireActivity().getSupportFragmentManager().beginTransaction()
+                    .replace(R.id.fragmentContainer, SearchCardFragment.newInstance(PROC_CODE, amountMinor))
+                    .addToBackStack(null)
+                    .commit();
         });
     }
 
