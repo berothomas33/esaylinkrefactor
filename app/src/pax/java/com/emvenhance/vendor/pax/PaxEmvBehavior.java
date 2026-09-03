@@ -20,7 +20,6 @@ import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.IPed;
-import com.pax.dal.entity.EPinBlockMode;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.emvbase.constant.EmvConstant;
@@ -38,13 +37,14 @@ import com.pax.emvbase.process.enums.CvmResultEnum;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvlib.dpas.contact.ContactProcess;
 import com.pax.emvlib.process.contactless.ClssProcess;
+import com.pax.emvservice.emv.pin.PinService;
 import com.pax.emvservice.export.contact.IContactResultListener;
 import com.pax.emvservice.export.contactless.IContactlessResultListener;
+import com.pax.emvservice.export.exceptions.PinException;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.model.ModelInfo;
-import com.pax.poslib.utils.PosDeviceUtils;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -106,8 +106,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static final int ICC_APP_SELECT_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
 
-    /** Matches {@code IPinService#getEncryptedPinData}'s timeout (60s, in ms). */
-    private static final int ONLINE_PIN_TIMEOUT_MS = 60 * 1000;
 
     private final PaxKernel kernel;
 
@@ -134,6 +132,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     @Nullable
     private byte[] lastOnlinePinBlock;
+
+    /** The dialog raised by the most recent {@link #onCardHolderPwd}, for a defensive dismiss
+     * in {@link #finishContactStage()} if none of {@link PaxPinPad}'s own terminal callbacks fire. */
+    @Nullable
+    private PaxPinPad activePinPad;
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
@@ -980,6 +983,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** Common tail once a contact stage chain has reached a terminal outcome. */
     private void finishContactStage() {
         closeReaders(false);
+        if (activePinPad != null) {
+            activePinPad.dismiss();
+            activePinPad = null;
+        }
         if (!isCancelled()) {
             try {
                 checkContactResult();
@@ -1268,40 +1275,51 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
                 .build());
 
+        PinService pinService = new PinService();
+
         if (!isOnlinePin) {
-            // Offline PIN is already the kernel's job, not ours: once we say CONTACT_OK, it
-            // calls EmvDeviceImpl#pedVerifyPlainPin / #pedVerifyCipherPin (the native IDevice
+            // Offline PIN is the kernel's job, not ours: once we say CONTACT_OK, it calls
+            // EmvDeviceImpl#pedVerifyPlainPin / #pedVerifyCipherPin (the native IDevice
             // callback) directly, which is already fully wired to IPed#verifyPlainPin /
-            // #verifyCipherPin — real secure PIN pad, real verification against the ICC. This
-            // callback firing again on a retry, with pinData[0] carrying the previous attempt's
-            // status, is handled by ContactProcess itself before it ever reaches us (see
-            // emvGetHolderPwd) — we only ever see the "start this attempt" call.
+            // #verifyCipherPin — the real secure PIN pad, real verification against the ICC.
+            // What's missing without the two lines below is only the on-screen feedback: PAX's
+            // own demo (OfflinePinTask) always wires setInputPinListener + EmvDeviceImpl's
+            // pinCallback and shows a dialog before returning CONTACT_OK, fire-and-forget —
+            // the dialog is dismissed by whichever of PinCallback's terminal callbacks
+            // EmvDeviceImpl invokes (onCancel/onTimeout/onError), or defensively in
+            // finishContactStage() if none of those fire.
+            activePinPad = new PaxPinPad("Enter Offline PIN (" + leftTimes + " left)");
+            activePinPad.showAsync();
+            pinService.setInputPinListener(activePinPad);
+            EmvDeviceImpl.getInstance().setPinCallback(activePinPad);
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
         }
 
         // Online PIN never touches the card, so nothing in the native kernel collects it for
-        // us — show the secure pad ourselves. Matches emvservice's own (orphaned but correct)
-        // PinService#getEncryptedPinData exactly: getPinBlock(keyIndex, pinLenCsv, panBytes,
-        // mode, timeoutMs) — NOT (keyIndex, pan, pinLenSet, mode, timeoutSec), which is the
-        // param order/units this code had before and why nothing showed: a 60ms timeout on
-        // pan/pinLen swapped into the wrong slots fails near-instantly and silently falls
-        // through to the PedDevException branch below.
+        // us — show the secure pad ourselves, matching PAX's own demo (OnlinePinTask): a dialog
+        // shown and waited on via ConditionVariable before the blocking collect call, so the
+        // key-event listener always has a live dialog to update. Uses PinService directly
+        // (same object for both the listener and the actual collection) instead of duplicating
+        // its already-correct getPinBlock(keyIndex, pinLenCsv, panBytes, mode, timeoutMs) call.
+        PaxPinPad pad = new PaxPinPad("Enter Online PIN");
+        activePinPad = pad;
+        pad.showAndWait();
+        pinService.setInputPinListener(pad);
         try {
             IPed ped = PedHelper.getPed();
-            String pinLenCsv = "4,5,6,7,8,9,10,11,12";
-            if (supportPINByPass) {
-                pinLenCsv = "0," + pinLenCsv;
-            }
-            lastOnlinePinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_TPK, pinLenCsv,
-                    safe(getContactPan()).getBytes(), EPinBlockMode.ISO9564_0,
-                    ONLINE_PIN_TIMEOUT_MS);
+            ped.setIntervalTime(1, 1);
+            lastOnlinePinBlock = pinService.getEncryptedPinData(safe(getContactPan()),
+                    supportPINByPass, false);
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        } catch (PedDevException e) {
-            LogUtils.e(TAG, "online PIN entry failed: " + e.getErrCode() + " " + e.getErrMsg(), e);
+        } catch (PinException | PedDevException e) {
+            LogUtils.e(TAG, "online PIN entry failed", e);
             if (supportPINByPass) {
                 return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
             }
             return EmvConstant.ContactCallbackStatus.USER_CANCEL;
+        } finally {
+            pinService.setInputPinListener(null);
+            pad.dismiss();
         }
     }
 
