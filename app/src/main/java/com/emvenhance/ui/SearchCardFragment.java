@@ -12,6 +12,7 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
+import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import java.text.NumberFormat;
@@ -29,12 +30,12 @@ import java.util.Locale;
  */
 public class SearchCardFragment extends Fragment {
 
-    private static final String ARG_PROC_CODE = "procCode";
+    private static final String ARG_TRANSACTION_TYPE = "transactionType";
     private static final String ARG_AMOUNT_MINOR = "amountMinor";
 
-    public static SearchCardFragment newInstance(String procCode, long amountMinor) {
+    public static SearchCardFragment newInstance(TransactionType type, long amountMinor) {
         Bundle args = new Bundle();
-        args.putString(ARG_PROC_CODE, procCode);
+        args.putString(ARG_TRANSACTION_TYPE, type.name());
         args.putLong(ARG_AMOUNT_MINOR, amountMinor);
         SearchCardFragment fragment = new SearchCardFragment();
         fragment.setArguments(args);
@@ -53,7 +54,8 @@ public class SearchCardFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
 
         Bundle args = requireArguments();
-        String procCode = args.getString(ARG_PROC_CODE, "000000");
+        TransactionType type = TransactionType.valueOf(
+                args.getString(ARG_TRANSACTION_TYPE, TransactionType.SALE.name()));
         long amountMinor = args.getLong(ARG_AMOUNT_MINOR, 0);
 
         MainViewModel viewModel = new ViewModelProvider(requireActivity(),
@@ -103,7 +105,7 @@ public class SearchCardFragment extends Fragment {
         // Fire the search the moment this screen is up, so the reader is live as soon as the
         // cardholder sees "present card" — matches AmountFragment's old behavior, just moved
         // here now that there's a dedicated screen for it.
-        viewModel.acceptCard(procCode, amountMinor);
+        viewModel.acceptCard(type, amountMinor);
     }
 
     private static void bindMethodRow(View parent, int rowId, String badge, String title,

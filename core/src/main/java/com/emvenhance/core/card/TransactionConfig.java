@@ -5,18 +5,23 @@ package com.emvenhance.core.card;
  */
 public final class TransactionConfig {
 
-    private final String procCode;
+    private final TransactionType type;
     private final long amountMinor;
     private final EntryMethod mode;
 
-    public TransactionConfig(String procCode, long amountMinor, EntryMethod mode) {
-        this.procCode = procCode;
+    public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
+        this.type = type;
         this.amountMinor = amountMinor;
         this.mode = mode;
     }
 
+    public TransactionType getType() {
+        return type;
+    }
+
+    /** ISO 8583-style processing code for {@link #getType()} — see {@link TransactionType}. */
     public String getProcCode() {
-        return procCode;
+        return type.getProcCode();
     }
 
     public long getAmountMinor() {
@@ -61,6 +66,6 @@ public final class TransactionConfig {
 
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
     public TransactionConfig withMode(EntryMethod mode) {
-        return new TransactionConfig(procCode, amountMinor, mode);
+        return new TransactionConfig(type, amountMinor, mode);
     }
 }

@@ -5,9 +5,34 @@
     android:orientation="vertical"
     android:padding="20dp">
 
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/transactionTypeTabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:tabGravity="fill"
+        app:tabMode="fixed">
+
+        <!-- Order must match AmountFragment.TAB_ORDER (SALE, CASH_IN, REFUND). -->
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/transaction_type_sale" />
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/transaction_type_cash_in" />
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/transaction_type_refund" />
+    </com.google.android.material.tabs.TabLayout>
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
         android:text="@string/label_amount" />
 
     <EditText

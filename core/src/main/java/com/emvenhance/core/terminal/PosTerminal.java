@@ -5,6 +5,7 @@ import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
@@ -93,8 +94,8 @@ public abstract class PosTerminal {
      * Accept any presented card (chip / tap / swipe / manual as enabled by the vendor).
      * Preferred UI entry point.
      */
-    public final void acceptCard(String procCode, long amountMinor) {
-        startTransaction(new TransactionConfig(procCode, amountMinor, EntryMethod.ANY));
+    public final void acceptCard(TransactionType type, long amountMinor) {
+        startTransaction(new TransactionConfig(type, amountMinor, EntryMethod.ANY));
     }
 
     /**

@@ -29,4 +29,8 @@
     <string name="method_contactless_subtitle">Hold the card near the reader</string>
     <string name="action_manual_entry">Manual entry</string>
     <string name="manual_entry_not_implemented">Manual entry isn\'t implemented yet</string>
+
+    <string name="transaction_type_sale">Sale</string>
+    <string name="transaction_type_cash_in">Cash In</string>
+    <string name="transaction_type_refund">Refund</string>
 </resources>

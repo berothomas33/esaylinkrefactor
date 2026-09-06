@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
+import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.event.TransactionStepEvent;
@@ -43,8 +44,8 @@ public class MainViewModel extends ViewModel {
     }
 
     /** Preferred: accept chip / tap / swipe — vendor terminal decides. */
-    public void acceptCard(String procCode, long amountMinor) {
-        terminal.acceptCard(procCode, amountMinor);
+    public void acceptCard(TransactionType type, long amountMinor) {
+        terminal.acceptCard(type, amountMinor);
     }
 
     public void cancel() {

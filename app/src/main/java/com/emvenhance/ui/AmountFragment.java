@@ -10,17 +10,23 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import com.emvenhance.R;
+import com.emvenhance.core.card.TransactionType;
+import com.google.android.material.tabs.TabLayout;
 
 /**
- * Collects the transaction amount, then hands off to {@link SearchCardFragment} — the only entry
- * point left into a transaction. {@link MainActivity}'s old "present card / chip only /
+ * Collects the transaction type and amount, then hands off to {@link SearchCardFragment} — the
+ * only entry point left into a transaction. {@link MainActivity}'s old "present card / chip only /
  * contactless only" buttons always used a hardcoded amount and are gone; this fragment is what
  * replaces them.
  */
 public class AmountFragment extends Fragment {
 
-    /** Ported from the old MainActivity constant — not exposed as UI here, out of scope. */
-    private static final String PROC_CODE = "000000";
+    /** {@link TransactionType#values()} order must match the tab order in fragment_amount.xml. */
+    private static final TransactionType[] TAB_ORDER = {
+            TransactionType.SALE, TransactionType.CASH_IN, TransactionType.REFUND,
+    };
+
+    private TabLayout transactionTypeTabs;
 
     @Nullable
     @Override
@@ -33,6 +39,7 @@ public class AmountFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
+        transactionTypeTabs = view.findViewById(R.id.transactionTypeTabs);
         EditText amountInput = view.findViewById(R.id.amountInput);
         TextView amountError = view.findViewById(R.id.amountError);
 
@@ -44,10 +51,16 @@ public class AmountFragment extends Fragment {
             }
             amountError.setVisibility(View.GONE);
             requireActivity().getSupportFragmentManager().beginTransaction()
-                    .replace(R.id.fragmentContainer, SearchCardFragment.newInstance(PROC_CODE, amountMinor))
+                    .replace(R.id.fragmentContainer,
+                            SearchCardFragment.newInstance(selectedTransactionType(), amountMinor))
                     .addToBackStack(null)
                     .commit();
         });
+    }
+
+    private TransactionType selectedTransactionType() {
+        int position = transactionTypeTabs.getSelectedTabPosition();
+        return position >= 0 && position < TAB_ORDER.length ? TAB_ORDER[position] : TransactionType.SALE;
     }
 
     /**
