@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModelProvider;
 import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
 import com.emvenhance.core.event.EmvStepEvent;
+import com.emvenhance.core.event.TransactionStep;
 import java.text.NumberFormat;
 import java.util.Locale;
 
@@ -86,6 +87,17 @@ public class SearchCardFragment extends Fragment {
         view.findViewById(R.id.btnCancelSearch).setOnClickListener(v -> {
             viewModel.cancel();
             requireActivity().finish();
+        });
+
+        // Once a card is actually detected, the "insert / swipe / tap / manual" choices no
+        // longer describe what's happening — hide them instead of leaving a stale, misleading
+        // prompt on screen while EMV runs (tracked by emvStepBanner above instead).
+        View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
+        viewModel.getTransactionStep().observe(getViewLifecycleOwner(), event -> {
+            boolean stillChoosing = event.getStep() == TransactionStep.IDLE
+                    || event.getStep() == TransactionStep.TRANSACTION_STARTED
+                    || event.getStep() == TransactionStep.WAITING_FOR_CARD;
+            methodSelectionGroup.setVisibility(stillChoosing ? View.VISIBLE : View.GONE);
         });
 
         // Fire the search the moment this screen is up, so the reader is live as soon as the

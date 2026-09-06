@@ -65,46 +65,55 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <TextView
+            <!-- Entry-method choices — hidden once a card is actually detected (any mode), since
+                 offering "insert / swipe / tap / manual" after one is already chosen is misleading. -->
+            <LinearLayout
+                android:id="@+id/methodSelectionGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/search_card_subtitle"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+                android:orientation="vertical">
 
-            <include
-                android:id="@+id/rowMagstripe"
-                layout="@layout/item_entry_method" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/search_card_subtitle"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
 
-            <include
-                android:id="@+id/rowChip"
-                layout="@layout/item_entry_method" />
+                <include
+                    android:id="@+id/rowMagstripe"
+                    layout="@layout/item_entry_method" />
 
-            <include
-                android:id="@+id/rowContactless"
-                layout="@layout/item_entry_method" />
+                <include
+                    android:id="@+id/rowChip"
+                    layout="@layout/item_entry_method" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnManualEntry"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_marginTop="20dp"
-                android:background="@drawable/bg_button_manual_entry"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:text="@string/action_manual_entry"
-                android:textAllCaps="false"
-                android:textColor="@android:color/white"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                app:backgroundTint="@null"
-                app:icon="@drawable/ic_keyboard"
-                app:iconGravity="textEnd"
-                app:iconPadding="10dp"
-                app:iconSize="22dp"
-                app:iconTint="@android:color/white"
-                app:rippleColor="#33FFFFFF" />
+                <include
+                    android:id="@+id/rowContactless"
+                    layout="@layout/item_entry_method" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnManualEntry"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="20dp"
+                    android:background="@drawable/bg_button_manual_entry"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="@string/action_manual_entry"
+                    android:textAllCaps="false"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    app:backgroundTint="@null"
+                    app:icon="@drawable/ic_keyboard"
+                    app:iconGravity="textEnd"
+                    app:iconPadding="10dp"
+                    app:iconSize="22dp"
+                    app:iconTint="@android:color/white"
+                    app:rippleColor="#33FFFFFF" />
+            </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnCancelSearch"
