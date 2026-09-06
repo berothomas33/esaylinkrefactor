@@ -88,9 +88,23 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnManualEntry"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="56dp"
                 android:layout_marginTop="20dp"
-                android:text="@string/action_manual_entry" />
+                android:background="@drawable/bg_button_manual_entry"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="@string/action_manual_entry"
+                android:textAllCaps="false"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                app:backgroundTint="@null"
+                app:icon="@drawable/ic_keyboard"
+                app:iconGravity="textEnd"
+                app:iconPadding="10dp"
+                app:iconSize="22dp"
+                app:iconTint="@android:color/white"
+                app:rippleColor="#33FFFFFF" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnCancelSearch"
