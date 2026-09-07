@@ -20,5 +20,7 @@ final class VendorDebugPanel {
         });
         binding.btnShowEmvParam.setOnClickListener(
                 v -> activity.startActivity(new Intent(activity, EmvParamActivity.class)));
+        binding.btnChangeCountry.setOnClickListener(
+                v -> activity.startActivity(new Intent(activity, CountryListActivity.class)));
     }
 }

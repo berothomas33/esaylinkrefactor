@@ -32,7 +32,7 @@ public class CurrencyConverter {
     private static final String TAG = "CurrencyConv";
     private static final List<Locale> locales = new ArrayList<>();
 
-    private static Locale defLocale = Locale.US;
+    private static Locale defLocale = new Locale("ar", "EG");
 
     private static boolean isUsingDefaultCurrencyStrategy = true;
 

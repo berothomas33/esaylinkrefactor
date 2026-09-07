@@ -43,4 +43,7 @@
     <string name="action_log_apdu">Log APDU commands for every EMV stage</string>
     <string name="action_print_result">Print</string>
     <string name="result_printed">Sent to printer</string>
+
+    <string name="action_change_country">Change terminal country</string>
+    <string name="country_changed">Terminal country set to %1$s (%2$s)</string>
 </resources>

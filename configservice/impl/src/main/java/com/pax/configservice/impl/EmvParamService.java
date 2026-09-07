@@ -1008,7 +1008,17 @@ public class EmvParamService implements IEmvParamService {
         IConfigParamService configParamService = new ConfigParamService();
         IAcquirerIssuerService acquirerIssuerService = new AcquirerIssuerService();
 
-        CurrencyConverter.setDefCurrency(configParamService.getString(ConfigKeyConstant.EDC_CURRENCY_LIST));
+        String configuredCurrency = configParamService.getString(ConfigKeyConstant.EDC_CURRENCY_LIST);
+        Locale resolvedCurrency = CurrencyConverter.setDefCurrency(configuredCurrency);
+        if (!resolvedCurrency.getDisplayName(Locale.US).equals(configuredCurrency)) {
+            // EDC_CURRENCY_LIST didn't match any locale CurrencyConverter knows about (typo, or
+            // this device's ICU data doesn't expose it) — fall back to Egypt (EGP/818), this
+            // deployment's configured default market, instead of silently staying on whatever
+            // defLocale already was.
+            LogUtils.w(TAG, "Unknown EDC_CURRENCY_LIST '" + configuredCurrency
+                    + "' — falling back to Egypt (EGP)");
+            CurrencyConverter.setDefCurrency(new Locale("ar", "EG").getDisplayName(Locale.US));
+        }
         Currency current = Currency.getInstance(CurrencyConverter.getDefCurrency());
         String currency = String.valueOf(
                 CountryCode.getByCode(CurrencyConverter.getDefCurrency().getCountry()).getCurrencyNumeric());

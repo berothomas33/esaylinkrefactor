@@ -119,5 +119,13 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/action_show_emv_param" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnChangeCountry"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/action_change_country" />
     </LinearLayout>
 </ScrollView>

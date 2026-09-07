@@ -12,5 +12,6 @@ final class VendorDebugPanel {
     static void wire(MainActivity activity, ActivityMainBinding binding) {
         binding.btnInsertEmvParam.setVisibility(View.GONE);
         binding.btnShowEmvParam.setVisibility(View.GONE);
+        binding.btnChangeCountry.setVisibility(View.GONE);
     }
 }
