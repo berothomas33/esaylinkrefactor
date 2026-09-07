@@ -31,6 +31,10 @@ public final class TransactionStepEvent {
     public static final String KEY_ONLINE_PIN       = "onlinePin";
     public static final String KEY_PIN_BYPASS       = "pinBypassAllowed";
     public static final String KEY_PIN_TRIES_LEFT   = "pinTriesLeft";
+    public static final String KEY_TVR              = "tvr";
+    public static final String KEY_TAC_DENIAL       = "tacDenial";
+    public static final String KEY_IAC_DENIAL       = "iacDenial";
+    public static final String KEY_ICC_DATA         = "iccData";
 
     private final TransactionStep step;
     private final String message;

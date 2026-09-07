@@ -132,6 +132,9 @@ public class TagsTable {
     public static final int TDOL = 0x97;
     public static final int CONSECUTIVE_TRANS_LIMIT = 0x9F53;
 
+    /** Issuer Action Code – Denial: the card's own counterpart to {@link #TAC_DENIAL}. */
+    public static final int IAC_DENIAL = 0x9F0E;
+
     private TagsTable() {
 
     }

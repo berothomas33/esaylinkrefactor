@@ -9,6 +9,7 @@ import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
+import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
@@ -171,6 +172,17 @@ public class PaxTerminal extends PosTerminal {
                 }
             }
         }
+    }
+
+    /** Real implementation — see {@link EmvDeviceImpl#setApduLoggingEnabled}. */
+    @Override
+    public void setApduLoggingEnabled(boolean enabled) {
+        EmvDeviceImpl.setApduLoggingEnabled(enabled);
+    }
+
+    @Override
+    public boolean isApduLoggingEnabled() {
+        return EmvDeviceImpl.isApduLoggingEnabled();
     }
 
     @Override

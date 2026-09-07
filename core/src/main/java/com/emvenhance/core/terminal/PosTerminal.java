@@ -132,6 +132,19 @@ public abstract class PosTerminal {
         return searchCancelled.get();
     }
 
+    /**
+     * Debug hook: whether to log every APDU command/response for every EMV stage. No-op /
+     * always {@code false} by default — a vendor overrides both only if it has a real APDU
+     * trans log to gate (see {@code PaxTerminal}).
+     */
+    public void setApduLoggingEnabled(boolean enabled) {
+        // default: no-op
+    }
+
+    public boolean isApduLoggingEnabled() {
+        return false;
+    }
+
     // ─── Vendor must implement ───────────────────────────────────────────
 
     /**

@@ -145,6 +145,21 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Nullable
     private PaxPinPad activePinPad;
 
+    // ─── Transaction result summary — PAN/TVR/TAC/IAC/Field 55, captured by
+    // captureTransactionSummary() while the kernel session is still open, attached to the
+    // APPROVED/DECLINED event by completeApproved()/completeDeclined(). null for mag/manual
+    // (no ICC session) or before a chip/contactless transaction reaches that point.
+    @Nullable
+    private String lastPan;
+    @Nullable
+    private String lastTvr;
+    @Nullable
+    private String lastTacDenial;
+    @Nullable
+    private String lastIacDenial;
+    @Nullable
+    private String lastIccData;
+
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
     }
@@ -381,6 +396,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.d(TAG, "============ Contactless EMV: App Select ============");
             // reset every transaction
             clsCachedTrack2Data = null;
+            resetTransactionSummary();
             process.registerClssProcessListener(this);
             clsTransResult = process.selectApplication();
             int ret = clsTransResult.getResultCode();
@@ -530,6 +546,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.d(TAG, "============ Contactless EMV: Start Transaction ============");
             int ret = startContactlessTransProcess(process);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
+            captureTransactionSummary();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
@@ -767,6 +784,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.d(TAG, "============ Contact EMV: App Select ============");
             // reset every transaction — mirrors EmvContactService#selectApplication
             cachedTrack2Data = null;
+            resetTransactionSummary();
             process.registerEmvProcessListener(this);
             transResult = selectApplicationWithRetry(process);
             int ret = transResult.getResultCode();
@@ -924,6 +942,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // callback and stay unannounced (see class doc).
             int ret = startContactTransProcess(process);
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
+            captureTransactionSummary();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
@@ -1595,12 +1614,73 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             announceStep(EmvStep.SCRIPT_PROCESSING, null);
         }
         announceStep(EmvStep.TRANSACTION_COMPLETION, result);
-        finishApproved(result);
+        requireEngine().notifyTransactionStep(
+                buildOutcomeEvent(TransactionStep.APPROVED, TransactionStepEvent.KEY_RESULT, result));
+        requireEngine().notifyCompleted();
     }
 
     private void completeDeclined(String reason) {
         announceStep(EmvStep.TRANSACTION_COMPLETION, reason);
-        finishDeclined(reason);
+        requireEngine().notifyTransactionStep(
+                buildOutcomeEvent(TransactionStep.DECLINED, TransactionStepEvent.KEY_ERROR, reason));
+        requireEngine().notifyCompleted();
+    }
+
+    /**
+     * Builds the APPROVED/DECLINED event, same shape {@link EmvEngine#notifyApproved}/
+     * {@link EmvEngine#notifyDeclined} would build, plus the audit snapshot
+     * {@link #captureTransactionSummary()} stashed earlier — those two simple String-only
+     * methods have nowhere to attach it, so chip/CLSS outcomes go through
+     * {@code engine.notifyTransactionStep} directly instead. Mag/manual still use
+     * {@link #finishApproved}/{@link #finishDeclined} unchanged (see
+     * {@link #onTransactionCompletion}) — they never call {@link #captureTransactionSummary()},
+     * so their event simply has no PAN/TVR/TAC/IAC/Field 55 to attach.
+     */
+    private TransactionStepEvent buildOutcomeEvent(TransactionStep step, String messageKey,
+            String message) {
+        return TransactionStepEvent.builder(step)
+                .put(messageKey, message)
+                .put(TransactionStepEvent.KEY_PAN, safe(lastPan))
+                .put(TransactionStepEvent.KEY_TVR, safe(lastTvr))
+                .put(TransactionStepEvent.KEY_TAC_DENIAL, safe(lastTacDenial))
+                .put(TransactionStepEvent.KEY_IAC_DENIAL, safe(lastIacDenial))
+                .put(TransactionStepEvent.KEY_ICC_DATA, safe(lastIccData))
+                .build();
+    }
+
+    private void resetTransactionSummary() {
+        lastPan = null;
+        lastTvr = null;
+        lastTacDenial = null;
+        lastIacDenial = null;
+        lastIccData = null;
+    }
+
+    /**
+     * Captures PAN/TVR/TAC Denial/IAC Denial/Field 55 while the kernel session is still open —
+     * right after the bundled EMVStartTrans/startTransProcess call returns, before
+     * {@link #closeReaders}. Runs for every chip/contactless outcome, online or offline,
+     * approved or declined; {@link #buildOutcomeEvent} reads these fields once
+     * {@code checkContactResult()}/{@code checkContactlessResult()} maps the result to
+     * {@link #completeApproved}/{@link #completeDeclined}.
+     */
+    private void captureTransactionSummary() {
+        boolean contactless = activeCard != null && activeCard.isContactless();
+        lastPan = safe(contactless ? getContactlessPan() : getContactPan());
+        lastTvr = readKernelTlvHex(TagsTable.TVR);
+        lastTacDenial = readKernelTlvHex(TagsTable.TAC_DENIAL);
+        lastIacDenial = readKernelTlvHex(TagsTable.IAC_DENIAL);
+        // startOnlineProcess() (called from inside startXxxTransProcess for an online outcome)
+        // already built and attached this to activeConfig — reuse it instead of re-reading the
+        // same kernel tags a second time. Offline outcomes never call it, so build fresh here.
+        lastIccData = activeConfig != null && activeConfig.getIccData() != null
+                ? activeConfig.getIccData() : buildField55();
+    }
+
+    @Nullable
+    private String readKernelTlvHex(int tag) {
+        byte[] value = readKernelTlv(tag);
+        return value.length == 0 ? null : ConvertUtils.bcd2Str(value, value.length);
     }
 
     @NonNull

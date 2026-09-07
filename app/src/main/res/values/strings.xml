@@ -33,4 +33,14 @@
     <string name="transaction_type_sale">Sale</string>
     <string name="transaction_type_cash_in">Cash In</string>
     <string name="transaction_type_refund">Refund</string>
+
+    <string name="result_details_title">Transaction details</string>
+    <string name="label_pan_result">PAN</string>
+    <string name="label_tvr">TVR (Terminal Verification Result)</string>
+    <string name="label_tac_denial">TAC Denial (Terminal)</string>
+    <string name="label_iac_denial">IAC Denial (Card)</string>
+    <string name="label_icc_data">Field 55 / TLV (ICC Data)</string>
+    <string name="action_log_apdu">Log APDU commands for every EMV stage</string>
+    <string name="action_print_result">Print</string>
+    <string name="result_printed">Sent to printer</string>
 </resources>

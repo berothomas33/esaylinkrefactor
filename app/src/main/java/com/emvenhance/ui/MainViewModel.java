@@ -10,6 +10,7 @@ import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.event.TransactionStepEvent;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import java.util.List;
 
 /**
  * Bridges {@link PosTerminal} observables to LiveData. Activity never touches vendor code.
@@ -50,6 +51,20 @@ public class MainViewModel extends ViewModel {
 
     public void cancel() {
         terminal.cancelTransaction();
+    }
+
+    /** Prints via the terminal-owned {@code PrinterBehavior} — see {@link PosTerminal#printReceipt}. */
+    public void printReceipt(List<String> lines) {
+        terminal.printReceipt(lines);
+    }
+
+    /** No-op on vendors with no real APDU trans log — see {@link PosTerminal#setApduLoggingEnabled}. */
+    public void setApduLoggingEnabled(boolean enabled) {
+        terminal.setApduLoggingEnabled(enabled);
+    }
+
+    public boolean isApduLoggingEnabled() {
+        return terminal.isApduLoggingEnabled();
     }
 
     @Override

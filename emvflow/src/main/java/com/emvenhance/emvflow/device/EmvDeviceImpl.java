@@ -69,8 +69,23 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public class EmvDeviceImpl implements IDevice {
     private static final String TAG = "DeviceImplNeptune";
-    /** Raw APDU trans log — release-gated, same convention as {@code EmvDebugger}/{@code ClssKernelProcess#enableDebugLog}: never log cardholder data in a release build. */
-    private static final boolean LOG_APDU = BuildConfig.DEBUG;
+    /**
+     * Raw APDU trans log, on by default in a debug build. {@link #setApduLoggingEnabled} lets
+     * the UI turn it off mid-session without a rebuild; {@link #isApduLoggingEnabled} always
+     * reports {@code false} in a release build regardless of what was last set — same convention
+     * as {@code EmvDebugger}/{@code ClssKernelProcess#enableDebugLog}: never log cardholder data
+     * in a release build.
+     */
+    private static volatile boolean apduLoggingEnabled = BuildConfig.DEBUG;
+
+    /** Runtime on/off for the APDU trans log — no-op outside a debug build, see the field doc. */
+    public static void setApduLoggingEnabled(boolean enabled) {
+        apduLoggingEnabled = enabled;
+    }
+
+    public static boolean isApduLoggingEnabled() {
+        return BuildConfig.DEBUG && apduLoggingEnabled;
+    }
 
     private String expectPinLen = "0,4,5,6,7,8,9,10,11,12";
     private int timeOut = 30000;
@@ -570,12 +585,12 @@ public class EmvDeviceImpl implements IDevice {
 
     /**
      * Logs an outgoing APDU command — command bytes, Lc/Le, and data-in when present. Gated by
-     * {@link #LOG_APDU}: the hex conversion itself is skipped in a release build, not just the
-     * log call, since {@link ConvertUtils#bcd2Str} isn't free and this runs on every APDU in an
-     * EMV transaction.
+     * {@link #isApduLoggingEnabled()}: the hex conversion itself is skipped when off, not just
+     * the log call, since {@link ConvertUtils#bcd2Str} isn't free and this runs on every APDU in
+     * an EMV transaction.
      */
     private static void logApduSend(String channel, ApduSendL2 apduSend) {
-        if (!LOG_APDU) {
+        if (!isApduLoggingEnabled()) {
             return;
         }
         StringBuilder sb = new StringBuilder(channel)
@@ -590,7 +605,7 @@ public class EmvDeviceImpl implements IDevice {
 
     /** Logs the matching APDU response — status word (SW1SW2) and data-out when present. */
     private static void logApduResp(String channel, byte swa, byte swb, @Nullable byte[] dataOut) {
-        if (!LOG_APDU) {
+        if (!isApduLoggingEnabled()) {
             return;
         }
         StringBuilder sb = new StringBuilder(channel)

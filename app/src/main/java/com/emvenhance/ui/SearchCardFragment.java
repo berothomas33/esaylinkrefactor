@@ -15,7 +15,11 @@ import com.emvenhance.R;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
+import com.emvenhance.core.event.TransactionStepEvent;
+import com.google.android.material.checkbox.MaterialCheckBox;
 import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -91,15 +95,46 @@ public class SearchCardFragment extends Fragment {
             requireActivity().finish();
         });
 
+        bindKvRow(view, R.id.rowPan, getString(R.string.label_pan_result));
+        bindKvRow(view, R.id.rowTvr, getString(R.string.label_tvr));
+        bindKvRow(view, R.id.rowTacDenial, getString(R.string.label_tac_denial));
+        bindKvRow(view, R.id.rowIacDenial, getString(R.string.label_iac_denial));
+        bindKvRow(view, R.id.rowIccData, getString(R.string.label_icc_data));
+
+        MaterialCheckBox chkApduLog = view.findViewById(R.id.chkApduLog);
+        chkApduLog.setChecked(viewModel.isApduLoggingEnabled());
+        chkApduLog.setOnCheckedChangeListener((btn, checked) ->
+                viewModel.setApduLoggingEnabled(checked));
+
+        View resultGroup = view.findViewById(R.id.resultGroup);
+        view.findViewById(R.id.btnPrintResult).setOnClickListener(v -> {
+            viewModel.printReceipt(buildResultLines(view));
+            Toast.makeText(requireContext(), R.string.result_printed, Toast.LENGTH_SHORT).show();
+        });
+
         // Once a card is actually detected, the "insert / swipe / tap / manual" choices no
         // longer describe what's happening — hide them instead of leaving a stale, misleading
-        // prompt on screen while EMV runs (tracked by emvStepBanner above instead).
+        // prompt on screen while EMV runs (tracked by emvStepBanner above instead). The result
+        // panel is the mirror image: hidden until the transaction actually finishes, chip/
+        // contactless only — mag/manual have no TVR/TAC/IAC/Field 55 to show (§ PaxEmvBehavior
+        // captureTransactionSummary), so their rows just read "—".
         View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
         viewModel.getTransactionStep().observe(getViewLifecycleOwner(), event -> {
-            boolean stillChoosing = event.getStep() == TransactionStep.IDLE
-                    || event.getStep() == TransactionStep.TRANSACTION_STARTED
-                    || event.getStep() == TransactionStep.WAITING_FOR_CARD;
+            TransactionStep step = event.getStep();
+            boolean stillChoosing = step == TransactionStep.IDLE
+                    || step == TransactionStep.TRANSACTION_STARTED
+                    || step == TransactionStep.WAITING_FOR_CARD;
             methodSelectionGroup.setVisibility(stillChoosing ? View.VISIBLE : View.GONE);
+
+            boolean finished = step == TransactionStep.APPROVED || step == TransactionStep.DECLINED;
+            resultGroup.setVisibility(finished ? View.VISIBLE : View.GONE);
+            if (finished) {
+                setKvValue(view, R.id.rowPan, event.getString(TransactionStepEvent.KEY_PAN));
+                setKvValue(view, R.id.rowTvr, event.getString(TransactionStepEvent.KEY_TVR));
+                setKvValue(view, R.id.rowTacDenial, event.getString(TransactionStepEvent.KEY_TAC_DENIAL));
+                setKvValue(view, R.id.rowIacDenial, event.getString(TransactionStepEvent.KEY_IAC_DENIAL));
+                setKvValue(view, R.id.rowIccData, event.getString(TransactionStepEvent.KEY_ICC_DATA));
+            }
         });
 
         // Fire the search the moment this screen is up, so the reader is live as soon as the
@@ -114,6 +149,32 @@ public class SearchCardFragment extends Fragment {
         ((TextView) row.findViewById(R.id.methodBadge)).setText(badge);
         ((TextView) row.findViewById(R.id.methodTitle)).setText(title);
         ((TextView) row.findViewById(R.id.methodSubtitle)).setText(subtitle);
+    }
+
+    private static void bindKvRow(View parent, int rowId, String label) {
+        ((TextView) parent.findViewById(rowId).findViewById(R.id.kvLabel)).setText(label);
+    }
+
+    private static void setKvValue(View parent, int rowId, String value) {
+        ((TextView) parent.findViewById(rowId).findViewById(R.id.kvValue)).setText(value);
+    }
+
+    /** Reads back what's currently on screen — the same values the result rows just set. */
+    private static List<String> buildResultLines(View view) {
+        List<String> lines = new ArrayList<>();
+        lines.add(kvLine(view, R.id.rowPan));
+        lines.add(kvLine(view, R.id.rowTvr));
+        lines.add(kvLine(view, R.id.rowTacDenial));
+        lines.add(kvLine(view, R.id.rowIacDenial));
+        lines.add(kvLine(view, R.id.rowIccData));
+        return lines;
+    }
+
+    private static String kvLine(View parent, int rowId) {
+        View row = parent.findViewById(rowId);
+        String label = ((TextView) row.findViewById(R.id.kvLabel)).getText().toString();
+        String value = ((TextView) row.findViewById(R.id.kvValue)).getText().toString();
+        return label + ": " + value;
     }
 
     private static String formatAmount(long amountMinor) {
