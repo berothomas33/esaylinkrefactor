@@ -1265,15 +1265,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
         int candidates = candList == null ? 0 : candList.size();
-        boolean needsChoice = candidates >= 2;
+        // Debug builds always show the dialog, even for a single candidate, so it can be
+        // exercised on any test card instead of needing a real dual-AID one — never in release,
+        // where a lone application should keep auto-selecting with no extra tap.
+        boolean showDialog = candidates >= 2 || (BuildConfig.DEBUG && candidates >= 1);
         announceStep(isFirstSelect
                         ? EmvStep.WAIT_APPLICATION_SELECTION
                         : EmvStep.FINAL_APPLICATION_SELECTION,
-                candidates + " candidate AID(s)" + (needsChoice ? "" : ", selecting first"));
+                candidates + " candidate AID(s)" + (showDialog ? "" : ", selecting first"));
         requireEngine().notifyTransactionStep(
                 TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
 
-        if (!needsChoice) {
+        if (!showDialog) {
             // Nothing for the cardholder to choose between — index 0 either selects the card's
             // only application, or (candList empty/null) is the safe default the kernel expects.
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
