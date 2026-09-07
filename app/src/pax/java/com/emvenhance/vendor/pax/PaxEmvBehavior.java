@@ -1429,7 +1429,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         byte[] field55 = out.toByteArray();
         String hex = ConvertUtils.bcd2Str(field55, field55.length);
-        LogUtils.i(TAG, "Field 55 (ICC data, " + field55.length + " bytes): " + hex);
+        LogUtils.tlv(TAG, "Field 55 (ICC data)", field55, hex);
         return hex;
     }
 

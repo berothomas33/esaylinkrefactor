@@ -181,6 +181,19 @@ public class LogUtils {
     }
 
     /**
+     * output hex-encoded TLV/ICC data at INFO level — e.g. Field 55 built for the host.
+     * @param tag tag
+     * @param label what this data is (e.g. "Field 55 (ICC data)")
+     * @param data raw bytes before hex encoding, only used for the byte count
+     * @param hex hex-encoded representation of data
+     */
+    public static void tlv(String tag, String label, byte[] data, String hex) {
+        if (IS_DEBUG) {
+            Log.i(tag, label + " (" + data.length + " bytes): " + hex);
+        }
+    }
+
+    /**
      * log to file
      * @param tag tag
      * @param msg msg
