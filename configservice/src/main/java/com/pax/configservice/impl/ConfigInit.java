@@ -34,7 +34,6 @@ import com.pax.bizentity.entity.clss.paywave.PayWaveParamBean;
 import com.pax.bizentity.entity.clss.pboc.PBOCParamBean;
 import com.pax.bizentity.entity.clss.pure.PureParamBean;
 import com.pax.bizentity.entity.clss.rupay.RupayParamBean;
-import com.pax.commonlib.init.IModuleInit;
 import com.pax.commonlib.json.JsonProxy;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.poslib.model.ModelInfo;
@@ -46,13 +45,10 @@ import java.util.Map;
 /**
  * init all required parameters by application
  */
-public class ConfigInit implements IModuleInit {
+public class ConfigInit {
 
     private static final String TAG = "ConfigInit";
 
-    private IModuleInit.Callback callback;
-
-    @Override
     public void init() {
         new Thread(this::runInit, "ConfigInit").start();
     }
@@ -60,7 +56,6 @@ public class ConfigInit implements IModuleInit {
     private void runInit() {
         try {
             loadConfigParams();
-            notifyCallback();
             // Terminal config depends on both config params and acquirer/issuer data being present.
             loadAcquirerData();
             new EmvParamService().insertTerminalConfig();
@@ -148,15 +143,4 @@ public class ConfigInit implements IModuleInit {
         emvParamService.insertRupayParam(rupayParamBean);
     }
 
-    private void notifyCallback() {
-        if (callback != null) {
-            callback.initDone();
-            callback = null;
-        }
-    }
-
-    @Override
-    public void setCallback(Callback callback) {
-        this.callback = callback;
-    }
 }

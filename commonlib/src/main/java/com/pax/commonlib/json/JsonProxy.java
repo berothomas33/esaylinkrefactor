@@ -20,8 +20,8 @@ package com.pax.commonlib.json;
 import java.lang.reflect.Type;
 import java.util.HashMap;
 
-public class JsonProxy implements IJson{
-    private IJson iJson;
+public class JsonProxy {
+    private FastJson iJson;
     private static final class LazyHolder{
         private static final JsonProxy INSTANCE = new JsonProxy();
     }
@@ -29,7 +29,7 @@ public class JsonProxy implements IJson{
         return LazyHolder.INSTANCE;
     }
 
-    public void init(IJson iJson){
+    public void init(FastJson iJson){
         this.iJson = iJson;
     }
     /**
@@ -39,7 +39,6 @@ public class JsonProxy implements IJson{
      * @param type     type
      * @return T object
      */
-    @Override
     public <T> T readObjFromAsset(String fileName, Type type) {
         return iJson.readObjFromAsset(fileName,type);
     }
@@ -50,7 +49,6 @@ public class JsonProxy implements IJson{
      * @param fileName fileName in assets
      * @return HashMap
      */
-    @Override
     public HashMap<String, String> readObjFromAsset(String fileName) {
         return iJson.readObjFromAsset(fileName);
     }
@@ -62,7 +60,6 @@ public class JsonProxy implements IJson{
      * @param type type
      * @return T object
      */
-    @Override
     public <T> T from(String json, Class<T> type) {
         return iJson.from(json,type);
     }
@@ -74,7 +71,6 @@ public class JsonProxy implements IJson{
      * @param type type
      * @return T object
      */
-    @Override
     public <T> T from(String json, Type type) {
         return iJson.from(json, type);
     }
@@ -85,7 +81,6 @@ public class JsonProxy implements IJson{
      * @param json json string
      * @return HashMap
      */
-    @Override
     public HashMap<String, String> fromMapStr(String json) {
         return iJson.fromMapStr(json);
     }
@@ -96,7 +91,6 @@ public class JsonProxy implements IJson{
      * @param <T> T type bean
      * @return json string
      */
-    @Override
     public <T> String to(T t) {
         return iJson.to(t);
     }

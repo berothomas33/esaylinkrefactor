@@ -26,7 +26,7 @@ import java.io.InputStreamReader;
 import java.lang.reflect.Type;
 import java.util.HashMap;
 
-public class FastJson implements IJson{
+public class FastJson {
     /**
      * convert json file in assets to specific type object
      *
@@ -34,7 +34,6 @@ public class FastJson implements IJson{
      * @param type     type
      * @return T object
      */
-    @Override
     public <T> T readObjFromAsset(String fileName, Type type) {
         StringBuilder jsonBuilder = new StringBuilder();
         try(
@@ -57,7 +56,6 @@ public class FastJson implements IJson{
      * @param fileName fileName in assets
      * @return HashMap
      */
-    @Override
     public HashMap<String, String> readObjFromAsset(String fileName) {
         StringBuilder jsonBuilder = new StringBuilder();
         try(
@@ -81,7 +79,6 @@ public class FastJson implements IJson{
      * @param type type
      * @return T object
      */
-    @Override
     public <T> T from(String json, Class<T> type) {
         return JSON.parseObject(json, type);
     }
@@ -93,7 +90,6 @@ public class FastJson implements IJson{
      * @param type type
      * @return T object
      */
-    @Override
     public <T> T from(String json, Type type) {
         return JSON.parseObject(json, type);
     }
@@ -104,7 +100,6 @@ public class FastJson implements IJson{
      * @param json json string
      * @return HashMap
      */
-    @Override
     public HashMap<String, String> fromMapStr(String json) {
         return JSON.parseObject(json, new TypeReference<HashMap<String, String>>() {});
     }
@@ -115,7 +110,6 @@ public class FastJson implements IJson{
      * @param <T> T type bean
      * @return json string
      */
-    @Override
     public <T> String to(T t) {
         return JSON.toJSONString(t);
     }

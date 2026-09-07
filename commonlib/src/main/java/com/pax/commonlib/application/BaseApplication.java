@@ -20,16 +20,12 @@ import android.content.Context;
 import android.os.Handler;
 import androidx.multidex.MultiDex;
 import com.pax.commonlib.BuildConfig;
-import com.pax.commonlib.event.EventProxy;
-import com.pax.commonlib.event.RxBusImpl;
 import com.pax.commonlib.json.FastJson;
 import com.pax.commonlib.json.JsonProxy;
-import com.pax.commonlib.router.ForResultActivityLauncher;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.commonlib.utils.ThreadPoolManager;
 import com.sankuai.waimai.router.Router;
 import com.sankuai.waimai.router.common.DefaultRootUriHandler;
-import com.sankuai.waimai.router.components.RouterComponents;
 import com.sankuai.waimai.router.core.Debugger;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -52,7 +48,6 @@ public class BaseApplication extends Application {
         backgroundExecutor = ThreadPoolManager.getInstance().getExecutor();
         backgroundExecutor.execute(() -> {
             JsonProxy.getInstance().init(new FastJson());
-            EventProxy.getInstance().init(new RxBusImpl());
             MultiDex.install(mBaseApplication);
         });
         handler = new Handler();
@@ -64,7 +59,6 @@ public class BaseApplication extends Application {
             Debugger.setEnableLog(true);
             Debugger.setLogger(new RouterDebugger());
         }
-        RouterComponents.setActivityLauncher(ForResultActivityLauncher.getInstance());
         DefaultRootUriHandler rootHandler = new DefaultRootUriHandler(mBaseApplication);
         Router.init(rootHandler);
     }
