@@ -126,14 +126,21 @@ public class SearchCardFragment extends Fragment {
                     || step == TransactionStep.WAITING_FOR_CARD;
             methodSelectionGroup.setVisibility(stillChoosing ? View.VISIBLE : View.GONE);
 
-            boolean finished = step == TransactionStep.APPROVED || step == TransactionStep.DECLINED;
-            resultGroup.setVisibility(finished ? View.VISIBLE : View.GONE);
-            if (finished) {
+            // APPROVED/DECLINED is immediately followed by a separate COMPLETED event (engine's
+            // notifyCompleted(), fired right after) — both land on this same observer within the
+            // same main-thread burst, before a frame ever draws. Hiding resultGroup again on
+            // that COMPLETED event (or on ERROR, or on anything else) meant the panel was set
+            // VISIBLE then GONE before Android ever painted it — never actually seen. Only ever
+            // hide it when a *new* transaction starts; every other step leaves it as it is.
+            if (step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
+                resultGroup.setVisibility(View.VISIBLE);
                 setKvValue(view, R.id.rowPan, event.getString(TransactionStepEvent.KEY_PAN));
                 setKvValue(view, R.id.rowTvr, event.getString(TransactionStepEvent.KEY_TVR));
                 setKvValue(view, R.id.rowTacDenial, event.getString(TransactionStepEvent.KEY_TAC_DENIAL));
                 setKvValue(view, R.id.rowIacDenial, event.getString(TransactionStepEvent.KEY_IAC_DENIAL));
                 setKvValue(view, R.id.rowIccData, event.getString(TransactionStepEvent.KEY_ICC_DATA));
+            } else if (stillChoosing) {
+                resultGroup.setVisibility(View.GONE);
             }
         });
 
