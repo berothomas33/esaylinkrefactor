@@ -1,5 +1,7 @@
 package com.emvenhance.core.card;
 
+import androidx.annotation.Nullable;
+
 /**
  * Immutable value object holding everything needed to start a transaction.
  */
@@ -9,10 +11,24 @@ public final class TransactionConfig {
     private final long amountMinor;
     private final EntryMethod mode;
 
+    /**
+     * Field 55 (ICC System Related Data) as hex-encoded BER-TLV, built once the kernel has read
+     * the card — {@code null} for magstripe/manual (no ICC) or before a chip/contactless
+     * transaction reaches {@code START_ONLINE_PROCESS}. See {@link #withIccData}.
+     */
+    @Nullable
+    private final String iccData;
+
     public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
+        this(type, amountMinor, mode, null);
+    }
+
+    private TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode,
+            @Nullable String iccData) {
         this.type = type;
         this.amountMinor = amountMinor;
         this.mode = mode;
+        this.iccData = iccData;
     }
 
     public TransactionType getType() {
@@ -30,6 +46,11 @@ public final class TransactionConfig {
 
     public EntryMethod getMode() {
         return mode;
+    }
+
+    @Nullable
+    public String getIccData() {
+        return iccData;
     }
 
     public boolean isContact() {
@@ -66,6 +87,11 @@ public final class TransactionConfig {
 
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
     public TransactionConfig withMode(EntryMethod mode) {
-        return new TransactionConfig(type, amountMinor, mode);
+        return new TransactionConfig(type, amountMinor, mode, iccData);
+    }
+
+    /** Same everything else, with Field 55 attached — see {@link #getIccData()}. */
+    public TransactionConfig withIccData(@Nullable String iccData) {
+        return new TransactionConfig(type, amountMinor, mode, iccData);
     }
 }

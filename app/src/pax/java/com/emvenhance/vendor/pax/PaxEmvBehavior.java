@@ -49,6 +49,7 @@ import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.model.ModelInfo;
 import com.pax.poslib.utils.PosDeviceUtils;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -1367,11 +1368,116 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public OnlineResultWrapper startOnlineProcess() {
         announceStep(EmvStep.START_ONLINE_PROCESS, null);
+        if (activeConfig != null) {
+            activeConfig = activeConfig.withIccData(buildField55());
+        }
         AuthResult auth = requestOnline(requireEngine());
         lastAuth = auth;
         announceStep(EmvStep.ISSUER_AUTHENTICATION,
                 auth.isApproved() ? "host approved" : "host declined");
         return toOnlineResultWrapper(auth);
+    }
+
+    /**
+     * Field 55 (ICC System Related Data) as BER-TLV, hex-encoded — built here because
+     * {@code START_ONLINE_PROCESS} is the one place every chip/contactless transaction reaches
+     * (mag/manual never call this method at all; there's no ICC data to send for them). Reads
+     * whichever kernel actually drove the transaction — {@link ContactProcess#getTlv}/
+     * {@link ClssProcess#getTlv} only ever return a tag's VALUE bytes, so the tag and length
+     * prefix are encoded here.
+     *
+     * <p>Not included: {@code EMV_TAG_TM_9F53}'s proprietary siblings — the random-selection
+     * target/max/threshold percentages and a distinct "service type" tag — because no confirmed
+     * real tag ID for them exists anywhere in this codebase or in PAX's own vendored kernels.
+     * {@code TagsTable}'s {@code DF14}/{@code DF16}/{@code DF8122}-range constants already mean
+     * something else here (terminal action codes, service ID) — reusing them would silently
+     * write the wrong value into Field 55. Add the real ones once you have PAX's ApiMap for this
+     * kernel; guessing risks a host silently misparsing the field.
+     */
+    private String buildField55() {
+        int[] tags = {
+                TagsTable.AMOUNT,                  // 9F02 Amount, Authorized
+                TagsTable.AMOUNT_OTHER,             // 9F03 Amount, Other
+                TagsTable.TRANS_DATE,               // 9A   Transaction Date
+                TagsTable.TRANS_TIME,               // 9F21 Transaction Time
+                TagsTable.TRNAS_NO,                 // 9F41 Transaction Sequence Counter
+                TagsTable.TERMINAL_TYPE,            // 9F35 Terminal Type
+                TagsTable.TERMINAL_CAPABILITY,      // 9F33 Terminal Capabilities
+                TagsTable.ADDITIONAL_CAPABILITY,    // 9F40 Additional Terminal Capabilities
+                TagsTable.COUNTRY_CODE,             // 9F1A Terminal Country Code
+                TagsTable.CURRENCY_CODE,            // 5F2A Transaction Currency Code
+                TagsTable.TRANS_TYPE,               // 9C   Transaction Type
+                TagsTable.RUPAY_FLOOR_LIMIT,        // 9F1B Terminal Floor Limit
+                TagsTable.APP_VER,                  // 9F09 Application Version Number
+                TagsTable.MERCHANT_CATEGORY_CODE,   // 9F15 Merchant Category Code
+                TagsTable.TERMINAL_ID,              // 9F1C Terminal Identification
+                TagsTable.DDOL,                     // 9F49 Default DDOL
+                TagsTable.TDOL,                     // 97   Default TDOL
+                TagsTable.CONSECUTIVE_TRANS_LIMIT,  // 9F53 Consecutive Transaction Limit (Intl)
+        };
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        for (int tag : tags) {
+            byte[] value = readKernelTlv(tag);
+            if (value.length == 0) {
+                // Not present for this card/session (e.g. kernel never populated it) — omit
+                // the tag entirely rather than writing a zero-length or padded placeholder.
+                continue;
+            }
+            writeTlv(out, tag, value);
+        }
+
+        byte[] field55 = out.toByteArray();
+        String hex = ConvertUtils.bcd2Str(field55, field55.length);
+        LogUtils.i(TAG, "Field 55 (ICC data, " + field55.length + " bytes): " + hex);
+        return hex;
+    }
+
+    /** {@link ContactProcess#getTlv}/{@link ClssProcess#getTlv} both return only value bytes. */
+    private byte[] readKernelTlv(int tag) {
+        if (activeCard != null && activeCard.isContactless()) {
+            return kernel.contactless.getTlv(tag);
+        }
+        return kernel.contact.getTlv(tag);
+    }
+
+    /** Appends one BER-TLV entry (tag + length + value) for {@code tag}/{@code value}. */
+    private static void writeTlv(ByteArrayOutputStream out, int tag, byte[] value) {
+        byte[] tagBytes = tagToBytes(tag);
+        out.write(tagBytes, 0, tagBytes.length);
+        writeBerLength(out, value.length);
+        out.write(value, 0, value.length);
+    }
+
+    /**
+     * BER-TLV tag encoding for a {@link TagsTable} constant — one byte for a plain tag
+     * (e.g. {@code 0x9A}), two for an {@code 0x9F}/{@code 0x5F}-class tag (e.g. {@code 0x9F02}),
+     * three for a proprietary {@code 0xDF}-class tag (e.g. {@code 0xDF8120}). Matches how these
+     * constants are already written in {@link TagsTable} — the int's own magnitude says its
+     * byte length, no separate lookup needed.
+     */
+    private static byte[] tagToBytes(int tag) {
+        if (tag <= 0xFF) {
+            return new byte[]{(byte) tag};
+        }
+        if (tag <= 0xFFFF) {
+            return new byte[]{(byte) (tag >> 8), (byte) tag};
+        }
+        return new byte[]{(byte) (tag >> 16), (byte) (tag >> 8), (byte) tag};
+    }
+
+    /** BER-TLV length: short form under 128 bytes, one length-of-length byte above it. */
+    private static void writeBerLength(ByteArrayOutputStream out, int length) {
+        if (length < 0x80) {
+            out.write(length);
+        } else if (length <= 0xFF) {
+            out.write(0x81);
+            out.write(length);
+        } else {
+            out.write(0x82);
+            out.write((length >> 8) & 0xFF);
+            out.write(length & 0xFF);
+        }
     }
 
     @Override

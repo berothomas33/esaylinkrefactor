@@ -125,6 +125,13 @@ public class TagsTable {
 
     public static final int SERVICE_ID = 0xDF16;
 
+    // Standard EMV Book 3 tags — not previously defined here, added for Field 55 (ICC data)
+    // assembly. TERMINAL_ID/MERCHANT_CATEGORY_CODE/RUPAY_FLOOR_LIMIT above double as the
+    // standard 9F1C/9F15/9F1B tags despite their kernel-specific names.
+    public static final int DDOL = 0x9F49;
+    public static final int TDOL = 0x97;
+    public static final int CONSECUTIVE_TRANS_LIMIT = 0x9F53;
+
     private TagsTable() {
 
     }
