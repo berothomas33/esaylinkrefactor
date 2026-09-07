@@ -24,7 +24,6 @@ import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.IConfigParamService;
 import com.pax.configservice.impl.ConfigParamService;
 import com.pax.dal.ICardReaderHelper;
 import com.pax.dal.IDAL;
@@ -52,7 +51,7 @@ import java.util.Locale;
  * Device method
  */
 public class Device {
-    private static IConfigParamService configParamService = new ConfigParamService();
+    private static ConfigParamService configParamService = new ConfigParamService();
     private static IDAL idal = Sdk.getInstance().getDal(BaseApplication.getAppContext());
     private static final String TAG = "Device";
 

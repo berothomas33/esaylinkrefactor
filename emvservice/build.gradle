@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.emvenhance.emvflow'
+    namespace 'com.pax.emvservice'
     compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
@@ -14,10 +14,13 @@ android {
 
     buildTypes {
         release {
+
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        debug { }
+        debug {
+
+        }
     }
 
     compileOptions {
@@ -32,18 +35,17 @@ android {
     lint {
         abortOnError false
     }
+
 }
 
 dependencies {
-    // Brings EmvStep / EmvBehavior.Callback (and RxJava) so the PAX callbacks can
-    // report EMV progress directly, without a second listener type in between.
-    api project(':core')
-    api project(':emvservice')
-    api project(':configservice')
-    api project(':bizlib')
-    api project(':bizentity')
-    api project(':poslib')
-    api project(':commonlib')
-    api project(':emvbase')
-    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
+
+    api fileTree(include: ["*.jar"], dir: "libs")
+    api project(":bizentity")
+    api project(":emvbase")
+    api project(":emvlib")
+    api project(":commonlib")
+    api project(":bizlib")
+    api project(":poslib")
+
 }

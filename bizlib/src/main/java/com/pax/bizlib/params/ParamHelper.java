@@ -18,7 +18,6 @@ package com.pax.bizlib.params;
 import com.pax.bizlib.R;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.configservice.export.ConfigKeyConstant;
-import com.pax.configservice.export.IConfigParamService;
 import com.pax.configservice.impl.ConfigParamService;
 import com.pax.dal.entity.EPedType;
 import com.pax.dal.entity.EReaderType;
@@ -27,7 +26,7 @@ import com.pax.dal.entity.EReaderType;
  * business parameters
  */
 public class ParamHelper {
-    private static final IConfigParamService configParamService = new ConfigParamService();
+    private static final ConfigParamService configParamService = new ConfigParamService();
 
     private ParamHelper() {
         // do nothing

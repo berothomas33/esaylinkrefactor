@@ -82,8 +82,8 @@ dependencies {
     // PAX only: IngenicoTerminal/FakeTerminal never touch the PAX SDK, so the ingenico/fake
     // flavors don't need it on their classpath at all.
     paxImplementation project(':emvflow')
-    paxImplementation project(':emvservice:emv')
-    paxImplementation project(':configservice:impl')
+    paxImplementation project(':emvservice')
+    paxImplementation project(':configservice')
     paxImplementation project(':bizlib')
 
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"

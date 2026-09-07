@@ -42,7 +42,6 @@ dependencies {
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
     api project(':poslib')
     api project(':bizentity')
-    api project(':configservice:export')
-    api project(':configservice:impl')
+    api project(':configservice')
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 }
