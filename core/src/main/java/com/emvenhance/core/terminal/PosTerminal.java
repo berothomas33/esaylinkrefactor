@@ -71,9 +71,22 @@ public abstract class PosTerminal {
         return engine.authorize(config);
     }
 
-    /** Print receipt lines via the terminal-owned {@link PrinterBehavior}, through {@link EmvEngine#print}. */
+    /**
+     * Print receipt lines via the terminal-owned {@link PrinterBehavior}, through
+     * {@link EmvEngine#print}. Runs off the calling (UI) thread — {@code print()} blocks until
+     * the job finishes, and a real printer is slow enough that blocking the UI thread would ANR.
+     * A failure (no paper, DAL not ready, printer busy) is logged, not thrown — the caller asked
+     * to print and walked away; it has no exception handler waiting.
+     */
     public void printReceipt(List<String> lines) {
-        engine.print(lines);
+        new Thread(() -> {
+            try {
+                engine.print(lines);
+            } catch (Throwable t) {
+                //noinspection CallToPrintStackTrace
+                t.printStackTrace();
+            }
+        }, "PosTerminal-print").start();
     }
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────

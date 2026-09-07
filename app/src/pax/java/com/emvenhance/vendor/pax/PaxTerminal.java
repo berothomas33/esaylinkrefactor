@@ -54,7 +54,7 @@ public class PaxTerminal extends PosTerminal {
     public PaxTerminal() {
         this(new PaxKernel(),
                 HostDefaults.declineUntilWired(),
-                HostDefaults.logPrinter("PaxPrinter"));
+                new PaxPrinter());
     }
 
     private PaxTerminal(PaxKernel kernel,
