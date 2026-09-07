@@ -19,7 +19,6 @@ package com.pax.emvlib.utils;
 
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.emvlib.base.IEmvLoadLibCallback;
-import com.sankuai.waimai.router.Router;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -79,20 +78,10 @@ public class EmvUtils {
 
     /**
      * WMRouter's Gradle plugin cannot run on AGP 8+, so {@code @RouterService}
-     * {@link IEmvLoadLibCallback} registrations are never merged. Fall back to
-     * constructing the base (DEVICE/ENTRY) and dpas (EMV/DPAS) loaders directly.
+     * {@link IEmvLoadLibCallback} registrations are never merged. Construct the
+     * base (DEVICE/ENTRY) and dpas (EMV/DPAS) loaders directly instead.
      */
     static List<IEmvLoadLibCallback> resolveLoadCallbacks() {
-        List<IEmvLoadLibCallback> callbackList = null;
-        try {
-            callbackList = Router.getAllServices(IEmvLoadLibCallback.class);
-        } catch (Throwable t) {
-            LogUtils.e(TAG, "Router IEmvLoadLibCallback lookup failed", t);
-        }
-        if (callbackList != null && !callbackList.isEmpty()) {
-            return callbackList;
-        }
-        LogUtils.w(TAG, "No WMRouter IEmvLoadLibCallback; loading DEVICE/EMV kernels directly");
         return directKernelLoaders();
     }
 

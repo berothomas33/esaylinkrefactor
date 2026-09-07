@@ -11,7 +11,6 @@ import com.pax.emvlib.utils.EmvUtils;
 import com.pax.jemv.device.DeviceManager;
 import com.pax.neptunelite.api.NeptuneLiteUser;
 import com.pax.poslib.gl.convert.ConvertHelper;
-import com.pax.poslib.gl.impl.GL;
 import com.pax.poslib.model.ModelInfo;
 import com.pax.poslib.neptune.Sdk;
 
@@ -27,7 +26,7 @@ import com.pax.poslib.neptune.Sdk;
  *   <li>Neptune DAL via {@code NeptuneLiteUser.getDal(Application)} — the documented
  *       Neptune Lite entry point. {@link Sdk} is then synced so PedHelper / ModelInfo
  *       see the same {@link IDAL}.</li>
- *   <li>{@code GL.init} and {@code ModelInfo.buildCache}.</li>
+ *   <li>{@code ModelInfo.buildCache}.</li>
  *   <li>{@link EmvUtils#loadLibrary()} — {@code F_DEVICE}/{@code F_EMV} JNI libs
  *       required before {@code EMVCoreInit}.</li>
  *   <li>{@code DeviceManager.setIDevice} — kernel ICC/PIN/time callbacks go through
@@ -48,7 +47,7 @@ public final class EmvFlowRuntime {
     private static volatile IDAL dal;
     private static volatile boolean lifecycleRegistered;
     private static volatile boolean convertInitialized;
-    private static volatile boolean glInitialized;
+    private static volatile boolean modelCacheInitialized;
     private static volatile boolean librariesLoaded;
 
     private EmvFlowRuntime() {
@@ -65,13 +64,12 @@ public final class EmvFlowRuntime {
             lifecycleRegistered = true;
         }
         acquireDal();
-        if (!glInitialized) {
+        if (!modelCacheInitialized) {
             try {
-                GL.init(application);
                 ModelInfo.getInstance().buildCache();
-                glInitialized = true;
+                modelCacheInitialized = true;
             } catch (Throwable t) {
-                LogUtils.e(TAG, "GL/ModelInfo init failed", t);
+                LogUtils.e(TAG, "ModelInfo init failed", t);
             }
         }
         loadEmvNativeLibraries();
