@@ -39,10 +39,9 @@ public class MyEncryptedSQLiteOpenHelper extends BaseOpenHelper {
 
     @Override
     public void onUpgrade(Database db, int oldVersion, int newVersion) {
-        for (int i = oldVersion;i<newVersion;i++){
-            DbUpgrade.upgrade(db,i,i+1);
-        }
-        LogUtils.e(TAG, "upgrade run success");
+        LogUtils.e(TAG, "No migration path from schema " + oldVersion + " to " + newVersion + ", recreating tables");
+        DaoMaster.dropAllTables(db, true);
+        onCreate(db);
     }
 
     @Override
@@ -50,11 +49,6 @@ public class MyEncryptedSQLiteOpenHelper extends BaseOpenHelper {
         int version = DaoMaster.SCHEMA_VERSION;
         MyEncryptedHelper encryptedHelper = new MyEncryptedHelper(this.context, this.name, version, true);
         return encryptedHelper.wrap(encryptedHelper.getWritableDatabase(password));
-    }
-
-    @Override
-    public void afterDBReady() {
-        DbUpgrade.executeAfterDBReadyCallback();
     }
 
     private final class MyEncryptedHelper extends SQLiteOpenHelper {
