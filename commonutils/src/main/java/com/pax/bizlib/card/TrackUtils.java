@@ -18,7 +18,7 @@ package com.pax.bizlib.card;
 import android.text.TextUtils;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.pax.poslib.gl.convert.ConvertHelper;
+import com.pax.commonlib.utils.ConvertUtils;
 
 /**
  * track utils
@@ -34,7 +34,7 @@ public class TrackUtils {
      * @return track2
      */
     public static String getTrack2FromTag57(@NonNull byte[] tag57) {
-        String strTrack2 = ConvertHelper.getConvert().bcdToStr(tag57);
+        String strTrack2 = ConvertUtils.bcdToStr(tag57);
         return strTrack2.split("F")[0];
     }
 
