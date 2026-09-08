@@ -32,7 +32,7 @@ android {
 
     // Each flavor compiles only its own vendor sources (src/pax, src/ingenico, src/fake) and
     // pulls in only the module dependencies that vendor actually needs — an ingenico/fake build
-    // never touches the PAX SDK modules (emvlib/emvservice/configservice/bizlib/emvflow) at all.
+    // never touches the PAX SDK modules (emvlib/emvservice/bizentity/bizlib/emvflow) at all.
     flavorDimensions = ["vendor"]
     productFlavors {
         pax {
@@ -83,7 +83,7 @@ dependencies {
     // flavors don't need it on their classpath at all.
     paxImplementation project(':emvflow')
     paxImplementation project(':emvservice')
-    paxImplementation project(':configservice')
+    paxImplementation project(':bizentity')
     paxImplementation project(':bizlib')
 
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"

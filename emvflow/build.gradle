@@ -39,7 +39,6 @@ dependencies {
     // report EMV progress directly, without a second listener type in between.
     api project(':core')
     api project(':emvservice')
-    api project(':configservice')
     api project(':bizlib')
     api project(':bizentity')
     api project(':poslib')
