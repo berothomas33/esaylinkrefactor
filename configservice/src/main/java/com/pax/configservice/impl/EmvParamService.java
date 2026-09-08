@@ -130,10 +130,6 @@ public class EmvParamService {
         return capkInsert;
     }
 
-    public void removeEmvCapk() {
-        GreendaoHelper.getEmvCapkHelper().deleteAll();
-    }
-
     /**
      * insert terminal config
      *
@@ -142,10 +138,6 @@ public class EmvParamService {
     public boolean insertTerminalConfig() {
         cachedBuilder.setTermConfig(getTerminalConfig());
         return true;
-    }
-
-    public void removeTerminalConfig() {
-        cachedBuilder.setTermConfig(null);
     }
 
     /**
@@ -163,10 +155,6 @@ public class EmvParamService {
             cachedBuilder.setEmvAidList(emvAidConvert(emvAidList));
         }
         return insert;
-    }
-
-    public void removeEmvAid() {
-        GreendaoHelper.getEmvAidHelper().deleteAll();
     }
 
     /**
@@ -189,11 +177,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    public void removeAmexParam() {
-        AmexAidDbHelper.getInstance().deleteAll();
-        AmexDrlDbHelper.getInstance().deleteAll();
-    }
-
     /**
      * insert paypass param
      *
@@ -208,10 +191,6 @@ public class EmvParamService {
         }
         cachedBuilder.setPassParam(paypassConvert(payPassParam));
         return aidInsert;
-    }
-
-    public void removePaypassParam() {
-        PaypassAidDbHelper.getInstance().deleteAll();
     }
 
     /**
@@ -244,12 +223,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    public void removePaywaveParam() {
-        PaywaveAidDbHelper.getInstance().deleteAll();
-        PaywaveFloorLimitDbHelper.getInstance().deleteAll();
-        PaywaveDrlDbHelper.getInstance().deleteAll();
-    }
-
     /**
      * insert dpas param
      *
@@ -264,10 +237,6 @@ public class EmvParamService {
         }
         cachedBuilder.setDpasParam(dpasConvert(dpasParamBean));
         return aidInsert;
-    }
-
-    public void removeDpasParam() {
-        DpasAidDbHelper.getInstance().deleteAll();
     }
 
     /**
@@ -286,10 +255,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    public void removeEFTParam() {
-        EFTAidDbHelper.getInstance().deleteAll();
-    }
-
     /**
      * insert jcb param
      *
@@ -304,10 +269,6 @@ public class EmvParamService {
         }
         cachedBuilder.setJcbParam(jcbConvert(jcbParamBean));
         return aidInsert;
-    }
-
-    public void removeJcbParam() {
-        JcbAidDbHelper.getInstance().deleteAll();
     }
 
     /**
@@ -326,10 +287,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    public void removeMirParam() {
-        MirAidDbHelper.getInstance().deleteAll();
-    }
-
     /**
      * insert pboc param
      *
@@ -344,10 +301,6 @@ public class EmvParamService {
         }
         cachedBuilder.setPbocParam(pbocConvert(pbocParamBean));
         return aidInsert;
-    }
-
-    public void removePBOCParam() {
-        PBOCAidDbHelper.getInstance().deleteAll();
     }
 
     /**
@@ -366,10 +319,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    public void removePureParam() {
-        PureAidDbHelper.getInstance().deleteAll();
-    }
-
     /**
      * insert rupay param
      *
@@ -384,10 +333,6 @@ public class EmvParamService {
         }
         cachedBuilder.setRuPayParam(rupayConvert(rupayParamBean));
         return aidInsert;
-    }
-
-    public void removeRupayParam() {
-        RupayAidDbHelper.getInstance().deleteAll();
     }
 
     private RuPayParam rupayConvert(RupayParamBean rupayParamBean) {
@@ -1053,21 +998,5 @@ public class EmvParamService {
             capkParam.setCapkRevokeList(revokes);
         }
         return capkParam;
-    }
-
-    public void invalidCachedEmvParam() {
-        cachedBuilder.setCapkParam(null)
-                .setEmvAidList(null)
-                .setTermConfig(null)
-                .setAmexParam(null)
-                .setDpasParam(null)
-                .setEFTParam(null)
-                .setJcbParam(null)
-                .setMirParam(null)
-                .setPassParam(null)
-                .setPayWaveParam(null)
-                .setPbocParam(null)
-                .setPureParam(null)
-                .setRuPayParam(null);
     }
 }

@@ -52,95 +52,12 @@ public class AcquirerIssuerService {
     }
 
     /**
-     * update acquirer
-     *
-     * @param acquirer acquirer
-     * @return update status
-     */
-    public boolean updateAcquirer(Acquirer acquirer) {
-        return GreendaoHelper.getAcquirerHelper().update(acquirer);
-    }
-
-    /**
-     * delete all acquirers
-     */
-    public void deleteAllAcquirer() {
-        GreendaoHelper.getAcquirerHelper().deleteAll();
-    }
-
-    /**
-     * find issuer by pan
-     *
-     * @param pan pan
-     * @return matched issuer
-     */
-    public Issuer findIssuerByPan(String pan) {
-        return null;
-    }
-
-    /**
-     * check whether issuer is supported under current acquirer
-     *
-     * @param issuer
-     * @return
-     */
-    public boolean isIssuerSupported(Issuer issuer) {
-        return false;
-    }
-
-    /**
-     * delete all issuers
-     */
-    public void deleteAllIssuer() {
-        GreendaoHelper.getIssuerHelper().deleteAll();
-    }
-
-    /**
      * insert issuer list
      *
      * @param issuerList issuer list
      */
     public void insertIssuer(List<Issuer> issuerList) {
         GreendaoHelper.getIssuerHelper().insert(issuerList);
-    }
-
-    /**
-     * find issuer by name
-     *
-     * @param issuerName issuer name
-     * @return issuer
-     */
-    public Issuer findIssuer(String issuerName) {
-        return GreendaoHelper.getIssuerHelper().findIssuer(issuerName);
-    }
-
-    /**
-     * find all issuer
-     *
-     * @return all issuer
-     */
-    public List<Issuer> findAllIssuers() {
-        return GreendaoHelper.getIssuerHelper().loadAll();
-    }
-
-    /**
-     * update issuer
-     *
-     * @param issuer issuer
-     */
-    public void updateIssuer(Issuer issuer) {
-        GreendaoHelper.getIssuerHelper().update(issuer);
-    }
-
-    /**
-     * bind Acquirer and Issuer
-     *
-     * @param acquirer Acquirer
-     * @param issuer   Issuer
-     * @return bind result
-     */
-    public boolean bind(Acquirer acquirer, Issuer issuer) {
-        return GreendaoHelper.getAcqIssuerRelationHelper().bindAcqAndIssuer(acquirer, issuer);
     }
 
     /**
@@ -174,29 +91,6 @@ public class AcquirerIssuerService {
     }
 
     /**
-     * find all acquirer and issuer relation
-     *
-     * @return acquirer and issuer relation list
-     */
-    public List<AcqIssuerRelation> findAllAcqIssuerRelation() {
-        return GreendaoHelper.getAcqIssuerRelationHelper().loadAll();
-    }
-
-    /**
-     * delete all acquirer and issuer relation
-     */
-    public void deleteAllAcqIssuerRelation() {
-        GreendaoHelper.getAcqIssuerRelationHelper().deleteAll();
-    }
-
-    /**
-     * delete all card range
-     */
-    public void deleteAllCardRange() {
-        GreendaoHelper.getCardRangeHelper().deleteAll();
-    }
-
-    /**
      * insert card range
      *
      * @param cardRangeList card range list
@@ -204,25 +98,6 @@ public class AcquirerIssuerService {
      */
     public boolean insertCardRange(List<CardRange> cardRangeList) {
         return GreendaoHelper.getCardRangeHelper().insert(cardRangeList);
-    }
-
-    /**
-     * find all card range
-     *
-     * @return all card range
-     */
-    public List<CardRange> findAllCardRanges() {
-        return GreendaoHelper.getCardRangeHelper().loadAll();
-    }
-
-    /**
-     * find matched issuer by acquirer
-     *
-     * @param curAcq acquirer
-     * @return issuer list
-     */
-    public List<Issuer> lookupIssuersForAcquirer(Acquirer curAcq) {
-        return GreendaoHelper.getIssuerHelper().lookupIssuersForAcquirer(curAcq);
     }
 
     /**
