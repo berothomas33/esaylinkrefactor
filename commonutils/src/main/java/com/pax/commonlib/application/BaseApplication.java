@@ -19,7 +19,7 @@ import android.app.Application;
 import android.content.Context;
 import android.os.Handler;
 import androidx.multidex.MultiDex;
-import com.pax.commonlib.BuildConfig;
+import com.pax.commonutils.BuildConfig;
 import com.pax.commonlib.json.FastJson;
 import com.pax.commonlib.json.JsonProxy;
 import com.pax.commonlib.utils.LogUtils;

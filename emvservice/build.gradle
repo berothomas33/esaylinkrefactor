@@ -44,7 +44,7 @@ dependencies {
     api project(":bizentity")
     api project(":emvbase")
     api project(":emvlib")
-    api project(":commonlib")
+    api project(":commonutils")
     api project(":bizlib")
     api project(":poslib")
 

@@ -56,7 +56,7 @@ dependencies {
     api fileTree(include: ["*.jar"], dir: "libs")
     api files("libs/nativetouchevent-release.aar")
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
-    api project(":commonlib")
+    api project(":commonutils")
     testImplementation "junit:junit:$rootProject.junit"
 
 }

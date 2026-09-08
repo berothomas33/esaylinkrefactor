@@ -40,7 +40,7 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
-    api project(':commonlib')
+    api project(':commonutils')
     api project(':emvbase')
     api project(':poslib')
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"

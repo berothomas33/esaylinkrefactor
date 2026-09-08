@@ -42,7 +42,7 @@ dependencies {
     api project(':bizlib')
     api project(':bizentity')
     api project(':poslib')
-    api project(':commonlib')
+    api project(':commonutils')
     api project(':emvbase')
     annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 }
