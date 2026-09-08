@@ -36,11 +36,9 @@ android {
 }
 
 dependencies {
-    api fileTree(dir: "libs", include: ["*.jar"])
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
     api "com.alibaba:fastjson:$rootProject.fastjson"
     api "androidx.multidex:multidex:$rootProject.multidex"
-    api "net.sourceforge.javacsv:javacsv:2.0"
     api "org.greenrobot:greendao:$rootProject.greendao"
     api "net.zetetic:android-database-sqlcipher:$rootProject.sqlcipher"
     // sqlcipher's SQLiteDatabase implements SupportSQLiteDatabase but declares
@@ -51,7 +49,4 @@ dependencies {
     api "io.reactivex.rxjava3:rxjava:$rootProject.rxjava3"
     api "io.reactivex.rxjava3:rxandroid:$rootProject.rxandroid3"
     api "com.trello.rxlifecycle4:rxlifecycle-android-lifecycle:$rootProject.rxlifecycle4"
-    api "androidx.constraintlayout:constraintlayout:$rootProject.constraintlayout"
-    api "com.squareup.okhttp3:okhttp:$rootProject.okhttp"
-    api "com.squareup.okhttp3:logging-interceptor:$rootProject.loggingInterceptor"
 }
