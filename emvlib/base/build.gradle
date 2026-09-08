@@ -42,7 +42,6 @@ dependencies {
 
     api fileTree(include: ["*.jar"], dir: "libs")
     api project(":emvbase")
-    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 
 }
 

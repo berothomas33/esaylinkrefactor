@@ -47,7 +47,6 @@ dependencies {
     api fileTree(include: ["*.jar"], dir: "libs")
     api project(":emvbase")
     api project(":emvlib:dpas")
-    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
     testImplementation "junit:junit:$rootProject.junit"
 
 }

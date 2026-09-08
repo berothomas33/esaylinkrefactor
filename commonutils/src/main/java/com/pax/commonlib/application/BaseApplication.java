@@ -19,14 +19,9 @@ import android.app.Application;
 import android.content.Context;
 import android.os.Handler;
 import androidx.multidex.MultiDex;
-import com.pax.commonutils.BuildConfig;
 import com.pax.commonlib.json.FastJson;
 import com.pax.commonlib.json.JsonProxy;
-import com.pax.commonlib.utils.LogUtils;
 import com.pax.commonlib.utils.ThreadPoolManager;
-import com.sankuai.waimai.router.Router;
-import com.sankuai.waimai.router.common.DefaultRootUriHandler;
-import com.sankuai.waimai.router.core.Debugger;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -43,7 +38,6 @@ public class BaseApplication extends Application {
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
         mBaseApplication = this;
-        initWMRouter();
         ThreadPoolManager.getInstance().getExecutor().prestartAllCoreThreads();
         backgroundExecutor = ThreadPoolManager.getInstance().getExecutor();
         backgroundExecutor.execute(() -> {
@@ -53,15 +47,6 @@ public class BaseApplication extends Application {
         handler = new Handler();
     }
 
-    private void initWMRouter() {
-        if (BuildConfig.DEBUG) {
-            Debugger.setEnableDebug(true);
-            Debugger.setEnableLog(true);
-            Debugger.setLogger(new RouterDebugger());
-        }
-        DefaultRootUriHandler rootHandler = new DefaultRootUriHandler(mBaseApplication);
-        Router.init(rootHandler);
-    }
     public static BaseApplication getAppContext(){
         return mBaseApplication;
     }
@@ -80,49 +65,5 @@ public class BaseApplication extends Application {
 
     public <V> Future<V> runInBackground(final Callable<V> callable) {
         return backgroundExecutor.submit(callable);
-    }
-
-    private static class RouterDebugger implements Debugger.Logger {
-        private static final String TAG = "WMRouter";
-
-        @Override
-        public void d(String msg, Object... args) {
-            LogUtils.d(TAG, String.format(msg, args));
-        }
-
-        @Override
-        public void i(String msg, Object... args) {
-            LogUtils.i(TAG, String.format(msg, args));
-        }
-
-        @Override
-        public void w(String msg, Object... args) {
-            LogUtils.w(TAG, String.format(msg, args));
-        }
-
-        @Override
-        public void w(Throwable t) {
-            LogUtils.w(TAG, "", t);
-        }
-
-        @Override
-        public void e(String msg, Object... args) {
-            LogUtils.e(TAG, String.format(msg, args));
-        }
-
-        @Override
-        public void e(Throwable t) {
-            LogUtils.e(TAG, "", t);
-        }
-
-        @Override
-        public void fatal(String msg, Object... args) {
-            LogUtils.e(TAG, String.format(msg, args));
-        }
-
-        @Override
-        public void fatal(Throwable t) {
-            LogUtils.e(TAG, "", t);
-        }
     }
 }

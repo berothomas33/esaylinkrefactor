@@ -44,5 +44,4 @@ dependencies {
     api project(':poslib')
     api project(':commonutils')
     api project(':emvbase')
-    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 }

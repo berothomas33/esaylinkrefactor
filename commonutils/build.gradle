@@ -44,8 +44,6 @@ dependencies {
     // sqlcipher's SQLiteDatabase implements SupportSQLiteDatabase but declares
     // androidx.sqlite runtime-only, so consumers can't compile against it.
     api "androidx.sqlite:sqlite:$rootProject.androidxSqlite"
-    api "io.github.meituan-dianping:router:$rootProject.router"
-    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
     api "io.reactivex.rxjava3:rxjava:$rootProject.rxjava3"
     api "io.reactivex.rxjava3:rxandroid:$rootProject.rxandroid3"
     api "com.trello.rxlifecycle4:rxlifecycle-android-lifecycle:$rootProject.rxlifecycle4"
