@@ -21,7 +21,7 @@ package com.pax.commonlib.utils;
 
 import android.os.Environment;
 import android.util.Log;
-import com.pax.commonlib.BuildConfig;
+import com.pax.commonutils.BuildConfig;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;

@@ -3,16 +3,13 @@ plugins {
 }
 
 android {
-    namespace 'com.pax.bizlib'
-    compileSdk rootProject.compileSdkVersion
+    namespace 'com.pax.commonutils'
+    compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
-        minSdk rootProject.minSdkVersion
-        targetSdk rootProject.targetSdkVersion
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
         consumerProguardFiles 'consumer-rules.pro'
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField('String', 'DATABASE_PWD', rootProject.DATABASE_PWD)
-        buildConfigField('boolean','RELEASE','false')
     }
 
     buildTypes {
@@ -20,7 +17,8 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        debug { }
+        debug {
+        }
     }
 
     compileOptions {
@@ -38,10 +36,5 @@ android {
 }
 
 dependencies {
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
-    api project(':poslib')
-    api project(':bizentity')
-    api project(':commonutils')
-    annotationProcessor "io.github.meituan-dianping:compiler:$rootProject.routerCompiler"
 }

@@ -41,6 +41,7 @@ android {
 dependencies {
 
     api fileTree(dir: "libs", include: ["*.jar"])
+    api project(':commonutils')
     api "com.alibaba:fastjson:$rootProject.fastjson"
     api "androidx.multidex:multidex:$rootProject.multidex"
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
