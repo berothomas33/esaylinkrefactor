@@ -17,11 +17,7 @@
 
 package com.pax.emvservice.emv.mag;
 
-import android.text.TextUtils;
 import androidx.annotation.NonNull;
-import com.pax.bizentity.db.helper.GreendaoHelper;
-import com.pax.bizentity.entity.CardRange;
-import com.pax.bizentity.entity.Issuer;
 import com.pax.bizlib.card.PanUtils;
 import com.pax.bizlib.card.TrackUtils;
 import com.pax.dal.entity.TrackData;
@@ -97,72 +93,11 @@ public class MagCardService {
     }
 
     /**
-     * Gets masked pan
-     *
-     * @param pattern masked pattern
-     * @return masked pan
-     */
-    public String getMaskedPan(String pattern) {
-        return PanUtils.maskCardNo(getPan(),pattern);
-    }
-
-    /**
      * Gets expire Date
      *
      * @return expire Date
      */
     public String getExpireDate() {
         return TrackUtils.getExpDate(getTrack2());
-    }
-
-    /**
-     * Gets cardholder name
-     *
-     * @return cardholder name
-     */
-    public String getCardholderName() {
-        return TrackUtils.getHolderName(getTrack1());
-    }
-
-    /**
-     * Gets Issuer by pan(use maskedPan in p2pe mode)
-     *
-     * @return Issuer
-     */
-    public Issuer getMatchedIssuerByPan() {
-        CardRange cardRange = GreendaoHelper.getCardRangeHelper().findCardRange(getPan());
-        if (cardRange == null) {
-            return null;
-        } else {
-            return cardRange.getIssuer();
-        }
-    }
-
-    /**
-     * check is valid pan
-     *
-     * @return result
-     */
-    public boolean isValidPan() {
-        String pan = getPan();
-        return PanUtils.isValidPan(pan);
-    }
-
-    /**
-     * Gets service code
-     *
-     * @return service code
-     */
-    public String getServiceCode() {
-        String track2 = getTrack2();
-        if (TextUtils.isEmpty(track2)){
-            return "";
-        }
-        int idx = track2.indexOf('=');
-        if (idx == -1) {
-            return "";
-        } else {
-            return track2.substring(idx + 5, idx + 8);
-        }
     }
 }

@@ -27,7 +27,6 @@ import com.pax.dal.entity.EPinBlockMode;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.emvservice.export.exceptions.PinException;
 import com.pax.emvservice.export.pin.PinInputCallback;
-import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.utils.PosDeviceUtils;
 
 public class PinService {
@@ -40,37 +39,6 @@ public class PinService {
             }
         }
     };
-    /**
-     * External Ped situation
-     * when PCI verify offline PIN interface is not used, this parameter is output.
-     * The application should return plaintext PIN in it with string ended with '\x00'.
-     *
-     * @param encryptPinData encryptPinData
-     * @param panBlock panBlock
-     * @return plaintext PIN in it with string ended with '\x00'.
-     */
-    public byte[] externalOfflinePinData(String encryptPinData, String panBlock) {
-        byte[] pinBlock = ConvertHelper.getConvert().strToBcdPaddingLeft(encryptPinData);
-        //plaintext PIN
-        byte[] plaintextPIN = PedHelper.calcDes(pinBlock);
-        //convert pDataIn to BCD format(64个byte)
-        byte[] bcdDataIn = ConvertHelper.getConvert().strToBcdPaddingLeft(panBlock);
-        //xor with pDataIn
-        byte[] xorData = new byte[8];
-        System.arraycopy(plaintextPIN,0,xorData,0,plaintextPIN.length);
-        for (int i = 0;i<8;i++){
-            xorData[i] ^= bcdDataIn[i];
-        }
-        //get PIN
-        byte[] ascPin = ConvertHelper.getConvert().bcdToStr(xorData).getBytes();
-        int pinLen = xorData[0];
-        //set to pinData,ended with '\x00'"
-        byte[] pinData = new byte[pinLen + 1];
-        System.arraycopy(ascPin,2,pinData,0,pinLen);
-        pinData[pinLen] = 0x00;
-        return pinData;
-    }
-
     /**
      * Gets encrypted PinData
      * @param panBlock panBlock
