@@ -41,8 +41,6 @@ import com.pax.emvbase.process.enums.TransResultEnum;
 import com.pax.emvlib.dpas.contact.ContactProcess;
 import com.pax.emvlib.process.contactless.ClssProcess;
 import com.pax.emvservice.emv.pin.PinService;
-import com.pax.emvservice.export.contact.IContactResultListener;
-import com.pax.emvservice.export.contactless.IContactlessResultListener;
 import com.pax.emvservice.export.exceptions.PinException;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
@@ -94,8 +92,7 @@ import java.util.Locale;
  * structure diagram (panel 10/11) for why this was tried and what it cost.
  */
 public class PaxEmvBehavior extends AbstractEmvBehavior
-        implements IContactCallback, IContactlessCallback,
-        IContactResultListener, IContactlessResultListener {
+        implements IContactCallback, IContactlessCallback {
 
     private static final String TAG = "PaxEmvBehavior";
 
@@ -318,8 +315,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     //
     // Chip/CLSS: PAX's own kernel (startContactTransProcess/startContactlessTransProcess)
     // runs these phases internally and reports them through announceStep(), called from
-    // the IContactCallback / IContactResultListener methods further below — never through
-    // goToStep, so dispatchStepMethod never invokes the onXxx form for this path.
+    // the IContactCallback methods further below — never through goToStep, so
+    // dispatchStepMethod never invokes the onXxx form for this path.
     //
     // Mag/manual: these EMV data phases don't apply. onApplicationSelection and
     // onReadApplicationData above jump straight past them with explicit goToStep targets.
@@ -657,8 +654,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link #clsTransResult} to the matching {@code IContactlessResultListener}
-     * callback on {@code this} — ported from {@code ContactlessService#checkClsResult}.
+     * Maps the recorded {@link #clsTransResult} to the matching result method on {@code this} —
+     * ported from {@code ContactlessService#checkClsResult}.
      */
     private void checkContactlessResult() {
         if (clsTransResult == null) {
@@ -1024,8 +1021,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link #transResult} to the matching {@code IContactResultListener}
-     * callback on {@code this} — ported from {@code EmvContactService#checkContactResult}.
+     * Maps the recorded {@link #transResult} to the matching result method on {@code this} —
+     * ported from {@code EmvContactService#checkContactResult}.
      */
     private void checkContactResult() {
         if (transResult == null) {
@@ -1517,42 +1514,38 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return seePhone;
     }
 
-    // ─── Result listeners ────────────────────────────────────────────────
+    // ─── Result reporting — no longer an interface contract (IContactResultListener /
+    // IContactlessResultListener were never registered with anything; PAX's kernel only
+    // recognizes IContactCallback/IContactlessCallback), just plain methods this class calls
+    // on itself from checkContactResult()/checkContactlessResult() below ──────────────────
 
-    @Override
     public void offlineApproved(boolean needSignature) {
         completeApproved("RESULT_OFFLINE_APPROVED", false);
     }
 
-    @Override
     public void offlineApproved(boolean needSignature, boolean needSetARC) {
         completeApproved("RESULT_OFFLINE_APPROVED", false);
     }
 
-    @Override
     public void onlineApproved(boolean needSignature) {
         completeApproved("RESULT_ONLINE_APPROVED", true);
     }
 
-    @Override
     public void onlineDenied() {
         announceStep(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
         completeDeclined("Online Denied");
     }
 
-    @Override
     public void onlineCardDenied(int resultCode) {
         announceStep(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
         completeDeclined("Online Card Denied code=" + resultCode);
     }
 
-    @Override
     public void onlineFailed() {
         announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
         finishError("Online Failed: no host response");
     }
 
-    @Override
     public void offlineDenied(int resultCode) {
         completeDeclined("Offline Denied code=" + resultCode);
     }
@@ -1563,20 +1556,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * PAX/scheme-behavior question this codebase doesn't yet answer; treated as a hard stop
      * until that's confirmed, unlike the three retry signals below.
      */
-    @Override
     public void seePhone() {
         finishError("See Phone: Continue on the phone");
     }
 
     /** Scheme declined the contactless attempt outright (e.g. low-value rules) — retry contact. */
-    @Override
     public void tryAnotherInterface() {
         retryWithMode(EntryMethod.CHIP,
                 "Try Another Interface: retrying with contact");
     }
 
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
-    @Override
     public void tryAgain() {
         EntryMethod mode = activeConfig != null ? activeConfig.getMode()
                 : EntryMethod.ANY;
@@ -1584,7 +1574,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /** Chip read failed in a way EMV fallback rules require — retry magstripe. */
-    @Override
     public void fallback() {
         retryWithMode(EntryMethod.MAGSTRIPE, "Fallback: retrying with magstripe");
     }
@@ -1602,7 +1591,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         requireEngine().requestRetry(activeConfig.withMode(mode));
     }
 
-    @Override
     public void simpleFlowEnd() {
         completeApproved("RESULT_SIMPLE_FLOW_END", false);
     }
