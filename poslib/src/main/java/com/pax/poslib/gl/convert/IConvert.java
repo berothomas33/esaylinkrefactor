@@ -24,28 +24,10 @@ public interface IConvert {
     byte[] strToBcdPaddingRight(String str);
     //convert string to bcd bytes
     byte[] strToBcd(String str, EPaddingPosition paddingPosition);
-    //convert long to byte array
-    void longToByteArray(long l, byte[] to, int offset, EEndian endian);
-    //convert long to byte array
-    byte[] longToByteArray(long l, EEndian endian);
     //convert int to byte array
     void intToByteArray(int paramInt1, byte[] paramArrayOfByte, int paramInt2, EEndian paramEEndian);
     //convert int to byte array
     byte[] intToByteArray(int paramInt, EEndian paramEEndian);
-    //convert short to byte array
-    void shortToByteArray(short paramShort, byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian);
-    //convert short to byte array
-    byte[] shortToByteArray(short paramShort, EEndian paramEEndian);
-    //convert byte array to long
-    long longFromByteArray(byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian);
-    //convert byte array to int
-    int intFromByteArray(byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian);
-    //convert byte array to short
-    short shortFromByteArray(byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian);
-
-    String stringPadding(String paramString, char paramChar, long paramLong, EPaddingPosition paramEPaddingPosition);
-
-    boolean isByteArrayValueSame(byte[] paramArrayOfByte1, int paramInt1, byte[] paramArrayOfByte2, int paramInt2, int paramInt3);
 
     enum EEndian {
         LITTLE_ENDIAN,

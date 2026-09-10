@@ -20,17 +20,9 @@ import com.pax.gl.utils.impl.Convert;
 import com.pax.poslib.gl.convert.IConvert;
 
 public class ConverterGLImp implements IConvert {
-    private static ConverterGLImp converterImp;
 
     public ConverterGLImp() {
         // do nothing
-    }
-
-    public static IConvert getConvert() {
-        if (converterImp == null) {
-            converterImp = new ConverterGLImp();
-        }
-        return converterImp;
     }
 
     /**
@@ -78,39 +70,6 @@ public class ConverterGLImp implements IConvert {
     }
 
     /**
-     * convert long to byte array
-     * @param l long
-     * @param to byte array
-     * @param offset begin position
-     * @param endian endian
-     */
-    public void longToByteArray(long l, byte[] to, int offset, EEndian endian) {
-        try {
-            if (endian == EEndian.BIG_ENDIAN)
-                Convert.longToByteArray(l, to, offset, Convert.EEndian.BIG_ENDIAN);
-            else {
-                Convert.longToByteArray(l, to, offset, Convert.EEndian.LITTLE_ENDIAN);
-            }
-        }catch (IllegalArgumentException e){
-            LogUtils.e(e);
-        }
-    }
-
-    /**
-     * convert long to byte array
-     * @param l long
-     * @param endian endian
-     * @return byte array
-     */
-    public byte[] longToByteArray(long l, EEndian endian) {
-        if (endian == EEndian.BIG_ENDIAN)
-            return Convert.longToByteArray(l, Convert.EEndian.BIG_ENDIAN);
-        else {
-            return Convert.longToByteArray(l, Convert.EEndian.LITTLE_ENDIAN);
-        }
-    }
-
-    /**
      * convert int to byte array
      * @param paramInt1 int value
      * @param paramArrayOfByte byte array
@@ -143,133 +102,4 @@ public class ConverterGLImp implements IConvert {
         }
     }
 
-    /**
-     * convert short to byte array
-     * @param paramShort short value
-     * @param paramArrayOfByte byte array
-     * @param paramInt begin position
-     * @param paramEEndian endian
-     */
-    public void shortToByteArray(short paramShort, byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian) {
-        try {
-            if (paramEEndian == EEndian.BIG_ENDIAN)
-                Convert.shortToByteArray(paramShort, paramArrayOfByte, paramInt, Convert.EEndian.BIG_ENDIAN);
-            else {
-                Convert.shortToByteArray(paramShort, paramArrayOfByte, paramInt, Convert.EEndian.LITTLE_ENDIAN);
-            }
-        }catch (IllegalArgumentException e){
-            LogUtils.e(e);
-        }
-    }
-
-    /**
-     * convert short to byte array
-     * @param paramShort short value
-     * @param paramEEndian endian
-     * @return byte array
-     */
-    public byte[] shortToByteArray(short paramShort, EEndian paramEEndian) {
-        if (paramEEndian == EEndian.BIG_ENDIAN)
-            return Convert.shortToByteArray(paramShort, Convert.EEndian.BIG_ENDIAN);
-        else {
-            return Convert.shortToByteArray(paramShort, Convert.EEndian.LITTLE_ENDIAN);
-        }
-    }
-
-    /**
-     * convert byte array to long
-     * @param paramArrayOfByte byte array
-     * @param paramInt begin position
-     * @param paramEEndian endian
-     * @return long value
-     */
-    public long longFromByteArray(byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian) {
-        long result = -1;
-        try {
-            if (paramEEndian == EEndian.BIG_ENDIAN)
-                result = Convert.longFromByteArray(paramArrayOfByte, paramInt, Convert.EEndian.BIG_ENDIAN);
-            else {
-                result = Convert.longFromByteArray(paramArrayOfByte, paramInt, Convert.EEndian.LITTLE_ENDIAN);
-            }
-        }catch (IllegalArgumentException e){
-            LogUtils.e(e);
-        }
-        return result;
-    }
-
-    /**
-     * convert byte array to int
-     * @param paramArrayOfByte byte array
-     * @param paramInt  begin position
-     * @param paramEEndian endian
-     * @return int value
-     */
-    public int intFromByteArray(byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian) {
-        int result = -1;
-        try {
-            if (paramEEndian == EEndian.BIG_ENDIAN)
-                result = Convert.intFromByteArray(paramArrayOfByte, paramInt, Convert.EEndian.BIG_ENDIAN);
-            else {
-                result = Convert.intFromByteArray(paramArrayOfByte, paramInt, Convert.EEndian.LITTLE_ENDIAN);
-            }
-        }catch (IllegalArgumentException e){
-            LogUtils.e(e);
-        }
-        return result;
-    }
-
-    /**
-     * convert byte array to short
-     * @param paramArrayOfByte  byte array
-     * @param paramInt begin position
-     * @param paramEEndian endian
-     * @return short value
-     */
-    public short shortFromByteArray(byte[] paramArrayOfByte, int paramInt, EEndian paramEEndian) {
-        short result = -1;
-        try {
-            if (paramEEndian == EEndian.BIG_ENDIAN)
-                result = Convert.shortFromByteArray(paramArrayOfByte, paramInt, Convert.EEndian.BIG_ENDIAN);
-            else {
-                result = Convert.shortFromByteArray(paramArrayOfByte, paramInt, Convert.EEndian.LITTLE_ENDIAN);
-            }
-        }catch (IllegalArgumentException e){
-            LogUtils.e(e);
-        }
-        return result;
-
-
-    }
-
-    public String stringPadding(String paramString, char paramChar, long paramLong, EPaddingPosition paramEPaddingPosition) {
-        String result = "";
-        try {
-            if (paramEPaddingPosition == EPaddingPosition.PADDING_LEFT)
-                result = Convert.stringPadding(paramString, paramChar, paramLong, Convert.EPaddingPosition.PADDING_LEFT);
-            else {
-                result = Convert.stringPadding(paramString, paramChar, paramLong, Convert.EPaddingPosition.PADDING_RIGHT);
-            }
-        }catch (IllegalArgumentException e){
-            LogUtils.e(e);
-        }
-        return result;
-    }
-
-    public boolean isByteArrayValueSame(byte[] paramArrayOfByte1, int paramInt1, byte[] paramArrayOfByte2, int paramInt2, int paramInt3) {
-        if ((paramArrayOfByte1 == null) || (paramArrayOfByte2 == null)) {
-            return false;
-        }
-
-        if ((paramInt1 + paramInt3 > paramArrayOfByte1.length) || (paramInt2 + paramInt3 > paramArrayOfByte2.length)) {
-            return false;
-        }
-
-        for (int i = 0; i < paramInt3; i++) {
-            if (paramArrayOfByte1[(paramInt1 + i)] != paramArrayOfByte2[(paramInt2 + i)]) {
-                return false;
-            }
-        }
-
-        return true;
-    }
 }

@@ -20,18 +20,11 @@ import com.pax.poslib.gl.convert.IConvert;
 
 public class ConverterImp implements IConvert {
     private static final char[] ARRAY_OF_CHAR = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-    private static ConverterImp converterImp;
 
     public ConverterImp() {
         // do nothing
     }
 
-    public static IConvert getConvert() {
-        if (converterImp == null) {
-            converterImp = new ConverterImp();
-        }
-        return converterImp;
-    }
     /**
      * convert bcd to string
      * @param b bcd bytes
@@ -109,75 +102,6 @@ public class ConverterImp implements IConvert {
         return bcd;
     }
     /**
-     * convert long to byte array
-     * @param l long
-     * @param to byte array
-     * @param offset begin position
-     * @param endian endian
-     */
-    public void longToByteArray(long l, byte[] to, int offset, IConvert.EEndian endian) {
-        if ((to == null) || (endian == null)) {
-            LogUtils.e(new IllegalArgumentException("longToByteArray input arg is null"));
-            return;
-        }
-
-        if (endian == IConvert.EEndian.BIG_ENDIAN) {
-            to[offset] = (byte) (int) (l >>> 56 & 0xFF);
-            to[(offset + 1)] = (byte) (int) (l >>> 48 & 0xFF);
-            to[(offset + 2)] = (byte) (int) (l >>> 40 & 0xFF);
-            to[(offset + 3)] = (byte) (int) (l >>> 32 & 0xFF);
-            to[(offset + 4)] = (byte) (int) (l >>> 24 & 0xFF);
-            to[(offset + 5)] = (byte) (int) (l >>> 16 & 0xFF);
-            to[(offset + 6)] = (byte) (int) (l >>> 8 & 0xFF);
-            to[(offset + 7)] = (byte) (int) (l & 0xFF);
-            return;
-        }
-        to[(offset + 7)] = (byte) (int) (l >>> 56 & 0xFF);
-        to[(offset + 6)] = (byte) (int) (l >>> 48 & 0xFF);
-        to[(offset + 5)] = (byte) (int) (l >>> 40 & 0xFF);
-        to[(offset + 4)] = (byte) (int) (l >>> 32 & 0xFF);
-        to[(offset + 3)] = (byte) (int) (l >>> 24 & 0xFF);
-        to[(offset + 2)] = (byte) (int) (l >>> 16 & 0xFF);
-        to[(offset + 1)] = (byte) (int) (l >>> 8 & 0xFF);
-        to[offset] = (byte) (int) (l & 0xFF);
-    }
-    /**
-     * convert long to byte array
-     * @param l long
-     * @param endian endian
-     * @return byte array
-     */
-    public byte[] longToByteArray(long l, IConvert.EEndian endian) {
-        if (endian == null) {
-            LogUtils.e(new IllegalArgumentException("longToByteArray input arg is null"));
-            return new byte[0];
-        }
-
-        byte[] arrayOfByte = new byte[8];
-
-        if (endian == IConvert.EEndian.BIG_ENDIAN) {
-            arrayOfByte[0] = (byte) (int) (l >>> 56 & 0xFF);
-            arrayOfByte[1] = (byte) (int) (l >>> 48 & 0xFF);
-            arrayOfByte[2] = (byte) (int) (l >>> 40 & 0xFF);
-            arrayOfByte[3] = (byte) (int) (l >>> 32 & 0xFF);
-            arrayOfByte[4] = (byte) (int) (l >>> 24 & 0xFF);
-            arrayOfByte[5] = (byte) (int) (l >>> 16 & 0xFF);
-            arrayOfByte[6] = (byte) (int) (l >>> 8 & 0xFF);
-            arrayOfByte[7] = (byte) (int) (l & 0xFF);
-        } else {
-            arrayOfByte[7] = (byte) (int) (l >>> 56 & 0xFF);
-            arrayOfByte[6] = (byte) (int) (l >>> 48 & 0xFF);
-            arrayOfByte[5] = (byte) (int) (l >>> 40 & 0xFF);
-            arrayOfByte[4] = (byte) (int) (l >>> 32 & 0xFF);
-            arrayOfByte[3] = (byte) (int) (l >>> 24 & 0xFF);
-            arrayOfByte[2] = (byte) (int) (l >>> 16 & 0xFF);
-            arrayOfByte[1] = (byte) (int) (l >>> 8 & 0xFF);
-            arrayOfByte[0] = (byte) (int) (l & 0xFF);
-        }
-
-        return arrayOfByte;
-    }
-    /**
      * convert int to byte array
      * @param paramInt1 int value
      * @param paramArrayOfByte byte array
@@ -229,154 +153,5 @@ public class ConverterImp implements IConvert {
         }
 
         return arrayOfByte;
-    }
-    /**
-     * convert short to byte array
-     * @param paramShort short value
-     * @param paramArrayOfByte byte array
-     * @param paramInt begin position
-     * @param paramEEndian endian
-     */
-    public void shortToByteArray(short paramShort, byte[] paramArrayOfByte, int paramInt, IConvert.EEndian paramEEndian) {
-        if ((paramArrayOfByte == null) || (paramEEndian == null)) {
-            LogUtils.e(new IllegalArgumentException("shortToByteArray input arg is null"));
-            return;
-        }
-
-        if (paramEEndian == IConvert.EEndian.BIG_ENDIAN) {
-            paramArrayOfByte[paramInt] = (byte) (paramShort >>> 8 & 0xFF);
-            paramArrayOfByte[(paramInt + 1)] = (byte) (paramShort & 0xFF);
-            return;
-        }
-        paramArrayOfByte[paramInt] = (byte) (paramShort & 0xFF);
-        paramArrayOfByte[(paramInt + 1)] = (byte) (paramShort >>> 8 & 0xFF);
-    }
-    /**
-     * convert short to byte array
-     * @param paramShort short value
-     * @param paramEEndian endian
-     * @return byte array
-     */
-    public byte[] shortToByteArray(short paramShort, IConvert.EEndian paramEEndian) {
-        if (paramEEndian == null) {
-            LogUtils.e(new IllegalArgumentException("shortToByteArray input arg is null"));
-            return new byte[0];
-        }
-
-        byte[] arrayOfByte = new byte[2];
-
-        if (paramEEndian == IConvert.EEndian.BIG_ENDIAN) {
-            arrayOfByte[0] = (byte) (paramShort >>> 8 & 0xFF);
-            arrayOfByte[1] = (byte) (paramShort & 0xFF);
-        } else {
-            arrayOfByte[0] = (byte) (paramShort & 0xFF);
-            arrayOfByte[1] = (byte) (paramShort >>> 8 & 0xFF);
-        }
-
-        return arrayOfByte;
-    }
-    /**
-     * convert byte array to long
-     * @param paramArrayOfByte byte array
-     * @param paramInt begin position
-     * @param paramEEndian endian
-     * @return long value
-     */
-    public long longFromByteArray(byte[] paramArrayOfByte, int paramInt, IConvert.EEndian paramEEndian) {
-        if ((paramArrayOfByte == null) || (paramEEndian == null)) {
-            LogUtils.e(new IllegalArgumentException("longFromByteArray input arg is null"));
-            return -1;
-        }
-
-        if (paramEEndian == IConvert.EEndian.BIG_ENDIAN) {
-            return paramArrayOfByte[(paramInt + 4)] << 24 & 0xFF000000 | paramArrayOfByte[(paramInt + 5)] << 16 & 0xFF0000 |
-                    paramArrayOfByte[(paramInt + 6)] << 8 & 0xFF00 | paramArrayOfByte[(paramInt + 7)] & 0xFF;
-        }
-        return paramArrayOfByte[(paramInt + 3)] << 24 & 0xFF000000 | paramArrayOfByte[(paramInt + 2)] << 16 & 0xFF0000 |
-                paramArrayOfByte[(paramInt + 1)] << 8 & 0xFF00 | paramArrayOfByte[paramInt] & 0xFF;
-    }
-    /**
-     * convert byte array to int
-     * @param paramArrayOfByte byte array
-     * @param paramInt  begin position
-     * @param paramEEndian endian
-     * @return int value
-     */
-    public int intFromByteArray(byte[] paramArrayOfByte, int paramInt, IConvert.EEndian paramEEndian) {
-        if ((paramArrayOfByte == null) || (paramEEndian == null)) {
-            LogUtils.e(new IllegalArgumentException("intFromByteArray input arg is null"));
-            return -1;
-        }
-
-        if (paramEEndian == IConvert.EEndian.BIG_ENDIAN) {
-            return paramArrayOfByte[paramInt] << 24 & 0xFF000000 | paramArrayOfByte[(paramInt + 1)] << 16 & 0xFF0000 |
-                    paramArrayOfByte[(paramInt + 2)] << 8 & 0xFF00 | paramArrayOfByte[(paramInt + 3)] & 0xFF;
-        }
-        return paramArrayOfByte[(paramInt + 3)] << 24 & 0xFF000000 | paramArrayOfByte[(paramInt + 2)] << 16 & 0xFF0000 |
-                paramArrayOfByte[(paramInt + 1)] << 8 & 0xFF00 | paramArrayOfByte[paramInt] & 0xFF;
-    }
-    /**
-     * convert byte array to short
-     * @param paramArrayOfByte  byte array
-     * @param paramInt begin position
-     * @param paramEEndian endian
-     * @return short value
-     */
-    public short shortFromByteArray(byte[] paramArrayOfByte, int paramInt, IConvert.EEndian paramEEndian) {
-        if ((paramArrayOfByte == null) || (paramEEndian == null)) {
-            LogUtils.e(new IllegalArgumentException("shortFromByteArray input arg is null"));
-            return -1;
-        }
-
-        if (paramEEndian == IConvert.EEndian.BIG_ENDIAN) {
-            return (short) (paramArrayOfByte[paramInt] << 8 & 0xFF00 | paramArrayOfByte[(paramInt + 1)] & 0xFF);
-        }
-        return (short) (paramArrayOfByte[(paramInt + 1)] << 8 & 0xFF00 | paramArrayOfByte[paramInt] & 0xFF);
-    }
-
-    public String stringPadding(String paramString, char paramChar, long paramLong, IConvert.EPaddingPosition paramEPaddingPosition) {
-        if ((paramString == null) || (paramEPaddingPosition == null)) {
-            LogUtils.e(new IllegalArgumentException("stringPadding input arg is null"));
-            return "";
-        }
-
-        if (paramString.length() >= paramLong) {
-            return paramString;
-        }
-
-        if (paramEPaddingPosition == IConvert.EPaddingPosition.PADDING_RIGHT) {
-            StringBuilder sb = new StringBuilder(paramString);
-            for (int i = 0; i < paramLong - paramString.length(); i++) {
-                sb.append(paramChar);
-            }
-
-            return sb.toString();
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < paramLong - paramString.length(); i++) {
-            sb.append(paramChar);
-        }
-
-        sb.append(paramString);
-        return sb.toString();
-    }
-
-    public boolean isByteArrayValueSame(byte[] paramArrayOfByte1, int paramInt1, byte[] paramArrayOfByte2, int paramInt2, int paramInt3) {
-        if ((paramArrayOfByte1 == null) || (paramArrayOfByte2 == null)) {
-            return false;
-        }
-
-        if ((paramInt1 + paramInt3 > paramArrayOfByte1.length) || (paramInt2 + paramInt3 > paramArrayOfByte2.length)) {
-            return false;
-        }
-
-        for (int i = 0; i < paramInt3; i++) {
-            if (paramArrayOfByte1[(paramInt1 + i)] != paramArrayOfByte2[(paramInt2 + i)]) {
-                return false;
-            }
-        }
-
-        return true;
     }
 }
