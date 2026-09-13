@@ -34,6 +34,15 @@ final class PaxPinPad implements IPinTask.PinCallback, PinInputCallback.NormalCa
         this.title = title;
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // No CONTACT/CONTACTLESS split here — PIN entry (onCardHolderPwd) is
+    // SHARED between both, per PaxEmvBehavior. The real split in this class
+    // is which side collects the PIN: ONLINE PIN PATH (app-driven, blocking)
+    // vs OFFLINE PIN PATH (kernel-driven, fire-and-forget) vs SHARED.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // [ONLINE PIN PATH — app-driven: blocks the EMV-kernel thread until the dialog is on
+    // screen, then PaxEmvBehavior calls PinService.getEncryptedPinData() itself]
     /** Blocks the calling (background, EMV-kernel) thread until the dialog is actually shown. */
     void showAndWait() {
         ConditionVariable cv = new ConditionVariable();
@@ -44,11 +53,14 @@ final class PaxPinPad implements IPinTask.PinCallback, PinInputCallback.NormalCa
         cv.block();
     }
 
+    // [OFFLINE PIN PATH — kernel-driven: the native kernel collects/verifies the PIN itself via
+    // EmvDeviceImpl#pedVerifyPlainPin/CipherPin; this dialog is UI feedback only]
     /** Fire-and-forget variant — used for the offline/PCI path, which doesn't wait on this dialog. */
     void showAsync() {
         BaseApplication.getAppContext().runOnUiThread(this::createDialog);
     }
 
+    // [SHARED — used by both showAndWait() and showAsync()]
     private void createDialog() {
         Activity activity = ActivityStack.getInstance().top();
         if (activity == null || activity.isFinishing()) {
@@ -65,6 +77,8 @@ final class PaxPinPad implements IPinTask.PinCallback, PinInputCallback.NormalCa
         dialog.show();
     }
 
+    // [SHARED — offline path dismisses via onFinish/onCancel/onNoPinPad/onTimeout/onError below;
+    // online path calls this directly from PaxEmvBehavior's finally block instead]
     void dismiss() {
         BaseApplication.getAppContext().runOnUiThread(() -> {
             if (dialog != null) {
@@ -75,6 +89,8 @@ final class PaxPinPad implements IPinTask.PinCallback, PinInputCallback.NormalCa
     }
 
     // ─── PinInputCallback.NormalCallback — raw key events from IPed, via PinService ──────────
+    // [SHARED — PinService.setInputPinListener(this) is wired in both branches of
+    // onCardHolderPwd(), offline and online alike]
 
     @Override
     public void keyEvent(PinInputCallback.EKeyCode key) {
@@ -90,8 +106,12 @@ final class PaxPinPad implements IPinTask.PinCallback, PinInputCallback.NormalCa
         onInput(len);
     }
 
-    // ─── IPinTask.PinCallback — also wired directly as EmvDeviceImpl's pinCallback ───────────
+    // ─── IPinTask.PinCallback — also wired directly as EmvDeviceImpl's pinCallback, but ONLY
+    // in the offline branch of onCardHolderPwd() (EmvDeviceImpl.setPinCallback(this) is never
+    // called on the online path) ──────────────────────────────────────────────────────────
 
+    // [SHARED — reachable from both paths: directly here for offline (via EmvDeviceImpl), and
+    // indirectly for both via keyEvent() above, which this class's own keyEvent() calls]
     @Override
     public void onInput(int inputLen) {
         BaseApplication.getAppContext().runOnUiThread(() -> {
@@ -106,6 +126,8 @@ final class PaxPinPad implements IPinTask.PinCallback, PinInputCallback.NormalCa
         });
     }
 
+    // [OFFLINE PIN PATH ONLY — these five only fire when EmvDeviceImpl.setPinCallback(this) is
+    // wired, i.e. never on the online path; online dismisses via PaxEmvBehavior's finally block]
     @Override
     public void onFinish() {
         dismiss();
