@@ -1340,7 +1340,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // EmvDeviceImpl invokes (onCancel/onTimeout/onError), or defensively in
             // finishContactStage() if none of those fire.
             activePinPad = new PaxPinPad("Enter Offline PIN (" + leftTimes + " left)");
-            activePinPad.showAsync();
+            activePinPad.showForOfflinePin();
             pinService.setInputPinListener(activePinPad);
             EmvDeviceImpl.getInstance().setPinCallback(activePinPad);
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
@@ -1356,7 +1356,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         PaxPinPad pad = new PaxPinPad("Enter Online PIN");
         activePinPad = pad;
-        pad.showAndWait();
+        pad.showForOnlinePin();
         pinService.setInputPinListener(pad);
         try {
             IPed ped = PedHelper.getPed();
