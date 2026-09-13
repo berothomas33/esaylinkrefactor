@@ -378,7 +378,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Kernel-internal — applied inside completeApproved()'s script-processing announce.
     }
 
-    // ─── Kernel runners ──────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    // Kernel runners
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── CONTACTLESS ONLY — ClssProcess / ClssKernelProcess runners ──────
 
     private void runContactlessAppSelect() {
         requireEngine();
@@ -768,6 +772,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * EMVStartTrans call — the PAX kernel has no separate native entry point for each, so they
      * can't be split out any further.
      */
+    // ─── CONTACT ONLY — ContactProcess runners ────────────────────────────
+
     private void runContactAppSelect() {
         requireEngine();
         ContactProcess process = kernel.contact;
@@ -1113,6 +1119,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return ConvertUtils.bcd2Str(cardholderName);
     }
 
+    // ─── SHARED — kernel bring-up used by both contact and contactless ───
+
     private boolean prepareKernel(@NonNull TransactionConfig config) {
         if (!config.allowsChip() && !config.allowsContactless()) {
             return true;
@@ -1231,8 +1239,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return searchCardMode;
     }
 
-    // ─── IContactCallback + IContactlessCallback ─────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    // IContactCallback + IContactlessCallback overrides
+    // Each is tagged below — CONTACT / CONTACTLESS / SHARED (both interfaces
+    // route through the same method; see class doc + §09/§14/§15 of the
+    // EMV Transaction Backbone artifact for why).
+    // ═══════════════════════════════════════════════════════════════════
 
+    // [CONTACTLESS]
     @Override
     public void onReadCardOk() {
         if (!kernel.contactless.supportsGranularSteps()) {
@@ -1246,6 +1260,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
     }
 
+    // [CONTACTLESS]
     @Override
     public int confirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
@@ -1259,6 +1274,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 
+    // [SHARED — same method satisfies both IContactCallback and IContactlessCallback]
     @Override
     public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
         int candidates = candList == null ? 0 : candList.size();
@@ -1271,6 +1287,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 
+    // [CONTACT]
     @Override
     public int showConfirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
@@ -1284,6 +1301,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 
+    // [SHARED — same method satisfies both interfaces; branches internally on isOnlinePin]
     @Override
     public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
             byte[] pinData) {
@@ -1380,6 +1398,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    // [SHARED — same method satisfies both interfaces; §08 of the backbone artifact covers
+    // how the return-code handoff into this method works for the contact path]
     @NonNull
     @Override
     public OnlineResultWrapper startOnlineProcess() {
@@ -1496,17 +1516,20 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    // [CONTACTLESS]
     @Override
     public void onRemoveCard() {
         LogUtils.d(TAG, "remove card");
     }
 
+    // [CONTACTLESS]
     @Override
     public void onDetect2ndTap() {
         requireEngine().notifyTransactionStep(TransactionStepEvent.of(
                 TransactionStep.WAITING_FOR_CARD, "Present card again"));
     }
 
+    // [CONTACTLESS]
     @Override
     public boolean needSeePhone() {
         boolean seePhone = clsLastNeedSeePhone;
@@ -1517,35 +1540,43 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Result reporting — no longer an interface contract (IContactResultListener /
     // IContactlessResultListener were never registered with anything; PAX's kernel only
     // recognizes IContactCallback/IContactlessCallback), just plain methods this class calls
-    // on itself from checkContactResult()/checkContactlessResult() below ──────────────────
+    // on itself from checkContactResult()/checkContactlessResult() below. Tags below are
+    // verified against those two methods directly, not assumed from the name. ────────────
 
+    // [SHARED — both checkContactResult() and checkContactlessResult() call this]
     public void offlineApproved(boolean needSignature) {
         completeApproved("RESULT_OFFLINE_APPROVED", false);
     }
 
+    // [SHARED — 2-arg overload; contact's checkContactResult() calls this one specifically]
     public void offlineApproved(boolean needSignature, boolean needSetARC) {
         completeApproved("RESULT_OFFLINE_APPROVED", false);
     }
 
+    // [SHARED]
     public void onlineApproved(boolean needSignature) {
         completeApproved("RESULT_ONLINE_APPROVED", true);
     }
 
+    // [SHARED]
     public void onlineDenied() {
         announceStep(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
         completeDeclined("Online Denied");
     }
 
+    // [SHARED]
     public void onlineCardDenied(int resultCode) {
         announceStep(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
         completeDeclined("Online Card Denied code=" + resultCode);
     }
 
+    // [SHARED]
     public void onlineFailed() {
         announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
         finishError("Online Failed: no host response");
     }
 
+    // [SHARED]
     public void offlineDenied(int resultCode) {
         completeDeclined("Offline Denied code=" + resultCode);
     }
@@ -1556,17 +1587,20 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * PAX/scheme-behavior question this codebase doesn't yet answer; treated as a hard stop
      * until that's confirmed, unlike the three retry signals below.
      */
+    // [CONTACTLESS — only checkContactlessResult() calls this; no CDCVM concept in contact]
     public void seePhone() {
         finishError("See Phone: Continue on the phone");
     }
 
     /** Scheme declined the contactless attempt outright (e.g. low-value rules) — retry contact. */
+    // [CONTACTLESS — only checkContactlessResult() calls this]
     public void tryAnotherInterface() {
         retryWithMode(EntryMethod.CHIP,
                 "Try Another Interface: retrying with contact");
     }
 
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
+    // [CONTACTLESS — only checkContactlessResult() calls this]
     public void tryAgain() {
         EntryMethod mode = activeConfig != null ? activeConfig.getMode()
                 : EntryMethod.ANY;
@@ -1574,6 +1608,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /** Chip read failed in a way EMV fallback rules require — retry magstripe. */
+    // [CONTACT — only checkContactResult() calls this]
     public void fallback() {
         retryWithMode(EntryMethod.MAGSTRIPE, "Fallback: retrying with magstripe");
     }
@@ -1591,6 +1626,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         requireEngine().requestRetry(activeConfig.withMode(mode));
     }
 
+    // [SHARED — both checkContactResult() and checkContactlessResult() call this]
     public void simpleFlowEnd() {
         completeApproved("RESULT_SIMPLE_FLOW_END", false);
     }
