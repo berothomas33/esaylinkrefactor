@@ -13,7 +13,7 @@ public final class HostDefaults {
     public static CommunicationBehavior approveAlways() {
         return config -> Single.fromCallable(() -> {
             Thread.sleep(400);
-            return AuthResult.approved("123456", "00", null);
+            return AuthResult.approved("123456", "00", null, null);
         });
     }
 

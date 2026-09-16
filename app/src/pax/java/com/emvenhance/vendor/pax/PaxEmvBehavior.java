@@ -1415,7 +1415,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public OnlineResultWrapper startOnlineProcess() {
         announceStep(EmvStep.START_ONLINE_PROCESS, null);
         if (activeConfig != null) {
-            activeConfig = activeConfig.withIccData(buildField55());
+            boolean contactless = activeCard != null && activeCard.isContactless();
+            String pan = contactless ? getContactlessPan() : getContactPan();
+            String onlinePinBlockHex = lastOnlinePinBlock != null
+                    ? ConvertUtils.bcd2Str(lastOnlinePinBlock, lastOnlinePinBlock.length)
+                    : null;
+            activeConfig = activeConfig.withIccData(buildField55())
+                    .withPan(pan)
+                    .withOnlinePinBlock(onlinePinBlockHex);
         }
         AuthResult auth = requestOnline(requireEngine());
         lastAuth = auth;
@@ -1754,8 +1761,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             if (auth.getResponseCode() != null) {
                 rsp.setRespCode(auth.getResponseCode().getBytes(StandardCharsets.US_ASCII));
             }
-            if (auth.getIssuerData() != null) {
-                rsp.setScript(auth.getIssuerData());
+            if (auth.getArpc() != null) {
+                rsp.setAuthData(auth.getArpc());
+            }
+            if (auth.getIssuerScript() != null) {
+                rsp.setScript(auth.getIssuerScript());
             }
         } else {
             wrapper.setResultCode(EOnlineResult.DENIAL.getResultCode());

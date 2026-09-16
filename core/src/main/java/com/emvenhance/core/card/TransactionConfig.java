@@ -19,16 +19,30 @@ public final class TransactionConfig {
     @Nullable
     private final String iccData;
 
+    /** PAN, captured off the kernel once read — see {@link #withPan}. */
+    @Nullable
+    private final String pan;
+
+    /**
+     * Online PIN block, hex-encoded — captured by the vendor's PIN pad during online PIN entry
+     * and attached before {@code START_ONLINE_PROCESS} calls host authorize; {@code null} for
+     * no-CVM/offline-PIN/CDCVM transactions. See {@link #withOnlinePinBlock}.
+     */
+    @Nullable
+    private final String onlinePinBlock;
+
     public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
-        this(type, amountMinor, mode, null);
+        this(type, amountMinor, mode, null, null, null);
     }
 
     private TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode,
-            @Nullable String iccData) {
+            @Nullable String iccData, @Nullable String pan, @Nullable String onlinePinBlock) {
         this.type = type;
         this.amountMinor = amountMinor;
         this.mode = mode;
         this.iccData = iccData;
+        this.pan = pan;
+        this.onlinePinBlock = onlinePinBlock;
     }
 
     public TransactionType getType() {
@@ -51,6 +65,16 @@ public final class TransactionConfig {
     @Nullable
     public String getIccData() {
         return iccData;
+    }
+
+    @Nullable
+    public String getPan() {
+        return pan;
+    }
+
+    @Nullable
+    public String getOnlinePinBlock() {
+        return onlinePinBlock;
     }
 
     public boolean isContact() {
@@ -87,11 +111,21 @@ public final class TransactionConfig {
 
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
     public TransactionConfig withMode(EntryMethod mode) {
-        return new TransactionConfig(type, amountMinor, mode, iccData);
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
     }
 
     /** Same everything else, with Field 55 attached — see {@link #getIccData()}. */
     public TransactionConfig withIccData(@Nullable String iccData) {
-        return new TransactionConfig(type, amountMinor, mode, iccData);
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
+    }
+
+    /** Same everything else, with the PAN attached — see {@link #getPan()}. */
+    public TransactionConfig withPan(@Nullable String pan) {
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
+    }
+
+    /** Same everything else, with the online PIN block attached — see {@link #getOnlinePinBlock()}. */
+    public TransactionConfig withOnlinePinBlock(@Nullable String onlinePinBlock) {
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
     }
 }

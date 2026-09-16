@@ -29,6 +29,15 @@ See [`doc/architecture/emv-step-methods-on-behavior.md`](doc/architecture/emv-st
 | `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
 | `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult` — owned by PosTerminal |
 
+### `:network` — `com.emvenhance.network.*`
+
+| Package | Contents |
+|---------|----------|
+| *(root)* | `HostApiConnection` (Retrofit), `HostApiClient`, `RetrofitCommunicationBehavior` — real `CommunicationBehavior` impl, online purchase + 2nd GAC issuer data |
+| `env` | `ApiEnvironment`, `EnvironmentProvider` — multi-environment base URL switching |
+| `model` | `PurchaseRequest`, `PurchaseResponse` |
+| `tlv` | `BerTlv` — minimal BER-TLV reader for pulling ARPC/issuer-script tags out of the response |
+
 ### `:emvflow` — `com.emvenhance.emvflow.*`
 
 | Package | Contents |

@@ -6,11 +6,11 @@ import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
+import com.emvenhance.network.RetrofitCommunicationBehavior;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
 import com.pax.commonlib.utils.LogUtils;
@@ -53,7 +53,7 @@ public class PaxTerminal extends PosTerminal {
 
     public PaxTerminal() {
         this(new PaxKernel(),
-                HostDefaults.declineUntilWired(),
+                new RetrofitCommunicationBehavior(),
                 new PaxPrinter());
     }
 

@@ -78,6 +78,7 @@ android {
 dependencies {
     implementation project(':core')
     implementation project(':commonutils')
+    implementation project(':network')
 
     // PAX only: IngenicoTerminal/FakeTerminal never touch the PAX SDK, so the ingenico/fake
     // flavors don't need it on their classpath at all.
