@@ -33,7 +33,9 @@ import java.util.zip.ZipInputStream;
  * would otherwise just accumulate duplicate/stale rows (and break
  * {@code EmvAidDbHelper#findAID}'s assumption of a unique {@code aid} column) on a second apply.
  * A section the package didn't include (or that parsed empty) is left untouched rather than
- * wiped, so a partial package can't silently delete data it didn't come to replace.
+ * wiped, so a partial package — or a failed download that never reaches this at all — can't
+ * silently delete data it didn't come to replace; the bundled JSON assets (or whatever the last
+ * successful apply left in place) always remain the fallback.
  *
  * <p>Scoped to what {@code emvParam.zip}'s sample files actually cover: contact AID/CAPK/
  * revocation, and PayPass/PayWave/Amex from the contactless side. DPAS/EFT/JCB/MIR/PBOC/PURE/
@@ -46,8 +48,8 @@ public final class EmvParamUpdater {
     private EmvParamUpdater() {
     }
 
-    /** @return {@code true} if every section found in the package applied successfully. */
-    public static boolean applyFromZip(byte[] zipBytes) {
+    public static EmvParamUpdateResult applyFromZip(byte[] zipBytes) {
+        EmvParamUpdateResult result = new EmvParamUpdateResult();
         byte[] emvXml = null;
         byte[] clssXml = null;
 
@@ -63,72 +65,88 @@ public final class EmvParamUpdater {
             }
         } catch (IOException e) {
             LogUtils.e(TAG, "Failed to unzip EMV param package", e);
-            return false;
+            result.failed("couldn't read the downloaded package (" + e.getMessage() + ")");
+            return result;
         }
 
-        boolean success = true;
         if (emvXml != null) {
-            success = applyEmvXml(emvXml) && success;
+            applyEmvXml(emvXml, result);
         } else {
             LogUtils.w(TAG, "EMV param package had no *.emv entry — contact AID/CAPK unchanged");
         }
         if (clssXml != null) {
-            success = applyClssXml(clssXml) && success;
+            applyClssXml(clssXml, result);
         } else {
             LogUtils.w(TAG, "EMV param package had no *.clss entry — CLSS params unchanged");
         }
-        return success;
+        return result;
     }
 
-    private static boolean applyEmvXml(byte[] xml) {
+    private static void applyEmvXml(byte[] xml, EmvParamUpdateResult result) {
         try {
-            EmvXmlParamParser.Result result = EmvXmlParamParser.parse(new ByteArrayInputStream(xml));
+            EmvXmlParamParser.Result parsed = EmvXmlParamParser.parse(new ByteArrayInputStream(xml));
             EmvParamService service = new EmvParamService();
-            boolean ok = true;
 
-            if (!result.aids.isEmpty()) {
+            if (!parsed.aids.isEmpty()) {
                 GreendaoHelper.getEmvAidHelper().deleteAll();
-                ok = service.insertEmvAid(result.aids) && ok;
+                if (service.insertEmvAid(parsed.aids)) {
+                    result.applied("contact AID", parsed.aids.size());
+                } else {
+                    result.failed("contact AID insert failed");
+                }
             }
 
-            List<?> capkList = result.capk.getCapkList();
+            List<?> capkList = parsed.capk.getCapkList();
             if (capkList != null && !capkList.isEmpty()) {
                 GreendaoHelper.getEmvCapkHelper().deleteAll();
                 CapkRevokeDbHelper.getInstance().deleteAll();
-                ok = service.insertEmvCapk(result.capk) && ok;
+                if (service.insertEmvCapk(parsed.capk)) {
+                    result.applied("CAPK", capkList.size());
+                } else {
+                    result.failed("CAPK insert failed");
+                }
             }
-            return ok;
         } catch (Exception e) {
             LogUtils.e(TAG, "Failed to parse/apply emv_param.emv", e);
-            return false;
+            result.failed("emv_param.emv: " + e.getMessage());
         }
     }
 
-    private static boolean applyClssXml(byte[] xml) {
+    private static void applyClssXml(byte[] xml, EmvParamUpdateResult result) {
         try {
-            ClssXmlParamParser.Result result = ClssXmlParamParser.parse(new ByteArrayInputStream(xml));
+            ClssXmlParamParser.Result parsed = ClssXmlParamParser.parse(new ByteArrayInputStream(xml));
             EmvParamService service = new EmvParamService();
-            boolean ok = true;
 
-            if (result.payPass != null && notEmpty(result.payPass.getAid())) {
+            if (parsed.payPass != null && notEmpty(parsed.payPass.getAid())) {
                 PaypassAidDbHelper.getInstance().deleteAll();
-                ok = service.insertPaypassParam(result.payPass) && ok;
+                if (service.insertPaypassParam(parsed.payPass)) {
+                    result.applied("PayPass", parsed.payPass.getAid().size());
+                } else {
+                    result.failed("PayPass insert failed");
+                }
             }
-            if (result.payWave != null && notEmpty(result.payWave.getAid())) {
+            if (parsed.payWave != null && notEmpty(parsed.payWave.getAid())) {
                 PaywaveAidDbHelper.getInstance().deleteAll();
                 PaywaveFloorLimitDbHelper.getInstance().deleteAll();
                 PaywaveDrlDbHelper.getInstance().deleteAll();
-                ok = service.insertPaywaveParam(result.payWave) && ok;
+                if (service.insertPaywaveParam(parsed.payWave)) {
+                    result.applied("PayWave", parsed.payWave.getAid().size());
+                } else {
+                    result.failed("PayWave insert failed");
+                }
             }
-            if (result.amex != null && notEmpty(result.amex.getAid())) {
+            if (parsed.amex != null && notEmpty(parsed.amex.getAid())) {
                 AmexAidDbHelper.getInstance().deleteAll();
                 AmexDrlDbHelper.getInstance().deleteAll();
-                ok = service.insertAmexParam(result.amex) && ok;
+                if (service.insertAmexParam(parsed.amex)) {
+                    result.applied("Amex", parsed.amex.getAid().size());
+                } else {
+                    result.failed("Amex insert failed");
+                }
             }
-            return ok;
         } catch (Exception e) {
             LogUtils.e(TAG, "Failed to parse/apply clss_param.clss", e);
-            return false;
+            result.failed("clss_param.clss: " + e.getMessage());
         }
     }
 

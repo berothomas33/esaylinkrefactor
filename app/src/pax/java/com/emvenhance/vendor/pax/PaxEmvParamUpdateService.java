@@ -1,6 +1,7 @@
 package com.emvenhance.vendor.pax;
 
 import com.emvenhance.network.EmvParamDownloadClient;
+import com.pax.configservice.impl.EmvParamUpdateResult;
 import com.pax.configservice.impl.EmvParamUpdater;
 
 import java.util.Map;
@@ -30,8 +31,9 @@ public final class PaxEmvParamUpdateService {
         this.downloadClient = downloadClient;
     }
 
-    /** @return {@code true} if every section present in the downloaded package applied successfully. */
-    public Single<Boolean> downloadAndApply(@NonNull Map<String, String> headers, @NonNull String posType) {
+    /** @return which sections applied (and their row counts), or the first error hit. */
+    public Single<EmvParamUpdateResult> downloadAndApply(@NonNull Map<String, String> headers,
+            @NonNull String posType) {
         return downloadClient.download(headers, posType)
                 .map(EmvParamUpdater::applyFromZip);
     }

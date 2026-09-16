@@ -56,8 +56,18 @@ is a separate, repeatable path:
 | `configservice.impl.EmvParamUpdater` | Unzips a downloaded package, parses each file, and re-applies it through the same `EmvParamService` insert methods `ConfigInit` uses — clearing each affected table first so a repeat download replaces rather than accumulates |
 
 `app/src/pax/.../PaxEmvParamUpdateService` wires the two together (`EmvParamDownloadClient` for
-the bytes, `EmvParamUpdater` to apply them) — not called automatically anywhere; a setup/update
-screen is expected to trigger it.
+the bytes, `EmvParamUpdater` to apply them), returning `EmvParamUpdateResult` (which sections
+applied, with row counts, or the first error) rather than a bare boolean so a caller can show what
+actually happened.
+
+`app/src/pax/.../ui/EmvParamActivity` is that caller — the existing EMV-param category browser
+screen now also has an Account ID / Token credentials section feeding two actions above the
+browser: "Download EMV params" (shows `EmvParamUpdateResult.summarize()`) and "Start onboarding"
+(runs `OnboardingClient#runOfflineCycle`, shows success or the failure message). Neither is wired
+into app startup — both are debug/setup actions a technician triggers from this screen. The two
+credentials fields are reused as-is for both actions' request headers (`Account-Id`, and `Token`
+as a bearer `Authorization` header) — a placeholder convention, since neither endpoint's real
+header contract is known yet (see `EmvParamActivity#buildHeaders`).
 
 **No reference parser was available** to build `EmvXmlParamParser`/`ClssXmlParamParser` against —
 their javadoc flags every field mapping that's a best-effort reconstruction (tag names, the
