@@ -35,8 +35,9 @@ See [`doc/architecture/emv-step-methods-on-behavior.md`](doc/architecture/emv-st
 |---------|----------|
 | *(root)* | `HostApiConnection` (Retrofit), `HostApiClient`, `RetrofitCommunicationBehavior` — real `CommunicationBehavior` impl, online purchase + 2nd GAC issuer data |
 | `env` | `EnvironmentProvider` — holds `BuildConfig.baseUrl` from `:app`'s "environment" flavor dimension |
-| `model` | `PurchaseRequest`, `PurchaseResponse` |
+| `model` | `PurchaseRequest`, `PurchaseResponse`, `GeneralResponse`, `DataModel` — the last two are the generic encrypted-envelope shape shared with `onboarding` |
 | `tlv` | `BerTlv` — minimal BER-TLV reader for pulling ARPC/issuer-script tags out of the response |
+| `onboarding` | `OnboardingClient`, `OnboardingApiConnection`, `OnboardingState`, `ChallengeGenerator`, `OnboardingException` — the offline (pair terminal) and online (per-bank TMK provisioning) onboarding cycles; see `onboarding.model` for the six endpoints' request/response shapes |
 
 ### `:emvflow` — `com.emvenhance.emvflow.*`
 
