@@ -44,7 +44,8 @@ public final class RetrofitCommunicationBehavior implements CommunicationBehavio
                 posEntryMode(config.getMode()),
                 config.getIccData(),
                 config.getPan(),
-                config.getOnlinePinBlock());
+                config.getOnlinePinBlock(),
+                config.getOnlinePinKeyEncrypted());
 
         return connection.purchase(request).map(RetrofitCommunicationBehavior::toAuthResult);
     }

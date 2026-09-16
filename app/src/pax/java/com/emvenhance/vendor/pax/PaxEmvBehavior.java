@@ -14,9 +14,12 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
+import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
+import com.emvenhance.network.onboarding.OnboardingState;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.bizlib.card.TrackUtils;
 import com.pax.bizlib.ped.PedHelper;
+import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
@@ -49,6 +52,8 @@ import com.pax.poslib.model.ModelInfo;
 import com.pax.poslib.utils.PosDeviceUtils;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -108,8 +113,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static final int ICC_APP_SELECT_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
 
-    /** DEBUG-only: tried at most once per process — see {@link #ensureTestOnlinePinKey}. */
-    private static boolean testOnlinePinKeyAttempted;
+    /** Double-length (16-byte) 3DES key, matching {@link PosDeviceUtils#INDEX_TPK}'s key family. */
+    private static final int ONLINE_PIN_KEY_LENGTH_BYTES = 16;
 
     private final PaxKernel kernel;
 
@@ -130,12 +135,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private boolean clsLastNeedSeePhone;
 
     /**
-     * Encrypted online PIN block from the most recent {@link #onCardHolderPwd}, for whenever
-     * {@link com.emvenhance.core.host.CommunicationBehavior} is wired to a real host and needs
-     * it for the authorization message — not consumed anywhere yet.
+     * Encrypted online PIN block from the most recent {@link #onCardHolderPwd}, attached to
+     * {@code activeConfig} in {@link #startOnlineProcess()} for the authorization message.
      */
     @Nullable
     private byte[] lastOnlinePinBlock;
+
+    /**
+     * The online PIN key (PEK) that encrypted {@link #lastOnlinePinBlock}, RSA-wrapped with the
+     * host's public key — see {@link #provisionOnlinePinKey()}.
+     */
+    @Nullable
+    private String lastOnlinePinKeyEncrypted;
 
     /** The dialog raised by the most recent {@link #onCardHolderPwd}, for a defensive dismiss
      * in {@link #finishContactStage()} if none of {@link PaxPinPad}'s own terminal callbacks fire. */
@@ -1352,7 +1363,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // key-event listener always has a live dialog to update. Uses PinService directly
         // (same object for both the listener and the actual collection) instead of duplicating
         // its already-correct getPinBlock(keyIndex, pinLenCsv, panBytes, mode, timeoutMs) call.
-        ensureTestOnlinePinKey();
+        provisionOnlinePinKey();
 
         PaxPinPad pad = new PaxPinPad("Enter Online PIN");
         activePinPad = pad;
@@ -1377,34 +1388,48 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * DEBUG-only, tried at most once per process: writes a fixed test TPK at
-     * {@link PosDeviceUtils#INDEX_TPK} so {@code getPinBlock} has a key to encrypt an online PIN
-     * with, instead of always failing "Key does not exist" — exactly the gap this was added to
-     * work around. Same shape as {@code PedHelper#writeTDKForDecrypt}, already in this repo: the
-     * new key is written wrapped under whatever key already sits at {@code EPedKeyType.TMK}
-     * index 0 — this assumes that TMK is already present, true on PAX SDK demo/dev units, which
-     * ship with a factory TMK specifically so a call like this one can load a working key under
-     * it. If no TMK is loaded either, this fails the same "Key does not exist" way and is logged,
-     * not fatal. Never runs in a release build — a real terminal's keys come from a proper
-     * secure key-injection process, never a hardcoded value in source.
+     * Generates a fresh random online PIN key (PEK) for this transaction, writes it to
+     * {@link PosDeviceUtils#INDEX_TPK} so {@code getPinBlock} has a real key to encrypt the
+     * online PIN with, and RSA-wraps the same key value with the host's public key (from
+     * onboarding — {@link OnboardingState#getPublicKey()}) so the host can independently recover
+     * it. Runs every online-PIN transaction, not just once — a fresh key per transaction, not a
+     * reused one, matching the old project's {@code preparePekKey()} being called at the start of
+     * every sale.
+     *
+     * <p>The key is written wrapped under whatever key already sits at {@code EPedKeyType.TMK}
+     * index 0, same as this method's predecessor — that assumes a TMK is already present at that
+     * index, true on PAX SDK demo/dev units out of the box; a real deployment provisions its own
+     * TMK (see the onboarding online/TMK-provisioning cycle, currently dormant — {@code
+     * OnboardingClient#runOnlineCycle}). If the write fails (no TMK) or no public key has been
+     * onboarded yet, this logs and leaves {@link #lastOnlinePinKeyEncrypted} unset — online PIN
+     * entry itself still proceeds (matching this method's predecessor's behavior), it just won't
+     * have a key the host can decrypt with.
      */
-    private void ensureTestOnlinePinKey() {
-        if (!BuildConfig.DEBUG || testOnlinePinKeyAttempted) {
-            return;
-        }
-        testOnlinePinKeyAttempted = true;
-        byte[] testTpk = {
-                0x01, 0x23, 0x45, 0x67, (byte) 0x89, (byte) 0xAB, (byte) 0xCD, (byte) 0xEF,
-                (byte) 0xFE, (byte) 0xDC, (byte) 0xBA, (byte) 0x98, 0x76, 0x54, 0x32, 0x10,
-        };
+    private void provisionOnlinePinKey() {
+        lastOnlinePinKeyEncrypted = null;
+
+        byte[] pinKey = new byte[ONLINE_PIN_KEY_LENGTH_BYTES];
+        new SecureRandom().nextBytes(pinKey);
+
         try {
             PedHelper.getPed().writeKey(EPedKeyType.TMK, (byte) 0,
-                    EPedKeyType.TPK, PosDeviceUtils.INDEX_TPK, testTpk, ECheckMode.KCV_NONE, null);
-            LogUtils.w(TAG, "Loaded fixed test TPK at index " + PosDeviceUtils.INDEX_TPK
-                    + " for online-PIN testing (debug build only)");
+                    EPedKeyType.TPK, PosDeviceUtils.INDEX_TPK, pinKey, ECheckMode.KCV_NONE, null);
         } catch (PedDevException e) {
-            LogUtils.e(TAG, "Test TPK load failed — no TMK at index 0? Online PIN will keep "
-                    + "failing 'Key does not exist' until real keys are injected.", e);
+            LogUtils.e(TAG, "Online PIN key write failed — no TMK at index 0? Online PIN will "
+                    + "keep failing 'Key does not exist' until a real TMK is injected.", e);
+            return;
+        }
+
+        String hostPublicKey = new OnboardingState(BaseApplication.getAppContext()).getPublicKey();
+        if (hostPublicKey == null) {
+            LogUtils.w(TAG, "No host public key on file (onboarding not completed?) — online PIN "
+                    + "key written to the PED, but the host has no way to decrypt with it.");
+            return;
+        }
+        try {
+            lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToBase64(hostPublicKey, pinKey);
+        } catch (GeneralSecurityException e) {
+            LogUtils.e(TAG, "Failed to RSA-encrypt the online PIN key for the host", e);
         }
     }
 
@@ -1422,7 +1447,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     : null;
             activeConfig = activeConfig.withIccData(buildField55())
                     .withPan(pan)
-                    .withOnlinePinBlock(onlinePinBlockHex);
+                    .withOnlinePinBlock(onlinePinBlockHex)
+                    .withOnlinePinKeyEncrypted(lastOnlinePinKeyEncrypted);
         }
         AuthResult auth = requestOnline(requireEngine());
         lastAuth = auth;

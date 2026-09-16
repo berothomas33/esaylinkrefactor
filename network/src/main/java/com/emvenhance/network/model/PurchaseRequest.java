@@ -35,14 +35,24 @@ public final class PurchaseRequest {
     @Nullable
     private final String pinBlock;
 
+    /**
+     * The PIN key that encrypted {@link #pinBlock}, RSA-wrapped with the host's public key
+     * (base64) — see {@code RsaPublicKeyEncryptor}. {@code null} whenever {@link #pinBlock} is.
+     */
+    @SerializedName("pinKey")
+    @Nullable
+    private final String pinKeyEncrypted;
+
     public PurchaseRequest(long amount, String procCode, String posEntryMode,
-            @Nullable String chipData, @Nullable String pan, @Nullable String pinBlock) {
+            @Nullable String chipData, @Nullable String pan, @Nullable String pinBlock,
+            @Nullable String pinKeyEncrypted) {
         this.amount = amount;
         this.procCode = procCode;
         this.posEntryMode = posEntryMode;
         this.chipData = chipData;
         this.pan = pan;
         this.pinBlock = pinBlock;
+        this.pinKeyEncrypted = pinKeyEncrypted;
     }
 
     public long getAmount() {
@@ -70,5 +80,10 @@ public final class PurchaseRequest {
     @Nullable
     public String getPinBlock() {
         return pinBlock;
+    }
+
+    @Nullable
+    public String getPinKeyEncrypted() {
+        return pinKeyEncrypted;
     }
 }

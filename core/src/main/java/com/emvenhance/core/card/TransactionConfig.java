@@ -31,18 +31,29 @@ public final class TransactionConfig {
     @Nullable
     private final String onlinePinBlock;
 
+    /**
+     * The online PIN key (PEK) that encrypted {@link #onlinePinBlock} in the PIN pad's secure
+     * hardware, RSA-wrapped with the host's public key (base64) so the host can independently
+     * recover the same key value — see {@code RsaPublicKeyEncryptor} /
+     * {@code PaxOnlinePinKeyProvisioner}. {@code null} whenever {@link #onlinePinBlock} is.
+     */
+    @Nullable
+    private final String onlinePinKeyEncrypted;
+
     public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
-        this(type, amountMinor, mode, null, null, null);
+        this(type, amountMinor, mode, null, null, null, null);
     }
 
     private TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode,
-            @Nullable String iccData, @Nullable String pan, @Nullable String onlinePinBlock) {
+            @Nullable String iccData, @Nullable String pan, @Nullable String onlinePinBlock,
+            @Nullable String onlinePinKeyEncrypted) {
         this.type = type;
         this.amountMinor = amountMinor;
         this.mode = mode;
         this.iccData = iccData;
         this.pan = pan;
         this.onlinePinBlock = onlinePinBlock;
+        this.onlinePinKeyEncrypted = onlinePinKeyEncrypted;
     }
 
     public TransactionType getType() {
@@ -75,6 +86,11 @@ public final class TransactionConfig {
     @Nullable
     public String getOnlinePinBlock() {
         return onlinePinBlock;
+    }
+
+    @Nullable
+    public String getOnlinePinKeyEncrypted() {
+        return onlinePinKeyEncrypted;
     }
 
     public boolean isContact() {
@@ -111,21 +127,31 @@ public final class TransactionConfig {
 
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
     public TransactionConfig withMode(EntryMethod mode) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
+                onlinePinKeyEncrypted);
     }
 
     /** Same everything else, with Field 55 attached — see {@link #getIccData()}. */
     public TransactionConfig withIccData(@Nullable String iccData) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
+                onlinePinKeyEncrypted);
     }
 
     /** Same everything else, with the PAN attached — see {@link #getPan()}. */
     public TransactionConfig withPan(@Nullable String pan) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
+                onlinePinKeyEncrypted);
     }
 
     /** Same everything else, with the online PIN block attached — see {@link #getOnlinePinBlock()}. */
     public TransactionConfig withOnlinePinBlock(@Nullable String onlinePinBlock) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock);
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
+                onlinePinKeyEncrypted);
+    }
+
+    /** Same everything else, with the RSA-wrapped PIN key attached — see {@link #getOnlinePinKeyEncrypted()}. */
+    public TransactionConfig withOnlinePinKeyEncrypted(@Nullable String onlinePinKeyEncrypted) {
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
+                onlinePinKeyEncrypted);
     }
 }
