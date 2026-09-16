@@ -34,7 +34,7 @@ See [`doc/architecture/emv-step-methods-on-behavior.md`](doc/architecture/emv-st
 | Package | Contents |
 |---------|----------|
 | *(root)* | `HostApiConnection` (Retrofit), `HostApiClient`, `RetrofitCommunicationBehavior` — real `CommunicationBehavior` impl, online purchase + 2nd GAC issuer data |
-| `env` | `ApiEnvironment`, `EnvironmentProvider` — multi-environment base URL switching |
+| `env` | `EnvironmentProvider` — holds `BuildConfig.baseUrl` from `:app`'s "environment" flavor dimension |
 | `model` | `PurchaseRequest`, `PurchaseResponse` |
 | `tlv` | `BerTlv` — minimal BER-TLV reader for pulling ARPC/issuer-script tags out of the response |
 

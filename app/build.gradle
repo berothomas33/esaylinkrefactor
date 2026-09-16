@@ -30,10 +30,20 @@ android {
         }
     }
 
-    // Each flavor compiles only its own vendor sources (src/pax, src/ingenico, src/fake) and
-    // pulls in only the module dependencies that vendor actually needs — an ingenico/fake build
-    // never touches the PAX SDK modules (emvlib/emvservice/bizentity/bizlib/emvflow) at all.
-    flavorDimensions = ["vendor"]
+    // Each "vendor" flavor compiles only its own vendor sources (src/pax, src/ingenico,
+    // src/fake) and pulls in only the module dependencies that vendor actually needs — an
+    // ingenico/fake build never touches the PAX SDK modules (emvlib/emvservice/bizentity/
+    // bizlib/emvflow) at all.
+    //
+    // "environment" selects which host BuildConfig.baseUrl gets baked in — read by
+    // EnvironmentProvider.setBaseUrl(BuildConfig.baseUrl) in EmvEnhanceApp.onCreate(), same
+    // compile-time-variant approach the old project used (Constants.EndPoint per build), not a
+    // runtime switch. Ported verbatim from the old project's build.gradle.
+    //
+    // "production" — dev/staging/live — carries no buildConfigField yet; the old project's
+    // config was cut off before whatever these three set. Wired as a dimension so variants
+    // resolve, pending the rest of that config.
+    flavorDimensions = ["vendor", "environment", "production"]
     productFlavors {
         pax {
             dimension "vendor"
@@ -49,6 +59,45 @@ android {
             dimension "vendor"
             applicationIdSuffix ".fake"
             buildConfigField 'String', 'VENDOR', '"FAKE"'
+        }
+
+        prod {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://payment.alahlymomkn.com/prod/api/v1/\""
+        }
+        envtest {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://test-payment.alahlymomkn.com/api/v1/\""
+        }
+        uat {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://test-payment.alahlymomkn.com/uat/api/v1/\""
+        }
+        uatr3 {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://payment.alahlymomkn.com/uatr3/api/v1/\""
+        }
+        bank {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://Payment.alahlymomkn.com/api/v1/\""
+        }
+        pos_as_atm {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://Payment.alahlymomkn.com/pos-as-atm/api/v1/\""
+        }
+        dss {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://Payment.alahlymomkn.com/pci-dss/api/v1/\""
+        }
+
+        dev {
+            dimension "production"
+        }
+        staging {
+            dimension "production"
+        }
+        live {
+            dimension "production"
         }
     }
 
