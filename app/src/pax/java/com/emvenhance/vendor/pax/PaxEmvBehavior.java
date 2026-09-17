@@ -25,7 +25,7 @@ import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.IPed;
-import com.pax.dal.entity.ECheckMode;
+import com.pax.dal.entity.EAesCheckMode;
 import com.pax.dal.entity.EPedKeyType;
 import com.pax.dal.entity.EPiccType;
 import com.pax.dal.exceptions.PedDevException;
@@ -114,7 +114,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static final int ICC_APP_SELECT_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
 
-    /** Double-length (16-byte) 3DES key, matching {@link PosDeviceUtils#INDEX_TPK}'s key family. */
+    /**
+     * AES-128 key length — see {@link #provisionOnlinePinKey} ({@code EPedKeyType.AES_TPK}, not
+     * the 3DES-family plain {@code TPK}).
+     */
     private static final int ONLINE_PIN_KEY_LENGTH_BYTES = 16;
 
     /**
@@ -1397,21 +1400,31 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /**
      * Generates a fresh random online PIN key (PEK) for this transaction, writes it to
-     * {@link PosDeviceUtils#INDEX_TPK} so {@code getPinBlock} has a real key to encrypt the
-     * online PIN with, and RSA-wraps the same key value with the host's public key (from
+     * {@link PosDeviceUtils#INDEX_TPK} as an **AES** key so {@code getPinBlock} produces an
+     * AES-encrypted PIN block (confirmed against the server team — it decrypts the PIN block with
+     * AES, not 3DES), and RSA-wraps the same key value with the host's public key (from
      * onboarding — {@link OnboardingState#getPublicKey()}) so the host can independently recover
      * it. Runs every online-PIN transaction, not just once — a fresh key per transaction, not a
      * reused one, matching the old project's {@code preparePekKey()} being called at the start of
      * every sale.
      *
-     * <p>The key is written wrapped under whatever key already sits at {@code EPedKeyType.TMK}
-     * index 0, same as this method's predecessor — that assumes a TMK is already present at that
-     * index, true on PAX SDK demo/dev units out of the box; a real deployment provisions its own
-     * TMK (see the onboarding online/TMK-provisioning cycle, currently dormant — {@code
-     * OnboardingClient#runOnlineCycle}). If the write fails (no TMK) or no public key has been
-     * onboarded yet, this logs and leaves {@link #lastOnlinePinKeyEncrypted} unset — online PIN
-     * entry itself still proceeds (matching this method's predecessor's behavior), it just won't
-     * have a key the host can decrypt with.
+     * <p>Ported from the old project's {@code PaxUtils#writePekAES} — {@code EPedKeyType.AES_TPK}
+     * (a distinct key type from the plain, 3DES-family {@code EPedKeyType.TPK}) written via
+     * {@code IPed#writeAesKey}, erasing whatever's at that index first, wrapped under
+     * {@code EPedKeyType.TLK} index 0 (not {@code TMK} — the AES key hierarchy uses a different
+     * wrapping key type than the 3DES one). This method's first cut used {@code writeKey}/
+     * {@code EPedKeyType.TPK}/{@code TMK} (3DES) instead, going only off {@code PinService}'s
+     * {@code getPinBlock(INDEX_TPK, ...)} call shape — wrong: that call is algorithm-agnostic, it
+     * just reads whatever's written at the index, and the actual algorithm is decided here, by
+     * which write method and key type provisioned it.
+     *
+     * <p>That assumes a TLK is already present at index 0, true on PAX SDK demo/dev units out of
+     * the box; a real deployment provisions its own TLK (see the onboarding online/TMK-provisioning
+     * cycle, currently dormant — {@code OnboardingClient#runOnlineCycle} — which would need an AES
+     * counterpart if it's ever turned on for this key hierarchy too). If the write fails (no TLK)
+     * or no public key has been onboarded yet, this logs and leaves
+     * {@link #lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
+     * this method's predecessor's behavior), it just won't have a key the host can decrypt with.
      */
     private void provisionOnlinePinKey() {
         lastOnlinePinKeyEncrypted = null;
@@ -1420,11 +1433,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         new SecureRandom().nextBytes(pinKey);
 
         try {
-            PedHelper.getPed().writeKey(EPedKeyType.TMK, (byte) 0,
-                    EPedKeyType.TPK, PosDeviceUtils.INDEX_TPK, pinKey, ECheckMode.KCV_NONE, null);
+            IPed ped = PedHelper.getPed();
+            ped.eraseKey(EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_TPK);
+            ped.writeAesKey(EPedKeyType.TLK.getPedkeyType(), (byte) 0,
+                    EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_TPK, pinKey,
+                    EAesCheckMode.KCV_NONE, null);
         } catch (PedDevException e) {
-            LogUtils.e(TAG, "Online PIN key write failed — no TMK at index 0? Online PIN will "
-                    + "keep failing 'Key does not exist' until a real TMK is injected.", e);
+            LogUtils.e(TAG, "Online PIN key write failed — no TLK at index 0? Online PIN will "
+                    + "keep failing 'Key does not exist' until a real TLK is injected.", e);
             return;
         }
 
