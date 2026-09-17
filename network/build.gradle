@@ -30,6 +30,11 @@ dependencies {
     // CommunicationBehavior / AuthResult / TransactionConfig — the contract this module fulfills.
     api project(':core')
 
+    // @Nullable/@NonNull on this module's own model/crypto/onboarding classes — :core depends on
+    // this too, but only as `implementation`, so it doesn't leak here transitively; declared
+    // directly since this module's own sources reference it, not just :core's.
+    implementation 'androidx.annotation:annotation:1.7.1'
+
     implementation "com.squareup.retrofit2:retrofit:$rootProject.retrofit2"
     implementation "com.squareup.retrofit2:converter-gson:$rootProject.retrofit2"
     implementation "com.squareup.retrofit2:adapter-rxjava3:$rootProject.retrofit2"
