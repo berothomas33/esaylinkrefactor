@@ -50,9 +50,9 @@ PEK if one was provisioned) then `sale()` (the actual authorization) — built f
 `TransactionConfig#getEmvResult()`, the `EmvTransactionResult` a vendor `EmvBehavior` assembles
 from the kernel right before going online (see `PaxEmvBehavior#buildEmvTransactionResult`). Its
 `Account-Id`/bearer-token headers are read fresh off `OnboardingState#getAccountId`/`#getToken`
-on every call — `EmvParamActivity`'s Account ID/Token fields (originally just per-click header
-input for its own two debug actions) now persist there too, so whatever a technician last entered
-on that screen is what a live sale uses; no separate credentials screen. `RetrofitCommunicationBehavior`
+on every call — `OnboardingActivity`'s Account ID/Token fields persist there on every successful
+onboarding run, so whatever a technician last entered on that screen is what a live sale uses; no
+separate credentials screen. `RetrofitCommunicationBehavior`
 (`crypto/purchase`, plain JSON, no TEK/PEK envelope) is still available as the non-default
 alternative. Several of `SaleCommunicationBehavior`'s request fields (the CVM code, the per-issuer
 `cardType`/`dcc` values) are reconstructions flagged in its own and its model classes' javadoc —
@@ -76,14 +76,17 @@ the bytes, `EmvParamUpdater` to apply them), returning `EmvParamUpdateResult` (w
 applied, with row counts, or the first error) rather than a bare boolean so a caller can show what
 actually happened.
 
-`app/src/pax/.../ui/EmvParamActivity` is that caller — the existing EMV-param category browser
-screen now also has an Account ID / Token credentials section feeding two actions above the
-browser: "Download EMV params" (shows `EmvParamUpdateResult.summarize()`) and "Start onboarding"
-(runs `OnboardingClient#runOfflineCycle`, shows success or the failure message). Neither is wired
-into app startup — both are debug/setup actions a technician triggers from this screen. The two
-credentials fields are reused as-is for both actions' request headers (`Account-Id`, and `Token`
-as a bearer `Authorization` header) — a placeholder convention, since neither endpoint's real
-header contract is known yet (see `EmvParamActivity#buildHeaders`).
+`app/src/pax/.../ui/EmvParamActivity` is that caller — the EMV-param category browser screen also
+has a "Download EMV params" button above the browser (shows `EmvParamUpdateResult.summarize()`).
+It has no credentials UI of its own: its `Account-Id`/bearer-token headers come from
+`OnboardingState#getAccountId`/`#getToken`, entered on the separate `app/src/pax/.../ui/OnboardingActivity`
+screen — Account ID / Token fields plus a single "Start onboarding" button
+(runs `OnboardingClient#runOfflineCycle`, shows success or the failure message), saving the
+credentials on every successful run. Neither screen is wired into app startup — both are
+debug/setup actions a technician triggers, reachable from `MainActivity`'s debug panel. Same
+placeholder header convention as before (`Account-Id` verbatim, `Token` as a bearer
+`Authorization` header), since neither endpoint's real header contract is known yet (see
+`OnboardingActivity#buildHeaders`).
 
 **No reference parser was available** to build `EmvXmlParamParser`/`ClssXmlParamParser` against —
 their javadoc flags every field mapping that's a best-effort reconstruction (tag names, the

@@ -22,5 +22,7 @@ final class VendorDebugPanel {
                 v -> activity.startActivity(new Intent(activity, EmvParamActivity.class)));
         binding.btnChangeCountry.setOnClickListener(
                 v -> activity.startActivity(new Intent(activity, CountryListActivity.class)));
+        binding.btnOnboarding.setOnClickListener(
+                v -> activity.startActivity(new Intent(activity, OnboardingActivity.class)));
     }
 }

@@ -30,6 +30,9 @@
             android:name=".ui.EmvParamActivity"
             android:exported="false" />
         <activity
+            android:name=".ui.OnboardingActivity"
+            android:exported="false" />
+        <activity
             android:name=".ui.CountryListActivity"
             android:exported="false" />
     </application>

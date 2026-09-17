@@ -55,10 +55,11 @@
     <string name="action_download_emv_param">Download EMV params</string>
     <string name="emv_param_sync_using_bundled">Using bundled JSON params (no download applied yet this session)</string>
     <string name="emv_param_sync_in_progress">Downloading…</string>
-    <string name="emv_param_sync_credentials_required">Enter Account ID and Token first</string>
+    <string name="emv_param_sync_credentials_required">Enter Account ID and Token on the Onboarding screen first</string>
     <string name="emv_param_sync_failed">Download failed: %1$s</string>
 
     <string name="label_onboarding">Onboarding</string>
+    <string name="action_open_onboarding">Onboarding</string>
     <string name="action_start_onboarding">Start onboarding</string>
     <string name="onboarding_in_progress">Running onboarding cycle…</string>
     <string name="onboarding_succeeded">Onboarding complete — terminal paired</string>
