@@ -15,6 +15,10 @@ public final class DataModel {
     @Nullable
     private String transactionType;
 
+    @SerializedName("asyncRequestId")
+    @Nullable
+    private String asyncRequestId;
+
     @Nullable
     public String getEncSerializedResponse() {
         return encSerializedResponse;
@@ -23,5 +27,10 @@ public final class DataModel {
     @Nullable
     public String getTransactionType() {
         return transactionType;
+    }
+
+    @Nullable
+    public String getAsyncRequestId() {
+        return asyncRequestId;
     }
 }

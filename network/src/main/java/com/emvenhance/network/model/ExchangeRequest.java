@@ -4,14 +4,17 @@ import com.google.gson.annotations.SerializedName;
 
 /**
  * Payload carried (AES-encrypted) inside {@link GeneralRequest#forExchange}'s
- * {@code encSerializedRequest} — mirrors the old project's {@code ExchangeRequest}, reconstructed
- * from its {@code new ExchangeRequest(asyncId, pan, cvm, type)} call site in
- * {@code SaleActivity#prepareExchangeRequest} (the class itself wasn't shared).
+ * {@code encSerializedRequest} — field names confirmed against the real {@code ExchangeRequest}
+ * class (found in an uploaded {@code model_layer.rar}): its
+ * {@code ExchangeRequest(asyncRequestId, pan, cvm, transactionType)} constructor is exactly the
+ * shape {@code SaleActivity#prepareExchangeRequest} calls. An earlier version of this class used
+ * {@code asyncId}/{@code type} for these same two fields, guessed before the real source was
+ * found — wrong names, now corrected.
  */
 public final class ExchangeRequest {
 
-    @SerializedName("asyncId")
-    private final String asyncId;
+    @SerializedName("asyncRequestId")
+    private final String asyncRequestId;
 
     @SerializedName("pan")
     private final String pan;
@@ -20,19 +23,19 @@ public final class ExchangeRequest {
     @SerializedName("cvm")
     private final int cvm;
 
-    /** Transaction type, e.g. {@code "SALE"} — the old project's real enum value isn't confirmed. */
-    @SerializedName("type")
-    private final String type;
+    /** e.g. {@code "SALE"} — the old project's real enum value isn't confirmed. */
+    @SerializedName("transactionType")
+    private final String transactionType;
 
-    public ExchangeRequest(String asyncId, String pan, int cvm, String type) {
-        this.asyncId = asyncId;
+    public ExchangeRequest(String asyncRequestId, String pan, int cvm, String transactionType) {
+        this.asyncRequestId = asyncRequestId;
         this.pan = pan;
         this.cvm = cvm;
-        this.type = type;
+        this.transactionType = transactionType;
     }
 
-    public String getAsyncId() {
-        return asyncId;
+    public String getAsyncRequestId() {
+        return asyncRequestId;
     }
 
     public String getPan() {
@@ -43,7 +46,7 @@ public final class ExchangeRequest {
         return cvm;
     }
 
-    public String getType() {
-        return type;
+    public String getTransactionType() {
+        return transactionType;
     }
 }

@@ -6,11 +6,25 @@ import androidx.annotation.Nullable;
 
 /**
  * Payload carried (AES-encrypted) inside {@link GeneralRequest#forSale}'s
- * {@code encSerializedRequest} — mirrors the old project's {@code SaleRequest}, reconstructed
- * from its setter calls in {@code SaleActivity#getSaleRequest} (the class itself wasn't shared).
+ * {@code encSerializedRequest} — field set confirmed against the real {@code SaleRequest} class
+ * (found in an uploaded {@code model_layer.rar}), which also revealed two things an earlier,
+ * reconstructed-from-setter-calls version of this class had wrong:
+ * <ul>
+ *   <li>{@link #getAmount()}/{@link #getNetAmount()} are {@code double} major-currency-unit
+ *       values (e.g. {@code 10.50}), not minor-unit integers — the real class even rounds
+ *       {@code amount} to 2 decimal places on the way out. An earlier version sent
+ *       {@code TransactionConfig#getAmountMinor()} (cents) directly as a {@code long}.
+ *   <li>{@link #getNetAmount()} and {@link #getSingleTap()} weren't in the reconstructed version
+ *       at all.
+ * </ul>
+ * {@link #getNetAmount()} presumably differs from {@link #getAmount()} when a surcharge/fee
+ * applies — this codebase has no such concept, so both carry the same value.
+ * {@link #getSingleTap()} is the Mastercard-CLSS single-tap retry marker (old project:
+ * {@code "ST"}) — out of scope here (see {@code SaleCommunicationBehavior}'s javadoc), always
+ * {@code null}.
  *
- * <p>Two fields are placeholders pending the real per-issuer tables, same disclosure as
- * {@code RsaPublicKeyEncryptor}'s key-encoding assumption:
+ * <p>Two fields are still placeholders pending the real per-issuer tables, same disclosure as
+ * {@code RsaPublicKeyEncryptor}'s key-encoding assumption before it was confirmed:
  * <ul>
  *   <li>{@link #getCardType()} — the old project derived this from a {@code getIssueName(issuerName)}
  *       lookup (issuer/network → numeric or short code) that wasn't shared; this carries the raw
@@ -23,7 +37,10 @@ import androidx.annotation.Nullable;
 public final class SaleRequest {
 
     @SerializedName("amount")
-    private final long amount;
+    private final double amount;
+
+    @SerializedName("netAmount")
+    private final double netAmount;
 
     @SerializedName("cvm")
     private final int cvm;
@@ -61,14 +78,20 @@ public final class SaleRequest {
     @SerializedName("dcc")
     private final String dcc;
 
+    /** Mastercard-CLSS single-tap retry marker — see the class javadoc; always {@code null} here. */
+    @SerializedName("singleTap")
+    @Nullable
+    private final String singleTap;
+
     /** {@link SaleExtraData}, JSON-serialized — see {@code SaleCommunicationBehavior}. */
     @SerializedName("extraData")
     private final String extraData;
 
-    public SaleRequest(long amount, int cvm, String pan, @Nullable String pinBlock,
+    public SaleRequest(double amount, double netAmount, int cvm, String pan, @Nullable String pinBlock,
             @Nullable String chipData, int expirationMonth, int expirationYear, String trailer,
             String posEntryMode, @Nullable String cardType, String dcc, String extraData) {
         this.amount = amount;
+        this.netAmount = netAmount;
         this.cvm = cvm;
         this.pan = pan;
         this.pinBlock = pinBlock;
@@ -79,11 +102,16 @@ public final class SaleRequest {
         this.posEntryMode = posEntryMode;
         this.cardType = cardType;
         this.dcc = dcc;
+        this.singleTap = null;
         this.extraData = extraData;
     }
 
-    public long getAmount() {
+    public double getAmount() {
         return amount;
+    }
+
+    public double getNetAmount() {
+        return netAmount;
     }
 
     public int getCvm() {
@@ -127,6 +155,11 @@ public final class SaleRequest {
 
     public String getDcc() {
         return dcc;
+    }
+
+    @Nullable
+    public String getSingleTap() {
+        return singleTap;
     }
 
     public String getExtraData() {

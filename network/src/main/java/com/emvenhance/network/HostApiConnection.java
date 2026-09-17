@@ -24,18 +24,25 @@ public interface HostApiConnection {
     /**
      * Establishes the encrypted-envelope session (TEK, and PEK if online PIN was collected) for a
      * transaction ahead of {@link #sale} — see {@code SaleCommunicationBehavior} and the old
-     * project's {@code SaleActivity#callExchangeProcess}/{@code EmvApiConnection#exchange}.
+     * project's {@code SaleActivity#callExchangeProcess}/{@code EmvApiConnection#saleInquiry}.
+     *
+     * <p>Path confirmed against the real {@code EmvApiConnection} interface (found in an uploaded
+     * {@code model_layer.rar}) — {@code orchestration/exchange}, not {@code cacore/exchange} as
+     * first guessed from {@code SaleActivity}'s field names alone; the first guess is what
+     * produced a real 400 Bad Request in testing. {@code cacore/sale} does exist as a path, but
+     * it's a separate, simpler test endpoint ({@code saleTest}/{@code SaleRequestTest}), not this one.
      */
-    @POST("cacore/exchange")
+    @POST("orchestration/exchange")
     Single<GeneralResponse> exchange(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
 
     /**
      * Online sale authorization over the encrypted {@code GeneralRequest}/{@code GeneralResponse}
      * envelope — see {@code SaleCommunicationBehavior} and the old project's
      * {@code SaleActivity#callSaleProcess}/{@code EmvApiConnection#sale}. Requires a prior
-     * {@link #exchange} call for the same {@code asyncRequestId}.
+     * {@link #exchange} call for the same {@code asyncRequestId}. Path confirmed the same way as
+     * {@link #exchange}'s — {@code orchestration/sale}, not {@code cacore/sale}.
      */
-    @POST("cacore/sale")
+    @POST("orchestration/sale")
     Single<GeneralResponse> sale(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
 
     /**

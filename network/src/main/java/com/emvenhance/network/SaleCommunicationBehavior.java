@@ -28,10 +28,15 @@ import java.util.UUID;
 import io.reactivex.rxjava3.core.Single;
 
 /**
- * Real {@link CommunicationBehavior} for the encrypted-envelope sale flow — {@code cacore/exchange}
- * (establishes a fresh per-transaction TEK, and forwards the PEK if online PIN was collected) then
- * {@code cacore/sale} (the actual authorization), replacing the old project's
- * {@code SaleActivity#callExchangeProcess}/{@code #callSaleProcess} pair.
+ * Real {@link CommunicationBehavior} for the encrypted-envelope sale flow —
+ * {@code orchestration/exchange} (establishes a fresh per-transaction TEK, and forwards the PEK if
+ * online PIN was collected) then {@code orchestration/sale} (the actual authorization), replacing
+ * the old project's {@code SaleActivity#callExchangeProcess}/{@code #callSaleProcess} pair. (Both
+ * paths were first guessed as {@code cacore/exchange}/{@code cacore/sale} from
+ * {@code SaleActivity}'s field names — wrong, and confirmed wrong by a real 400 Bad Request in
+ * testing; {@code HostApiConnection}'s real {@code EmvApiConnection} source, found afterward,
+ * has the correct paths — {@code cacore/sale} does exist, but as a separate, simpler test
+ * endpoint.)
  *
  * <p>Deliberately narrower than the old project's {@code SaleActivity}, per the EMV-flow split
  * this codebase already made ({@code EmvEngine} + a vendor {@code EmvBehavior} own card reading;
@@ -48,15 +53,16 @@ import io.reactivex.rxjava3.core.Single;
  *       {@link Single#error}, once, with no retry.
  * </ul>
  *
- * <p>Neither {@code GeneralRequest} nor {@code ExchangeRequest}/{@code SaleRequest}/their response
- * counterparts were shared as source — see each model class's own javadoc for exactly which fields
- * are a verified match (from setter/getter call sites) versus a placeholder. Headers come from
- * {@link HostHeaders#buildAuthenticated} — post-onboarding, bearer-token mode, using
- * {@link #sn} (this terminal's own serial number, passed in by {@code PaxTerminal}, which has
- * PAX's {@code ModelInfo}; this module stays vendor-agnostic, so it can't fetch that itself) and
- * {@code onboardingState.getAccessToken()}. Only a captured {@code tmsFileDownload} call confirmed
- * that mode is what a real authenticated request looks like — {@code cacore/exchange}/
- * {@code cacore/sale} using the same mode is a reasonable inference, not independently confirmed.
+ * <p>{@code GeneralRequest}/{@code ExchangeRequest}/{@code SaleRequest}/their response
+ * counterparts are now confirmed against the real classes (found in an uploaded
+ * {@code model_layer.rar}) — see each model class's own javadoc for exactly what changed from the
+ * first, setter-call-reconstructed version. Headers come from {@link HostHeaders#buildAuthenticated}
+ * — post-onboarding, bearer-token mode, using {@link #sn} (this terminal's own serial number,
+ * passed in by {@code PaxTerminal}, which has PAX's {@code ModelInfo}; this module stays
+ * vendor-agnostic, so it can't fetch that itself) and {@code onboardingState.getAccessToken()}.
+ * Only a captured {@code tmsFileDownload} call confirmed that mode is what a real authenticated
+ * request looks like — {@code orchestration/exchange}/{@code orchestration/sale} using the same
+ * mode is a reasonable inference, not independently confirmed.
  *
  * <p>The old project supplied a {@code paymentAsyncID} from whatever aggregator launched
  * {@code SaleActivity} — this codebase has no such caller, so a fresh {@link UUID} is generated
@@ -138,8 +144,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException("Failed to AES-encrypt the exchange request", e));
         }
 
-        GeneralRequest request = GeneralRequest.forExchange(
-                encSerializedRequest, asyncRequestId, transactionKeyEncrypted, config.getOnlinePinKeyEncrypted());
+        GeneralRequest request = GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
+                transactionKeyEncrypted, config.getOnlinePinKeyEncrypted(), TRANSACTION_TYPE_SALE);
 
         return connection.exchange(headers, request)
                 .flatMap(response -> decryptEnvelope(response, tek, "Exchange", ExchangeResponse.class));
@@ -209,8 +215,15 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 emvResult.getCardHolderName(),
                 cardTypeLabel(config.getMode()));
 
+        // SaleRequest#getAmount()/getNetAmount() are major-currency-unit doubles (e.g. 10.50),
+        // not TransactionConfig#getAmountMinor()'s minor-unit long (cents) — see SaleRequest's
+        // javadoc for how that was confirmed. No surcharge/fee concept here, so both are the same
+        // value.
+        double amountMajor = config.getAmountMinor() / 100.0;
+
         return new SaleRequest(
-                config.getAmountMinor(),
+                amountMajor,
+                amountMajor,
                 cvmCode(config, emvResult),
                 pan,
                 config.getOnlinePinBlock(),
