@@ -28,15 +28,12 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * onboard → confirm).
  *
  * <p>Headers now come from {@link HostHeaders#build} — {@code aggregator-app-key}/
- * {@code system-app-key} (fixed) + {@code sn} (this terminal's serial, {@link ModelInfo#getSN()})
- * + {@code lang}, confirmed against a real captured {@code foundation/onboarding/handshake}
- * request. That request had no {@code Account-Id}/token header at all, so the Account ID / Token
- * fields below no longer gate or feed the request — kept (still persisted via
- * {@link OnboardingState#saveAccountId}/{@link OnboardingState#saveToken}) only because it's not
- * yet confirmed whether something else downstream still needs them.
- *
- * <p>{@link HostHeaders}'s {@code apiKey} is still unresolved (see its own javadoc) — passed as
- * {@code ""} here, so expect this to fail authentication until that's confirmed.
+ * {@code system-app-key}/{@code apiKey}/{@code lang} (all fixed) + {@code sn} (this terminal's
+ * own serial, {@link ModelInfo#getSN()}), confirmed against a real captured
+ * {@code foundation/onboarding/handshake} request. That request had no {@code Account-Id}/token
+ * header at all, so the Account ID / Token fields below no longer gate or feed the request — kept
+ * (still persisted via {@link OnboardingState#saveAccountId}/{@link OnboardingState#saveToken})
+ * only because it's not yet confirmed whether something else downstream still needs them.
  */
 public class OnboardingActivity extends AppCompatActivity {
 
@@ -84,7 +81,7 @@ public class OnboardingActivity extends AppCompatActivity {
         onboardingStatusText.setText(R.string.onboarding_in_progress);
 
         String sn = ModelInfo.getInstance().getSN();
-        Map<String, String> headers = HostHeaders.build(sn, "");
+        Map<String, String> headers = HostHeaders.build(sn);
 
         OnboardingState state = new OnboardingState(this);
         Single<OnboardingStatusResponse> cycle = new OnboardingClient().runOfflineCycle(headers, state);

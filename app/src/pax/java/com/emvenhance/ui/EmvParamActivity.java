@@ -38,8 +38,7 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * below always reflects the real current state.
  *
  * <p>Uses {@link HostHeaders#build} for its request headers — same real, confirmed contract every
- * other host call in this app now uses (see {@link HostHeaders}'s javadoc for the still-open
- * {@code apiKey} derivation).
+ * other host call in this app now uses.
  */
 public class EmvParamActivity extends AppCompatActivity {
 
@@ -84,7 +83,7 @@ public class EmvParamActivity extends AppCompatActivity {
     }
 
     private void downloadEmvParams() {
-        Map<String, String> headers = HostHeaders.build(ModelInfo.getInstance().getSN(), "");
+        Map<String, String> headers = HostHeaders.build(ModelInfo.getInstance().getSN());
 
         setSyncBusy(true);
         paramSyncStatusText.setText(R.string.emv_param_sync_in_progress);

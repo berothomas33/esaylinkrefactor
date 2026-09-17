@@ -53,8 +53,7 @@ import io.reactivex.rxjava3.core.Single;
  * are a verified match (from setter/getter call sites) versus a placeholder. Headers come from
  * {@link HostHeaders#build} — the real, confirmed contract — using {@link #sn}, this terminal's
  * own serial number, passed in by {@code PaxTerminal} (which has PAX's {@code ModelInfo}; this
- * module stays vendor-agnostic, so it can't fetch that itself). See {@link HostHeaders}'s javadoc
- * for the still-open {@code apiKey} derivation this passes as {@code ""} until confirmed.
+ * module stays vendor-agnostic, so it can't fetch that itself).
  *
  * <p>The old project supplied a {@code paymentAsyncID} from whatever aggregator launched
  * {@code SaleActivity} — this codebase has no such caller, so a fresh {@link UUID} is generated
@@ -100,7 +99,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException(
                     "No host public key on file — onboarding must complete before a TEK can be wrapped for the host"));
         }
-        Map<String, String> headers = HostHeaders.build(sn, "");
+        Map<String, String> headers = HostHeaders.build(sn);
 
         byte[] tek = new byte[TEK_LENGTH_BYTES];
         new SecureRandom().nextBytes(tek);
