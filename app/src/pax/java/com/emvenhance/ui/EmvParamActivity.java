@@ -9,13 +9,12 @@ import android.widget.TextView;
 
 import com.emvenhance.R;
 import com.emvenhance.network.HostHeaders;
+import com.emvenhance.network.onboarding.OnboardingClient;
 import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.vendor.pax.PaxEmvParamUpdateService;
 import com.google.android.material.button.MaterialButton;
 import com.pax.configservice.impl.EmvParamUpdateResult;
 import com.pax.poslib.model.ModelInfo;
-
-import java.util.Map;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -40,7 +39,9 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  *
  * <p>Uses {@link HostHeaders#buildAuthenticated} for its request headers — the real, confirmed
  * post-onboarding contract (a captured {@code tmsFileDownload} call used it, not the pre-token
- * {@link HostHeaders#build}) — so onboarding must complete first; see {@link #downloadEmvParams}.
+ * {@link HostHeaders#build}) — so onboarding must complete first; see {@link #downloadEmvParams},
+ * which refreshes the saved token first via {@code OnboardingClient#ensureValidAccessToken} rather
+ * than handing the host whatever token onboarding first minted, however old.
  */
 public class EmvParamActivity extends AppCompatActivity {
 
@@ -85,19 +86,24 @@ public class EmvParamActivity extends AppCompatActivity {
     }
 
     private void downloadEmvParams() {
-        String accessToken = new OnboardingState(this).getAccessToken();
-        if (accessToken == null) {
+        OnboardingState state = new OnboardingState(this);
+        if (state.getAccessToken() == null) {
             paramSyncStatusText.setText(R.string.emv_param_sync_credentials_required);
             return;
         }
-        Map<String, String> headers = HostHeaders.buildAuthenticated(ModelInfo.getInstance().getSN(), accessToken);
+        String sn = ModelInfo.getInstance().getSN();
+        String posType = ModelInfo.getInstance().getTerminalModel();
 
         setSyncBusy(true);
         paramSyncStatusText.setText(R.string.emv_param_sync_in_progress);
 
-        String posType = ModelInfo.getInstance().getTerminalModel();
-        Single<EmvParamUpdateResult> download = new PaxEmvParamUpdateService()
-                .downloadAndApply(headers, posType);
+        // Refresh first if the saved token is near/past expiry — buildAuthenticated used to read
+        // OnboardingState#getAccessToken() straight off, which reused a token forever and could
+        // hand the host one already expired.
+        Single<EmvParamUpdateResult> download = new OnboardingClient()
+                .ensureValidAccessToken(HostHeaders.build(sn), state)
+                .flatMap(accessToken -> new PaxEmvParamUpdateService()
+                        .downloadAndApply(HostHeaders.buildAuthenticated(sn, accessToken), posType));
 
         disposables.add(download
                 .subscribeOn(Schedulers.io())

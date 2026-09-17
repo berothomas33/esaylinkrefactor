@@ -16,6 +16,7 @@ import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.model.SaleExtraData;
 import com.emvenhance.network.model.SaleRequest;
 import com.emvenhance.network.model.SaleResponse;
+import com.emvenhance.network.onboarding.OnboardingClient;
 import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.network.tlv.IssuerResponseFields;
 import com.google.gson.Gson;
@@ -59,10 +60,14 @@ import io.reactivex.rxjava3.core.Single;
  * first, setter-call-reconstructed version. Headers come from {@link HostHeaders#buildAuthenticated}
  * — post-onboarding, bearer-token mode, using {@link #sn} (this terminal's own serial number,
  * passed in by {@code PaxTerminal}, which has PAX's {@code ModelInfo}; this module stays
- * vendor-agnostic, so it can't fetch that itself) and {@code onboardingState.getAccessToken()}.
- * Only a captured {@code tmsFileDownload} call confirmed that mode is what a real authenticated
- * request looks like — {@code orchestration/exchange}/{@code orchestration/sale} using the same
- * mode is a reasonable inference, not independently confirmed.
+ * vendor-agnostic, so it can't fetch that itself) and a token from
+ * {@link OnboardingClient#ensureValidAccessToken} (refreshed first if near/past expiry, rather
+ * than the raw {@code onboardingState.getAccessToken()} this used to read directly — that path
+ * reused whatever token onboarding first minted forever, which is exactly how a real terminal
+ * started getting {@code "Jwt expired"} from the host). Only a captured {@code tmsFileDownload}
+ * call confirmed that mode is what a real authenticated request looks like —
+ * {@code orchestration/exchange}/{@code orchestration/sale} using the same mode is a reasonable
+ * inference, not independently confirmed.
  *
  * <p>The old project supplied a {@code paymentAsyncID} from whatever aggregator launched
  * {@code SaleActivity} — this codebase has no such caller, so a fresh {@link UUID} is generated
@@ -81,16 +86,19 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     private static final int CVM_OFFLINE_PIN = 2;
 
     private final HostApiConnection connection;
+    private final OnboardingClient onboarding;
     private final OnboardingState onboardingState;
     private final String sn;
     private final Gson gson = new Gson();
 
     public SaleCommunicationBehavior(Context context, String sn) {
-        this(HostApiClient.create(), new OnboardingState(context), sn);
+        this(HostApiClient.create(), new OnboardingClient(), new OnboardingState(context), sn);
     }
 
-    public SaleCommunicationBehavior(HostApiConnection connection, OnboardingState onboardingState, String sn) {
+    public SaleCommunicationBehavior(HostApiConnection connection, OnboardingClient onboarding,
+            OnboardingState onboardingState, String sn) {
         this.connection = connection;
+        this.onboarding = onboarding;
         this.onboardingState = onboardingState;
         this.sn = sn;
     }
@@ -108,13 +116,18 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException(
                     "No host public key on file — onboarding must complete before a TEK can be wrapped for the host"));
         }
-        String accessToken = onboardingState.getAccessToken();
-        if (accessToken == null) {
+        if (onboardingState.getAccessToken() == null) {
             return Single.error(new SaleException(
                     "No access token on file — onboarding must complete before a sale can go online"));
         }
-        Map<String, String> headers = HostHeaders.buildAuthenticated(sn, accessToken);
 
+        return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
+                .flatMap(accessToken -> goOnline(HostHeaders.buildAuthenticated(sn, accessToken),
+                        config, emvResult, hostPublicKey));
+    }
+
+    private Single<AuthResult> goOnline(Map<String, String> headers, TransactionConfig config,
+            EmvTransactionResult emvResult, String hostPublicKey) {
         byte[] tek = new byte[TEK_LENGTH_BYTES];
         new SecureRandom().nextBytes(tek);
         String transactionKeyEncrypted;

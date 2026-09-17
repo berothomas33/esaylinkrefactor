@@ -3,6 +3,13 @@ package com.emvenhance.network.onboarding;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+
 import androidx.annotation.Nullable;
 
 /**
@@ -27,6 +34,18 @@ public final class OnboardingState {
     private static final String KEY_SERVICE_ACCOUNT = "service_account";
     private static final String KEY_ACCESS_TOKEN = "access_token";
     private static final String KEY_TOKEN_EXPIRATION = "token_expiration";
+
+    /**
+     * Zone assumed for a bare (no-offset) {@code expiration} timestamp — matches
+     * {@code ConfigurationActivity#TOKEN_EXPIRATION_ZONE} in the old project exactly (confirmed
+     * against its real source, not reconstructed): the host is in Egypt and apparently sends this
+     * field as local time with no offset, and the old app hardcoded UTC+3 for it rather than
+     * reading the device's zone. Real JWT-expired errors traced back to this class never checking
+     * expiration at all (an access token, once saved, was reused forever) — see
+     * {@link #isTokenValid()}, ported to close that gap the same way the old app did.
+     */
+    private static final ZoneOffset TOKEN_EXPIRATION_ZONE = ZoneOffset.ofHours(3);
+    private static final long TOKEN_REFRESH_BUFFER_SECONDS = 30;
 
     private final SharedPreferences prefs;
 
@@ -119,7 +138,7 @@ public final class OnboardingState {
         return prefs.getString(KEY_ACCESS_TOKEN, null);
     }
 
-    /** ISO-local-date-time-ish string, as the server returns it — not parsed/validated here yet. */
+    /** ISO-local-date-time-ish string, as the server returns it — see {@link #isTokenValid()}. */
     public void saveTokenExpiration(String expiration) {
         prefs.edit().putString(KEY_TOKEN_EXPIRATION, expiration).apply();
     }
@@ -127,5 +146,46 @@ public final class OnboardingState {
     @Nullable
     public String getTokenExpiration() {
         return prefs.getString(KEY_TOKEN_EXPIRATION, null);
+    }
+
+    /**
+     * Whether {@link #getAccessToken()} is still safe to use — ports
+     * {@code ConfigurationActivity#isTokenValid()} verbatim (same 30s refresh buffer, same
+     * dual-format parse). {@code false} whenever there's no saved expiration, it fails to parse, or
+     * {@code now} is within {@link #TOKEN_REFRESH_BUFFER_SECONDS} of it — a caller should treat any
+     * of those as "go get a fresh token" ({@code OnboardingClient#ensureValidAccessToken}), not as
+     * an error.
+     */
+    public boolean isTokenValid() {
+        String expiration = getTokenExpiration();
+        if (expiration == null || expiration.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            Instant expiryInstant = parseTokenExpiration(expiration.trim());
+            Instant refreshAt = expiryInstant.minusSeconds(TOKEN_REFRESH_BUFFER_SECONDS);
+            return Instant.now().isBefore(refreshAt);
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Accepts either a proper offset/UTC timestamp ({@code ...Z} or {@code ...+HH:MM}) or a bare
+     * local one with no offset at all — the real captured {@code expiration} field is the latter,
+     * so that branch is the one that actually fires; the offset-aware branch is kept only because
+     * the old app kept it (defensive, never observed).
+     */
+    private static Instant parseTokenExpiration(String expiration) {
+        String normalized = expiration;
+        if (normalized.endsWith("Z")) {
+            normalized = normalized.substring(0, normalized.length() - 1) + "+00:00";
+        }
+        try {
+            return OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant();
+        } catch (DateTimeParseException ignored) {
+            LocalDateTime localDateTime = LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            return localDateTime.toInstant(TOKEN_EXPIRATION_ZONE);
+        }
     }
 }
