@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required for every OkHttp/Retrofit call this app makes — onboarding, EMV param
+         download, and the cacore/exchange + cacore/sale sale flow. Without it, any network
+         call throws SecurityException: Permission denied (missing INTERNET permission?)
+         at DNS lookup, not at the HTTP layer, so it looks like a connectivity issue rather
+         than a missing manifest permission. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".EmvEnhanceApp"
         android:allowBackup="true"
