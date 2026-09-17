@@ -25,9 +25,10 @@ import javax.crypto.Cipher;
  * usage, not a verified server response — status per field, confirmed with the server team:
  * <ul>
  *   <li><b>Padding — confirmed.</b> {@code RSA/ECB/PKCS1Padding}, as implemented below.
- *   <li><b>Key encoding — still unconfirmed.</b> Assumed base64 X.509
+ *   <li><b>Key encoding — working assumption, pending confirmation.</b> Used as base64 X.509
  *       {@code SubjectPublicKeyInfo} DER (the standard Java RSA public-key interchange format,
- *       and what {@code OnboardingResult#getPublicKey} is expected to carry).
+ *       and what {@code OnboardingResult#getPublicKey} is expected to carry) until the server
+ *       team confirms it one way or the other — keep this as-is unless/until that changes.
  * </ul>
  */
 public final class RsaPublicKeyEncryptor {
