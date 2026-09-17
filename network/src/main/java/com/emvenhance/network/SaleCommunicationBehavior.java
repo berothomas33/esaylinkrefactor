@@ -22,9 +22,11 @@ import com.google.gson.Gson;
 
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Single;
 
 /**
@@ -50,10 +52,13 @@ import io.reactivex.rxjava3.core.Single;
  *
  * <p>Neither {@code GeneralRequest} nor {@code ExchangeRequest}/{@code SaleRequest}/their response
  * counterparts were shared as source — see each model class's own javadoc for exactly which fields
- * are a verified match (from setter/getter call sites) versus a placeholder. Same for the
- * {@code Account-Id}/bearer-token {@link #headers} this takes: this app has no session/auth layer
- * yet (see {@code EmvParamActivity}'s identical caveat) — a caller wires up whatever the real
- * source of those credentials ends up being.
+ * are a verified match (from setter/getter call sites) versus a placeholder. Same
+ * {@code Account-Id}/bearer-token placeholder convention as {@code EmvParamActivity} for the
+ * {@link #headers()} this sends: this app has no real session/auth layer yet, so these are
+ * whatever Account ID / Token the technician last entered on that screen, read fresh off
+ * {@link OnboardingState#getAccountId()}/{@link OnboardingState#getToken()} on every call rather
+ * than fixed at construction — {@code PaxTerminal} builds this once for the process lifetime, and
+ * a credentials update on that screen shouldn't need an app restart to take effect.
  *
  * <p>The old project supplied a {@code paymentAsyncID} from whatever aggregator launched
  * {@code SaleActivity} — this codebase has no such caller, so a fresh {@link UUID} is generated
@@ -73,18 +78,15 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     private final HostApiConnection connection;
     private final OnboardingState onboardingState;
-    private final Map<String, String> headers;
     private final Gson gson = new Gson();
 
-    public SaleCommunicationBehavior(Context context, Map<String, String> headers) {
-        this(HostApiClient.create(), new OnboardingState(context), headers);
+    public SaleCommunicationBehavior(Context context) {
+        this(HostApiClient.create(), new OnboardingState(context));
     }
 
-    public SaleCommunicationBehavior(HostApiConnection connection, OnboardingState onboardingState,
-            Map<String, String> headers) {
+    public SaleCommunicationBehavior(HostApiConnection connection, OnboardingState onboardingState) {
         this.connection = connection;
         this.onboardingState = onboardingState;
-        this.headers = headers;
     }
 
     @Override
@@ -100,6 +102,11 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException(
                     "No host public key on file — onboarding must complete before a TEK can be wrapped for the host"));
         }
+        Map<String, String> headers = headers();
+        if (headers == null) {
+            return Single.error(new SaleException(
+                    "No Account ID / Token on file — enter them on the EMV param screen before taking a sale"));
+        }
 
         byte[] tek = new byte[TEK_LENGTH_BYTES];
         new SecureRandom().nextBytes(tek);
@@ -112,13 +119,31 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
         String asyncRequestId = UUID.randomUUID().toString();
 
-        return exchange(config, emvResult, tek, transactionKeyEncrypted, asyncRequestId)
-                .flatMap(exchangeResponse -> sale(config, emvResult, tek, asyncRequestId))
+        return exchange(headers, config, emvResult, tek, transactionKeyEncrypted, asyncRequestId)
+                .flatMap(exchangeResponse -> sale(headers, config, emvResult, tek, asyncRequestId))
                 .map(SaleCommunicationBehavior::toAuthResult);
     }
 
-    private Single<ExchangeResponse> exchange(TransactionConfig config, EmvTransactionResult emvResult,
-            byte[] tek, String transactionKeyEncrypted, String asyncRequestId) {
+    /**
+     * Same placeholder convention as {@code EmvParamActivity#buildHeaders} — {@code Account-Id}
+     * verbatim, {@code Token} as a bearer {@code Authorization} header. {@code null} if either is
+     * missing (not yet entered on that screen).
+     */
+    @Nullable
+    private Map<String, String> headers() {
+        String accountId = onboardingState.getAccountId();
+        String token = onboardingState.getToken();
+        if (accountId == null || token == null) {
+            return null;
+        }
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Account-Id", accountId);
+        headers.put("Authorization", "Bearer " + token);
+        return headers;
+    }
+
+    private Single<ExchangeResponse> exchange(Map<String, String> headers, TransactionConfig config,
+            EmvTransactionResult emvResult, byte[] tek, String transactionKeyEncrypted, String asyncRequestId) {
         int cvm = cvmCode(config, emvResult);
         ExchangeRequest exchangeRequest = new ExchangeRequest(
                 asyncRequestId, emvResult.getPan(), cvm, TRANSACTION_TYPE_SALE);
@@ -137,8 +162,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 .flatMap(response -> decryptEnvelope(response, tek, "Exchange", ExchangeResponse.class));
     }
 
-    private Single<SaleResponse> sale(TransactionConfig config, EmvTransactionResult emvResult,
-            byte[] tek, String asyncRequestId) {
+    private Single<SaleResponse> sale(Map<String, String> headers, TransactionConfig config,
+            EmvTransactionResult emvResult, byte[] tek, String asyncRequestId) {
         SaleRequest saleRequest = buildSaleRequest(config, emvResult);
 
         String encSerializedRequest;

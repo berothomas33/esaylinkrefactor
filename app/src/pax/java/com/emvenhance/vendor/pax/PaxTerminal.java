@@ -11,6 +11,7 @@ import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.RetrofitCommunicationBehavior;
+import com.emvenhance.network.SaleCommunicationBehavior;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
 import com.pax.commonlib.utils.LogUtils;
@@ -52,17 +53,16 @@ public class PaxTerminal extends PosTerminal {
     private volatile ICardReaderHelper activeCardReaderHelper;
 
     /**
-     * Still wired to {@link RetrofitCommunicationBehavior} ({@code crypto/purchase}), not
-     * {@code com.emvenhance.network.SaleCommunicationBehavior} ({@code cacore/exchange} +
-     * {@code cacore/sale}) — same reason {@code OnboardingClient#runOnlineCycle} isn't called
-     * automatically either: the missing piece here is the {@code Account-Id}/bearer-token headers
-     * {@code SaleCommunicationBehavior} needs (this app has no session/auth layer to source them
-     * from yet, see {@code EmvParamActivity}'s identical caveat). Swap the constructor argument
-     * once that's decided.
+     * Wired to {@link SaleCommunicationBehavior} ({@code cacore/exchange} + {@code cacore/sale}) —
+     * it reads its {@code Account-Id}/bearer-token headers straight off {@code OnboardingState}
+     * on every call (see its own javadoc), which {@code EmvParamActivity}'s Account ID / Token
+     * fields keep current; no headers to pass here. {@link RetrofitCommunicationBehavior}
+     * ({@code crypto/purchase}) is still available as the plain-JSON alternative if this app ever
+     * needs to switch back.
      */
     public PaxTerminal() {
         this(new PaxKernel(),
-                new RetrofitCommunicationBehavior(),
+                new SaleCommunicationBehavior(BaseApplication.getAppContext()),
                 new PaxPrinter());
     }
 

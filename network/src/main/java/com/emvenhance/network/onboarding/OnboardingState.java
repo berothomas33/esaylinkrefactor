@@ -25,6 +25,8 @@ public final class OnboardingState {
     private static final String KEY_CHALLENGE = "challenge";
     private static final String KEY_PUBLIC_KEY = "public_key";
     private static final String KEY_SERVICE_ACCOUNT = "service_account";
+    private static final String KEY_ACCOUNT_ID = "account_id";
+    private static final String KEY_TOKEN = "token";
 
     private final SharedPreferences prefs;
 
@@ -100,5 +102,32 @@ public final class OnboardingState {
     @Nullable
     public String getServiceAccount() {
         return prefs.getString(KEY_SERVICE_ACCOUNT, null);
+    }
+
+    /**
+     * The technician-entered {@code Account-Id} / bearer-token credentials — see
+     * {@code EmvParamActivity}'s Account ID / Token fields, the one place these get entered.
+     * Persisted here (same placeholder-header convention, same plaintext-prefs posture as the
+     * rest of this class) so a later transaction — {@code SaleCommunicationBehavior}, run from
+     * {@code PaxTerminal} with no UI in the loop — can reuse them instead of needing the
+     * technician back on that screen for every sale. Still a placeholder: this app has no real
+     * session/auth layer, so these are just whatever was last typed in, not a managed session.
+     */
+    public void saveAccountId(String accountId) {
+        prefs.edit().putString(KEY_ACCOUNT_ID, accountId).apply();
+    }
+
+    @Nullable
+    public String getAccountId() {
+        return prefs.getString(KEY_ACCOUNT_ID, null);
+    }
+
+    public void saveToken(String token) {
+        prefs.edit().putString(KEY_TOKEN, token).apply();
+    }
+
+    @Nullable
+    public String getToken() {
+        return prefs.getString(KEY_TOKEN, null);
     }
 }

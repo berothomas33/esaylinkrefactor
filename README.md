@@ -44,18 +44,20 @@ See [`doc/architecture/emv-step-methods-on-behavior.md`](doc/architecture/emv-st
 package as raw bytes only — see `:bizentity` below for where those bytes get unzipped, parsed,
 and applied.
 
-`SaleCommunicationBehavior` is the encrypted-envelope sale flow — `exchange()` (establishes a
-fresh per-transaction TEK, RSA-wrapped for the host, plus the online PEK if one was provisioned)
-then `sale()` (the actual authorization) — built from `TransactionConfig#getEmvResult()`, the
-`EmvTransactionResult` a vendor `EmvBehavior` assembles from the kernel right before going online
-(see `PaxEmvBehavior#buildEmvTransactionResult`). **Not yet wired into `PaxTerminal`** — it's
-built and correct, but needs `Account-Id`/bearer-token headers this app has no session/auth layer
-to source yet (same gap `EmvParamActivity`'s Account ID/Token fields paper over for its own two
-debug actions); `PaxTerminal` still constructs `RetrofitCommunicationBehavior` until that's
-decided. Several of `SaleCommunicationBehavior`'s request fields (the CVM code, the per-issuer
-`cardType`/`dcc` values) are also reconstructions flagged in its own and its model classes'
-javadoc — no source was available for the old project's real `GeneralRequest`/`SaleRequest`/
-`PinEnterMode` shapes, only their call sites.
+`SaleCommunicationBehavior` is the encrypted-envelope sale flow, wired into `PaxTerminal` —
+`exchange()` (establishes a fresh per-transaction TEK, RSA-wrapped for the host, plus the online
+PEK if one was provisioned) then `sale()` (the actual authorization) — built from
+`TransactionConfig#getEmvResult()`, the `EmvTransactionResult` a vendor `EmvBehavior` assembles
+from the kernel right before going online (see `PaxEmvBehavior#buildEmvTransactionResult`). Its
+`Account-Id`/bearer-token headers are read fresh off `OnboardingState#getAccountId`/`#getToken`
+on every call — `EmvParamActivity`'s Account ID/Token fields (originally just per-click header
+input for its own two debug actions) now persist there too, so whatever a technician last entered
+on that screen is what a live sale uses; no separate credentials screen. `RetrofitCommunicationBehavior`
+(`crypto/purchase`, plain JSON, no TEK/PEK envelope) is still available as the non-default
+alternative. Several of `SaleCommunicationBehavior`'s request fields (the CVM code, the per-issuer
+`cardType`/`dcc` values) are reconstructions flagged in its own and its model classes' javadoc —
+no source was available for the old project's real `GeneralRequest`/`SaleRequest`/`PinEnterMode`
+shapes, only their call sites.
 
 ### `:bizentity` — `com.pax.configservice.*`, `com.pax.bizentity.*` (PAX-only)
 

@@ -49,6 +49,12 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * ID / Token fields above them are used verbatim as {@code Account-Id} / a bearer
  * {@code Authorization} header (see {@link #buildHeaders}), a placeholder convention until the
  * real header contract is known.
+ *
+ * <p>Also the only place these credentials get entered at all: {@link #requireHeaders} persists
+ * them via {@link OnboardingState#saveAccountId}/{@link OnboardingState#saveToken} on every
+ * successful use, and {@link #onCreate} pre-fills the fields from there — so
+ * {@code SaleCommunicationBehavior}, run later from {@code PaxTerminal} with no UI in the loop,
+ * has something to read.
  */
 public class EmvParamActivity extends AppCompatActivity {
 
@@ -73,6 +79,13 @@ public class EmvParamActivity extends AppCompatActivity {
 
         accountIdInput = findViewById(R.id.accountIdInput);
         tokenInput = findViewById(R.id.tokenInput);
+        OnboardingState savedState = new OnboardingState(this);
+        if (savedState.getAccountId() != null) {
+            accountIdInput.setText(savedState.getAccountId());
+        }
+        if (savedState.getToken() != null) {
+            tokenInput.setText(savedState.getToken());
+        }
 
         btnDownloadEmvParams = findViewById(R.id.btnDownloadEmvParams);
         paramSyncProgress = findViewById(R.id.paramSyncProgress);
@@ -177,6 +190,9 @@ public class EmvParamActivity extends AppCompatActivity {
             statusText.setText(missingCredentialsRes);
             return null;
         }
+        OnboardingState state = new OnboardingState(this);
+        state.saveAccountId(accountId);
+        state.saveToken(token);
         return buildHeaders(accountId, token);
     }
 
