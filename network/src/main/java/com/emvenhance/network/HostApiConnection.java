@@ -1,5 +1,7 @@
 package com.emvenhance.network;
 
+import com.emvenhance.network.model.GeneralRequest;
+import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.model.PurchaseRequest;
 import com.emvenhance.network.model.PurchaseResponse;
 
@@ -18,6 +20,23 @@ public interface HostApiConnection {
     /** Online purchase authorization — see {@code EmvApiConnection#purchase} in the old project. */
     @POST("crypto/purchase")
     Single<PurchaseResponse> purchase(@Body PurchaseRequest request);
+
+    /**
+     * Establishes the encrypted-envelope session (TEK, and PEK if online PIN was collected) for a
+     * transaction ahead of {@link #sale} — see {@code SaleCommunicationBehavior} and the old
+     * project's {@code SaleActivity#callExchangeProcess}/{@code EmvApiConnection#exchange}.
+     */
+    @POST("cacore/exchange")
+    Single<GeneralResponse> exchange(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
+
+    /**
+     * Online sale authorization over the encrypted {@code GeneralRequest}/{@code GeneralResponse}
+     * envelope — see {@code SaleCommunicationBehavior} and the old project's
+     * {@code SaleActivity#callSaleProcess}/{@code EmvApiConnection#sale}. Requires a prior
+     * {@link #exchange} call for the same {@code asyncRequestId}.
+     */
+    @POST("cacore/sale")
+    Single<GeneralResponse> sale(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
 
     /**
      * Downloads this terminal's EMV/CLSS parameter package (a zip of {@code emv_param.emv} /

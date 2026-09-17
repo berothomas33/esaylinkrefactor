@@ -51,6 +51,15 @@ public class PaxTerminal extends PosTerminal {
     @Nullable
     private volatile ICardReaderHelper activeCardReaderHelper;
 
+    /**
+     * Still wired to {@link RetrofitCommunicationBehavior} ({@code crypto/purchase}), not
+     * {@code com.emvenhance.network.SaleCommunicationBehavior} ({@code cacore/exchange} +
+     * {@code cacore/sale}) — same reason {@code OnboardingClient#runOnlineCycle} isn't called
+     * automatically either: the missing piece here is the {@code Account-Id}/bearer-token headers
+     * {@code SaleCommunicationBehavior} needs (this app has no session/auth layer to source them
+     * from yet, see {@code EmvParamActivity}'s identical caveat). Swap the constructor argument
+     * once that's decided.
+     */
     public PaxTerminal() {
         this(new PaxKernel(),
                 new RetrofitCommunicationBehavior(),

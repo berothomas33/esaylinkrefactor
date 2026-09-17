@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.emvenhance.BuildConfig;
 import com.emvenhance.core.card.CardPresence;
+import com.emvenhance.core.card.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
@@ -115,6 +116,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Double-length (16-byte) 3DES key, matching {@link PosDeviceUtils#INDEX_TPK}'s key family. */
     private static final int ONLINE_PIN_KEY_LENGTH_BYTES = 16;
+
+    /**
+     * DF Name (selected AID) — not in {@link TagsTable}, confirmed by grep; kept local rather than
+     * added there since nothing else in this codebase reads it yet. See
+     * {@link #buildEmvTransactionResult}.
+     */
+    private static final int TAG_SELECTED_AID = 0x84;
 
     private final PaxKernel kernel;
 
@@ -1442,19 +1450,115 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (activeConfig != null) {
             boolean contactless = activeCard != null && activeCard.isContactless();
             String pan = contactless ? getContactlessPan() : getContactPan();
+            String track2 = contactless ? getContactlessTrack2Data() : getContactTrack2Data();
+            String cardHolderName = contactless ? getContactlessCardholderName() : getContactCardholderName();
             String onlinePinBlockHex = lastOnlinePinBlock != null
                     ? ConvertUtils.bcd2Str(lastOnlinePinBlock, lastOnlinePinBlock.length)
                     : null;
-            activeConfig = activeConfig.withIccData(buildField55())
+            String chipData = buildField55();
+            activeConfig = activeConfig.withIccData(chipData)
                     .withPan(pan)
                     .withOnlinePinBlock(onlinePinBlockHex)
-                    .withOnlinePinKeyEncrypted(lastOnlinePinKeyEncrypted);
+                    .withOnlinePinKeyEncrypted(lastOnlinePinKeyEncrypted)
+                    .withEmvResult(buildEmvTransactionResult(
+                            pan, track2, cardHolderName, chipData, onlinePinBlockHex, contactless));
         }
         AuthResult auth = requestOnline(requireEngine());
         lastAuth = auth;
         announceStep(EmvStep.ISSUER_AUTHENTICATION,
                 auth.isApproved() ? "host approved" : "host declined");
         return toOnlineResultWrapper(auth);
+    }
+
+    /**
+     * Assembles the full EMV-kernel read right where {@link #startOnlineProcess} is about to go
+     * online — vendor-agnostic mirror of the old project's {@code PosTransactionResult} (there,
+     * built from a vendor SDK's EMV callback; here, built from direct kernel TLV reads plus the
+     * {@link TransResult}/{@link CvmResultEnum} this class already captured earlier in the same
+     * stage — see {@link #startContactTransProcess}/{@link #startContactlessTransProcess}, both of
+     * which run before {@link #startOnlineProcess} is ever reached). See {@link EmvTransactionResult}.
+     *
+     * <p>{@link EmvTransactionResult#getIssuerName()} has no real source: this codebase has no
+     * BIN-range/issuer-identification table (the old project's own source for one was never shared
+     * either), so the EMV Application Label — falling back to the Application Preferred Name — is
+     * reused as a best-available proxy; it's usually brand text like "VISA CREDIT" or
+     * "MASTERCARD", which is what the old project's {@code SaleExtraData}/DCC lookups actually
+     * keyed off of. Confirm against the server team before relying on this for real issuer routing.
+     */
+    private EmvTransactionResult buildEmvTransactionResult(@Nullable String pan, @Nullable String track2,
+            @Nullable String cardHolderName, @Nullable String chipData,
+            @Nullable String onlinePinBlockHex, boolean contactless) {
+        CvmResultEnum cvmResult = contactless
+                ? (clsTransResult != null ? clsTransResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM)
+                : (transResult != null ? transResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM);
+        boolean hasPin = onlinePinBlockHex != null
+                || cvmResult == CvmResultEnum.CVM_OFFLINE_PIN
+                || cvmResult == CvmResultEnum.CVM_ONLINE_PIN
+                || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG;
+
+        String cid = readKernelTlvHex(TagsTable.CRYPTO);
+        int cidValue = cid != null && !cid.isEmpty() ? Integer.parseInt(cid, 16) : -1;
+        boolean isArqc = (cidValue & 0xC0) == 0x80;
+        boolean isTc = (cidValue & 0xC0) == 0x40;
+        String cryptogram = readKernelTlvHex(TagsTable.APP_CRYPTO);
+
+        String expDateRaw = readKernelTlvHex(TagsTable.EXPIRE_DATE);
+        String expDate = expDateRaw != null && expDateRaw.length() >= 4 ? expDateRaw.substring(0, 4) : null;
+
+        String emvAppLabel = readKernelAsciiTlv(TagsTable.APP_LABEL);
+        String emvAppName = readKernelAsciiTlv(TagsTable.APP_NAME);
+        String issuerName = emvAppLabel != null ? emvAppLabel : emvAppName;
+
+        return new EmvTransactionResult.Builder()
+                .pan(pan)
+                .maskedPan(maskPan(pan))
+                .track2(track2)
+                .expDate(expDate)
+                .cardHolderName(cardHolderName)
+                .chipData(chipData)
+                .pinBlock(onlinePinBlockHex)
+                .emvAppLabel(emvAppLabel)
+                .emvAppName(emvAppName)
+                .aid(readKernelTlvHex(TAG_SELECTED_AID))
+                .tvr(readKernelTlvHex(TagsTable.TVR))
+                .tsi(readKernelTlvHex(TagsTable.TSI))
+                .atc(readKernelTlvHex(TagsTable.ATC))
+                .arqc(isArqc ? cryptogram : null)
+                .tc(isTc ? cryptogram : null)
+                .issuerName(issuerName)
+                .hasPin(hasPin)
+                .entryMethod(contactless ? EntryMethod.CONTACTLESS : EntryMethod.CHIP)
+                .build();
+    }
+
+    /** {@code null} pan (kernel hasn't read one) masks to {@code null} rather than throwing. */
+    @Nullable
+    private static String maskPan(@Nullable String pan) {
+        if (pan == null || pan.length() <= 10) {
+            return pan;
+        }
+        int visibleTail = 4;
+        int visibleHead = 6;
+        StringBuilder masked = new StringBuilder(pan.length());
+        masked.append(pan, 0, visibleHead);
+        for (int i = visibleHead; i < pan.length() - visibleTail; i++) {
+            masked.append('*');
+        }
+        masked.append(pan.substring(pan.length() - visibleTail));
+        return masked.toString();
+    }
+
+    /**
+     * Unlike {@link #readKernelTlvHex} (numeric/binary tags rendered as hex), {@code APP_LABEL}/
+     * {@code APP_NAME} are ASCII text per the EMV spec — decoded as such rather than hex-dumped so
+     * {@link EmvTransactionResult#getEmvAppLabel()}/{@link EmvTransactionResult#getEmvAppName()}
+     * carry human-readable text, matching how the old project's {@code PosTransactionResult} used
+     * them (display strings, not hex blobs).
+     */
+    @Nullable
+    private String readKernelAsciiTlv(int tag) {
+        byte[] value = readKernelTlv(tag);
+        return value.length == 0 ? null : new String(value, StandardCharsets.US_ASCII).trim();
     }
 
     /**

@@ -40,13 +40,21 @@ public final class TransactionConfig {
     @Nullable
     private final String onlinePinKeyEncrypted;
 
+    /**
+     * The full EMV-kernel result (PAN, track2, AID, TVR/TSI/ATC/ARQC-or-TC, ...) assembled right
+     * before {@code START_ONLINE_PROCESS} — see {@link EmvTransactionResult} and
+     * {@link #withEmvResult}. {@code null} until then, and always for mag/manual (no EMV kernel).
+     */
+    @Nullable
+    private final EmvTransactionResult emvResult;
+
     public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
-        this(type, amountMinor, mode, null, null, null, null);
+        this(type, amountMinor, mode, null, null, null, null, null);
     }
 
     private TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode,
             @Nullable String iccData, @Nullable String pan, @Nullable String onlinePinBlock,
-            @Nullable String onlinePinKeyEncrypted) {
+            @Nullable String onlinePinKeyEncrypted, @Nullable EmvTransactionResult emvResult) {
         this.type = type;
         this.amountMinor = amountMinor;
         this.mode = mode;
@@ -54,6 +62,7 @@ public final class TransactionConfig {
         this.pan = pan;
         this.onlinePinBlock = onlinePinBlock;
         this.onlinePinKeyEncrypted = onlinePinKeyEncrypted;
+        this.emvResult = emvResult;
     }
 
     public TransactionType getType() {
@@ -93,6 +102,11 @@ public final class TransactionConfig {
         return onlinePinKeyEncrypted;
     }
 
+    @Nullable
+    public EmvTransactionResult getEmvResult() {
+        return emvResult;
+    }
+
     public boolean isContact() {
         return mode == EntryMethod.CHIP;
     }
@@ -128,30 +142,36 @@ public final class TransactionConfig {
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
     public TransactionConfig withMode(EntryMethod mode) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted);
+                onlinePinKeyEncrypted, emvResult);
     }
 
     /** Same everything else, with Field 55 attached — see {@link #getIccData()}. */
     public TransactionConfig withIccData(@Nullable String iccData) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted);
+                onlinePinKeyEncrypted, emvResult);
     }
 
     /** Same everything else, with the PAN attached — see {@link #getPan()}. */
     public TransactionConfig withPan(@Nullable String pan) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted);
+                onlinePinKeyEncrypted, emvResult);
     }
 
     /** Same everything else, with the online PIN block attached — see {@link #getOnlinePinBlock()}. */
     public TransactionConfig withOnlinePinBlock(@Nullable String onlinePinBlock) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted);
+                onlinePinKeyEncrypted, emvResult);
     }
 
     /** Same everything else, with the RSA-wrapped PIN key attached — see {@link #getOnlinePinKeyEncrypted()}. */
     public TransactionConfig withOnlinePinKeyEncrypted(@Nullable String onlinePinKeyEncrypted) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted);
+                onlinePinKeyEncrypted, emvResult);
+    }
+
+    /** Same everything else, with the full EMV result attached — see {@link #getEmvResult()}. */
+    public TransactionConfig withEmvResult(@Nullable EmvTransactionResult emvResult) {
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
+                onlinePinKeyEncrypted, emvResult);
     }
 }
