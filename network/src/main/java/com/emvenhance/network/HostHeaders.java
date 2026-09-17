@@ -1,7 +1,10 @@
 package com.emvenhance.network;
 
+import android.util.Log;
+
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * The real header contract — confirmed against a full, successful captured offline onboarding run
@@ -27,6 +30,8 @@ import java.util.Map;
  */
 public final class HostHeaders {
 
+    private static final String TAG = "HostHeaders";
+
     private HostHeaders() {
     }
 
@@ -38,6 +43,7 @@ public final class HostHeaders {
         headers.put("sn", sn);
         headers.put("apiKey", HostAppKeys.API_KEY);
         headers.put("lang", HostAppKeys.DEFAULT_LANG);
+        logHeaders("build", headers);
         return headers;
     }
 
@@ -54,6 +60,25 @@ public final class HostHeaders {
         headers.put("Authorization", "Bearer " + accessToken);
         headers.put("accountId", HostAppKeys.ACCOUNT_ID);
         headers.put("lang", HostAppKeys.DEFAULT_LANG);
+        logHeaders("buildAuthenticated", headers);
         return headers;
+    }
+
+    /**
+     * One clearly-tagged, easy-to-copy log line per call — separate from OkHttp's own
+     * {@code HttpLoggingInterceptor} dump (already on by default, see {@code HostApiClient}, but
+     * mixed in with the rest of that request/response noise) so these can be pulled straight out
+     * of logcat (e.g. {@code adb logcat -s HostHeaders}) and handed to the backend team as-is.
+     *
+     * <p>Prints the real {@code Authorization} bearer token and {@code apiKey} in plaintext —
+     * fine for this debug/bring-up phase talking to a test environment, but pull this call (or
+     * gate it behind a debug build check) before this ships against production traffic.
+     */
+    private static void logHeaders(String source, Map<String, String> headers) {
+        StringBuilder sb = new StringBuilder("[" + source + "]");
+        for (Map.Entry<String, String> entry : new TreeMap<>(headers).entrySet()) {
+            sb.append("\n  ").append(entry.getKey()).append(": ").append(entry.getValue());
+        }
+        Log.i(TAG, sb.toString());
     }
 }
