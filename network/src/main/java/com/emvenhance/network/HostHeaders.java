@@ -18,9 +18,11 @@ import java.util.Map;
  *       authenticate with yet): {@code aggregator-app-key}/{@code system-app-key}/{@code apiKey}/
  *       {@code lang} (all fixed — see {@link HostAppKeys}) + {@code sn}.
  *   <li>{@link #buildAuthenticated} — used once a token exists ({@code tmsFileDownload} in the
- *       captured run; presumed also for {@code cacore/exchange}/{@code cacore/sale}, not
- *       independently confirmed): same four, but {@code apiKey} is dropped and
- *       {@code Authorization: Bearer <accessToken>} takes its place.
+ *       captured run; presumed also for {@code orchestration/exchange}/{@code orchestration/sale},
+ *       not independently confirmed): same four, but {@code apiKey} is dropped and
+ *       {@code Authorization: Bearer <accessToken>} takes its place — plus {@code accountId}
+ *       (also fixed, see {@link HostAppKeys#ACCOUNT_ID}), which {@code tmsFileDownload} didn't
+ *       need but {@code orchestration/exchange} 400'd without ({@code MissingRequestHeaderException}).
  * </ul>
  */
 public final class HostHeaders {
@@ -50,6 +52,7 @@ public final class HostHeaders {
         headers.put("system-app-key", HostAppKeys.SYSTEM_APP_KEY);
         headers.put("sn", sn);
         headers.put("Authorization", "Bearer " + accessToken);
+        headers.put("accountId", HostAppKeys.ACCOUNT_ID);
         headers.put("lang", HostAppKeys.DEFAULT_LANG);
         return headers;
     }

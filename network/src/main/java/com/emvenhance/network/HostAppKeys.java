@@ -16,13 +16,20 @@ package com.emvenhance.network;
  *   sn:                 1850040898   (that test device's own serial — NOT fixed, see HostHeaders)
  *   lang:               en
  * </pre>
- * See {@link HostHeaders} for where these get assembled into an actual header map.
+ * {@link #ACCOUNT_ID} is fixed too (per direction), unlike the old project's
+ * {@code ConfigurationActivity#accountId}, which came from an aggregator app's launch
+ * {@code Intent} — used for {@code orchestration/exchange}/{@code orchestration/sale}'s
+ * {@code accountId} header (see {@code SaleCommunicationBehavior}); not needed by onboarding or
+ * {@code tmsFileDownload}, which worked without it.
+ *
+ * <p>See {@link HostHeaders} for where these get assembled into an actual header map.
  */
 public final class HostAppKeys {
 
     public static final String AGGREGATOR_APP_KEY = "LKlEN/bz2UBkdefn3fGczJwyH3/69lS8";
     public static final String SYSTEM_APP_KEY = "EsrflzqTWI4/QhENXPCoSx0HJ/hTTGsZ";
     public static final String API_KEY = "70D9411520B6EFA746D3E46B020280CD";
+    public static final String ACCOUNT_ID = "123009";
     public static final String DEFAULT_LANG = "en";
 
     private HostAppKeys() {

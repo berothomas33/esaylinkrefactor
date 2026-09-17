@@ -114,18 +114,6 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                     "No access token on file — onboarding must complete before a sale can go online"));
         }
         Map<String, String> headers = HostHeaders.buildAuthenticated(sn, accessToken);
-        // orchestration/exchange 400'd with MissingRequestHeaderException using the headers above
-        // alone (same set a captured, working tmsFileDownload call used) — unlike onboarding/
-        // tmsFileDownload, SaleActivity's real exchange/sale calls build headers via a *different*
-        // helper (Utils#getHeaders(aggregatorAppKey, accountId, ...)) that always includes an
-        // accountId value; NetworkUtils#getHeaders's real header name for it is "accountId" (not
-        // Account-Id). Added here as the best-evidenced fix, using the onboard step's saved
-        // serviceAccount as its value — not independently confirmed to be the right value, only
-        // that *an* accountId header is very likely what exchange/sale need and onboarding didn't.
-        String serviceAccount = onboardingState.getServiceAccount();
-        if (serviceAccount != null) {
-            headers.put("accountId", serviceAccount);
-        }
 
         byte[] tek = new byte[TEK_LENGTH_BYTES];
         new SecureRandom().nextBytes(tek);
