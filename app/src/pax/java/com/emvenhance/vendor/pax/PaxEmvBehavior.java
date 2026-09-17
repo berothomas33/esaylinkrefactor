@@ -1451,7 +1451,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         try {
-            lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToBase64(hostPublicKey, pinKey);
+            lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, pinKey);
         } catch (GeneralSecurityException e) {
             LogUtils.e(TAG, "Failed to RSA-encrypt the online PIN key for the host", e);
         }

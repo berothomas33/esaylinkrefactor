@@ -119,7 +119,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         new SecureRandom().nextBytes(tek);
         String transactionKeyEncrypted;
         try {
-            transactionKeyEncrypted = RsaPublicKeyEncryptor.encryptToBase64(hostPublicKey, tek);
+            transactionKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, tek);
         } catch (GeneralSecurityException e) {
             return Single.error(new SaleException("Failed to RSA-encrypt the transaction key (TEK)", e));
         }

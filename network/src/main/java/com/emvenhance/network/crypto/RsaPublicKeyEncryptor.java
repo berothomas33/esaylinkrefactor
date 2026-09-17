@@ -36,6 +36,13 @@ import javax.crypto.Cipher;
  *       first guess here — expects that wrapper and threw {@code InvalidKeySpecException} on this
  *       real key; {@link #parsePkcs1RsaPublicKey} parses the bare PKCS#1 structure directly
  *       instead, since the JDK has no built-in {@code KeySpec} for it.
+ *   <li><b>Output encoding — confirmed, and different from the first assumption.</b> A real
+ *       captured {@code orchestration/exchange} request's {@code pinKey}/{@code transactionKey}
+ *       fields are uppercase <b>hex</b>, not base64 — each decodes to exactly 512 bytes, the
+ *       ciphertext length a 4096-bit RSA key always produces. Base64 (the first guess, hence this
+ *       method's old name {@code encryptToBase64}) is still valid {@code Cipher} output, so
+ *       nothing failed loudly at encrypt time — the host's HSM just couldn't make sense of it,
+ *       producing an opaque {@code "HSM command error"} 500 rather than a clear encoding error.
  * </ul>
  */
 public final class RsaPublicKeyEncryptor {
@@ -51,9 +58,9 @@ public final class RsaPublicKeyEncryptor {
     /**
      * @param base64PublicKey the host's RSA public key, base64-encoded PKCS#1 {@code RSAPublicKey} DER
      * @param plainKeyBytes the symmetric session key to wrap
-     * @return the RSA-encrypted key, base64-encoded
+     * @return the RSA-encrypted key, hex-encoded (uppercase)
      */
-    public static String encryptToBase64(String base64PublicKey, byte[] plainKeyBytes)
+    public static String encryptToHex(String base64PublicKey, byte[] plainKeyBytes)
             throws GeneralSecurityException {
         byte[] publicKeyBytes = Base64.decode(base64PublicKey, Base64.NO_WRAP);
         PublicKey publicKey = KeyFactory.getInstance(KEY_ALGORITHM)
@@ -63,7 +70,7 @@ public final class RsaPublicKeyEncryptor {
         cipher.init(Cipher.ENCRYPT_MODE, publicKey);
         byte[] encrypted = cipher.doFinal(plainKeyBytes);
 
-        return Base64.encodeToString(encrypted, Base64.NO_WRAP);
+        return Hex.encode(encrypted);
     }
 
     /**
