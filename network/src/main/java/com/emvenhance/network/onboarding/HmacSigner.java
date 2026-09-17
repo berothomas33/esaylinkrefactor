@@ -1,5 +1,7 @@
 package com.emvenhance.network.onboarding;
 
+import android.util.Base64;
+
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 
@@ -20,10 +22,10 @@ import androidx.annotation.Nullable;
  *       field being named {@code challenge}, it carries this signature, not the raw challenge.
  * </ul>
  *
- * <p>{@code ConfigurationActivity} was shared without its {@code Encryptor} class, so the exact
- * key/message byte encoding here (UTF-8 for both, hex for the digest) is reconstructed from the
- * call sites, not verified against {@code Encryptor} itself — confirm this against a real
- * handshake response before relying on it for a live onboarding run.
+ * <p>Key/message bytes are UTF-8, digest output is base64 (not hex — confirmed against a real
+ * captured onboarding run: computing this exact HMAC over that run's real
+ * publicKey/challenge/serviceAccount/SACS values and base64-encoding it reproduces that run's
+ * real {@code signature} field byte-for-byte; a hex encoding of the same digest does not).
  */
 final class HmacSigner {
 
@@ -36,17 +38,18 @@ final class HmacSigner {
         try {
             Mac mac = Mac.getInstance(ALGORITHM);
             mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), ALGORITHM));
-            return toHex(mac.doFinal(message.getBytes(StandardCharsets.UTF_8)));
+            byte[] digest = mac.doFinal(message.getBytes(StandardCharsets.UTF_8));
+            return Base64.encodeToString(digest, Base64.NO_WRAP);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", e);
         }
     }
 
-    static boolean verify(String message, String key, @Nullable String expectedSignatureHex) {
-        if (expectedSignatureHex == null) {
+    static boolean verify(String message, String key, @Nullable String expectedSignatureBase64) {
+        if (expectedSignatureBase64 == null) {
             return false;
         }
-        return constantTimeEquals(sign(message, key), expectedSignatureHex);
+        return constantTimeEquals(sign(message, key), expectedSignatureBase64);
     }
 
     /** Signature comparison over untrusted server input — not a timing-sensitive secret compare,
@@ -60,14 +63,5 @@ final class HmacSigner {
             result |= a.charAt(i) ^ b.charAt(i);
         }
         return result == 0;
-    }
-
-    private static String toHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
-            sb.append(Character.forDigit(b & 0xF, 16));
-        }
-        return sb.toString();
     }
 }
