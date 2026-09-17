@@ -144,6 +144,40 @@ public final class OnboardingClient {
                         }));
     }
 
+    /**
+     * The saved access token if {@link OnboardingState#isTokenValid()}, otherwise a fresh one —
+     * ports {@code ConfigurationActivity}'s {@code isTokenValid()}-gated call to
+     * {@code processAuthentication()}/{@code createToken()}: a near-expiry token is refreshed from
+     * the already-paired {@code serviceAccount} alone, not a full re-handshake (the offline cycle's
+     * SACS/challenge/publicKey pairing doesn't expire). Every authenticated call site should go
+     * through this instead of reading
+     * {@link OnboardingState#getAccessToken()} directly, so an expired token never reaches the host.
+     *
+     * @param headers pre-token headers ({@link com.emvenhance.network.HostHeaders#build}) — createToken
+     *      itself is unauthenticated, same as the rest of the offline cycle.
+     */
+    public Single<String> ensureValidAccessToken(Map<String, String> headers, OnboardingState state) {
+        String accessToken = state.getAccessToken();
+        if (accessToken != null && state.isTokenValid()) {
+            return Single.just(accessToken);
+        }
+        String serviceAccount = state.getServiceAccount();
+        if (serviceAccount == null) {
+            return Single.error(new OnboardingException(0,
+                    "No service account on file — full onboarding must complete before a token can be refreshed"));
+        }
+        return createToken(headers, serviceAccount)
+                .flatMap(r -> requireSuccess(r, r.getStatusCode(), r.getMessage()))
+                .flatMap(this::requireTokenData)
+                .doOnSuccess(data -> {
+                    state.saveAccessToken(data.getAccessToken());
+                    if (data.getExpiration() != null) {
+                        state.saveTokenExpiration(data.getExpiration());
+                    }
+                })
+                .map(CreateTokenResult::getAccessToken);
+    }
+
     private Single<CreateTokenResult> requireTokenData(CreateTokenResponse response) {
         CreateTokenResult data = response.getData();
         if (data == null || data.getAccessToken() == null) {
