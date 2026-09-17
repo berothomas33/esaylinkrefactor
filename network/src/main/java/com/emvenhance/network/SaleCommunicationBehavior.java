@@ -77,8 +77,17 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     private static final int SUCCESS_STATUS_CODE = 200;
     private static final int TEK_LENGTH_BYTES = 16;
-    /** The old project's real {@code TransactionTypes.SALE.getType()} value isn't confirmed. */
-    private static final String TRANSACTION_TYPE_SALE = "SALE";
+    /**
+     * {@code TransactionTypes.SALE.getType()} — confirmed against the old project's real
+     * {@code TransactionTypes} enum source (its constants are {@code (id, type)} pairs, and the
+     * {@code type} string doesn't always match the Java identifier — {@code SALE(1, "PURCHASE")},
+     * whereas e.g. {@code VOID(2, "VOID")} does). The previous guess here, plain {@code "SALE"},
+     * looked reasonable (a real captured example confirmed {@code VOID} for
+     * {@code VoidInquiryRequest}, and this field has the same shape) but wasn't this one value —
+     * the host's {@code cacore.transaction_log.transaction_type} column has a {@code CHECK}
+     * constraint that only a real device log caught, rejecting {@code "SALE"} outright.
+     */
+    private static final String TRANSACTION_TYPE_SALE = "PURCHASE";
 
     /** CVM codes — see {@link #cvmCode}; the old project's real {@code PinEnterMode} indices aren't confirmed. */
     private static final int CVM_NONE = 0;

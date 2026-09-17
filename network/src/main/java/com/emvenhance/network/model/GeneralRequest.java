@@ -45,7 +45,7 @@ public final class GeneralRequest {
     @Nullable
     private final String encPinBlock;
 
-    /** e.g. {@code "SALE"} — the old project's real enum value isn't confirmed, only that this field exists. */
+    /** {@code "PURCHASE"} for a sale — see {@code SaleCommunicationBehavior#TRANSACTION_TYPE_SALE}. */
     @SerializedName("transactionType")
     @Nullable
     private final String transactionType;

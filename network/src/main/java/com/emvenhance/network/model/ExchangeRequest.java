@@ -23,7 +23,7 @@ public final class ExchangeRequest {
     @SerializedName("cvm")
     private final int cvm;
 
-    /** e.g. {@code "SALE"} — the old project's real enum value isn't confirmed. */
+    /** {@code "PURCHASE"} for a sale — see {@code SaleCommunicationBehavior#TRANSACTION_TYPE_SALE}. */
     @SerializedName("transactionType")
     private final String transactionType;
 
