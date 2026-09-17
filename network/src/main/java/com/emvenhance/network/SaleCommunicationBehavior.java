@@ -22,11 +22,9 @@ import com.google.gson.Gson;
 
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Single;
 
 /**
@@ -52,13 +50,11 @@ import io.reactivex.rxjava3.core.Single;
  *
  * <p>Neither {@code GeneralRequest} nor {@code ExchangeRequest}/{@code SaleRequest}/their response
  * counterparts were shared as source — see each model class's own javadoc for exactly which fields
- * are a verified match (from setter/getter call sites) versus a placeholder. Same
- * {@code Account-Id}/bearer-token placeholder convention as {@code EmvParamActivity} for the
- * {@link #headers()} this sends: this app has no real session/auth layer yet, so these are
- * whatever Account ID / Token the technician last entered on that screen, read fresh off
- * {@link OnboardingState#getAccountId()}/{@link OnboardingState#getToken()} on every call rather
- * than fixed at construction — {@code PaxTerminal} builds this once for the process lifetime, and
- * a credentials update on that screen shouldn't need an app restart to take effect.
+ * are a verified match (from setter/getter call sites) versus a placeholder. Headers come from
+ * {@link HostHeaders#build} — the real, confirmed contract — using {@link #sn}, this terminal's
+ * own serial number, passed in by {@code PaxTerminal} (which has PAX's {@code ModelInfo}; this
+ * module stays vendor-agnostic, so it can't fetch that itself). See {@link HostHeaders}'s javadoc
+ * for the still-open {@code apiKey} derivation this passes as {@code ""} until confirmed.
  *
  * <p>The old project supplied a {@code paymentAsyncID} from whatever aggregator launched
  * {@code SaleActivity} — this codebase has no such caller, so a fresh {@link UUID} is generated
@@ -78,15 +74,17 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     private final HostApiConnection connection;
     private final OnboardingState onboardingState;
+    private final String sn;
     private final Gson gson = new Gson();
 
-    public SaleCommunicationBehavior(Context context) {
-        this(HostApiClient.create(), new OnboardingState(context));
+    public SaleCommunicationBehavior(Context context, String sn) {
+        this(HostApiClient.create(), new OnboardingState(context), sn);
     }
 
-    public SaleCommunicationBehavior(HostApiConnection connection, OnboardingState onboardingState) {
+    public SaleCommunicationBehavior(HostApiConnection connection, OnboardingState onboardingState, String sn) {
         this.connection = connection;
         this.onboardingState = onboardingState;
+        this.sn = sn;
     }
 
     @Override
@@ -102,11 +100,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException(
                     "No host public key on file — onboarding must complete before a TEK can be wrapped for the host"));
         }
-        Map<String, String> headers = headers();
-        if (headers == null) {
-            return Single.error(new SaleException(
-                    "No Account ID / Token on file — enter them on the EMV param screen before taking a sale"));
-        }
+        Map<String, String> headers = HostHeaders.build(sn, "");
 
         byte[] tek = new byte[TEK_LENGTH_BYTES];
         new SecureRandom().nextBytes(tek);
@@ -122,24 +116,6 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         return exchange(headers, config, emvResult, tek, transactionKeyEncrypted, asyncRequestId)
                 .flatMap(exchangeResponse -> sale(headers, config, emvResult, tek, asyncRequestId))
                 .map(SaleCommunicationBehavior::toAuthResult);
-    }
-
-    /**
-     * Same placeholder convention as {@code EmvParamActivity#buildHeaders} — {@code Account-Id}
-     * verbatim, {@code Token} as a bearer {@code Authorization} header. {@code null} if either is
-     * missing (not yet entered on that screen).
-     */
-    @Nullable
-    private Map<String, String> headers() {
-        String accountId = onboardingState.getAccountId();
-        String token = onboardingState.getToken();
-        if (accountId == null || token == null) {
-            return null;
-        }
-        Map<String, String> headers = new HashMap<>();
-        headers.put("Account-Id", accountId);
-        headers.put("Authorization", "Bearer " + token);
-        return headers;
     }
 
     private Single<ExchangeResponse> exchange(Map<String, String> headers, TransactionConfig config,

@@ -1,19 +1,19 @@
 package com.emvenhance.ui;
 
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.emvenhance.R;
+import com.emvenhance.network.HostHeaders;
 import com.emvenhance.network.onboarding.OnboardingClient;
 import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.network.onboarding.model.OnboardingStatusResponse;
 import com.google.android.material.button.MaterialButton;
+import com.pax.poslib.model.ModelInfo;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import androidx.annotation.Nullable;
@@ -24,15 +24,19 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
- * The one screen for entering the Account ID / Token credentials and running the offline
- * onboarding cycle ({@link OnboardingClient#runOfflineCycle}: handshake → onboard → confirm) —
- * split out from {@code EmvParamActivity}, which used to combine this with the EMV param
- * download button and category browser on one screen. This is now the single place those
- * credentials get entered: {@link #requireHeaders} persists them via
- * {@link OnboardingState#saveAccountId}/{@link OnboardingState#saveToken} on every successful
- * run, and both {@code EmvParamActivity}'s download action and
- * {@code SaleCommunicationBehavior}'s live sale calls read them back from there — neither has
- * its own credentials UI.
+ * Runs the offline onboarding cycle ({@link OnboardingClient#runOfflineCycle}: handshake →
+ * onboard → confirm).
+ *
+ * <p>Headers now come from {@link HostHeaders#build} — {@code aggregator-app-key}/
+ * {@code system-app-key} (fixed) + {@code sn} (this terminal's serial, {@link ModelInfo#getSN()})
+ * + {@code lang}, confirmed against a real captured {@code foundation/onboarding/handshake}
+ * request. That request had no {@code Account-Id}/token header at all, so the Account ID / Token
+ * fields below no longer gate or feed the request — kept (still persisted via
+ * {@link OnboardingState#saveAccountId}/{@link OnboardingState#saveToken}) only because it's not
+ * yet confirmed whether something else downstream still needs them.
+ *
+ * <p>{@link HostHeaders}'s {@code apiKey} is still unresolved (see its own javadoc) — passed as
+ * {@code ""} here, so expect this to fail authentication until that's confirmed.
  */
 public class OnboardingActivity extends AppCompatActivity {
 
@@ -74,13 +78,13 @@ public class OnboardingActivity extends AppCompatActivity {
     }
 
     private void startOnboarding() {
-        Map<String, String> headers = requireHeaders();
-        if (headers == null) {
-            return;
-        }
+        persistAccountIdAndToken();
 
         setOnboardingBusy(true);
         onboardingStatusText.setText(R.string.onboarding_in_progress);
+
+        String sn = ModelInfo.getInstance().getSN();
+        Map<String, String> headers = HostHeaders.build(sn, "");
 
         OnboardingState state = new OnboardingState(this);
         Single<OnboardingStatusResponse> cycle = new OnboardingClient().runOfflineCycle(headers, state);
@@ -100,32 +104,17 @@ public class OnboardingActivity extends AppCompatActivity {
                         }));
     }
 
-    @Nullable
-    private Map<String, String> requireHeaders() {
+    /** Not used to build request headers anymore — see the class javadoc. */
+    private void persistAccountIdAndToken() {
         String accountId = accountIdInput.getText().toString().trim();
         String token = tokenInput.getText().toString().trim();
-        if (TextUtils.isEmpty(accountId) || TextUtils.isEmpty(token)) {
-            onboardingStatusText.setText(R.string.onboarding_credentials_required);
-            return null;
-        }
         OnboardingState state = new OnboardingState(this);
-        state.saveAccountId(accountId);
-        state.saveToken(token);
-        return buildHeaders(accountId, token);
-    }
-
-    /**
-     * Placeholder header convention — {@code Account-Id} verbatim, {@code Token} as a bearer
-     * {@code Authorization} header — used until the real header contract these endpoints expect
-     * is known (see {@code RetrofitCommunicationBehavior}/{@code SaleCommunicationBehavior}/
-     * {@code OnboardingClient}, none of which build headers themselves either — every caller
-     * supplies its own).
-     */
-    private static Map<String, String> buildHeaders(String accountId, String token) {
-        Map<String, String> headers = new HashMap<>();
-        headers.put("Account-Id", accountId);
-        headers.put("Authorization", "Bearer " + token);
-        return headers;
+        if (!accountId.isEmpty()) {
+            state.saveAccountId(accountId);
+        }
+        if (!token.isEmpty()) {
+            state.saveToken(token);
+        }
     }
 
     private void setOnboardingBusy(boolean busy) {

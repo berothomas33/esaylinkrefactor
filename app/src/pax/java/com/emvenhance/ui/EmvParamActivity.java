@@ -8,13 +8,12 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.emvenhance.R;
-import com.emvenhance.network.onboarding.OnboardingState;
+import com.emvenhance.network.HostHeaders;
 import com.emvenhance.vendor.pax.PaxEmvParamUpdateService;
 import com.google.android.material.button.MaterialButton;
 import com.pax.configservice.impl.EmvParamUpdateResult;
 import com.pax.poslib.model.ModelInfo;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import androidx.annotation.Nullable;
@@ -38,11 +37,9 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * bundled/previous data as-is (see {@code EmvParamUpdater}'s javadoc), so the category browser
  * below always reflects the real current state.
  *
- * <p>Needs the same caller-supplied {@code Account-Id}/bearer-token headers as everything else
- * that calls the host — this screen has no credentials UI of its own anymore; it reads them via
- * {@link OnboardingState#getAccountId()}/{@link OnboardingState#getToken()}, entered on
- * {@link OnboardingActivity} (see that class for the placeholder header convention this still
- * follows until the real header contract is known).
+ * <p>Uses {@link HostHeaders#build} for its request headers — same real, confirmed contract every
+ * other host call in this app now uses (see {@link HostHeaders}'s javadoc for the still-open
+ * {@code apiKey} derivation).
  */
 public class EmvParamActivity extends AppCompatActivity {
 
@@ -87,10 +84,7 @@ public class EmvParamActivity extends AppCompatActivity {
     }
 
     private void downloadEmvParams() {
-        Map<String, String> headers = requireHeaders();
-        if (headers == null) {
-            return;
-        }
+        Map<String, String> headers = HostHeaders.build(ModelInfo.getInstance().getSN(), "");
 
         setSyncBusy(true);
         paramSyncStatusText.setText(R.string.emv_param_sync_in_progress);
@@ -117,21 +111,6 @@ public class EmvParamActivity extends AppCompatActivity {
                             paramSyncStatusText.setText(
                                     getString(R.string.emv_param_sync_failed, message(throwable)));
                         }));
-    }
-
-    @Nullable
-    private Map<String, String> requireHeaders() {
-        OnboardingState state = new OnboardingState(this);
-        String accountId = state.getAccountId();
-        String token = state.getToken();
-        if (accountId == null || token == null) {
-            paramSyncStatusText.setText(R.string.emv_param_sync_credentials_required);
-            return null;
-        }
-        Map<String, String> headers = new HashMap<>();
-        headers.put("Account-Id", accountId);
-        headers.put("Authorization", "Bearer " + token);
-        return headers;
     }
 
     private void setSyncBusy(boolean busy) {

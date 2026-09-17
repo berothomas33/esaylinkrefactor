@@ -23,6 +23,7 @@ import com.pax.dal.entity.PollingResult;
 import com.pax.dal.exceptions.IccDevException;
 import com.pax.dal.exceptions.MagDevException;
 import com.pax.dal.exceptions.PiccDevException;
+import com.pax.poslib.model.ModelInfo;
 
 /**
  * PAX POS terminal — uses {@link ICardReaderHelper} for card search and
@@ -54,15 +55,15 @@ public class PaxTerminal extends PosTerminal {
 
     /**
      * Wired to {@link SaleCommunicationBehavior} ({@code cacore/exchange} + {@code cacore/sale}) —
-     * it reads its {@code Account-Id}/bearer-token headers straight off {@code OnboardingState}
-     * on every call (see its own javadoc), which {@code EmvParamActivity}'s Account ID / Token
-     * fields keep current; no headers to pass here. {@link RetrofitCommunicationBehavior}
-     * ({@code crypto/purchase}) is still available as the plain-JSON alternative if this app ever
-     * needs to switch back.
+     * it builds its headers via {@code HostHeaders.build}, the real confirmed contract, which
+     * needs this terminal's own serial number ({@link ModelInfo#getSN()}); {@code :network} stays
+     * vendor-agnostic, so that's passed in here rather than fetched from inside it.
+     * {@link RetrofitCommunicationBehavior} ({@code crypto/purchase}) is still available as the
+     * plain-JSON alternative if this app ever needs to switch back.
      */
     public PaxTerminal() {
         this(new PaxKernel(),
-                new SaleCommunicationBehavior(BaseApplication.getAppContext()),
+                new SaleCommunicationBehavior(BaseApplication.getAppContext(), ModelInfo.getInstance().getSN()),
                 new PaxPrinter());
     }
 
