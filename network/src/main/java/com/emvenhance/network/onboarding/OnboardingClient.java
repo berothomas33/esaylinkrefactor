@@ -4,6 +4,9 @@ import com.emvenhance.network.HostApiClient;
 import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.onboarding.model.ConfirmOnboardingOnlineRequest;
 import com.emvenhance.network.onboarding.model.ConfirmOnboardingRequest;
+import com.emvenhance.network.onboarding.model.CreateTokenRequest;
+import com.emvenhance.network.onboarding.model.CreateTokenResponse;
+import com.emvenhance.network.onboarding.model.CreateTokenResult;
 import com.emvenhance.network.onboarding.model.HandshakeOnboardingOnlineRequest;
 import com.emvenhance.network.onboarding.model.OnboardingRequest;
 import com.emvenhance.network.onboarding.model.OnboardingResponse;
@@ -70,8 +73,28 @@ public final class OnboardingClient {
     }
 
     /**
-     * Runs handshake → onboard → confirm in sequence, matching {@code ConfigurationActivity}'s
-     * {@code handShake()} → {@code callOnboardingOffline()} → {@code onboardingConfirmation()}:
+     * Exchanges the onboard step's {@code serviceAccount} for a bearer access token — the fourth
+     * step of the offline cycle ({@code ConfigurationActivity#processAuthentication}/
+     * {@code #createToken}), missing from this class until a real captured onboarding run showed
+     * it: {@code POST authorization/token/pos} with {@code {"username": serviceAccount}}, same
+     * (pre-token) headers as the first three steps.
+     *
+     * <p>The response also carries a {@code signature}, meant to be
+     * {@code HMAC-SHA256(accessToken + challenge)} verified against some key — the reference app's
+     * {@code Encryptor.isSignatureVerified(data, signature)} call site shows no key argument at
+     * all, so it must be baked into that method; none of this app's now-known fixed header
+     * constants (aggregator-app-key/system-app-key/apiKey) or the SACS reproduce the real captured
+     * signature (checked against an actual response). Not verified here — treat a 200 status as
+     * sufficient until that key is found.
+     */
+    public Single<CreateTokenResponse> createToken(Map<String, String> headers, String serviceAccount) {
+        return connection.createToken(headers, new CreateTokenRequest(serviceAccount));
+    }
+
+    /**
+     * Runs handshake → onboard → confirm → createToken in sequence, matching
+     * {@code ConfigurationActivity}'s {@code handShake()} → {@code callOnboardingOffline()} →
+     * {@code onboardingConfirmation()} → {@code processAuthentication()}/{@code createToken()}:
      * <ol>
      *   <li>{@link #handshake} — its {@code data} is the SACS session key, saved via
      *       {@link OnboardingState#saveSacs}.
@@ -80,14 +103,19 @@ public final class OnboardingClient {
      *       {@code publicKey + challenge + serviceAccount} keyed by SACS; a mismatch fails the
      *       cycle without confirming. On success, challenge/publicKey/serviceAccount are saved.
      *   <li>{@link #confirm} with {@code HMAC-SHA256(challenge, SACS)} as the proof.
+     *   <li>{@link #createToken} with the saved {@code serviceAccount} — its {@code accessToken}/
+     *       {@code expiration} are saved via {@link OnboardingState#saveAccessToken}/
+     *       {@link OnboardingState#saveTokenExpiration}, and only then is the cycle marked
+     *       complete — a confirmed pairing with no usable token isn't a complete cycle.
      * </ol>
-     * On success, marks {@link OnboardingState#markOfflineOnboarded()}. On a step-3 failure
-     * (transport error or non-200), calls {@link OnboardingState#resetCompletion()} — matching
-     * {@code resetOnboarding()}, which only step 3's failure path calls in the reference app, so
-     * the next attempt starts over from the handshake.
+     * On a confirm failure (transport error or non-200), calls
+     * {@link OnboardingState#resetCompletion()} — matching {@code resetOnboarding()}, which only
+     * step 3's failure path calls in the reference app, so the next attempt starts over from the
+     * handshake. A createToken failure does not reset completion (the reference app's
+     * {@code tokenResponseFailed} handler doesn't either, outside one error code this doesn't
+     * model) — a technician can retry onboarding without redoing the pairing.
      */
-    public Single<OnboardingStatusResponse> runOfflineCycle(Map<String, String> headers,
-            OnboardingState state) {
+    public Single<CreateTokenResult> runOfflineCycle(Map<String, String> headers, OnboardingState state) {
         return handshake(headers)
                 .flatMap(r -> requireSuccess(r, r.getStatusCode(), r.getMessage()))
                 .flatMap(handshakeResponse -> {
@@ -103,10 +131,30 @@ public final class OnboardingClient {
                             .flatMap(r -> requireSuccess(r, r.getStatusCode(), r.getMessage()))
                             .flatMap(onboardingResponse ->
                                     verifyAndConfirm(headers, challenge, sacs, onboardingResponse, state));
-                });
+                })
+                .flatMap(serviceAccount -> createToken(headers, serviceAccount)
+                        .flatMap(r -> requireSuccess(r, r.getStatusCode(), r.getMessage()))
+                        .flatMap(this::requireTokenData)
+                        .doOnSuccess(data -> {
+                            state.saveAccessToken(data.getAccessToken());
+                            if (data.getExpiration() != null) {
+                                state.saveTokenExpiration(data.getExpiration());
+                            }
+                            state.markOfflineOnboarded();
+                        }));
     }
 
-    private Single<OnboardingStatusResponse> verifyAndConfirm(Map<String, String> headers,
+    private Single<CreateTokenResult> requireTokenData(CreateTokenResponse response) {
+        CreateTokenResult data = response.getData();
+        if (data == null || data.getAccessToken() == null) {
+            return Single.error(new OnboardingException(response.getStatusCode(),
+                    "createToken response missing accessToken"));
+        }
+        return Single.just(data);
+    }
+
+    /** @return the verified onboard response's {@code serviceAccount}, once confirm succeeds — see {@link #createToken}. */
+    private Single<String> verifyAndConfirm(Map<String, String> headers,
             String challenge, String sacs, OnboardingResponse onboardingResponse,
             OnboardingState state) {
         OnboardingResult data = onboardingResponse.getData();
@@ -124,9 +172,10 @@ public final class OnboardingClient {
         state.saveServiceAccount(data.getServiceAccount());
 
         String proof = HmacSigner.sign(challenge, sacs);
+        String serviceAccount = data.getServiceAccount();
         return confirm(headers, proof)
                 .flatMap(r -> requireSuccess(r, r.getStatusCode(), r.getMessage()))
-                .doOnSuccess(r -> state.markOfflineOnboarded())
+                .map(r -> serviceAccount)
                 .doOnError(e -> state.resetCompletion());
     }
 

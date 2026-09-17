@@ -51,9 +51,12 @@ import io.reactivex.rxjava3.core.Single;
  * <p>Neither {@code GeneralRequest} nor {@code ExchangeRequest}/{@code SaleRequest}/their response
  * counterparts were shared as source — see each model class's own javadoc for exactly which fields
  * are a verified match (from setter/getter call sites) versus a placeholder. Headers come from
- * {@link HostHeaders#build} — the real, confirmed contract — using {@link #sn}, this terminal's
- * own serial number, passed in by {@code PaxTerminal} (which has PAX's {@code ModelInfo}; this
- * module stays vendor-agnostic, so it can't fetch that itself).
+ * {@link HostHeaders#buildAuthenticated} — post-onboarding, bearer-token mode, using
+ * {@link #sn} (this terminal's own serial number, passed in by {@code PaxTerminal}, which has
+ * PAX's {@code ModelInfo}; this module stays vendor-agnostic, so it can't fetch that itself) and
+ * {@code onboardingState.getAccessToken()}. Only a captured {@code tmsFileDownload} call confirmed
+ * that mode is what a real authenticated request looks like — {@code cacore/exchange}/
+ * {@code cacore/sale} using the same mode is a reasonable inference, not independently confirmed.
  *
  * <p>The old project supplied a {@code paymentAsyncID} from whatever aggregator launched
  * {@code SaleActivity} — this codebase has no such caller, so a fresh {@link UUID} is generated
@@ -99,7 +102,12 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException(
                     "No host public key on file — onboarding must complete before a TEK can be wrapped for the host"));
         }
-        Map<String, String> headers = HostHeaders.build(sn);
+        String accessToken = onboardingState.getAccessToken();
+        if (accessToken == null) {
+            return Single.error(new SaleException(
+                    "No access token on file — onboarding must complete before a sale can go online"));
+        }
+        Map<String, String> headers = HostHeaders.buildAuthenticated(sn, accessToken);
 
         byte[] tek = new byte[TEK_LENGTH_BYTES];
         new SecureRandom().nextBytes(tek);

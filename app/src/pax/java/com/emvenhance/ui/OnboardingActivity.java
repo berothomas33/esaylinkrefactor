@@ -2,7 +2,6 @@ package com.emvenhance.ui;
 
 import android.os.Bundle;
 import android.view.View;
-import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -10,7 +9,7 @@ import com.emvenhance.R;
 import com.emvenhance.network.HostHeaders;
 import com.emvenhance.network.onboarding.OnboardingClient;
 import com.emvenhance.network.onboarding.OnboardingState;
-import com.emvenhance.network.onboarding.model.OnboardingStatusResponse;
+import com.emvenhance.network.onboarding.model.CreateTokenResult;
 import com.google.android.material.button.MaterialButton;
 import com.pax.poslib.model.ModelInfo;
 
@@ -25,22 +24,15 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
  * Runs the offline onboarding cycle ({@link OnboardingClient#runOfflineCycle}: handshake →
- * onboard → confirm).
- *
- * <p>Headers now come from {@link HostHeaders#build} — {@code aggregator-app-key}/
- * {@code system-app-key}/{@code apiKey}/{@code lang} (all fixed) + {@code sn} (this terminal's
- * own serial, {@link ModelInfo#getSN()}), confirmed against a real captured
- * {@code foundation/onboarding/handshake} request. That request had no {@code Account-Id}/token
- * header at all, so the Account ID / Token fields below no longer gate or feed the request — kept
- * (still persisted via {@link OnboardingState#saveAccountId}/{@link OnboardingState#saveToken})
- * only because it's not yet confirmed whether something else downstream still needs them.
+ * onboard → confirm → createToken) — just a button, nothing else needed. A full captured
+ * onboarding run confirmed every request in that cycle needs only {@link HostHeaders#build}'s
+ * fixed values plus this terminal's own serial number; no technician-entered credentials appear
+ * anywhere in it. (An earlier version of this screen had Account ID / Token fields, added before
+ * that was known — removed now that they're confirmed to feed nothing real.)
  */
 public class OnboardingActivity extends AppCompatActivity {
 
     private final CompositeDisposable disposables = new CompositeDisposable();
-
-    private EditText accountIdInput;
-    private EditText tokenInput;
 
     private MaterialButton btnStartOnboarding;
     private ProgressBar onboardingProgress;
@@ -51,16 +43,6 @@ public class OnboardingActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_onboarding);
         setTitle(R.string.label_onboarding);
-
-        accountIdInput = findViewById(R.id.accountIdInput);
-        tokenInput = findViewById(R.id.tokenInput);
-        OnboardingState savedState = new OnboardingState(this);
-        if (savedState.getAccountId() != null) {
-            accountIdInput.setText(savedState.getAccountId());
-        }
-        if (savedState.getToken() != null) {
-            tokenInput.setText(savedState.getToken());
-        }
 
         btnStartOnboarding = findViewById(R.id.btnStartOnboarding);
         onboardingProgress = findViewById(R.id.onboardingProgress);
@@ -75,8 +57,6 @@ public class OnboardingActivity extends AppCompatActivity {
     }
 
     private void startOnboarding() {
-        persistAccountIdAndToken();
-
         setOnboardingBusy(true);
         onboardingStatusText.setText(R.string.onboarding_in_progress);
 
@@ -84,13 +64,13 @@ public class OnboardingActivity extends AppCompatActivity {
         Map<String, String> headers = HostHeaders.build(sn);
 
         OnboardingState state = new OnboardingState(this);
-        Single<OnboardingStatusResponse> cycle = new OnboardingClient().runOfflineCycle(headers, state);
+        Single<CreateTokenResult> cycle = new OnboardingClient().runOfflineCycle(headers, state);
 
         disposables.add(cycle
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
-                        response -> {
+                        result -> {
                             setOnboardingBusy(false);
                             onboardingStatusText.setText(R.string.onboarding_succeeded);
                         },
@@ -99,19 +79,6 @@ public class OnboardingActivity extends AppCompatActivity {
                             onboardingStatusText.setText(
                                     getString(R.string.onboarding_failed, message(throwable)));
                         }));
-    }
-
-    /** Not used to build request headers anymore — see the class javadoc. */
-    private void persistAccountIdAndToken() {
-        String accountId = accountIdInput.getText().toString().trim();
-        String token = tokenInput.getText().toString().trim();
-        OnboardingState state = new OnboardingState(this);
-        if (!accountId.isEmpty()) {
-            state.saveAccountId(accountId);
-        }
-        if (!token.isEmpty()) {
-            state.saveToken(token);
-        }
     }
 
     private void setOnboardingBusy(boolean busy) {

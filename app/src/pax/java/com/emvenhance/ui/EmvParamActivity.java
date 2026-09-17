@@ -9,6 +9,7 @@ import android.widget.TextView;
 
 import com.emvenhance.R;
 import com.emvenhance.network.HostHeaders;
+import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.vendor.pax.PaxEmvParamUpdateService;
 import com.google.android.material.button.MaterialButton;
 import com.pax.configservice.impl.EmvParamUpdateResult;
@@ -37,8 +38,9 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * bundled/previous data as-is (see {@code EmvParamUpdater}'s javadoc), so the category browser
  * below always reflects the real current state.
  *
- * <p>Uses {@link HostHeaders#build} for its request headers — same real, confirmed contract every
- * other host call in this app now uses.
+ * <p>Uses {@link HostHeaders#buildAuthenticated} for its request headers — the real, confirmed
+ * post-onboarding contract (a captured {@code tmsFileDownload} call used it, not the pre-token
+ * {@link HostHeaders#build}) — so onboarding must complete first; see {@link #downloadEmvParams}.
  */
 public class EmvParamActivity extends AppCompatActivity {
 
@@ -83,7 +85,12 @@ public class EmvParamActivity extends AppCompatActivity {
     }
 
     private void downloadEmvParams() {
-        Map<String, String> headers = HostHeaders.build(ModelInfo.getInstance().getSN());
+        String accessToken = new OnboardingState(this).getAccessToken();
+        if (accessToken == null) {
+            paramSyncStatusText.setText(R.string.emv_param_sync_credentials_required);
+            return;
+        }
+        Map<String, String> headers = HostHeaders.buildAuthenticated(ModelInfo.getInstance().getSN(), accessToken);
 
         setSyncBusy(true);
         paramSyncStatusText.setText(R.string.emv_param_sync_in_progress);

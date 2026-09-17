@@ -25,8 +25,8 @@ public final class OnboardingState {
     private static final String KEY_CHALLENGE = "challenge";
     private static final String KEY_PUBLIC_KEY = "public_key";
     private static final String KEY_SERVICE_ACCOUNT = "service_account";
-    private static final String KEY_ACCOUNT_ID = "account_id";
-    private static final String KEY_TOKEN = "token";
+    private static final String KEY_ACCESS_TOKEN = "access_token";
+    private static final String KEY_TOKEN_EXPIRATION = "token_expiration";
 
     private final SharedPreferences prefs;
 
@@ -105,29 +105,27 @@ public final class OnboardingState {
     }
 
     /**
-     * The technician-entered {@code Account-Id} / bearer-token credentials — see
-     * {@code EmvParamActivity}'s Account ID / Token fields, the one place these get entered.
-     * Persisted here (same placeholder-header convention, same plaintext-prefs posture as the
-     * rest of this class) so a later transaction — {@code SaleCommunicationBehavior}, run from
-     * {@code PaxTerminal} with no UI in the loop — can reuse them instead of needing the
-     * technician back on that screen for every sale. Still a placeholder: this app has no real
-     * session/auth layer, so these are just whatever was last typed in, not a managed session.
+     * The bearer access token {@code OnboardingClient#createToken} fetched — not technician-entered,
+     * unlike an earlier version of this class assumed; see that method's javadoc for where it
+     * comes from. {@code HostHeaders#buildAuthenticated} reads this for every authenticated call
+     * once onboarding has completed (EMV param download, sale/exchange).
      */
-    public void saveAccountId(String accountId) {
-        prefs.edit().putString(KEY_ACCOUNT_ID, accountId).apply();
+    public void saveAccessToken(String accessToken) {
+        prefs.edit().putString(KEY_ACCESS_TOKEN, accessToken).apply();
     }
 
     @Nullable
-    public String getAccountId() {
-        return prefs.getString(KEY_ACCOUNT_ID, null);
+    public String getAccessToken() {
+        return prefs.getString(KEY_ACCESS_TOKEN, null);
     }
 
-    public void saveToken(String token) {
-        prefs.edit().putString(KEY_TOKEN, token).apply();
+    /** ISO-local-date-time-ish string, as the server returns it — not parsed/validated here yet. */
+    public void saveTokenExpiration(String expiration) {
+        prefs.edit().putString(KEY_TOKEN_EXPIRATION, expiration).apply();
     }
 
     @Nullable
-    public String getToken() {
-        return prefs.getString(KEY_TOKEN, null);
+    public String getTokenExpiration() {
+        return prefs.getString(KEY_TOKEN_EXPIRATION, null);
     }
 }
