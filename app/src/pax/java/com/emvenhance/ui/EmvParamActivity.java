@@ -92,7 +92,11 @@ public class EmvParamActivity extends AppCompatActivity {
             return;
         }
         String sn = ModelInfo.getInstance().getSN();
-        String posType = ModelInfo.getInstance().getTerminalModel();
+        // Fixed vendor literal, not ModelInfo#getTerminalModel() — a real captured old-app log
+        // hit foundation/tmsFileDownload/pax (200, real zip back) regardless of the terminal's own
+        // model string; this flavor is always PAX, so the per-device model ("A920Pro" etc., what
+        // getTerminalModel() actually returns) was the wrong value and 500'd on the host.
+        String posType = "pax";
 
         setSyncBusy(true);
         paramSyncStatusText.setText(R.string.emv_param_sync_in_progress);

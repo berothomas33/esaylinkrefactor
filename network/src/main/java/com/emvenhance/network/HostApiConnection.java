@@ -50,6 +50,11 @@ public interface HostApiConnection {
      * {@code clss_param.clss}) — see {@code EmvApiConnection#emvFileDownload} in the old project.
      * The raw bytes are handed to {@code EmvParamUpdater.applyFromZip} (bizentity module, since
      * parsing/DB-apply is PAX-specific) rather than parsed here, keeping this module vendor-agnostic.
+     *
+     * <p>{@code posType} is a fixed vendor literal ({@code "pax"} — confirmed by a real captured
+     * old-app request), <b>not</b> the calling terminal's own model string — {@code EmvParamActivity}
+     * used to pass {@code ModelInfo#getTerminalModel()} there (e.g. {@code "A920Pro"}), which the
+     * host 500'd on.
      */
     @GET("foundation/tmsFileDownload/{posType}")
     Single<ResponseBody> emvFileDownload(@HeaderMap Map<String, String> headers,
