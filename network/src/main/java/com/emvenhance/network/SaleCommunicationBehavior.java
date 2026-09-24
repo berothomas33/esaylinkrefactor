@@ -90,10 +90,14 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
      */
     private static final String TRANSACTION_TYPE_SALE = "PURCHASE";
 
-    /** CVM codes — see {@link #cvmCode}; the old project's real {@code PinEnterMode} indices aren't confirmed. */
+    /**
+     * CVM codes — see {@link #cvmCode}. {@link #CVM_ONLINE_PIN} = 2 is confirmed by a real
+     * successful old-app sale ({@code "cvm":2} alongside {@code "pinEnterMode":"ONLINE"});
+     * {@link #CVM_OFFLINE_PIN} = 1 is inferred from that, not independently confirmed.
+     */
     private static final int CVM_NONE = 0;
-    private static final int CVM_ONLINE_PIN = 1;
-    private static final int CVM_OFFLINE_PIN = 2;
+    private static final int CVM_OFFLINE_PIN = 1;
+    private static final int CVM_ONLINE_PIN = 2;
 
     private final HostApiConnection connection;
     private final OnboardingClient onboarding;
@@ -269,8 +273,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
      * The old project's real {@code PinEnterMode} enum/indices weren't shared — this derives a CVM
      * code from what {@link EmvTransactionResult}/{@link TransactionConfig} actually carry: an
      * online PIN block means {@link #CVM_ONLINE_PIN}, {@link EmvTransactionResult#isHasPin()} with
-     * no online PIN block means an offline (on-card) PIN, otherwise no CVM was performed. Confirm
-     * the real code values against the server team before relying on this for a live transaction.
+     * no online PIN block means an offline (on-card) PIN, otherwise no CVM was performed. See
+     * {@link #CVM_ONLINE_PIN} for which values are confirmed.
      */
     private static int cvmCode(TransactionConfig config, EmvTransactionResult emvResult) {
         if (config.getOnlinePinBlock() != null) {
@@ -285,19 +289,22 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     private static String pinEnterMode(TransactionConfig config, EmvTransactionResult emvResult) {
         switch (cvmCode(config, emvResult)) {
             case CVM_ONLINE_PIN:
-                return "ONLINE_PIN";
+                return "ONLINE";
             case CVM_OFFLINE_PIN:
-                return "OFFLINE_PIN";
+                return "OFFLINE";
             default:
                 return "NO_CVM";
         }
     }
 
-    /** Matches the {@code CardType.INSERT}/{@code CLSS} constants referenced (not defined) in the old project. */
+    /**
+     * {@code extraData.cardType}. {@code "CHIP"} is confirmed by a real successful old-app chip
+     * sale; the contactless/swipe/manual labels are still unconfirmed guesses.
+     */
     private static String cardTypeLabel(EntryMethod mode) {
         switch (mode) {
             case CHIP:
-                return "INSERT";
+                return "CHIP";
             case CONTACTLESS:
                 return "CLSS";
             case MAGSTRIPE:
