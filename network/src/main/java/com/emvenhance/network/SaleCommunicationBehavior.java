@@ -312,7 +312,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             case MANUAL:
                 return "MANUAL";
             default:
-                return "INSERT";
+                return "CHIP";
         }
     }
 
