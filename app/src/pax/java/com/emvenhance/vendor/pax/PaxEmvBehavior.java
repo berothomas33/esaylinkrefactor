@@ -1412,11 +1412,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * (a distinct key type from the plain, 3DES-family {@code EPedKeyType.TPK}) written via
      * {@code IPed#writeAesKey}, erasing whatever's at that index first, wrapped under
      * {@code EPedKeyType.TLK} index 0 (not {@code TMK} — the AES key hierarchy uses a different
-     * wrapping key type than the 3DES one). This method's first cut used {@code writeKey}/
-     * {@code EPedKeyType.TPK}/{@code TMK} (3DES) instead, going only off {@code PinService}'s
-     * {@code getPinBlock(INDEX_TPK, ...)} call shape — wrong: that call is algorithm-agnostic, it
-     * just reads whatever's written at the index, and the actual algorithm is decided here, by
-     * which write method and key type provisioned it.
+     * wrapping key type than the 3DES one). The key type written here must match the PIN-block
+     * mode {@code PinService#getEncryptedPinData} reads with: the 3DES
+     * {@code EPinBlockMode.ISO9564_0} call reads the 3DES {@code TPK} slot, not this
+     * {@code AES_TPK}, so it needs the AES mode (see {@code PinService}'s
+     * {@code PIN_BLOCK_MODE_ISO9564_4_AES}).
      *
      * <p>That assumes a TLK is already present at index 0, true on PAX SDK demo/dev units out of
      * the box; a real deployment provisions its own TLK (see the onboarding online/TMK-provisioning

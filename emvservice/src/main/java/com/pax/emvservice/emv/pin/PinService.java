@@ -30,6 +30,21 @@ import com.pax.emvservice.export.pin.PinInputCallback;
 import com.pax.poslib.utils.PosDeviceUtils;
 
 public class PinService {
+    /**
+     * The online PIN key at {@link PosDeviceUtils#INDEX_TPK} is an AES key ({@code AES_TPK},
+     * written fresh per sale by {@code PaxEmvBehavior#provisionOnlinePinKey}), and the host
+     * decrypts the PIN block with AES — the old app got a 16-byte AES block from EasyLink
+     * ({@code TransRequest.setPinBlocEncryptType(AES)}). The 3DES {@link EPinBlockMode#ISO9564_0}
+     * call used before read a different, 3DES key slot and returned the same 8-byte block every
+     * sale, which the host couldn't decrypt ("HSM command error").
+     *
+     * <p><b>Unconfirmed value:</b> {@link EPinBlockMode} stops at {@code 0x03} (HK EPS) in this SDK
+     * version and PAX's docs weren't available to check, so {@code 0x04} (ISO 9564 format 4, the
+     * AES PIN block) is the next-in-sequence value. If the PED rejects it, try {@code 0x10}.
+     * The right value gives a 16-byte block that changes every sale.
+     */
+    private static final byte PIN_BLOCK_MODE_ISO9564_4_AES = 0x04;
+
     private PinInputCallback.Callback pedInputPinListener;
     private final IPed.IPedInputPinListener listener = new IPed.IPedInputPinListener() {
         @Override
@@ -62,7 +77,8 @@ public class PinService {
                 ped.setKeyboardLayoutLandscape(landscape);//设置密码键盘横向显示。仅支持EPedType.INTERNAL 类型。
             }
 
-            return ped.getPinBlock(PosDeviceUtils.INDEX_TPK, pinLen, panBlock.getBytes(), EPinBlockMode.ISO9564_0, 60 * 1000);
+            return ped.getPinBlock(PosDeviceUtils.INDEX_TPK, pinLen, panBlock.getBytes(),
+                    PIN_BLOCK_MODE_ISO9564_4_AES, 60 * 1000);
 
         }catch (PedDevException e) {
             throw new PinException(String.valueOf(e.getErrCode()),e.getErrMsg());
