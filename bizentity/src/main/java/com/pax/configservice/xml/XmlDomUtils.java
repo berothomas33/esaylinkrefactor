@@ -2,17 +2,79 @@ package com.pax.configservice.xml;
 
 import androidx.annotation.Nullable;
 
+import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 
 /** Small DOM navigation helpers shared by {@link EmvXmlParamParser} and {@link ClssXmlParamParser}. */
 final class XmlDomUtils {
 
+    /** Matches a leading {@code <?xml ...?>} prolog — see {@link #parseDocument}. */
+    private static final Pattern XML_DECLARATION = Pattern.compile("\\A\\s*<\\?xml[^>]*\\?>");
+
     private XmlDomUtils() {
+    }
+
+    /**
+     * Parses a downloaded {@code emv_param.emv}/{@code clss_param.clss} into a DOM, working around
+     * a real device failure ({@code org.xml.sax.SAXParseException: unexpected attributes in XML
+     * declaration}, thrown from {@code org.apache.harmony.xml.parsers.DocumentBuilderImpl}) that
+     * plain {@code DocumentBuilder#parse(InputStream)} hit on both files. That parser is Android's
+     * own bundled expat binding, not a JDK one — it insists on a stricter/narrower {@code <?xml
+     * ...?>} prolog than a desktop JVM's parser accepts (the same file the old app's own
+     * {@code EMVParamsEngine} likely read without incident, since it isn't going through this same
+     * strict Android XML stack). Rather than reverse-engineer exactly which token in the prolog
+     * this build of expat objects to, decode the bytes ourselves (honoring any BOM; defaulting to
+     * UTF-8 otherwise — this file's content is ASCII-safe hex/tag data either way) and strip the
+     * prolog entirely before parsing the resulting {@link String} — a DOM document doesn't need
+     * one, and once expat is looking at already-decoded characters there's no declaration left for
+     * it to reject.
+     */
+    static Document parseDocument(InputStream in)
+            throws IOException, SAXException, ParserConfigurationException {
+        String xml = XML_DECLARATION.matcher(decode(readAll(in))).replaceFirst("");
+        return DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(new InputSource(new StringReader(xml)));
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+        }
+        return out.toByteArray();
+    }
+
+    /** Honors a UTF-16 BOM if present; otherwise assumes UTF-8 (see {@link #parseDocument}). */
+    private static String decode(byte[] bytes) {
+        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0xFE && (bytes[1] & 0xFF) == 0xFF) {
+            return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16BE);
+        }
+        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xFE) {
+            return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16LE);
+        }
+        if (bytes.length >= 3 && (bytes[0] & 0xFF) == 0xEF && (bytes[1] & 0xFF) == 0xBB && (bytes[2] & 0xFF) == 0xBF) {
+            return new String(bytes, 3, bytes.length - 3, StandardCharsets.UTF_8);
+        }
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     /** First direct child element named {@code tag}, or {@code null}. */

@@ -13,7 +13,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
 import androidx.annotation.Nullable;
@@ -72,10 +71,7 @@ public final class EmvXmlParamParser {
 
     public static Result parse(InputStream in)
             throws ParserConfigurationException, IOException, SAXException {
-        Element root = DocumentBuilderFactory.newInstance()
-                .newDocumentBuilder()
-                .parse(in)
-                .getDocumentElement();
+        Element root = XmlDomUtils.parseDocument(in).getDocumentElement();
 
         Element icsConfiguration = XmlDomUtils.firstChild(root, "ICSCONFIGURATION");
         Element cardSchemeConfiguration = XmlDomUtils.firstChild(root, "CARDSCHEMECONFIGRATION");

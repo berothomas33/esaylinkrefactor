@@ -18,7 +18,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
 import androidx.annotation.Nullable;
@@ -69,10 +68,7 @@ public final class ClssXmlParamParser {
 
     public static Result parse(InputStream in)
             throws ParserConfigurationException, IOException, SAXException {
-        Element root = DocumentBuilderFactory.newInstance()
-                .newDocumentBuilder()
-                .parse(in)
-                .getDocumentElement();
+        Element root = XmlDomUtils.parseDocument(in).getDocumentElement();
 
         Element payPassEl = XmlDomUtils.firstChild(root, "PAYPASSPARAM");
         Element payWaveEl = XmlDomUtils.firstChild(root, "PAYWAVEPARAM");
