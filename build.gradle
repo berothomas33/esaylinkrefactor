@@ -38,4 +38,9 @@ ext {
     // buildConfigField('String', 'DATABASE_PWD', ...). Override it locally in
     // ~/.gradle/gradle.properties rather than committing a real credential.
     DATABASE_PWD = project.findProperty('DATABASE_PWD') ?: '"CHANGE_ME"'
+
+    // orchestration/sale's required mToken header — see HostAppKeys#MTOKEN's javadoc for what this
+    // is and why it isn't a literal. Same pattern as DATABASE_PWD above: override locally in
+    // ~/.gradle/gradle.properties rather than committing a real captured credential.
+    MTOKEN_TEMP = project.findProperty('MTOKEN_TEMP') ?: '"CHANGE_ME"'
 }

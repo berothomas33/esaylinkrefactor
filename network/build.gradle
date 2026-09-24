@@ -10,6 +10,7 @@ android {
         minSdk rootProject.ext.minSdkVersion
         targetSdk rootProject.ext.targetSdkVersion
         consumerProguardFiles 'consumer-rules.pro'
+        buildConfigField('String', 'MTOKEN_TEMP', rootProject.MTOKEN_TEMP)
     }
 
     compileOptions {

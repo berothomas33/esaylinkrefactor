@@ -23,6 +23,7 @@ import com.google.gson.Gson;
 
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -187,7 +188,12 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         GeneralRequest request = GeneralRequest.forSale(
                 encSerializedRequest, asyncRequestId, config.getOnlinePinBlock());
 
-        return connection.sale(headers, request)
+        // orchestration/sale (unlike exchange) 400s without mToken — see HostAppKeys#MTOKEN's
+        // javadoc for what this is and why it's a local-only Gradle property, not a source literal.
+        Map<String, String> saleHeaders = new HashMap<>(headers);
+        saleHeaders.put("mToken", HostAppKeys.MTOKEN);
+
+        return connection.sale(saleHeaders, request)
                 .flatMap(response -> decryptEnvelope(response, tek, "Sale", SaleResponse.class));
     }
 
