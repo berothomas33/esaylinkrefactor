@@ -24,6 +24,7 @@ import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.IPed;
 import com.pax.dal.entity.EKeyCode;
+import com.pax.dal.entity.EPedKeyType;
 import com.pax.dal.entity.EPinBlockMode;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.emvservice.export.exceptions.PinException;
@@ -39,18 +40,27 @@ public class PinService {
      * call used before read a different, 3DES key slot and returned the same 8-byte block every
      * sale, which the host couldn't decrypt ("HSM command error").
      *
-     * <p><b>Unconfirmed mode byte:</b> {@link EPinBlockMode} stops at {@code 0x03} (HK EPS) in this
-     * SDK version and PAX's docs weren't reachable, so the byte for ISO 9564 format 4 isn't known.
-     * {@code 0x04} (ISO 9564 format 4) was rejected on a real A920 with {@link #PED_ERR_GENERAL}
-     * while the PEK sat at index 0x03; it stays first now the PEK uses the old app's 0x01. These
-     * candidates are tried in order: a {@link #PED_ERR_GENERAL} rejection moves on to the next one,
-     * any other error (cancel, timeout, missing key) stops immediately. The log line says which byte
-     * worked — once known, collapse this back to that single value.
+     * <p><b>Temporary probe — the AES/ISO 9564 format 4 call isn't known yet.</b> {@link EPinBlockMode}
+     * stops at {@code 0x03} in this SDK version and PAX's docs weren't reachable. On a real A920
+     * (PEK at 0x01), the 5-argument byte-mode {@code getPinBlock} returned {@link #PED_ERR_GENERAL}
+     * for 0x04/0x10/0x20/0x30 and {@link #PED_ERR_NO_KEY} for 0x05 — so it may only use 3DES keys.
+     * This tries 0x05 and 0x04 on it again, then the 6-argument overload with its extra {@code int}
+     * set to the {@code AES_TPK} key type. A miss ({@link #isProbeMiss}) moves on; cancel, timeout
+     * or anything else stops. The log line names the call that worked — once known, collapse this
+     * back to that single call.
      */
-    private static final byte[] AES_PIN_BLOCK_MODE_CANDIDATES = {0x04, 0x10, 0x20, 0x30, 0x05};
+    private static final byte[] FIVE_ARG_MODES = {0x05, 0x04};
+    private static final byte[] SIX_ARG_AES_MODES = {0x05, 0x04, 0x00};
+    private static final int AES_TPK_KEY_TYPE = EPedKeyType.AES_TPK.getPedkeyType();
 
-    /** {@code EPedDevException.PED_ERROR} ("ped error") — what the PED returned for mode 0x04. */
+    /** {@code EPedDevException.PED_ERROR} ("ped error"). */
     private static final int PED_ERR_GENERAL = 20;
+    /** {@code EPedDevException.PED_ERR_NO_KEY} ("Key does not exist"). */
+    private static final int PED_ERR_NO_KEY = 1;
+    /** {@code DEVICES_ERR_INVALID_ARGUMENT} / {@code DEVICES_ERR_NO_SUPPORT}. */
+    private static final int ERR_INVALID_ARGUMENT = 98;
+    private static final int ERR_NO_SUPPORT = 100;
+    private static final int PIN_TIMEOUT_MS = 60 * 1000;
 
     private static final String TAG = "PinService";
 
@@ -86,28 +96,52 @@ public class PinService {
                 ped.setKeyboardLayoutLandscape(landscape);//设置密码键盘横向显示。仅支持EPedType.INTERNAL 类型。
             }
 
-            PedDevException lastRejection = null;
-            for (byte mode : AES_PIN_BLOCK_MODE_CANDIDATES) {
+            byte[] pan = panBlock.getBytes();
+            PedDevException lastMiss = null;
+            for (byte mode : FIVE_ARG_MODES) {
+                String call = String.format("getPinBlock(5 args, mode 0x%02X)", mode);
                 try {
-                    byte[] pinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_AES_PEK, pinLen,
-                            panBlock.getBytes(), mode, 60 * 1000);
-                    LogUtils.i(TAG, String.format("AES PIN block mode 0x%02X accepted, block length %d bytes",
-                            mode, pinBlock == null ? 0 : pinBlock.length));
-                    return pinBlock;
+                    return logAccepted(call, ped.getPinBlock(PosDeviceUtils.INDEX_AES_PEK, pinLen,
+                            pan, mode, PIN_TIMEOUT_MS));
                 } catch (PedDevException e) {
-                    if (e.getErrCode() != PED_ERR_GENERAL) {
-                        throw e;
-                    }
-                    LogUtils.w(TAG, String.format("AES PIN block mode 0x%02X rejected: %d %s",
-                            mode, e.getErrCode(), e.getErrMsg()));
-                    lastRejection = e;
+                    lastMiss = logMissOrThrow(call, e);
                 }
             }
-            throw lastRejection;
+            for (byte mode : SIX_ARG_AES_MODES) {
+                String call = String.format("getPinBlock(6 args, mode 0x%02X, AES_TPK=%d)",
+                        mode, AES_TPK_KEY_TYPE);
+                try {
+                    return logAccepted(call, ped.getPinBlock(PosDeviceUtils.INDEX_AES_PEK, pinLen,
+                            pan, mode, PIN_TIMEOUT_MS, AES_TPK_KEY_TYPE));
+                } catch (PedDevException e) {
+                    lastMiss = logMissOrThrow(call, e);
+                }
+            }
+            throw lastMiss;
 
         }catch (PedDevException e) {
             throw new PinException(String.valueOf(e.getErrCode()),e.getErrMsg());
         }
+    }
+
+    private static byte[] logAccepted(String call, byte[] pinBlock) {
+        LogUtils.i(TAG, call + " accepted, block length "
+                + (pinBlock == null ? 0 : pinBlock.length) + " bytes");
+        return pinBlock;
+    }
+
+    private static PedDevException logMissOrThrow(String call, PedDevException e) throws PedDevException {
+        if (!isProbeMiss(e)) {
+            throw e;
+        }
+        LogUtils.w(TAG, call + " rejected: " + e.getErrCode() + " " + e.getErrMsg());
+        return e;
+    }
+
+    private static boolean isProbeMiss(PedDevException e) {
+        int code = e.getErrCode();
+        return code == PED_ERR_GENERAL || code == PED_ERR_NO_KEY
+                || code == ERR_INVALID_ARGUMENT || code == ERR_NO_SUPPORT;
     }
 
     /**

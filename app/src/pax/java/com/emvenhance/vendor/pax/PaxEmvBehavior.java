@@ -60,6 +60,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
+
 /**
  * PAX vendor EMV behavior on {@link AbstractEmvBehavior}.
  *
@@ -1434,6 +1437,34 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    /**
+     * Temporary diagnostic: proves whether the AES PEK really sits in its slot by comparing the
+     * PED's check value (KCV) for it with one computed here from the same key (AES-ECB of 16 zero
+     * bytes, first 3 bytes). Remove once online PIN works.
+     */
+    private static void logPekCheckValue(IPed ped, byte[] pinKey) {
+        String expected;
+        try {
+            Cipher aes = Cipher.getInstance("AES/ECB/NoPadding");
+            aes.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(pinKey, "AES"));
+            byte[] kcv = aes.doFinal(new byte[16]);
+            expected = ConvertUtils.bcd2Str(kcv, 3);
+        } catch (GeneralSecurityException e) {
+            expected = "n/a (" + e.getMessage() + ")";
+        }
+        try {
+            byte[] pedKcv = ped.getKCV(EPedKeyType.AES_TPK, PosDeviceUtils.INDEX_AES_PEK,
+                    (byte) 0x00, new byte[16]);
+            LogUtils.i(TAG, "AES PEK written at slot " + PosDeviceUtils.INDEX_AES_PEK
+                    + ": PED KCV " + (pedKcv == null ? "null" : ConvertUtils.bcd2Str(pedKcv, pedKcv.length))
+                    + ", expected KCV " + expected);
+        } catch (PedDevException e) {
+            LogUtils.w(TAG, "AES PEK written at slot " + PosDeviceUtils.INDEX_AES_PEK
+                    + " but PED KCV read failed: " + e.getErrCode() + " " + e.getErrMsg()
+                    + " (expected KCV " + expected + ")");
+        }
+    }
+
     private void provisionOnlinePinKey() {
         lastOnlinePinKeyEncrypted = null;
 
@@ -1454,6 +1485,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     + "keep failing 'Key does not exist' until a real TLK is injected.", e);
             return;
         }
+        logPekCheckValue(ped, pinKey);
 
         String hostPublicKey = new OnboardingState(BaseApplication.getAppContext()).getPublicKey();
         if (hostPublicKey == null) {
