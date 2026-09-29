@@ -43,14 +43,16 @@ public class PinService {
      * <p><b>Temporary probe — the AES/ISO 9564 format 4 call isn't known yet.</b> {@link EPinBlockMode}
      * stops at {@code 0x03} in this SDK version and PAX's docs weren't reachable. On a real A920
      * (PEK at 0x01), the 5-argument byte-mode {@code getPinBlock} returned {@link #PED_ERR_GENERAL}
-     * for 0x04/0x10/0x20/0x30 and {@link #PED_ERR_NO_KEY} for 0x05 — so it may only use 3DES keys.
-     * This tries 0x05 and 0x04 on it again, then the 6-argument overload with its extra {@code int}
-     * set to the {@code AES_TPK} key type. A miss ({@link #isProbeMiss}) moves on; cancel, timeout
+     * for 0x04/0x10/0x20/0x30 and {@link #PED_ERR_NO_KEY} for 0x05. The 6-argument overload with
+     * its extra {@code int} set to the {@code AES_TPK} key type gave {@link #PED_ERR_NO_KEY} for
+     * 0x05/0x00 and {@link #PED_ERR_GENERAL} for 0x04. This sweeps more modes on the 6-argument
+     * call ({@code PaxEmvBehavior} logs whether the AES key is really in the slot via its KCV).
+     * A miss ({@link #isProbeMiss}) moves on; cancel, timeout
      * or anything else stops. The log line names the call that worked — once known, collapse this
      * back to that single call.
      */
-    private static final byte[] FIVE_ARG_MODES = {0x05, 0x04};
-    private static final byte[] SIX_ARG_AES_MODES = {0x05, 0x04, 0x00};
+    private static final byte[] FIVE_ARG_MODES = {0x05};
+    private static final byte[] SIX_ARG_AES_MODES = {0x05, 0x04, 0x00, 0x01, 0x02, 0x03, 0x10, 0x20};
     private static final int AES_TPK_KEY_TYPE = EPedKeyType.AES_TPK.getPedkeyType();
 
     /** {@code EPedDevException.PED_ERROR} ("ped error"). */

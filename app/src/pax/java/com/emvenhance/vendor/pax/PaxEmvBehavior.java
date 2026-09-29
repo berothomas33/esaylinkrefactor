@@ -1452,16 +1452,19 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         } catch (GeneralSecurityException e) {
             expected = "n/a (" + e.getMessage() + ")";
         }
-        try {
-            byte[] pedKcv = ped.getKCV(EPedKeyType.AES_TPK, PosDeviceUtils.INDEX_AES_PEK,
-                    (byte) 0x00, new byte[16]);
-            LogUtils.i(TAG, "AES PEK written at slot " + PosDeviceUtils.INDEX_AES_PEK
-                    + ": PED KCV " + (pedKcv == null ? "null" : ConvertUtils.bcd2Str(pedKcv, pedKcv.length))
-                    + ", expected KCV " + expected);
-        } catch (PedDevException e) {
-            LogUtils.w(TAG, "AES PEK written at slot " + PosDeviceUtils.INDEX_AES_PEK
-                    + " but PED KCV read failed: " + e.getErrCode() + " " + e.getErrMsg()
-                    + " (expected KCV " + expected + ")");
+        // KCV mode 0x00 is rejected for AES keys ("check mode error") on the A920; try the others.
+        for (byte kcvMode : new byte[] {0x01, 0x02, 0x03}) {
+            try {
+                byte[] pedKcv = ped.getKCV(EPedKeyType.AES_TPK, PosDeviceUtils.INDEX_AES_PEK,
+                        kcvMode, new byte[16]);
+                LogUtils.i(TAG, String.format("AES PEK slot %d, KCV mode 0x%02X: PED KCV %s, expected %s",
+                        PosDeviceUtils.INDEX_AES_PEK, kcvMode,
+                        pedKcv == null ? "null" : ConvertUtils.bcd2Str(pedKcv, pedKcv.length), expected));
+                return;
+            } catch (PedDevException e) {
+                LogUtils.w(TAG, String.format("AES PEK slot %d, KCV mode 0x%02X failed: %d %s (expected %s)",
+                        PosDeviceUtils.INDEX_AES_PEK, kcvMode, e.getErrCode(), e.getErrMsg(), expected));
+            }
         }
     }
 
