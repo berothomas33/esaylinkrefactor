@@ -1426,15 +1426,26 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@link #lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
      * this method's predecessor's behavior), it just won't have a key the host can decrypt with.
      */
+    private static void eraseKeyQuietly(IPed ped, EPedKeyType keyType, byte index) {
+        try {
+            ped.eraseKey(keyType.getPedkeyType(), index);
+        } catch (PedDevException e) {
+            LogUtils.i(TAG, "No " + keyType + " to erase at index " + index + ": " + e.getErrMsg());
+        }
+    }
+
     private void provisionOnlinePinKey() {
         lastOnlinePinKeyEncrypted = null;
 
         byte[] pinKey = new byte[ONLINE_PIN_KEY_LENGTH_BYTES];
         new SecureRandom().nextBytes(pinKey);
 
+        IPed ped = PedHelper.getPed();
+        // Clear the slot before every PIN entry so nothing stale can be used. Both PIN key types
+        // at this index are erased; an empty slot throws, which isn't a reason to skip the write.
+        eraseKeyQuietly(ped, EPedKeyType.AES_TPK, PosDeviceUtils.INDEX_AES_PEK);
+        eraseKeyQuietly(ped, EPedKeyType.TPK, PosDeviceUtils.INDEX_AES_PEK);
         try {
-            IPed ped = PedHelper.getPed();
-            ped.eraseKey(EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_AES_PEK);
             ped.writeAesKey(EPedKeyType.TLK.getPedkeyType(), (byte) 0,
                     EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_AES_PEK, pinKey,
                     EAesCheckMode.KCV_NONE, null);
