@@ -60,8 +60,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-import javax.crypto.Cipher;
-import javax.crypto.spec.SecretKeySpec;
 
 /**
  * PAX vendor EMV behavior on {@link AbstractEmvBehavior}.
@@ -1418,8 +1416,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * wrapping key type than the 3DES one). The key type written here must match the PIN-block
      * mode {@code PinService#getEncryptedPinData} reads with: the 3DES
      * {@code EPinBlockMode.ISO9564_0} call reads the 3DES {@code TPK} slot, not this
-     * {@code AES_TPK}, so it needs the AES mode (see {@code PinService}'s
-     * {@code AES_PIN_BLOCK_MODE_CANDIDATES}).
+     * {@code AES_TPK}, so it uses the AES ISO 9564 format 4 mode (see {@code PinService}'s
+     * {@code PIN_BLOCK_MODE_ISO9564_4_AES}).
      *
      * <p>That assumes a TLK is already present at index 0, true on PAX SDK demo/dev units out of
      * the box; a real deployment provisions its own TLK (see the onboarding online/TMK-provisioning
@@ -1429,45 +1427,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@link #lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
      * this method's predecessor's behavior), it just won't have a key the host can decrypt with.
      */
-    private static void eraseKeyQuietly(IPed ped, EPedKeyType keyType, byte index) {
-        try {
-            ped.eraseKey(keyType.getPedkeyType(), index);
-        } catch (PedDevException e) {
-            LogUtils.i(TAG, "No " + keyType + " to erase at index " + index + ": " + e.getErrMsg());
-        }
-    }
-
-    /**
-     * Temporary diagnostic: proves whether the AES PEK really sits in its slot by comparing the
-     * PED's check value (KCV) for it with one computed here from the same key (AES-ECB of 16 zero
-     * bytes, first 3 bytes). Remove once online PIN works.
-     */
-    private static void logPekCheckValue(IPed ped, byte[] pinKey) {
-        String expected;
-        try {
-            Cipher aes = Cipher.getInstance("AES/ECB/NoPadding");
-            aes.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(pinKey, "AES"));
-            byte[] kcv = aes.doFinal(new byte[16]);
-            expected = ConvertUtils.bcd2Str(kcv, 3);
-        } catch (GeneralSecurityException e) {
-            expected = "n/a (" + e.getMessage() + ")";
-        }
-        // KCV mode 0x00 is rejected for AES keys ("check mode error") on the A920; try the others.
-        for (byte kcvMode : new byte[] {0x01, 0x02, 0x03}) {
-            try {
-                byte[] pedKcv = ped.getKCV(EPedKeyType.AES_TPK, PosDeviceUtils.INDEX_AES_PEK,
-                        kcvMode, new byte[16]);
-                LogUtils.i(TAG, String.format("AES PEK slot %d, KCV mode 0x%02X: PED KCV %s, expected %s",
-                        PosDeviceUtils.INDEX_AES_PEK, kcvMode,
-                        pedKcv == null ? "null" : ConvertUtils.bcd2Str(pedKcv, pedKcv.length), expected));
-                return;
-            } catch (PedDevException e) {
-                LogUtils.w(TAG, String.format("AES PEK slot %d, KCV mode 0x%02X failed: %d %s (expected %s)",
-                        PosDeviceUtils.INDEX_AES_PEK, kcvMode, e.getErrCode(), e.getErrMsg(), expected));
-            }
-        }
-    }
-
     private void provisionOnlinePinKey() {
         lastOnlinePinKeyEncrypted = null;
 
@@ -1488,7 +1447,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     + "keep failing 'Key does not exist' until a real TLK is injected.", e);
             return;
         }
-        logPekCheckValue(ped, pinKey);
 
         String hostPublicKey = new OnboardingState(BaseApplication.getAppContext()).getPublicKey();
         if (hostPublicKey == null) {
@@ -1500,6 +1458,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, pinKey);
         } catch (GeneralSecurityException e) {
             LogUtils.e(TAG, "Failed to RSA-encrypt the online PIN key for the host", e);
+        }
+    }
+
+    private static void eraseKeyQuietly(IPed ped, EPedKeyType keyType, byte index) {
+        try {
+            ped.eraseKey(keyType.getPedkeyType(), index);
+        } catch (PedDevException e) {
+            LogUtils.i(TAG, "No " + keyType + " to erase at index " + index + ": " + e.getErrMsg());
         }
     }
 
