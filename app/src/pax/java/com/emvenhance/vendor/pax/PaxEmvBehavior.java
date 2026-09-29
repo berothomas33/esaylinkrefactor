@@ -1416,7 +1416,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * mode {@code PinService#getEncryptedPinData} reads with: the 3DES
      * {@code EPinBlockMode.ISO9564_0} call reads the 3DES {@code TPK} slot, not this
      * {@code AES_TPK}, so it needs the AES mode (see {@code PinService}'s
-     * {@code PIN_BLOCK_MODE_ISO9564_4_AES}).
+     * {@code AES_PIN_BLOCK_MODE_CANDIDATES}).
      *
      * <p>That assumes a TLK is already present at index 0, true on PAX SDK demo/dev units out of
      * the box; a real deployment provisions its own TLK (see the onboarding online/TMK-provisioning

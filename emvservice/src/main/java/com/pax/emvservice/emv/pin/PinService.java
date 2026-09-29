@@ -21,6 +21,7 @@ import androidx.annotation.Nullable;
 import com.pax.bizlib.params.ParamHelper;
 import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.utils.ConvertUtils;
+import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.IPed;
 import com.pax.dal.entity.EKeyCode;
 import com.pax.dal.entity.EPinBlockMode;
@@ -38,12 +39,19 @@ public class PinService {
      * call used before read a different, 3DES key slot and returned the same 8-byte block every
      * sale, which the host couldn't decrypt ("HSM command error").
      *
-     * <p><b>Unconfirmed value:</b> {@link EPinBlockMode} stops at {@code 0x03} (HK EPS) in this SDK
-     * version and PAX's docs weren't available to check, so {@code 0x04} (ISO 9564 format 4, the
-     * AES PIN block) is the next-in-sequence value. If the PED rejects it, try {@code 0x10}.
-     * The right value gives a 16-byte block that changes every sale.
+     * <p><b>Unconfirmed mode byte:</b> {@link EPinBlockMode} stops at {@code 0x03} (HK EPS) in this
+     * SDK version and PAX's docs weren't reachable, so the byte for ISO 9564 format 4 isn't known.
+     * {@code 0x04} was tried on a real A920 and rejected with {@link #PED_ERR_GENERAL}. These
+     * candidates are tried in order: a {@link #PED_ERR_GENERAL} rejection moves on to the next one,
+     * any other error (cancel, timeout, missing key) stops immediately. The log line says which byte
+     * worked — once known, collapse this back to that single value.
      */
-    private static final byte PIN_BLOCK_MODE_ISO9564_4_AES = 0x04;
+    private static final byte[] AES_PIN_BLOCK_MODE_CANDIDATES = {0x10, 0x20, 0x30, 0x05};
+
+    /** {@code EPedDevException.PED_ERROR} ("ped error") — what the PED returned for mode 0x04. */
+    private static final int PED_ERR_GENERAL = 20;
+
+    private static final String TAG = "PinService";
 
     private PinInputCallback.Callback pedInputPinListener;
     private final IPed.IPedInputPinListener listener = new IPed.IPedInputPinListener() {
@@ -77,8 +85,24 @@ public class PinService {
                 ped.setKeyboardLayoutLandscape(landscape);//设置密码键盘横向显示。仅支持EPedType.INTERNAL 类型。
             }
 
-            return ped.getPinBlock(PosDeviceUtils.INDEX_TPK, pinLen, panBlock.getBytes(),
-                    PIN_BLOCK_MODE_ISO9564_4_AES, 60 * 1000);
+            PedDevException lastRejection = null;
+            for (byte mode : AES_PIN_BLOCK_MODE_CANDIDATES) {
+                try {
+                    byte[] pinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_TPK, pinLen,
+                            panBlock.getBytes(), mode, 60 * 1000);
+                    LogUtils.i(TAG, String.format("AES PIN block mode 0x%02X accepted, block length %d bytes",
+                            mode, pinBlock == null ? 0 : pinBlock.length));
+                    return pinBlock;
+                } catch (PedDevException e) {
+                    if (e.getErrCode() != PED_ERR_GENERAL) {
+                        throw e;
+                    }
+                    LogUtils.w(TAG, String.format("AES PIN block mode 0x%02X rejected: %d %s",
+                            mode, e.getErrCode(), e.getErrMsg()));
+                    lastRejection = e;
+                }
+            }
+            throw lastRejection;
 
         }catch (PedDevException e) {
             throw new PinException(String.valueOf(e.getErrCode()),e.getErrMsg());
