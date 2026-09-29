@@ -36,6 +36,12 @@ public class PosDeviceUtils {
      */
     public static final byte INDEX_TPK = 0x03;
     /**
+     * Online PIN key (AES PEK, key type AES_TPK) index — matches the old app's
+     * {@code KeyConstants.TPK_INDEX = 0x01}, where it wrote the PEK and pointed EasyLink's
+     * AES PIN block at ({@code TransRequest.setKeyIndex(0x01)}).
+     */
+    public static final byte INDEX_AES_PEK = 0x01;
+    /**
      * DES key index
      */
     public static final byte INDEX_TDK = 0x05;

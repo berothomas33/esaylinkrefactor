@@ -32,7 +32,7 @@ import com.pax.poslib.utils.PosDeviceUtils;
 
 public class PinService {
     /**
-     * The online PIN key at {@link PosDeviceUtils#INDEX_TPK} is an AES key ({@code AES_TPK},
+     * The online PIN key at {@link PosDeviceUtils#INDEX_AES_PEK} (0x01) is an AES key ({@code AES_TPK},
      * written fresh per sale by {@code PaxEmvBehavior#provisionOnlinePinKey}), and the host
      * decrypts the PIN block with AES — the old app got a 16-byte AES block from EasyLink
      * ({@code TransRequest.setPinBlocEncryptType(AES)}). The 3DES {@link EPinBlockMode#ISO9564_0}
@@ -41,12 +41,13 @@ public class PinService {
      *
      * <p><b>Unconfirmed mode byte:</b> {@link EPinBlockMode} stops at {@code 0x03} (HK EPS) in this
      * SDK version and PAX's docs weren't reachable, so the byte for ISO 9564 format 4 isn't known.
-     * {@code 0x04} was tried on a real A920 and rejected with {@link #PED_ERR_GENERAL}. These
+     * {@code 0x04} (ISO 9564 format 4) was rejected on a real A920 with {@link #PED_ERR_GENERAL}
+     * while the PEK sat at index 0x03; it stays first now the PEK uses the old app's 0x01. These
      * candidates are tried in order: a {@link #PED_ERR_GENERAL} rejection moves on to the next one,
      * any other error (cancel, timeout, missing key) stops immediately. The log line says which byte
      * worked — once known, collapse this back to that single value.
      */
-    private static final byte[] AES_PIN_BLOCK_MODE_CANDIDATES = {0x10, 0x20, 0x30, 0x05};
+    private static final byte[] AES_PIN_BLOCK_MODE_CANDIDATES = {0x04, 0x10, 0x20, 0x30, 0x05};
 
     /** {@code EPedDevException.PED_ERROR} ("ped error") — what the PED returned for mode 0x04. */
     private static final int PED_ERR_GENERAL = 20;
@@ -88,7 +89,7 @@ public class PinService {
             PedDevException lastRejection = null;
             for (byte mode : AES_PIN_BLOCK_MODE_CANDIDATES) {
                 try {
-                    byte[] pinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_TPK, pinLen,
+                    byte[] pinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_AES_PEK, pinLen,
                             panBlock.getBytes(), mode, 60 * 1000);
                     LogUtils.i(TAG, String.format("AES PIN block mode 0x%02X accepted, block length %d bytes",
                             mode, pinBlock == null ? 0 : pinBlock.length));

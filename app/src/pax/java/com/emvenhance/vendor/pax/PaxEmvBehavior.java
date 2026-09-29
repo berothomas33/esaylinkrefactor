@@ -1400,7 +1400,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /**
      * Generates a fresh random online PIN key (PEK) for this transaction, writes it to
-     * {@link PosDeviceUtils#INDEX_TPK} as an **AES** key so {@code getPinBlock} produces an
+     * {@link PosDeviceUtils#INDEX_AES_PEK} as an **AES** key so {@code getPinBlock} produces an
      * AES-encrypted PIN block (confirmed against the server team — it decrypts the PIN block with
      * AES, not 3DES), and RSA-wraps the same key value with the host's public key (from
      * onboarding — {@link OnboardingState#getPublicKey()}) so the host can independently recover
@@ -1434,9 +1434,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         try {
             IPed ped = PedHelper.getPed();
-            ped.eraseKey(EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_TPK);
+            ped.eraseKey(EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_AES_PEK);
             ped.writeAesKey(EPedKeyType.TLK.getPedkeyType(), (byte) 0,
-                    EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_TPK, pinKey,
+                    EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_AES_PEK, pinKey,
                     EAesCheckMode.KCV_NONE, null);
         } catch (PedDevException e) {
             LogUtils.e(TAG, "Online PIN key write failed — no TLK at index 0? Online PIN will "
