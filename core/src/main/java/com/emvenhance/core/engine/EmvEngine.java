@@ -101,7 +101,17 @@ public final class EmvEngine {
         }
         retryCount.set(0);
         retryPrompt = null;
+        apduTrace.beginTransaction();
         return true;
+    }
+
+    /**
+     * This transaction's APDU trace — started fresh by {@link #begin()}, fed by this engine's
+     * step notifications and by the vendor device layer (which the vendor behavior hands this
+     * instance at transaction start), read by the UI through {@code PosTerminal#apduTrace()}.
+     */
+    public ApduTrace apduTrace() {
+        return apduTrace;
     }
 
     public void cancel() {
@@ -116,7 +126,7 @@ public final class EmvEngine {
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);
         EmvLog.d("EmvStep: " + event);
-        ApduTrace.kernelStep(event.toString());
+        apduTrace.kernelStep(event.toString());
         emvSteps.onNext(event);
     }
 
@@ -130,20 +140,9 @@ public final class EmvEngine {
         transactionSteps.onNext(event);
     }
 
-    /**
-     * Starts a fresh APDU trace per transaction and flags each transaction step in it. A retry
-     * within the same transaction (tap again, fallback) keeps the trace, so the failed attempt
-     * stays visible above the new one.
-     */
+    /** Flags each transaction step in the APDU trace. */
     private void traceTransactionStep(TransactionStepEvent event) {
         TransactionStep step = event.getStep();
-        if (step == TransactionStep.TRANSACTION_STARTED) {
-            if (retryCount.get() == 0) {
-                ApduTrace.beginTransaction();
-            } else {
-                ApduTrace.transactionEvent("RETRY #" + retryCount.get());
-            }
-        }
         StringBuilder sb = new StringBuilder(step.getLabel().toUpperCase(Locale.US));
         Object mode = event.get(TransactionStepEvent.KEY_MODE);
         if (mode != null) {
@@ -151,14 +150,15 @@ public final class EmvEngine {
         }
         Object error = event.get(TransactionStepEvent.KEY_ERROR);
         Object result = event.get(TransactionStepEvent.KEY_RESULT);
-        if (event.getMessage() != null) {
-            sb.append(": ").append(event.getMessage());
+        String message = event.getMessage();
+        if (message != null && !message.equalsIgnoreCase(step.getLabel())) {
+            sb.append(": ").append(message);
         } else if (error != null) {
             sb.append(": ").append(error);
         } else if (result != null) {
             sb.append(": ").append(result);
         }
-        ApduTrace.transactionEvent(sb.toString());
+        apduTrace.transactionEvent(sb.toString());
     }
 
     /**
@@ -244,6 +244,7 @@ public final class EmvEngine {
     @Nullable
     private volatile String retryPrompt;
     private final AtomicInteger retryCount = new AtomicInteger();
+    private final ApduTrace apduTrace = new ApduTrace();
 
     /**
      * Requests that the current transaction restart with an adjusted config — e.g. a PAX
@@ -273,7 +274,8 @@ public final class EmvEngine {
         TransactionConfig config = pendingRetryConfig;
         pendingRetryConfig = null;
         if (config != null) {
-            retryCount.incrementAndGet();
+            // Same transaction, so the trace carries on: the failed attempt stays above the new one.
+            apduTrace.transactionEvent("RETRY #" + retryCount.incrementAndGet());
         }
         return config;
     }

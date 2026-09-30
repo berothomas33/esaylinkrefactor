@@ -25,10 +25,11 @@ public class MainViewModel extends ViewModel {
     private final MutableLiveData<TransactionStepEvent> transactionStep =
             new MutableLiveData<>(TransactionStepEvent.idle());
     private final MutableLiveData<Event<EmvStepEvent>> emvStep = new MutableLiveData<>();
-    private final MutableLiveData<String> apduTrace = new MutableLiveData<>(ApduTrace.text());
+    private final MutableLiveData<String> apduTrace;
 
     public MainViewModel(@NonNull PosTerminal terminal) {
         this.terminal = terminal;
+        this.apduTrace = new MutableLiveData<>(terminal.apduTrace().text());
 
         disposables.add(terminal.transactionSteps()
                 .observeOn(AndroidSchedulers.mainThread())
@@ -40,9 +41,10 @@ public class MainViewModel extends ViewModel {
 
         // A transaction can exchange dozens of APDUs within a second; refresh the on-screen trace
         // at most every 250 ms, always ending on the latest content.
-        disposables.add(ApduTrace.changes()
+        ApduTrace trace = terminal.apduTrace();
+        disposables.add(trace.changes()
                 .throttleLatest(250, TimeUnit.MILLISECONDS, true)
-                .map(version -> ApduTrace.text())
+                .map(version -> trace.text())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(apduTrace::setValue));
     }
@@ -62,7 +64,7 @@ public class MainViewModel extends ViewModel {
 
     /** The APDU trace wrapped to {@code width} columns, for the receipt printer. */
     public List<String> getApduTracePrintLines(int width) {
-        return ApduTrace.wrapped(width);
+        return terminal.apduTrace().wrapped(width);
     }
 
     /** Preferred: accept chip / tap / swipe — vendor terminal decides. */
@@ -79,7 +81,7 @@ public class MainViewModel extends ViewModel {
         terminal.printReceipt(lines);
     }
 
-    /** No-op on vendors with no real APDU trans log — see {@link PosTerminal#setApduLoggingEnabled}. */
+    /** Switches APDU trace recording on/off — see {@link PosTerminal#setApduLoggingEnabled}. */
     public void setApduLoggingEnabled(boolean enabled) {
         terminal.setApduLoggingEnabled(enabled);
     }

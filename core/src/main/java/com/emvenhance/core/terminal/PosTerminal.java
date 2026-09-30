@@ -14,6 +14,7 @@ import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
+import com.emvenhance.core.util.ApduTrace;
 import io.reactivex.rxjava3.core.Observable;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -99,6 +100,15 @@ public abstract class PosTerminal {
         return engine.emvSteps();
     }
 
+    /**
+     * The current transaction's APDU trace — owned by the engine, alongside
+     * {@link #transactionSteps()} and {@link #emvSteps()}: observe
+     * {@link ApduTrace#changes()} and read {@link ApduTrace#text()}.
+     */
+    public ApduTrace apduTrace() {
+        return engine.apduTrace();
+    }
+
     public TransactionStepEvent currentState() {
         return engine.currentTransactionState();
     }
@@ -146,16 +156,15 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Debug hook: whether to log every APDU command/response for every EMV stage. No-op /
-     * always {@code false} by default — a vendor overrides both only if it has a real APDU
-     * trans log to gate (see {@code PaxTerminal}).
+     * Debug switch for the {@link #apduTrace()}: whether to record every APDU command/response
+     * and step. Always off in a release build (the trace holds card data).
      */
-    public void setApduLoggingEnabled(boolean enabled) {
-        // default: no-op
+    public final void setApduLoggingEnabled(boolean enabled) {
+        engine.apduTrace().setEnabled(enabled);
     }
 
-    public boolean isApduLoggingEnabled() {
-        return false;
+    public final boolean isApduLoggingEnabled() {
+        return engine.apduTrace().isEnabled();
     }
 
     // ─── Vendor must implement ───────────────────────────────────────────

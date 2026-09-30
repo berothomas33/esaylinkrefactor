@@ -71,15 +71,25 @@ import javax.crypto.spec.SecretKeySpec;
 public class EmvDeviceImpl implements IDevice {
     private static final String TAG = "DeviceImplNeptune";
     /**
-     * APDU trace switch — kept here for existing callers, but the trace itself (and its flag) is
-     * {@link ApduTrace}: on by default in a debug build, always off in a release build.
+     * The current transaction's APDU trace ({@code EmvEngine#apduTrace()}), handed over by the
+     * vendor behavior at transaction start — this singleton is called by the native kernel and
+     * has no other way to reach the engine. {@code null} until then: nothing is recorded.
      */
-    public static void setApduLoggingEnabled(boolean enabled) {
-        ApduTrace.setEnabled(enabled);
+    @Nullable
+    private volatile ApduTrace apduTrace;
+
+    public void setApduTrace(@Nullable ApduTrace apduTrace) {
+        this.apduTrace = apduTrace;
     }
 
-    public static boolean isApduLoggingEnabled() {
-        return BuildConfig.DEBUG && ApduTrace.isEnabled();
+    /**
+     * The trace to record into, or {@code null} when recording is off (no trace attached, the
+     * UI switch is off, or a release build) — checked before any hex conversion runs.
+     */
+    @Nullable
+    private ApduTrace activeTrace() {
+        ApduTrace trace = apduTrace;
+        return BuildConfig.DEBUG && trace != null && trace.isEnabled() ? trace : null;
     }
 
     private String expectPinLen = "0,4,5,6,7,8,9,10,11,12";
@@ -465,8 +475,9 @@ public class EmvDeviceImpl implements IDevice {
                 return DeviceRetCode.DEVICE_PICC_OTHER_ERR;
             }
             byte[] atr = i.init(this.iccSlot);
-            if (isApduLoggingEnabled()) {
-                ApduTrace.atr("ICC", atr);
+            ApduTrace trace = activeTrace();
+            if (trace != null) {
+                trace.atr("ICC", atr);
             }
             return DeviceRetCode.DEVICE_PICC_OK;
         } catch (Throwable t) {
@@ -583,31 +594,28 @@ public class EmvDeviceImpl implements IDevice {
         return DeviceRetCode.DEVICE_PICC_OK;
     }
 
-    /**
-     * Records an outgoing APDU in the {@link ApduTrace} (which also writes it to Logcat). The
-     * check comes first so nothing is converted to hex when the trace is off.
-     */
-    private static void logApduSend(String channel, ApduSendL2 apduSend) {
-        if (!isApduLoggingEnabled()) {
-            return;
+    /** Records an outgoing APDU in the {@link ApduTrace} (which also writes it to Logcat). */
+    private void logApduSend(String channel, ApduSendL2 apduSend) {
+        ApduTrace trace = activeTrace();
+        if (trace != null) {
+            trace.command(channel, apduSend.command, apduSend.lc, apduSend.dataIn, apduSend.le);
         }
-        ApduTrace.command(channel, apduSend.command, apduSend.lc, apduSend.dataIn, apduSend.le);
     }
 
     /** Records the matching APDU response — status word (SW1SW2) and data-out. */
-    private static void logApduResp(String channel, byte swa, byte swb, @Nullable byte[] dataOut) {
-        if (!isApduLoggingEnabled()) {
-            return;
+    private void logApduResp(String channel, byte swa, byte swb, @Nullable byte[] dataOut) {
+        ApduTrace trace = activeTrace();
+        if (trace != null) {
+            trace.response(channel, swa, swb, dataOut, dataOut == null ? 0 : dataOut.length);
         }
-        ApduTrace.response(channel, swa, swb, dataOut, dataOut == null ? 0 : dataOut.length);
     }
 
     /** Records an exchange that failed at the reader, with no response from the card. */
-    private static void logApduError(String channel, int code, String message) {
-        if (!isApduLoggingEnabled()) {
-            return;
+    private void logApduError(String channel, int code, String message) {
+        ApduTrace trace = activeTrace();
+        if (trace != null) {
+            trace.note(channel, "exchange failed: " + code + " " + message);
         }
-        ApduTrace.note(channel, "exchange failed: " + code + " " + message);
     }
 
     @Override

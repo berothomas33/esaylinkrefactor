@@ -14,9 +14,13 @@ import java.util.Locale;
 
 /**
  * Per-transaction APDU trace: every command the terminal sends to the card and every response,
- * each flagged with the EMV level it belongs to, plus the kernel's own step changes. Cleared at
- * {@code TRANSACTION_STARTED}, fed by the vendor device layer (PAX: {@code EmvDeviceImpl}) and by
- * {@code EmvEngine}, and read back by the UI to show on screen, copy and print.
+ * each flagged with the EMV level it belongs to, plus the kernel's own step changes.
+ *
+ * <p>Owned by {@code EmvEngine} (one instance, {@code EmvEngine#apduTrace()}): the engine starts
+ * it fresh in {@code begin()} and records every step it publishes; the vendor device layer (PAX:
+ * {@code EmvDeviceImpl}, handed this instance at transaction start) records the APDUs; the UI
+ * reads it through {@code PosTerminal#apduTrace()} to show, copy and print. This class only
+ * records and decodes — it holds no transaction logic of its own.
  *
  * <p>Every line also goes to Logcat under the {@value #TAG} tag.
  *
@@ -34,44 +38,44 @@ public final class ApduTrace {
     private static final byte[] PSE = "1PAY.SYS.DDF01".getBytes();
     private static final byte[] PPSE = "2PAY.SYS.DDF01".getBytes();
 
-    private static volatile boolean enabled = BuildConfig.DEBUG;
+    private volatile boolean enabled = BuildConfig.DEBUG;
 
-    private static final List<String> lines = new ArrayList<>();
-    private static final BehaviorSubject<Long> changes = BehaviorSubject.createDefault(0L);
-    private static long version;
+    private final List<String> lines = new ArrayList<>();
+    private final BehaviorSubject<Long> changes = BehaviorSubject.createDefault(0L);
+    private long version;
 
-    private static long startMillis = System.currentTimeMillis();
-    private static int apduCount;
-    private static boolean gpoSent;
-    private static int generateAcCount;
+    private long startMillis = System.currentTimeMillis();
+    private int apduCount;
+    private boolean gpoSent;
+    private int generateAcCount;
     @Nullable
-    private static String currentLevel;
+    private String currentLevel;
     @Nullable
-    private static String lastCommandLevel;
+    private String lastCommandLevel;
 
-    private ApduTrace() {
+    public ApduTrace() {
     }
 
     /** Runtime on/off (the UI checkbox). Has no effect in a release build. */
-    public static void setEnabled(boolean on) {
+    public void setEnabled(boolean on) {
         enabled = on;
     }
 
-    public static boolean isEnabled() {
+    public boolean isEnabled() {
         return BuildConfig.DEBUG && enabled;
     }
 
     /** Emits whenever the trace changes; read the content with {@link #text()}. */
-    public static Observable<Long> changes() {
+    public Observable<Long> changes() {
         return changes.hide();
     }
 
     /** Starts a fresh trace for a new transaction. */
-    public static void beginTransaction() {
+    public void beginTransaction() {
         if (!isEnabled()) {
             return;
         }
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             lines.clear();
             startMillis = System.currentTimeMillis();
             apduCount = 0;
@@ -86,41 +90,41 @@ public final class ApduTrace {
     }
 
     /** A kernel/engine EMV step change, e.g. "5. Read application data". */
-    public static void kernelStep(String step) {
+    public void kernelStep(String step) {
         if (!isEnabled()) {
             return;
         }
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             add(elapsed() + "### KERNEL STEP " + step);
         }
     }
 
     /** A transaction-level event (card detected, online, approved, error...). */
-    public static void transactionEvent(String event) {
+    public void transactionEvent(String event) {
         if (!isEnabled()) {
             return;
         }
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             add(elapsed() + "--- " + event);
         }
     }
 
     /** Free-form note, e.g. a reader error. */
-    public static void note(String channel, String text) {
+    public void note(String channel, String text) {
         if (!isEnabled()) {
             return;
         }
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             add(elapsed() + "!!! " + channel + " " + text);
         }
     }
 
     /** Card answer-to-reset after power-on. */
-    public static void atr(String channel, @Nullable byte[] atr) {
+    public void atr(String channel, @Nullable byte[] atr) {
         if (!isEnabled()) {
             return;
         }
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             add(elapsed() + channel + " ATR " + (atr == null ? "(none)" : hex(atr, 0, atr.length)));
         }
     }
@@ -129,12 +133,12 @@ public final class ApduTrace {
      * An outgoing C-APDU. {@code dataIn} may be a larger fixed buffer (PAX's is 512 bytes); only
      * its first {@code lc} bytes are sent and recorded.
      */
-    public static void command(String channel, byte[] header, int lc, @Nullable byte[] dataIn,
+    public void command(String channel, byte[] header, int lc, @Nullable byte[] dataIn,
             int le) {
         if (!isEnabled() || header == null || header.length < 4) {
             return;
         }
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             int cla = header[0] & 0xFF;
             int ins = header[1] & 0xFF;
             int p1 = header[2] & 0xFF;
@@ -168,12 +172,12 @@ public final class ApduTrace {
     }
 
     /** The R-APDU for the last {@link #command}. */
-    public static void response(String channel, byte sw1, byte sw2, @Nullable byte[] dataOut,
+    public void response(String channel, byte sw1, byte sw2, @Nullable byte[] dataOut,
             int length) {
         if (!isEnabled()) {
             return;
         }
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             int len = dataOut == null ? 0 : Math.max(0, Math.min(length, dataOut.length));
             int sw = ((sw1 & 0xFF) << 8) | (sw2 & 0xFF);
             StringBuilder head = new StringBuilder(String.format(Locale.US,
@@ -192,22 +196,22 @@ public final class ApduTrace {
     }
 
     /** The whole trace, one entry per line. */
-    public static String text() {
-        synchronized (ApduTrace.class) {
+    public String text() {
+        synchronized (this) {
             return String.join("\n", lines);
         }
     }
 
-    public static boolean isEmpty() {
-        synchronized (ApduTrace.class) {
+    public boolean isEmpty() {
+        synchronized (this) {
             return lines.isEmpty();
         }
     }
 
     /** The trace wrapped to {@code width} characters, for a receipt printer. */
-    public static List<String> wrapped(int width) {
+    public List<String> wrapped(int width) {
         List<String> out = new ArrayList<>();
-        synchronized (ApduTrace.class) {
+        synchronized (this) {
             for (String line : lines) {
                 if (line.length() <= width) {
                     out.add(line);
@@ -222,9 +226,9 @@ public final class ApduTrace {
         return out;
     }
 
-    // ─── internals (callers hold the class lock) ─────────────────────────
+    // ─── internals (callers hold this trace's lock) ─────────────────────────
 
-    private static void add(String line) {
+    private void add(String line) {
         Log.d(TAG, line);
         if (lines.size() >= MAX_LINES) {
             if (lines.size() == MAX_LINES) {
@@ -238,13 +242,13 @@ public final class ApduTrace {
     }
 
     /** Seconds since the transaction started, as a line prefix. */
-    private static String elapsed() {
+    private String elapsed() {
         long ms = System.currentTimeMillis() - startMillis;
         return String.format(Locale.US, "[%d.%03d] ", ms / 1000, ms % 1000);
     }
 
     /** Returns {EMV level, command name} for a C-APDU. */
-    private static String[] decode(int cla, int ins, int p1, int p2, byte[] data) {
+    private String[] decode(int cla, int ins, int p1, int p2, byte[] data) {
         boolean scriptCla = (cla & 0xF0) == 0x80 && (cla & 0x0C) != 0; // 84 / 8C: secure messaging
         switch (ins) {
             case 0xA4: {
