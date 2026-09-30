@@ -175,23 +175,92 @@
                             android:id="@+id/rowIccData"
                             layout="@layout/item_kv_row" />
 
-                        <com.google.android.material.checkbox.MaterialCheckBox
-                            android:id="@+id/chkApduLog"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
-                            android:text="@string/action_log_apdu" />
-
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnPrintResult"
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="12dp"
                             android:text="@string/action_print_result" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
+
+            <!-- APDU trace (debug builds only): every command/response between terminal and card,
+                 flagged by EMV level, filled live from MainViewModel#getApduTrace. An EditText so
+                 the text can be selected and copied (e.g. through Vysor). -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/apduTraceGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeColor="#DDDDDD"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/apdu_trace_title"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.checkbox.MaterialCheckBox
+                        android:id="@+id/chkApduLog"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/action_log_apdu" />
+
+                    <EditText
+                        android:id="@+id/apduTraceText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="#F4F4F4"
+                        android:fontFamily="monospace"
+                        android:gravity="top|start"
+                        android:hint="@string/apdu_trace_empty"
+                        android:importantForAutofill="no"
+                        android:inputType="textMultiLine|textNoSuggestions"
+                        android:minLines="4"
+                        android:padding="8dp"
+                        android:textColor="#1A1A1A"
+                        android:textIsSelectable="true"
+                        android:textSize="11sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnCopyApdu"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="8dp"
+                            android:layout_weight="1"
+                            android:text="@string/action_copy_apdu" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnPrintApdu"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/action_print_apdu" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
         </LinearLayout>
     </LinearLayout>

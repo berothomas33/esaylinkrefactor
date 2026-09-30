@@ -1,15 +1,20 @@
 package com.emvenhance.ui;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
+import com.emvenhance.BuildConfig;
 import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
 import com.emvenhance.core.card.TransactionType;
@@ -36,6 +41,9 @@ public class SearchCardFragment extends Fragment {
 
     private static final String ARG_TRANSACTION_TYPE = "transactionType";
     private static final String ARG_AMOUNT_MINOR = "amountMinor";
+
+    /** Characters per printed line: 384-dot head with PaxPrinter's 8x16 font. */
+    private static final int PRINT_WIDTH = 48;
 
     public static SearchCardFragment newInstance(TransactionType type, long amountMinor) {
         Bundle args = new Bundle();
@@ -101,14 +109,17 @@ public class SearchCardFragment extends Fragment {
         bindKvRow(view, R.id.rowIacDenial, getString(R.string.label_iac_denial));
         bindKvRow(view, R.id.rowIccData, getString(R.string.label_icc_data));
 
-        MaterialCheckBox chkApduLog = view.findViewById(R.id.chkApduLog);
-        chkApduLog.setChecked(viewModel.isApduLoggingEnabled());
-        chkApduLog.setOnCheckedChangeListener((btn, checked) ->
-                viewModel.setApduLoggingEnabled(checked));
+        bindApduTrace(view, viewModel);
 
         View resultGroup = view.findViewById(R.id.resultGroup);
         view.findViewById(R.id.btnPrintResult).setOnClickListener(v -> {
-            viewModel.printReceipt(buildResultLines(view));
+            List<String> lines = buildResultLines(view);
+            List<String> trace = viewModel.getApduTracePrintLines(PRINT_WIDTH);
+            if (!trace.isEmpty()) {
+                lines.add("");
+                lines.addAll(trace);
+            }
+            viewModel.printReceipt(lines);
             Toast.makeText(requireContext(), R.string.result_printed, Toast.LENGTH_SHORT).show();
         });
 
@@ -148,6 +159,50 @@ public class SearchCardFragment extends Fragment {
         // cardholder sees "present card" — matches AmountFragment's old behavior, just moved
         // here now that there's a dedicated screen for it.
         viewModel.acceptCard(type, amountMinor);
+    }
+
+    /**
+     * APDU trace card: debug builds only (the trace holds card data and is never recorded in a
+     * release build). The EditText is filled live, with the soft keyboard suppressed, so it can be
+     * scrolled, selected and copied — over Vysor too, or with the Copy button.
+     */
+    private void bindApduTrace(View view, MainViewModel viewModel) {
+        View group = view.findViewById(R.id.apduTraceGroup);
+        if (!BuildConfig.DEBUG) {
+            group.setVisibility(View.GONE);
+            return;
+        }
+
+        MaterialCheckBox chkApduLog = view.findViewById(R.id.chkApduLog);
+        chkApduLog.setChecked(viewModel.isApduLoggingEnabled());
+        chkApduLog.setOnCheckedChangeListener((btn, checked) ->
+                viewModel.setApduLoggingEnabled(checked));
+
+        EditText traceText = view.findViewById(R.id.apduTraceText);
+        traceText.setShowSoftInputOnFocus(false);
+        viewModel.getApduTrace().observe(getViewLifecycleOwner(), traceText::setText);
+
+        view.findViewById(R.id.btnCopyApdu).setOnClickListener(v -> {
+            String trace = traceText.getText().toString();
+            if (trace.isEmpty()) {
+                Toast.makeText(requireContext(), R.string.apdu_trace_nothing, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            ClipboardManager clipboard =
+                    (ClipboardManager) requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("APDU trace", trace));
+            Toast.makeText(requireContext(), R.string.apdu_trace_copied, Toast.LENGTH_SHORT).show();
+        });
+
+        view.findViewById(R.id.btnPrintApdu).setOnClickListener(v -> {
+            List<String> trace = viewModel.getApduTracePrintLines(PRINT_WIDTH);
+            if (trace.isEmpty()) {
+                Toast.makeText(requireContext(), R.string.apdu_trace_nothing, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            viewModel.printReceipt(trace);
+            Toast.makeText(requireContext(), R.string.result_printed, Toast.LENGTH_SHORT).show();
+        });
     }
 
     private static void bindMethodRow(View parent, int rowId, String badge, String title,

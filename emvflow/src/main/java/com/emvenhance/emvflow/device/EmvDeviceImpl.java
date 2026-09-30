@@ -17,6 +17,7 @@ package com.emvenhance.emvflow.device;
 
 import android.os.SystemClock;
 import androidx.annotation.Nullable;
+import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.emvflow.BuildConfig;
 import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.application.ActivityStack;
@@ -70,21 +71,15 @@ import javax.crypto.spec.SecretKeySpec;
 public class EmvDeviceImpl implements IDevice {
     private static final String TAG = "DeviceImplNeptune";
     /**
-     * Raw APDU trans log, on by default in a debug build. {@link #setApduLoggingEnabled} lets
-     * the UI turn it off mid-session without a rebuild; {@link #isApduLoggingEnabled} always
-     * reports {@code false} in a release build regardless of what was last set — same convention
-     * as {@code EmvDebugger}/{@code ClssKernelProcess#enableDebugLog}: never log cardholder data
-     * in a release build.
+     * APDU trace switch — kept here for existing callers, but the trace itself (and its flag) is
+     * {@link ApduTrace}: on by default in a debug build, always off in a release build.
      */
-    private static volatile boolean apduLoggingEnabled = BuildConfig.DEBUG;
-
-    /** Runtime on/off for the APDU trans log — no-op outside a debug build, see the field doc. */
     public static void setApduLoggingEnabled(boolean enabled) {
-        apduLoggingEnabled = enabled;
+        ApduTrace.setEnabled(enabled);
     }
 
     public static boolean isApduLoggingEnabled() {
-        return BuildConfig.DEBUG && apduLoggingEnabled;
+        return BuildConfig.DEBUG && ApduTrace.isEnabled();
     }
 
     private String expectPinLen = "0,4,5,6,7,8,9,10,11,12";
@@ -469,7 +464,10 @@ public class EmvDeviceImpl implements IDevice {
             if (i == null) {
                 return DeviceRetCode.DEVICE_PICC_OTHER_ERR;
             }
-            i.init(this.iccSlot); // ignore returned ATR
+            byte[] atr = i.init(this.iccSlot);
+            if (isApduLoggingEnabled()) {
+                ApduTrace.atr("ICC", atr);
+            }
             return DeviceRetCode.DEVICE_PICC_OK;
         } catch (Throwable t) {
             LogUtils.w(TAG, t);
@@ -536,6 +534,7 @@ public class EmvDeviceImpl implements IDevice {
             return DeviceRetCode.DEVICE_PICC_OK;
         } catch (PiccDevException e) {
             LogUtils.w(TAG, e);
+            logApduError("PICC", e.getErrCode(), e.getErrMsg());
             int ret1 = e.getErrCode();
             short ret2;
             if (ret1 == RET_RF_ERR_USER_CANCEL) {//test case 3B02-9001 for paypass 3.0.1 by zhoujie   // ?
@@ -571,6 +570,7 @@ public class EmvDeviceImpl implements IDevice {
             resp = i.isoCommandByApdu(this.iccSlot, send);
         } catch (IccDevException e) {
             LogUtils.w(TAG, e);
+            logApduError("ICC", e.getErrCode(), e.getErrMsg());
             return DeviceRetCode.DEVICE_PICC_OTHER_ERR;
         }
 
@@ -584,36 +584,30 @@ public class EmvDeviceImpl implements IDevice {
     }
 
     /**
-     * Logs an outgoing APDU command — command bytes, Lc/Le, and data-in when present. Gated by
-     * {@link #isApduLoggingEnabled()}: the hex conversion itself is skipped when off, not just
-     * the log call, since {@link ConvertUtils#bcd2Str} isn't free and this runs on every APDU in
-     * an EMV transaction.
+     * Records an outgoing APDU in the {@link ApduTrace} (which also writes it to Logcat). The
+     * check comes first so nothing is converted to hex when the trace is off.
      */
     private static void logApduSend(String channel, ApduSendL2 apduSend) {
         if (!isApduLoggingEnabled()) {
             return;
         }
-        StringBuilder sb = new StringBuilder(channel)
-                .append(" APDU >> cmd=").append(ConvertUtils.bcd2Str(apduSend.command))
-                .append(" lc=").append(apduSend.lc)
-                .append(" le=").append(apduSend.le);
-        if (apduSend.dataIn != null && apduSend.dataIn.length > 0) {
-            sb.append(" data=").append(ConvertUtils.bcd2Str(apduSend.dataIn));
-        }
-        LogUtils.d(TAG, sb.toString());
+        ApduTrace.command(channel, apduSend.command, apduSend.lc, apduSend.dataIn, apduSend.le);
     }
 
-    /** Logs the matching APDU response — status word (SW1SW2) and data-out when present. */
+    /** Records the matching APDU response — status word (SW1SW2) and data-out. */
     private static void logApduResp(String channel, byte swa, byte swb, @Nullable byte[] dataOut) {
         if (!isApduLoggingEnabled()) {
             return;
         }
-        StringBuilder sb = new StringBuilder(channel)
-                .append(" APDU << sw=").append(String.format("%02X%02X", swa & 0xFF, swb & 0xFF));
-        if (dataOut != null && dataOut.length > 0) {
-            sb.append(" data=").append(ConvertUtils.bcd2Str(dataOut));
+        ApduTrace.response(channel, swa, swb, dataOut, dataOut == null ? 0 : dataOut.length);
+    }
+
+    /** Records an exchange that failed at the reader, with no response from the card. */
+    private static void logApduError(String channel, int code, String message) {
+        if (!isApduLoggingEnabled()) {
+            return;
         }
-        LogUtils.d(TAG, sb.toString());
+        ApduTrace.note(channel, "exchange failed: " + code + " " + message);
     }
 
     @Override

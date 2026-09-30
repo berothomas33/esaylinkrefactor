@@ -8,6 +8,7 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.EmvBehavior;
+import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
 
 import androidx.annotation.Nullable;
@@ -15,6 +16,7 @@ import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -111,6 +113,7 @@ public final class EmvEngine {
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);
         EmvLog.d("EmvStep: " + event);
+        ApduTrace.kernelStep(event.toString());
         emvSteps.onNext(event);
     }
 
@@ -120,7 +123,31 @@ public final class EmvEngine {
 
     public void notifyTransactionStep(TransactionStepEvent event) {
         EmvLog.d("TransactionStep: " + event);
+        traceTransactionStep(event);
         transactionSteps.onNext(event);
+    }
+
+    /** Starts a fresh APDU trace per transaction and flags each transaction step in it. */
+    private static void traceTransactionStep(TransactionStepEvent event) {
+        TransactionStep step = event.getStep();
+        if (step == TransactionStep.TRANSACTION_STARTED) {
+            ApduTrace.beginTransaction();
+        }
+        StringBuilder sb = new StringBuilder(step.getLabel().toUpperCase(Locale.US));
+        Object mode = event.get(TransactionStepEvent.KEY_MODE);
+        if (mode != null) {
+            sb.append(" (").append(mode).append(')');
+        }
+        Object error = event.get(TransactionStepEvent.KEY_ERROR);
+        Object result = event.get(TransactionStepEvent.KEY_RESULT);
+        if (event.getMessage() != null) {
+            sb.append(": ").append(event.getMessage());
+        } else if (error != null) {
+            sb.append(": ").append(error);
+        } else if (result != null) {
+            sb.append(": ").append(result);
+        }
+        ApduTrace.transactionEvent(sb.toString());
     }
 
     /**

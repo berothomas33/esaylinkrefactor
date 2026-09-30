@@ -43,6 +43,12 @@
     <string name="action_log_apdu">Log APDU commands for every EMV stage</string>
     <string name="action_print_result">Print</string>
     <string name="result_printed">Sent to printer</string>
+    <string name="apdu_trace_title">APDU trace (every EMV level)</string>
+    <string name="apdu_trace_empty">APDU commands and responses appear here once the card is read.</string>
+    <string name="action_copy_apdu">Copy</string>
+    <string name="action_print_apdu">Print APDU log</string>
+    <string name="apdu_trace_copied">APDU trace copied to clipboard</string>
+    <string name="apdu_trace_nothing">No APDU trace yet</string>
 
     <string name="action_change_country">Change terminal country</string>
     <string name="country_changed">Terminal country set to %1$s (%2$s)</string>

@@ -5,6 +5,8 @@ import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.dal.IDAL;
 import com.pax.dal.IPrinter;
+import com.pax.dal.entity.EFontTypeAscii;
+import com.pax.dal.entity.EFontTypeExtCode;
 import io.reactivex.rxjava3.core.Completable;
 import java.util.List;
 
@@ -26,6 +28,12 @@ final class PaxPrinter implements PrinterBehavior {
     /** Blank feed (in dot-lines) before the tear-off edge, after the last printed line. */
     private static final int FEED_DOTS = 80;
 
+    /**
+     * Lines per print job. A full APDU trace runs to hundreds of lines — more than the printer
+     * buffer holds in one job — so long output is printed in consecutive jobs.
+     */
+    private static final int LINES_PER_JOB = 40;
+
     @Override
     public Completable print(List<String> lines) {
         return Completable.fromAction(() -> {
@@ -34,13 +42,28 @@ final class PaxPrinter implements PrinterBehavior {
                 throw new IllegalStateException("Neptune DAL not ready — cannot print");
             }
             IPrinter printer = dal.getPrinter();
-            printer.init();
-            for (String line : lines) {
-                printer.printStr(line + "\n", ENCODING);
+            for (int from = 0; from < lines.size() || from == 0; from += LINES_PER_JOB) {
+                int to = Math.min(lines.size(), from + LINES_PER_JOB);
+                printer.init();
+                // 8x16 ASCII font: 48 characters per line on the 384-dot head.
+                printer.fontSet(EFontTypeAscii.FONT_8_16, EFontTypeExtCode.FONT_16_16);
+                for (String line : lines.subList(from, to)) {
+                    printer.printStr(line + "\n", ENCODING);
+                }
+                if (to >= lines.size()) {
+                    printer.step(FEED_DOTS);
+                }
+                int ret = printer.start();
+                LogUtils.i(TAG, "print start() ret=" + ret + " (lines " + from + "-" + to
+                        + " of " + lines.size() + ")");
+                if (ret != 0) {
+                    // 2 = out of paper, 8 = overheated, etc. — stop instead of losing lines.
+                    throw new IllegalStateException("Printer error " + ret + " at line " + from);
+                }
+                if (to >= lines.size()) {
+                    break;
+                }
             }
-            printer.step(FEED_DOTS);
-            int ret = printer.start();
-            LogUtils.i(TAG, "print start() ret=" + ret + " (" + lines.size() + " lines)");
         });
     }
 }
