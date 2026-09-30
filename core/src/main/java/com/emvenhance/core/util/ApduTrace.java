@@ -80,7 +80,8 @@ public final class ApduTrace {
             currentLevel = null;
             lastCommandLevel = null;
             String now = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
-            add("===== EMV TRANSACTION " + now + " =====");
+            add("===== EMV TRANSACTION =====");
+            add(now);
         }
     }
 

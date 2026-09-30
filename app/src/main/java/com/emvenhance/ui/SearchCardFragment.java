@@ -42,8 +42,8 @@ public class SearchCardFragment extends Fragment {
     private static final String ARG_TRANSACTION_TYPE = "transactionType";
     private static final String ARG_AMOUNT_MINOR = "amountMinor";
 
-    /** Characters per printed line: 384-dot head with PaxPrinter's 8x16 font. */
-    private static final int PRINT_WIDTH = 48;
+    /** Characters per printed line: 384-dot head with PaxPrinter's 12x24 font. */
+    private static final int PRINT_WIDTH = 32;
 
     public static SearchCardFragment newInstance(TransactionType type, long amountMinor) {
         Bundle args = new Bundle();
