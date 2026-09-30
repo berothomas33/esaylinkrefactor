@@ -1,6 +1,7 @@
 package com.emvenhance.network;
 
 import android.util.Log;
+import androidx.annotation.Nullable;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -61,6 +62,29 @@ public final class HostHeaders {
         headers.put("accountId", HostAppKeys.ACCOUNT_ID);
         headers.put("lang", HostAppKeys.DEFAULT_LANG);
         logHeaders("buildAuthenticated", headers);
+        return headers;
+    }
+
+    /**
+     * Every header this terminal sends, for display (onboarding screen): {@link #build}'s
+     * values, plus {@code Authorization}/{@code accountId} once onboarding has produced an
+     * access token, plus the {@code orchestration/sale}-only {@code mToken}. Sorted by name.
+     *
+     * @param accessToken current access token, or {@code null} before onboarding
+     * @param mToken the {@code mToken} value in use ({@link HostSettings#getMToken})
+     */
+    public static Map<String, String> describeAll(String sn, @Nullable String accessToken,
+            String mToken) {
+        Map<String, String> headers = new TreeMap<>();
+        headers.put("aggregator-app-key", HostAppKeys.AGGREGATOR_APP_KEY);
+        headers.put("system-app-key", HostAppKeys.SYSTEM_APP_KEY);
+        headers.put("sn", sn);
+        headers.put("apiKey", HostAppKeys.API_KEY);
+        headers.put("lang", HostAppKeys.DEFAULT_LANG);
+        headers.put("accountId", HostAppKeys.ACCOUNT_ID);
+        headers.put("Authorization", accessToken != null
+                ? "Bearer " + accessToken : "(none yet — run onboarding)");
+        headers.put("mToken", mToken);
         return headers;
     }
 

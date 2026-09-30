@@ -70,4 +70,13 @@
     <string name="onboarding_in_progress">Running onboarding cycle…</string>
     <string name="onboarding_succeeded">Onboarding complete — terminal paired</string>
     <string name="onboarding_failed">Onboarding failed: %1$s</string>
+    <string name="mtoken_title">mToken (sale request header)</string>
+    <string name="mtoken_hint">Paste a new mToken, then Save</string>
+    <string name="mtoken_source_fixed">Using the fixed build value</string>
+    <string name="mtoken_source_saved">Using the value saved on this terminal</string>
+    <string name="mtoken_saved">mToken saved — used for the next sale</string>
+    <string name="mtoken_reset">mToken reset to the fixed build value</string>
+    <string name="headers_title">All request headers</string>
+    <string name="action_save">Save</string>
+    <string name="action_reset_default">Reset to default</string>
 </resources>

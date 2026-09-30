@@ -54,6 +54,10 @@ public final class HostAppKeys {
      * exercise a sale build; unset, it's {@code "CHANGE_ME"} and every sale will 400/401 on this
      * header until either a real value is set locally or (the actual fix) the real mint endpoint is
      * found and this is replaced with a live call.
+     *
+     * <p>This is only the default: a value saved on the onboarding screen ({@link HostSettings})
+     * takes its place, so an expired token can be replaced on the terminal without a rebuild.
+     * Read the value in use through {@link HostSettings#getMToken}, not this constant.
      */
     public static final String MTOKEN = BuildConfig.MTOKEN_TEMP;
 

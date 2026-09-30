@@ -102,18 +102,21 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     private final HostApiConnection connection;
     private final OnboardingClient onboarding;
     private final OnboardingState onboardingState;
+    private final HostSettings hostSettings;
     private final String sn;
     private final Gson gson = new Gson();
 
     public SaleCommunicationBehavior(Context context, String sn) {
-        this(HostApiClient.create(), new OnboardingClient(), new OnboardingState(context), sn);
+        this(HostApiClient.create(), new OnboardingClient(), new OnboardingState(context),
+                new HostSettings(context), sn);
     }
 
     public SaleCommunicationBehavior(HostApiConnection connection, OnboardingClient onboarding,
-            OnboardingState onboardingState, String sn) {
+            OnboardingState onboardingState, HostSettings hostSettings, String sn) {
         this.connection = connection;
         this.onboarding = onboarding;
         this.onboardingState = onboardingState;
+        this.hostSettings = hostSettings;
         this.sn = sn;
     }
 
@@ -193,9 +196,10 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 encSerializedRequest, asyncRequestId, config.getOnlinePinBlock());
 
         // orchestration/sale (unlike exchange) 400s without mToken — see HostAppKeys#MTOKEN's
-        // javadoc for what this is and why it's a local-only Gradle property, not a source literal.
+        // javadoc for what this is. The value saved on the onboarding screen wins over the fixed
+        // build value (HostSettings), so an expired token can be replaced on the device.
         Map<String, String> saleHeaders = new HashMap<>(headers);
-        saleHeaders.put("mToken", HostAppKeys.MTOKEN);
+        saleHeaders.put("mToken", hostSettings.getMToken());
 
         return connection.sale(saleHeaders, request)
                 .flatMap(response -> decryptEnvelope(response, tek, "Sale", SaleResponse.class));
