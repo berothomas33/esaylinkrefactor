@@ -43,6 +43,10 @@
     <string name="action_log_apdu">Log APDU commands for every EMV stage</string>
     <string name="action_print_result">Print</string>
     <string name="result_printed">Sent to printer</string>
+    <string name="outcome_declined">TRANSACTION DECLINED</string>
+    <string name="outcome_approved">TRANSACTION APPROVED</string>
+    <string name="action_try_again">Try again</string>
+    <string name="action_done">Done</string>
     <string name="apdu_trace_title">APDU trace (every EMV level)</string>
     <string name="apdu_trace_empty">APDU commands and responses appear here once the card is read.</string>
     <string name="action_copy_apdu">Copy</string>

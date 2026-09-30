@@ -98,9 +98,17 @@ public class SearchCardFragment extends Fragment {
                 Toast.makeText(requireContext(), R.string.manual_entry_not_implemented,
                         Toast.LENGTH_SHORT).show());
 
-        view.findViewById(R.id.btnCancelSearch).setOnClickListener(v -> {
+        View btnCancelSearch = view.findViewById(R.id.btnCancelSearch);
+        btnCancelSearch.setOnClickListener(v -> {
             viewModel.cancel();
             requireActivity().finish();
+        });
+
+        View outcomeGroup = view.findViewById(R.id.outcomeGroup);
+        view.findViewById(R.id.btnOutcomeDone).setOnClickListener(v -> requireActivity().finish());
+        view.findViewById(R.id.btnOutcomeRetry).setOnClickListener(v -> {
+            outcomeGroup.setVisibility(View.GONE);
+            viewModel.acceptCard(type, amountMinor);
         });
 
         bindKvRow(view, R.id.rowPan, getString(R.string.label_pan_result));
@@ -130,12 +138,48 @@ public class SearchCardFragment extends Fragment {
         // contactless only — mag/manual have no TVR/TAC/IAC/Field 55 to show (§ PaxEmvBehavior
         // captureTransactionSummary), so their rows just read "—".
         View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
+        // The engine replays its last step to a new subscriber, so this screen can first receive
+        // the previous transaction's ERROR/COMPLETED. Only react to an outcome once this screen's
+        // own transaction has started.
+        boolean[] started = {false};
         viewModel.getTransactionStep().observe(getViewLifecycleOwner(), event -> {
             TransactionStep step = event.getStep();
             boolean stillChoosing = step == TransactionStep.IDLE
                     || step == TransactionStep.TRANSACTION_STARTED
                     || step == TransactionStep.WAITING_FOR_CARD;
+            if (step == TransactionStep.TRANSACTION_STARTED
+                    || step == TransactionStep.WAITING_FOR_CARD) {
+                started[0] = true;
+            }
+            if (!started[0]) {
+                return;
+            }
             methodSelectionGroup.setVisibility(stillChoosing ? View.VISIBLE : View.GONE);
+
+            // Final outcome. A card-search timeout, reader failure, kernel/PIN error or host
+            // failure all end in ERROR (never followed by COMPLETED); a decline ends in DECLINED
+            // — the cardholder sees both as a declined transaction, with the reason under it.
+            switch (step) {
+                case APPROVED:
+                    showOutcome(view, true, event.get(TransactionStepEvent.KEY_RESULT));
+                    btnCancelSearch.setVisibility(View.GONE);
+                    break;
+                case DECLINED:
+                    showOutcome(view, false, event.get(TransactionStepEvent.KEY_ERROR));
+                    btnCancelSearch.setVisibility(View.GONE);
+                    break;
+                case ERROR:
+                    showOutcome(view, false, event.getMessage() != null
+                            ? event.getMessage() : event.get(TransactionStepEvent.KEY_ERROR));
+                    btnCancelSearch.setVisibility(View.GONE);
+                    break;
+                case TRANSACTION_STARTED:
+                    outcomeGroup.setVisibility(View.GONE);
+                    btnCancelSearch.setVisibility(View.VISIBLE);
+                    break;
+                default:
+                    break;
+            }
 
             // APPROVED/DECLINED is immediately followed by a separate COMPLETED event (engine's
             // notifyCompleted(), fired right after) — both land on this same observer within the
@@ -203,6 +247,22 @@ public class SearchCardFragment extends Fragment {
             viewModel.printReceipt(trace);
             Toast.makeText(requireContext(), R.string.result_printed, Toast.LENGTH_SHORT).show();
         });
+    }
+
+    private static void showOutcome(View view, boolean approved, @Nullable Object reason) {
+        View group = view.findViewById(R.id.outcomeGroup);
+        group.setBackgroundColor(approved ? 0xFF2E7D32 : 0xFFC62828);
+        ((TextView) view.findViewById(R.id.outcomeTitle)).setText(
+                approved ? R.string.outcome_approved : R.string.outcome_declined);
+        TextView reasonText = view.findViewById(R.id.outcomeReason);
+        reasonText.setText(reason != null ? reason.toString() : "");
+        reasonText.setVisibility(reason != null ? View.VISIBLE : View.GONE);
+        // Retry only makes sense after a failure; an approved sale is finished.
+        view.findViewById(R.id.btnOutcomeRetry).setVisibility(approved ? View.GONE : View.VISIBLE);
+        group.setVisibility(View.VISIBLE);
+
+        TextView banner = view.findViewById(R.id.emvStepBanner);
+        banner.setText(approved ? R.string.outcome_approved : R.string.outcome_declined);
     }
 
     private static void bindMethodRow(View parent, int rowId, String badge, String title,
