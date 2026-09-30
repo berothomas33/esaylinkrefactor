@@ -37,7 +37,11 @@ import com.pax.poslib.model.ModelInfo;
 public class PaxTerminal extends PosTerminal {
 
     private static final String TAG = "PaxTerminal";
-    private static final int SEARCH_TIMEOUT_MS = 60_000;
+    /**
+     * How long card search waits for a card before the transaction is declined. No EMV/PCI rule
+     * fixes this; 30 s is the usual attended-POS value (PAX's demo used 60 s, too long at a till).
+     */
+    private static final int SEARCH_TIMEOUT_MS = 30_000;
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
     /**
