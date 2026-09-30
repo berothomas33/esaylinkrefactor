@@ -1,5 +1,6 @@
 package com.emvenhance.vendor.pax;
 
+import android.os.SystemClock;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
@@ -8,6 +9,7 @@ import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
+import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.RetrofitCommunicationBehavior;
@@ -18,8 +20,10 @@ import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.impl.ConfigInit;
 import com.pax.dal.ICardReaderHelper;
 import com.pax.dal.IDAL;
+import com.pax.dal.entity.EPiccType;
 import com.pax.dal.entity.EReaderType;
 import com.pax.dal.entity.PollingResult;
+import com.pax.dal.exceptions.EPiccDevException;
 import com.pax.dal.exceptions.IccDevException;
 import com.pax.dal.exceptions.MagDevException;
 import com.pax.dal.exceptions.PiccDevException;
@@ -51,6 +55,9 @@ public class PaxTerminal extends PosTerminal {
      */
     private static final int ICC_SEARCH_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
+
+    /** Pause after dropping the RF field before polling again, so the card fully resets. */
+    private static final long PICC_RESET_SETTLE_MS = 100L;
 
     private final PaxKernel kernel;
 
@@ -111,7 +118,9 @@ public class PaxTerminal extends PosTerminal {
             return null;
         }
 
-        EReaderType readerType = toReaderType(config);
+        EReaderType readerType = toReaderType(config.allowsMagstripe(),
+                config.allowsChip() && kernel.contactReady,
+                config.allowsContactless() && kernel.contactlessReady);
         if (readerType == EReaderType.DEFAULT) {
             listener.onReaderError("No searchable entry mode enabled");
             return null;
@@ -128,7 +137,8 @@ public class PaxTerminal extends PosTerminal {
             PaxHardwarePermissions.logGrantState();
             listener.onSearchStarted(config);
 
-            PollingResult result = pollWithIccRetry(cardReaderHelper, dal, readerType);
+            PollingResult result = pollUntilCardOrTimeout(cardReaderHelper, dal, readerType,
+                    listener);
             return handlePollingResult(result, listener);
         } catch (MagDevException e) {
             LogUtils.e(TAG, "MAG error during search", e);
@@ -152,39 +162,105 @@ public class PaxTerminal extends PosTerminal {
     }
 
     /**
-     * Retries {@code polling()} up to {@link #ICC_SEARCH_MAX_ATTEMPTS} times, power-cycling the
-     * ICC slot between attempts, when it throws {@link IccDevException}. Native
-     * {@code IccException: 51} (no ATR) surfacing here means the chip didn't answer this time —
-     * momentarily mis-seated, or a mag-only card in the hybrid slot — not that the reader is
-     * broken; PAX's own reference pattern keeps searching through this instead of aborting.
-     * Mag/Picc failures are not retried here — only ICC has this known transient-failure shape.
+     * Polls until a card is read, the search is cancelled, or {@link #SEARCH_TIMEOUT_MS} runs out
+     * (returns {@code null} then, reported as a timeout). A failed read the cardholder can fix
+     * doesn't end the transaction — the search carries on with whatever time is left, and the
+     * screen says what to do:
+     * <ul>
+     *   <li>Contactless ({@link PiccDevException}): a tap too short or too far, two cards in the
+     *       field, or an RF protocol/IO error — very common on a real tap. The RF field is reset
+     *       before the next attempt. Other PICC errors (not open, no permission...) still fail.
+     *   <li>Chip ({@link IccDevException}): native {@code IccException: 51} (no ATR) means the chip
+     *       didn't answer this time — mis-seated, or a mag-only card in the slot. Up to
+     *       {@link #ICC_SEARCH_MAX_ATTEMPTS} attempts, power-cycling the slot in between.
+     * </ul>
      */
     @Nullable
-    private PollingResult pollWithIccRetry(ICardReaderHelper cardReaderHelper, IDAL dal,
-            EReaderType readerType) throws MagDevException, IccDevException, PiccDevException {
-        for (int attempt = 1; ; attempt++) {
+    private PollingResult pollUntilCardOrTimeout(ICardReaderHelper cardReaderHelper, IDAL dal,
+            EReaderType readerType, CardSearchListener listener)
+            throws MagDevException, IccDevException, PiccDevException {
+        long deadline = SystemClock.elapsedRealtime() + SEARCH_TIMEOUT_MS;
+        int iccAttempts = 0;
+        while (true) {
+            long remaining = deadline - SystemClock.elapsedRealtime();
+            if (remaining <= 0 || isSearchCancelled()) {
+                return null;
+            }
             try {
-                return cardReaderHelper.polling(readerType, SEARCH_TIMEOUT_MS);
+                return cardReaderHelper.polling(readerType, (int) remaining);
+            } catch (PiccDevException e) {
+                if (isSearchCancelled() || !isRetryablePiccError(e.getErrCode())) {
+                    throw e;
+                }
+                LogUtils.w(TAG, "PICC read failed during search, code=" + e.getErrCode() + " "
+                        + e.getErrMsg() + " — resetting RF field and searching again");
+                ApduTrace.note("PICC", "search read failed: " + e.getErrCode() + " "
+                        + e.getErrMsg() + " — searching again");
+                listener.onSearchRetry(piccRetryMessage(e.getErrCode()));
+                resetPicc(dal);
             } catch (IccDevException e) {
-                if (attempt >= ICC_SEARCH_MAX_ATTEMPTS || isSearchCancelled()) {
+                iccAttempts++;
+                if (iccAttempts >= ICC_SEARCH_MAX_ATTEMPTS || isSearchCancelled()) {
                     throw e;
                 }
                 LogUtils.w(TAG, "ICC error during search, code=" + e.getErrCode() + " (attempt "
-                        + attempt + "/" + ICC_SEARCH_MAX_ATTEMPTS
+                        + iccAttempts + "/" + ICC_SEARCH_MAX_ATTEMPTS
                         + ") — power-cycling ICC and retrying");
+                ApduTrace.note("ICC", "search read failed: " + e.getErrCode() + " "
+                        + e.getErrMsg() + " — power-cycling and searching again");
+                listener.onSearchRetry("Chip not read — remove the card and insert it again");
                 try {
                     dal.getIcc().close((byte) 0);
                 } catch (Exception ignored) {
                     // Expected if the slot is already in a bad state — closing here is only to
                     // force a fresh power-on for the next attempt, not to succeed cleanly.
                 }
-                try {
-                    Thread.sleep(ICC_POWER_SETTLE_MS);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
+                if (!sleepQuietly(ICC_POWER_SETTLE_MS)) {
                     throw e;
                 }
             }
+        }
+    }
+
+    /** Contactless read failures a second tap can fix — {@code EPiccDevException} basement codes. */
+    private static boolean isRetryablePiccError(int code) {
+        return code == EPiccDevException.PICC_ERR_NOT_SEARCH_CARD.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_CARD_TOO_MANY.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_PROTOCOL1.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_NO_ACTIVATION.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_MUTI_CARD.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_TIMEOUT.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_PROTOCOL2.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_IO.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_CARD_SENSE.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_CARD_STATUS.getErrCodeFromBasement();
+    }
+
+    private static String piccRetryMessage(int code) {
+        if (code == EPiccDevException.PICC_ERR_MUTI_CARD.getErrCodeFromBasement()
+                || code == EPiccDevException.PICC_ERR_CARD_TOO_MANY.getErrCodeFromBasement()) {
+            return "More than one card — tap only one card";
+        }
+        return "Card not read — tap again and hold the card still";
+    }
+
+    /** Drops the RF field so the next poll starts a fresh contactless activation. */
+    private static void resetPicc(IDAL dal) {
+        try {
+            dal.getPicc(EPiccType.INTERNAL).close();
+        } catch (Exception ignored) {
+            // Already closed, or in a bad state — the next polling() reopens it either way.
+        }
+        sleepQuietly(PICC_RESET_SETTLE_MS);
+    }
+
+    private static boolean sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+            return true;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -210,7 +286,11 @@ public class PaxTerminal extends PosTerminal {
     @Nullable
     private CardPresence handlePollingResult(PollingResult result, CardSearchListener listener) {
         if (result == null) {
-            listener.onSearchTimeout();
+            if (isSearchCancelled()) {
+                listener.onSearchCancelled();
+            } else {
+                listener.onSearchTimeout();
+            }
             return null;
         }
 
@@ -274,11 +354,7 @@ public class PaxTerminal extends PosTerminal {
         }
     }
 
-    private static EReaderType toReaderType(TransactionConfig config) {
-        boolean mag = config.allowsMagstripe();
-        boolean icc = config.allowsChip();
-        boolean picc = config.allowsContactless();
-
+    private static EReaderType toReaderType(boolean mag, boolean icc, boolean picc) {
         if (mag && icc && picc) {
             return EReaderType.MAG_ICC_PICC;
         }

@@ -18,6 +18,7 @@ import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Thin event bus for one in-flight transaction. No vendor logic.
@@ -98,6 +99,8 @@ public final class EmvEngine {
             notifyError("A transaction is already running");
             return false;
         }
+        retryCount.set(0);
+        retryPrompt = null;
         return true;
     }
 
@@ -127,11 +130,19 @@ public final class EmvEngine {
         transactionSteps.onNext(event);
     }
 
-    /** Starts a fresh APDU trace per transaction and flags each transaction step in it. */
-    private static void traceTransactionStep(TransactionStepEvent event) {
+    /**
+     * Starts a fresh APDU trace per transaction and flags each transaction step in it. A retry
+     * within the same transaction (tap again, fallback) keeps the trace, so the failed attempt
+     * stays visible above the new one.
+     */
+    private void traceTransactionStep(TransactionStepEvent event) {
         TransactionStep step = event.getStep();
         if (step == TransactionStep.TRANSACTION_STARTED) {
-            ApduTrace.beginTransaction();
+            if (retryCount.get() == 0) {
+                ApduTrace.beginTransaction();
+            } else {
+                ApduTrace.transactionEvent("RETRY #" + retryCount.get());
+            }
         }
         StringBuilder sb = new StringBuilder(step.getLabel().toUpperCase(Locale.US));
         Object mode = event.get(TransactionStepEvent.KEY_MODE);
@@ -230,6 +241,9 @@ public final class EmvEngine {
 
     @Nullable
     private volatile TransactionConfig pendingRetryConfig;
+    @Nullable
+    private volatile String retryPrompt;
+    private final AtomicInteger retryCount = new AtomicInteger();
 
     /**
      * Requests that the current transaction restart with an adjusted config — e.g. a PAX
@@ -241,7 +255,16 @@ public final class EmvEngine {
      * the call stack that requested it unwinds.
      */
     public void requestRetry(TransactionConfig adjustedConfig) {
+        requestRetry(adjustedConfig, null);
+    }
+
+    /**
+     * As {@link #requestRetry(TransactionConfig)}, with the prompt the card search should show
+     * instead of its usual "insert, tap, or swipe" — e.g. "Card not read — tap again".
+     */
+    public void requestRetry(TransactionConfig adjustedConfig, @Nullable String prompt) {
         pendingRetryConfig = adjustedConfig;
+        retryPrompt = prompt;
     }
 
     /** Called once per attempt by {@code PosTerminal}'s transaction loop. */
@@ -249,6 +272,22 @@ public final class EmvEngine {
     public TransactionConfig consumePendingRetry() {
         TransactionConfig config = pendingRetryConfig;
         pendingRetryConfig = null;
+        if (config != null) {
+            retryCount.incrementAndGet();
+        }
         return config;
+    }
+
+    /** Retries taken so far in the current transaction (0 on the first attempt). */
+    public int getRetryCount() {
+        return retryCount.get();
+    }
+
+    /** The prompt passed with the last retry, once — {@code null} if none. */
+    @Nullable
+    public String consumeRetryPrompt() {
+        String prompt = retryPrompt;
+        retryPrompt = null;
+        return prompt;
     }
 }

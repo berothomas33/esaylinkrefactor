@@ -37,6 +37,14 @@ public interface CardSearchListener {
     /** Hardware / reader failure. */
     void onReaderError(String message);
 
+    /**
+     * A read attempt failed in a way the cardholder can fix (a partial tap, two cards on the
+     * reader, a badly seated chip) and the search carries on — {@code message} says what to do.
+     */
+    default void onSearchRetry(String message) {
+        // default: nothing to show
+    }
+
     /** Optional no-op defaults for adapters that only care about a subset. */
 
 }

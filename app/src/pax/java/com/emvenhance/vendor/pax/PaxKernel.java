@@ -30,4 +30,14 @@ public final class PaxKernel {
     public ContactProcess contact = new ContactProcess();
     public final ClssProcess contactless = ClssProcess.getInstance();
     public final MagCardService mag = new MagCardService();
+
+    /**
+     * Whether this transaction's contact / contactless kernel pre-processing succeeded — set by
+     * {@link PaxEmvBehavior} before every card search, read by {@link PaxTerminal} so it only
+     * listens on readers whose kernel is ready. A tap accepted after contactless pre-processing
+     * failed (no contactless AIDs, amount over every contactless limit) could only fail later
+     * in application selection.
+     */
+    public volatile boolean contactReady = true;
+    public volatile boolean contactlessReady = true;
 }

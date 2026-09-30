@@ -13,6 +13,7 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
+import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
@@ -105,6 +106,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** See {@link #startContactlessTransProcess} javadoc for why this is a constant. */
     private static final int CONTACTLESS_FLOW_TYPE = EmvTransParam.FLOWTYPE_COMPLETE;
+
+    /** Tap-again retries after a contactless communication error before the sale is declined. */
+    private static final int MAX_TAP_RETRIES = 3;
 
     /**
      * Retry budget for {@link #selectApplicationWithRetry} — restores tuning a previous session
@@ -425,6 +429,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             clsTransResult = process.selectApplication();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
+            markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
                 process.unregisterClssProcessListener();
@@ -460,6 +465,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             clsTransResult = process.readApplicationData();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
+            markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
                 process.unregisterClssProcessListener();
@@ -647,6 +653,32 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         return clsTransResult.getResultCode();
+    }
+
+    /**
+     * A card-communication error before any outcome — typically the card left the RF field
+     * mid-exchange (a tap too short) — is recorded as "try again" rather than the offline decline
+     * {@code ClssProcess} reports for it, as EMV contactless (Book A) requires: the cardholder is
+     * asked to tap again. Only for application selection and read-application-data, which run
+     * before any GENERATE AC, and only {@link #MAX_TAP_RETRIES} times per transaction so a card
+     * that always fails still ends in a decline.
+     */
+    private void markTryAgainOnCommunicationError(int ret) {
+        boolean communicationError = ret == RetCode.ICC_CMD_ERR || ret == RetCode.ICC_RESET_ERR
+                || ret == RetCode.CLSS_TRY_AGAIN;
+        if (!communicationError) {
+            return;
+        }
+        int retries = requireEngine().getRetryCount();
+        if (retries >= MAX_TAP_RETRIES) {
+            LogUtils.w(TAG, "Contactless communication error ret=" + ret + " after " + retries
+                    + " retries — declining");
+            return;
+        }
+        LogUtils.w(TAG, "Contactless communication error ret=" + ret + " — asking to tap again");
+        ApduTrace.note("PICC", "card communication error " + ret + " — tap again");
+        clsTransResult = new TransResult(ret, TransResultEnum.RESULT_TRY_AGAIN,
+                CvmResultEnum.CVM_NO_CVM);
     }
 
     /** True once a stage has recorded a terminal outcome — no further stage should run. */
@@ -1179,6 +1211,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // this reset used to live inside EmvContactService#preTransProcess.
             kernel.contact = new ContactProcess();
             byte adjusted = runPreTransProcess(config, requested);
+            kernel.contactReady = SearchMode.isSupportIcc(adjusted);
+            kernel.contactlessReady = SearchMode.isWave(adjusted);
+            if (config.allowsContactless() && !kernel.contactlessReady) {
+                ApduTrace.note("PICC", "contactless disabled for this transaction: "
+                        + "contactless pre-processing failed");
+            }
             if (adjusted == 0) {
                 LogUtils.e(TAG, "preTransProcess disabled every search mode");
                 return false;
@@ -1234,7 +1272,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     .setEmvAidList(cachedEmvParam.getEmvAidList());
             int contactRet = kernel.contact.preTransProcess(processParamBuilder.create());
             if (contactRet != RetCode.EMV_OK) {
-                LogUtils.e(TAG, "contact pre process failed");
+                LogUtils.e(TAG, "contact pre process failed, ret=" + contactRet);
                 searchCardMode = (byte) (searchCardMode & (~SearchMode.INSERT));
             }
         }
@@ -1255,7 +1293,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     .setRuPayParam(cachedEmvParam.getRuPayParam());
             int contactlessRet = kernel.contactless.preTransProcess(processParamBuilder.create());
             if (contactlessRet != RetCode.EMV_OK) {
-                LogUtils.e(TAG, "contactless pre process failed");
+                LogUtils.e(TAG, "contactless pre process failed, ret=" + contactlessRet
+                        + " — contactless won't be offered for this transaction");
                 searchCardMode = (byte) (searchCardMode & (~SearchMode.WAVE));
             }
         }
@@ -1771,7 +1810,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACTLESS — only checkContactlessResult() calls this]
     public void tryAnotherInterface() {
         retryWithMode(EntryMethod.CHIP,
-                "Try Another Interface: retrying with contact");
+                "Try Another Interface: retrying with contact", "Insert the card");
     }
 
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
@@ -1779,26 +1818,28 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void tryAgain() {
         EntryMethod mode = activeConfig != null ? activeConfig.getMode()
                 : EntryMethod.ANY;
-        retryWithMode(mode, "Try Again: re-presenting card");
+        retryWithMode(mode, "Try Again: re-presenting card",
+                "Card not read — tap again and hold the card still");
     }
 
     /** Chip read failed in a way EMV fallback rules require — retry magstripe. */
     // [CONTACT — only checkContactResult() calls this]
     public void fallback() {
-        retryWithMode(EntryMethod.MAGSTRIPE, "Fallback: retrying with magstripe");
+        retryWithMode(EntryMethod.MAGSTRIPE, "Fallback: retrying with magstripe",
+                "Chip not readable — swipe the card");
     }
 
     /**
      * Requests a same-transaction retry through {@link EmvEngine#requestRetry} — never a new
      * {@code startTransaction()} call, so it can't race the attempt that's still unwinding.
      */
-    private void retryWithMode(EntryMethod mode, String reason) {
+    private void retryWithMode(EntryMethod mode, String reason, String prompt) {
         if (isCancelled() || activeConfig == null) {
             finishError(reason + " — cancelled");
             return;
         }
         LogUtils.i(TAG, reason);
-        requireEngine().requestRetry(activeConfig.withMode(mode));
+        requireEngine().requestRetry(activeConfig.withMode(mode), prompt);
     }
 
     // [SHARED — both checkContactResult() and checkContactlessResult() call this]

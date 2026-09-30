@@ -215,7 +215,8 @@ public abstract class PosTerminal {
 
         @Override
         public void onSearchStarted(TransactionConfig config) {
-            String msg = waitingMessage(config);
+            String prompt = engine.consumeRetryPrompt();
+            String msg = prompt != null ? prompt : waitingMessage(config);
             engine.notifyTransactionStep(TransactionStepEvent.of(
                     TransactionStep.WAITING_FOR_CARD, msg));
             engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg);
@@ -262,6 +263,13 @@ public abstract class PosTerminal {
         @Override
         public void onReaderError(String message) {
             engine.notifyError(message != null ? message : "Reader error");
+        }
+
+        @Override
+        public void onSearchRetry(String message) {
+            engine.notifyTransactionStep(TransactionStepEvent.of(
+                    TransactionStep.WAITING_FOR_CARD, message));
+            engine.notifyEmvStep(EmvStep.SEARCH_CARD, message);
         }
 
         /** Runs EMV right here, then re-triggers search if the behavior asked for a retry. */
