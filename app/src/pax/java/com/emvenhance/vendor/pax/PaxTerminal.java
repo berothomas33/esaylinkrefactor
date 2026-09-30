@@ -9,8 +9,6 @@ import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
-import com.emvenhance.core.util.ApduTrace;
-import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.RetrofitCommunicationBehavior;
 import com.emvenhance.network.SaleCommunicationBehavior;
@@ -194,7 +192,7 @@ public class PaxTerminal extends PosTerminal {
                 }
                 LogUtils.w(TAG, "PICC read failed during search, code=" + e.getErrCode() + " "
                         + e.getErrMsg() + " — resetting RF field and searching again");
-                ApduTrace.note("PICC", "search read failed: " + e.getErrCode() + " "
+                apduTrace().note("PICC", "search read failed: " + e.getErrCode() + " "
                         + e.getErrMsg() + " — searching again");
                 listener.onSearchRetry(piccRetryMessage(e.getErrCode()));
                 resetPicc(dal);
@@ -206,7 +204,7 @@ public class PaxTerminal extends PosTerminal {
                 LogUtils.w(TAG, "ICC error during search, code=" + e.getErrCode() + " (attempt "
                         + iccAttempts + "/" + ICC_SEARCH_MAX_ATTEMPTS
                         + ") — power-cycling ICC and retrying");
-                ApduTrace.note("ICC", "search read failed: " + e.getErrCode() + " "
+                apduTrace().note("ICC", "search read failed: " + e.getErrCode() + " "
                         + e.getErrMsg() + " — power-cycling and searching again");
                 listener.onSearchRetry("Chip not read — remove the card and insert it again");
                 try {
@@ -262,17 +260,6 @@ public class PaxTerminal extends PosTerminal {
             Thread.currentThread().interrupt();
             return false;
         }
-    }
-
-    /** Real implementation — see {@link EmvDeviceImpl#setApduLoggingEnabled}. */
-    @Override
-    public void setApduLoggingEnabled(boolean enabled) {
-        EmvDeviceImpl.setApduLoggingEnabled(enabled);
-    }
-
-    @Override
-    public boolean isApduLoggingEnabled() {
-        return EmvDeviceImpl.isApduLoggingEnabled();
     }
 
     @Override

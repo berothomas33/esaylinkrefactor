@@ -13,7 +13,6 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
-import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
@@ -200,6 +199,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
+        // The kernel calls EmvDeviceImpl directly, so hand it this transaction's APDU trace.
+        EmvDeviceImpl.getInstance().setApduTrace(engine.apduTrace());
         if (!prepareKernel(config)) {
             initOk = false;
             finishError("Terminal initialization failed");
@@ -676,7 +677,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         LogUtils.w(TAG, "Contactless communication error ret=" + ret + " — asking to tap again");
-        ApduTrace.note("PICC", "card communication error " + ret + " — tap again");
+        requireEngine().apduTrace().note("PICC",
+                "card communication error " + ret + " — tap again");
         clsTransResult = new TransResult(ret, TransResultEnum.RESULT_TRY_AGAIN,
                 CvmResultEnum.CVM_NO_CVM);
     }
@@ -1214,8 +1216,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             kernel.contactReady = SearchMode.isSupportIcc(adjusted);
             kernel.contactlessReady = SearchMode.isWave(adjusted);
             if (config.allowsContactless() && !kernel.contactlessReady) {
-                ApduTrace.note("PICC", "contactless disabled for this transaction: "
-                        + "contactless pre-processing failed");
+                requireEngine().apduTrace().note("PICC",
+                        "contactless disabled for this transaction: pre-processing failed");
             }
             if (adjusted == 0) {
                 LogUtils.e(TAG, "preTransProcess disabled every search mode");
