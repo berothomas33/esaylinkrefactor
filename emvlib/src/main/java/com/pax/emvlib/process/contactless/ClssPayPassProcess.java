@@ -367,7 +367,7 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
         setTlv(TagsTable.MERCHANT_NAME_LOCATION, clssParam.getMerchantNameLocation());//Merchant Name and Location
         setTlv(TagsTable.COUNTRY_CODE, clssParam.getCountryCode());//Terminal Country Code
         setTlv(0x9F3C, clssParam.getReferCurrCode());//Transaction Reference Currency Code
-        setTlv(0x9F3D, clssParam.getReferCurrCode());//Transaction Reference Currency Exponent
+        setTlv(0x9F3D, clssParam.getTransCurrExpBytes());//Transaction Reference Currency Exponent (1 byte, not the code)
     }
 
     private void setTransParam(){
@@ -377,6 +377,9 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
         setTlv(TagsTable.TRANS_TYPE, clssParam.getTransTypeBytes());
         setTlv(TagsTable.TRANS_DATE, clssParam.getTransDate());
         setTlv(TagsTable.TRANS_TIME, clssParam.getTransTime());
+        // Never set before: the card got 5F2A = 0000 in CDOL1 (as RuPay/EFT/Pure already do).
+        setTlv(TagsTable.CURRENCY_CODE, clssParam.getTransCurrCode());//Transaction Currency Code
+        setTlv(TagsTable.TRANS_CURRENCY_EXPONENT, clssParam.getTransCurrExpBytes());//Transaction Currency Exponent
     }
 
     private void setPayPassParam(){

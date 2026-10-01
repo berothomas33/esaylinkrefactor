@@ -35,6 +35,10 @@ android {
     lint {
         abortOnError false
     }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -43,4 +47,6 @@ dependencies {
     api project(':commonutils')
     api project(':emvbase')
     api project(':poslib')
+
+    testImplementation "junit:junit:$rootProject.junit"
 }

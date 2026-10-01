@@ -94,6 +94,7 @@ import com.pax.emvbase.param.common.Capk;
 import com.pax.emvbase.param.common.CapkParam;
 import com.pax.emvbase.param.common.CapkRevoke;
 import com.pax.emvbase.param.common.Config;
+import com.pax.configservice.xml.PayPassXmlDefaults;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
@@ -715,7 +716,9 @@ public class EmvParamService {
                 payPassAid.setDataExchangeSupportFlag(item.getDataExchangeSupportFlag());
                 payPassAid.setTlvParam(item.getTlvParamBytes());
                 payPassAid.setDefaultUDOL(item.getDefaultUDOLBytes());
-                payPassAid.setRefundVoidFloorLimit(item.getRefundVoidTacDenialBytes());
+                // Was getRefundVoidTacDenialBytes() — the refund/void floor limit got the TAC bytes.
+                payPassAid.setRefundVoidFloorLimit(ConvertUtils.strToBcdPaddingLeft(
+                        ConvertUtils.getPaddedNumber(item.getRefundVoidFloorLimit(), 12)));
                 payPassAid.setRefundVoidTacDenial(item.getRefundVoidTacDenialBytes());
                 payPassAid.setMaxTornNum(item.getMaxTornNumBytes());
                 payPassAid.setMaxTornLifetime(item.getMaxTornLifetimeBytes());
@@ -871,6 +874,14 @@ public class EmvParamService {
         cachedBuilder.setAmexParam(aemxConvert(amexParam));
 
         List<PayPassAidBean> payPassAidBeans = PaypassAidDbHelper.getInstance().loadAll();
+        // Parameters stored from a host XML before PayPassXmlDefaults existed lack the kernel
+        // settings (Kernel Configuration, Terminal Type, CVM capabilities...) — fill them and
+        // write them back, so the GreenDAO rows hold exactly what the kernel is given.
+        List<PayPassAidBean> filled =
+                PayPassXmlDefaults.fill(payPassAidBeans, PayPassXmlDefaults.loadBundled());
+        if (!filled.isEmpty() && !PaypassAidDbHelper.getInstance().update(filled)) {
+            LogUtils.e(TAG, "Failed to store filled PayPass kernel settings");
+        }
         PayPassParamBean payPassParamBean = new PayPassParamBean();
         payPassParamBean.setAid(payPassAidBeans);
         cachedBuilder.setPassParam(paypassConvert(payPassParamBean));
