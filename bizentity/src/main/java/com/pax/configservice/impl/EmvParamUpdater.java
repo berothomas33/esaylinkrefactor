@@ -1,5 +1,6 @@
 package com.pax.configservice.impl;
 
+import androidx.annotation.Nullable;
 import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.AmexDrlDbHelper;
 import com.pax.bizentity.db.helper.CapkRevokeDbHelper;
@@ -8,9 +9,11 @@ import com.pax.bizentity.db.helper.PaypassAidDbHelper;
 import com.pax.bizentity.db.helper.PaywaveAidDbHelper;
 import com.pax.bizentity.db.helper.PaywaveDrlDbHelper;
 import com.pax.bizentity.db.helper.PaywaveFloorLimitDbHelper;
+import com.pax.bizentity.entity.EmvAid;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.xml.ClssXmlParamParser;
 import com.pax.configservice.xml.EmvXmlParamParser;
+import com.pax.configservice.xml.TerminalWideValues;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -69,20 +72,29 @@ public final class EmvParamUpdater {
             return result;
         }
 
+        List<EmvAid> contactAids = null;
         if (emvXml != null) {
-            applyEmvXml(emvXml, result);
+            contactAids = applyEmvXml(emvXml, result);
         } else {
             LogUtils.w(TAG, "EMV param package had no *.emv entry — contact AID/CAPK unchanged");
         }
         if (clssXml != null) {
-            applyClssXml(clssXml, result);
+            // Terminal-wide values (Terminal Type, Additional Terminal Capabilities, Security
+            // Capability) for contactless AIDs whose scheme block lacks them: from this
+            // package's contact XML, else from the contact AIDs already stored.
+            if (contactAids == null) {
+                contactAids = GreendaoHelper.getEmvAidHelper().loadAll();
+            }
+            applyClssXml(clssXml, new TerminalWideValues(contactAids), result);
         } else {
             LogUtils.w(TAG, "EMV param package had no *.clss entry — CLSS params unchanged");
         }
         return result;
     }
 
-    private static void applyEmvXml(byte[] xml, EmvParamUpdateResult result) {
+    /** @return the parsed contact AIDs (with their ICS values), or {@code null} if parsing failed */
+    @Nullable
+    private static List<EmvAid> applyEmvXml(byte[] xml, EmvParamUpdateResult result) {
         try {
             EmvXmlParamParser.Result parsed = EmvXmlParamParser.parse(new ByteArrayInputStream(xml));
             EmvParamService service = new EmvParamService();
@@ -106,15 +118,19 @@ public final class EmvParamUpdater {
                     result.failed("CAPK insert failed");
                 }
             }
+            return parsed.aids;
         } catch (Exception e) {
             LogUtils.e(TAG, "Failed to parse/apply emv_param.emv", e);
             result.failed("emv_param.emv: " + e.getMessage());
+            return null;
         }
     }
 
-    private static void applyClssXml(byte[] xml, EmvParamUpdateResult result) {
+    private static void applyClssXml(byte[] xml, TerminalWideValues terminalWide,
+            EmvParamUpdateResult result) {
         try {
-            ClssXmlParamParser.Result parsed = ClssXmlParamParser.parse(new ByteArrayInputStream(xml));
+            ClssXmlParamParser.Result parsed =
+                    ClssXmlParamParser.parse(new ByteArrayInputStream(xml), terminalWide);
             EmvParamService service = new EmvParamService();
 
             if (parsed.payPass != null && notEmpty(parsed.payPass.getAid())) {

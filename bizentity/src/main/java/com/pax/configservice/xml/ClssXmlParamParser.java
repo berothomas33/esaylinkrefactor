@@ -71,16 +71,72 @@ public final class ClssXmlParamParser {
 
     public static Result parse(InputStream in)
             throws ParserConfigurationException, IOException, SAXException {
+        return parse(in, null);
+    }
+
+    /**
+     * @param terminalWide terminal-wide values from the contact parameters (Terminal Type,
+     *     Additional Terminal Capabilities, Security Capability) — used for any contactless AID
+     *     whose scheme block doesn't set them (PayWave has no such block at all). A scheme's own
+     *     value always wins.
+     */
+    public static Result parse(InputStream in, @Nullable TerminalWideValues terminalWide)
+            throws ParserConfigurationException, IOException, SAXException {
         Element root = XmlDomUtils.parseDocument(in).getDocumentElement();
 
         Element payPassEl = XmlDomUtils.firstChild(root, "PAYPASSPARAM");
         Element payWaveEl = XmlDomUtils.firstChild(root, "PAYWAVEPARAM");
         Element expressPayEl = XmlDomUtils.firstChild(root, "EXPRESSPAYPARAM");
 
-        return new Result(
+        Result result = new Result(
                 payPassEl == null ? null : parsePayPass(payPassEl),
                 payWaveEl == null ? null : parsePayWave(payWaveEl),
                 expressPayEl == null ? null : parseAmex(expressPayEl));
+        if (terminalWide != null) {
+            applyTerminalWide(result, terminalWide);
+        }
+        return result;
+    }
+
+    /** Fills terminal-wide values the scheme blocks left unset — see {@link TerminalWideValues}. */
+    static void applyTerminalWide(Result result, TerminalWideValues tw) {
+        if (result.payPass != null && result.payPass.getAid() != null) {
+            for (PayPassAidBean aid : result.payPass.getAid()) {
+                if (blank(aid.getTerminalType())) {
+                    aid.setTerminalType(tw.terminalType(aid.getAid()));
+                }
+                if (blank(aid.getTerminalAdditionalCapability())) {
+                    aid.setTerminalAdditionalCapability(tw.additionalCapability(aid.getAid()));
+                }
+                if (blank(aid.getSecurityCapability())) {
+                    aid.setSecurityCapability(tw.securityCapability(aid.getAid()));
+                }
+            }
+        }
+        if (result.payWave != null && result.payWave.getAid() != null) {
+            for (PaywaveAidBean aid : result.payWave.getAid()) {
+                if (blank(aid.getTerminalType())) {
+                    aid.setTerminalType(tw.terminalType(aid.getAid()));
+                }
+                if (blank(aid.getSecurityCapability())) {
+                    aid.setSecurityCapability(tw.securityCapability(aid.getAid()));
+                }
+            }
+        }
+        if (result.amex != null && result.amex.getAid() != null) {
+            for (AmexAidBean aid : result.amex.getAid()) {
+                if (blank(aid.getTerminalType())) {
+                    aid.setTerminalType(tw.terminalType(aid.getAid()));
+                }
+                if (blank(aid.getTerminalAdditionalCapability())) {
+                    aid.setTerminalAdditionalCapability(tw.additionalCapability(aid.getAid()));
+                }
+            }
+        }
+    }
+
+    private static boolean blank(@Nullable String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     // ─── PayPass (Mastercard) ─────────────────────────────────────────────

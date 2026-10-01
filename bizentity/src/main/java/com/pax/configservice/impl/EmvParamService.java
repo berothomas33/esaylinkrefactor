@@ -622,7 +622,11 @@ public class EmvParamService {
                 payWaveAid.setCrypto17Flag(item.getCrypto17Flag());
                 payWaveAid.setStatusCheckFlag(item.getStatusCheckFlag());
                 payWaveAid.setZeroAmountNoAllowed(item.getAmountZeroNoAllowed());
-                payWaveAid.setSecurityCapability(item.getAmountZeroNoAllowed());
+                // Was item.getAmountZeroNoAllowed(): the Visa kernel's security capability
+                // (Terminal Capabilities byte 3) got the zero-amount flag instead.
+                byte[] securityCapability = item.getSecurityCapabilityBytes();
+                payWaveAid.setSecurityCapability(securityCapability != null
+                        && securityCapability.length > 0 ? securityCapability[0] : 0);
                 payWaveAid.setDomesticOnly(item.getDomesticOnly());
                 payWaveAid.setEnDDAVerNo(item.getEnDDAVerNo());
                 payWaveAid.setPayWaveInterFloorLimitList(convertPaywaveFloorLimit(item.getInterWareFloorLimit()));
