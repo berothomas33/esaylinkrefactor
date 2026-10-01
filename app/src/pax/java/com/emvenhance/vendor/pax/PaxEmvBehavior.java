@@ -504,6 +504,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             clsTransResult = process.offlineDataAuthentication();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "offlineDataAuthentication ret=" + ret);
+            markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
                 process.unregisterClssProcessListener();
@@ -546,6 +547,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             clsTransResult = process.processRestrictions();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "processRestrictions ret=" + ret);
+            markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
                 process.unregisterClssProcessListener();
@@ -612,6 +614,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         int resultCode = clsTransResult.getResultCode();
         TransResultEnum transResultEnum = clsTransResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
+            // PayPass/PayWave (and the other bundled kernels) read the card inside this call: a
+            // card pulled away mid-exchange lands here as ICC_CMD_ERR. Nothing has gone online
+            // yet, so it's a tap-again, not a decline.
+            markTryAgainOnCommunicationError(resultCode);
             return resultCode;
         }
         int ret = confirmCard();
@@ -664,9 +670,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * A card-communication error before any outcome — typically the card left the RF field
      * mid-exchange (a tap too short) — is recorded as "try again" rather than the offline decline
      * {@code ClssProcess} reports for it, as EMV contactless (Book A) requires: the cardholder is
-     * asked to tap again. Only for application selection and read-application-data, which run
-     * before any GENERATE AC, and only {@link #MAX_TAP_RETRIES} times per transaction so a card
-     * that always fails still ends in a decline.
+     * asked to tap again: every contactless stage up to and including the kernel's own
+     * transaction call ({@code startTransProcess} — where PayPass/PayWave read the card), all
+     * before anything is sent to the host. At most {@link #MAX_TAP_RETRIES} times per
+     * transaction, so a card that always fails still ends in a decline.
      */
     private void markTryAgainOnCommunicationError(int ret) {
         boolean communicationError = ret == RetCode.ICC_CMD_ERR || ret == RetCode.ICC_RESET_ERR

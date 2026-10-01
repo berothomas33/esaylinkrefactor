@@ -226,8 +226,12 @@ public abstract class PosTerminal {
         public void onSearchStarted(TransactionConfig config) {
             String prompt = engine.consumeRetryPrompt();
             String msg = prompt != null ? prompt : waitingMessage(config);
-            engine.notifyTransactionStep(TransactionStepEvent.of(
-                    TransactionStep.WAITING_FOR_CARD, msg));
+            TransactionStepEvent.Builder waiting = TransactionStepEvent
+                    .builder(TransactionStep.WAITING_FOR_CARD).message(msg);
+            if (prompt != null) {
+                waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt);
+            }
+            engine.notifyTransactionStep(waiting.build());
             engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg);
         }
 
@@ -276,8 +280,9 @@ public abstract class PosTerminal {
 
         @Override
         public void onSearchRetry(String message) {
-            engine.notifyTransactionStep(TransactionStepEvent.of(
-                    TransactionStep.WAITING_FOR_CARD, message));
+            engine.notifyTransactionStep(TransactionStepEvent.builder(
+                    TransactionStep.WAITING_FOR_CARD).message(message)
+                    .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build());
             engine.notifyEmvStep(EmvStep.SEARCH_CARD, message);
         }
 

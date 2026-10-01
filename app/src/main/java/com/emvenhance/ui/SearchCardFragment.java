@@ -8,6 +8,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -138,6 +139,7 @@ public class SearchCardFragment extends Fragment {
         // contactless only — mag/manual have no TVR/TAC/IAC/Field 55 to show (§ PaxEmvBehavior
         // captureTransactionSummary), so their rows just read "—".
         View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
+        TextView retryPromptText = view.findViewById(R.id.retryPromptText);
         // The engine replays its last step to a new subscriber, so this screen can first receive
         // the previous transaction's ERROR/COMPLETED. Only react to an outcome once this screen's
         // own transaction has started.
@@ -155,6 +157,18 @@ public class SearchCardFragment extends Fragment {
                 return;
             }
             methodSelectionGroup.setVisibility(stillChoosing ? View.VISIBLE : View.GONE);
+
+            // A retry (tap too short, see phone, chip not read...) brings the card UI back with
+            // the reason on top, scrolled into view — the screen may be scrolled down to the
+            // APDU trace or result from the attempt that just failed.
+            if (step == TransactionStep.WAITING_FOR_CARD) {
+                Object prompt = event.get(TransactionStepEvent.KEY_RETRY_PROMPT);
+                retryPromptText.setText(prompt != null ? prompt.toString() : "");
+                retryPromptText.setVisibility(prompt != null ? View.VISIBLE : View.GONE);
+                if (prompt != null && view instanceof ScrollView) {
+                    view.post(() -> ((ScrollView) view).smoothScrollTo(0, 0));
+                }
+            }
 
             // Final outcome. A card-search timeout, reader failure, kernel/PIN error or host
             // failure all end in ERROR (never followed by COMPLETED); a decline ends in DECLINED

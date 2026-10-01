@@ -134,6 +134,23 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
+                <!-- Why the card has to be presented again (tap too short, see phone, chip not
+                     read...) — shown only on a retry, hidden on a first search. -->
+                <TextView
+                    android:id="@+id/retryPromptText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:background="#FFF3E0"
+                    android:gravity="center"
+                    android:padding="14dp"
+                    android:textColor="#E65100"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="Card not read — tap again and hold the card still"
+                    tools:visibility="visible" />
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

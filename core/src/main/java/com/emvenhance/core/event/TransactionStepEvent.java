@@ -35,6 +35,11 @@ public final class TransactionStepEvent {
     public static final String KEY_TAC_DENIAL       = "tacDenial";
     public static final String KEY_IAC_DENIAL       = "iacDenial";
     public static final String KEY_ICC_DATA         = "iccData";
+    /**
+     * On {@code WAITING_FOR_CARD}: why the card has to be presented again (tap too short, see
+     * phone, chip not read...) — absent on a first search.
+     */
+    public static final String KEY_RETRY_PROMPT     = "retryPrompt";
 
     private final TransactionStep step;
     private final String message;
