@@ -1,6 +1,7 @@
 package com.emvenhance.network;
 
 import android.content.Context;
+import androidx.annotation.Nullable;
 
 import com.emvenhance.core.card.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
@@ -175,7 +176,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         }
 
         GeneralRequest request = GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
-                transactionKeyEncrypted, config.getOnlinePinKeyEncrypted(), TRANSACTION_TYPE_SALE);
+                transactionKeyEncrypted, pinKeyToSend(config), TRANSACTION_TYPE_SALE);
 
         return connection.exchange(headers, request)
                 .flatMap(response -> decryptEnvelope(response, tek, "Exchange", ExchangeResponse.class));
@@ -193,7 +194,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         }
 
         GeneralRequest request = GeneralRequest.forSale(
-                encSerializedRequest, asyncRequestId, config.getOnlinePinBlock());
+                encSerializedRequest, asyncRequestId, pinBlockToSend(config));
 
         // orchestration/sale (unlike exchange) 400s without mToken — see HostAppKeys#MTOKEN's
         // javadoc for what this is. The value saved on the onboarding screen wins over the fixed
@@ -262,7 +263,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 amountMajor,
                 cvmCode(config, emvResult),
                 pan,
-                config.getOnlinePinBlock(),
+                pinBlockToSend(config),
                 config.getIccData(),
                 expirationMonth,
                 expirationYear,
@@ -280,8 +281,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
      * no online PIN block means an offline (on-card) PIN, otherwise no CVM was performed. See
      * {@link #CVM_ONLINE_PIN} for which values are confirmed.
      */
-    private static int cvmCode(TransactionConfig config, EmvTransactionResult emvResult) {
-        if (config.getOnlinePinBlock() != null) {
+    static int cvmCode(TransactionConfig config, EmvTransactionResult emvResult) {
+        if (pinBlockToSend(config) != null) {
             return CVM_ONLINE_PIN;
         }
         if (emvResult.isHasPin()) {
@@ -290,7 +291,28 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         return CVM_NONE;
     }
 
-    private static String pinEnterMode(TransactionConfig config, EmvTransactionResult emvResult) {
+    /**
+     * The online PIN block for {@code encPinBlock} (sale envelope) and {@code pinBlock} (sale
+     * body) — only when online PIN was actually entered for this sale. Offline PIN (verified by
+     * the card), no CVM and signature have no PIN block, so the field is left out of the JSON
+     * entirely ({@code null} fields aren't serialized), never sent empty.
+     */
+    @Nullable
+    static String pinBlockToSend(TransactionConfig config) {
+        String pinBlock = config.getOnlinePinBlock();
+        return pinBlock == null || pinBlock.trim().isEmpty() ? null : pinBlock;
+    }
+
+    /**
+     * The RSA-wrapped PIN key for the exchange's {@code pinKey} — only alongside a PIN block it
+     * encrypts, so never for offline PIN / no CVM / signature.
+     */
+    @Nullable
+    static String pinKeyToSend(TransactionConfig config) {
+        return pinBlockToSend(config) != null ? config.getOnlinePinKeyEncrypted() : null;
+    }
+
+    static String pinEnterMode(TransactionConfig config, EmvTransactionResult emvResult) {
         switch (cvmCode(config, emvResult)) {
             case CVM_ONLINE_PIN:
                 return "ONLINE";

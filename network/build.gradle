@@ -25,6 +25,10 @@ android {
     lint {
         abortOnError false
     }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -41,4 +45,6 @@ dependencies {
     implementation "com.squareup.retrofit2:adapter-rxjava3:$rootProject.retrofit2"
     implementation "com.squareup.okhttp3:logging-interceptor:$rootProject.okhttp3"
     implementation "com.google.code.gson:gson:$rootProject.gson"
+
+    testImplementation "junit:junit:$rootProject.junit"
 }
