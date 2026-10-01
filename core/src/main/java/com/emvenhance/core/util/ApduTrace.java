@@ -38,7 +38,9 @@ public final class ApduTrace {
     private static final byte[] PSE = "1PAY.SYS.DDF01".getBytes();
     private static final byte[] PPSE = "2PAY.SYS.DDF01".getBytes();
 
-    private volatile boolean enabled = BuildConfig.DEBUG;
+    /** Recording is possible at all — {@code BuildConfig.DEBUG}: never in a release build. */
+    private final boolean allowed;
+    private volatile boolean enabled = true;
 
     private final List<String> lines = new ArrayList<>();
     private final BehaviorSubject<Long> changes = BehaviorSubject.createDefault(0L);
@@ -54,6 +56,12 @@ public final class ApduTrace {
     private String lastCommandLevel;
 
     public ApduTrace() {
+        this(BuildConfig.DEBUG);
+    }
+
+    /** {@code allowed = false} is a release build: nothing is ever recorded. For tests. */
+    ApduTrace(boolean allowed) {
+        this.allowed = allowed;
     }
 
     /** Runtime on/off (the UI checkbox). Has no effect in a release build. */
@@ -62,7 +70,7 @@ public final class ApduTrace {
     }
 
     public boolean isEnabled() {
-        return BuildConfig.DEBUG && enabled;
+        return allowed && enabled;
     }
 
     /** Emits whenever the trace changes; read the content with {@link #text()}. */

@@ -24,9 +24,16 @@ android {
     lint {
         abortOnError false
     }
+
+    testOptions {
+        // android.util.Log (used by ApduTrace/EmvLog) returns defaults instead of throwing.
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
     api "io.reactivex.rxjava3:rxjava:$rootProject.rxjava3"
     implementation 'androidx.annotation:annotation:1.7.1'
+
+    testImplementation "junit:junit:$rootProject.junit"
 }
