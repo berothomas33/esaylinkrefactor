@@ -735,10 +735,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 + ", trans result: " + transResultEnum.name()
                 + ", cvm result: " + cvmResult.name());
         if (resultCode == RetCode.EMV_OK) {
+            // CVM_CONSUMER_DEVICE here is CDCVM already *done*: the phone verified the cardholder
+            // (Face ID / fingerprint / passcode), a successful CVM like PIN — the outcome below
+            // decides approve/decline as for any other CVM. Only RESULT_CLSS_SEE_PHONE (below)
+            // means the cardholder still has to verify on the phone.
             if (cvmResult == CvmResultEnum.CVM_CONSUMER_DEVICE) {
-                clsLastNeedSeePhone = true;
-                seePhone();
-                return;
+                LogUtils.d(TAG, "CDCVM performed on the consumer device");
             }
             if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
                 offlineApproved(cvmResult == CvmResultEnum.CVM_SIG);
@@ -1813,14 +1815,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Not a failure — the kernel wants the cardholder to complete CDCVM on their phone.
-     * Whether the transaction can still conclude afterward, or this is terminal, is a
-     * PAX/scheme-behavior question this codebase doesn't yet answer; treated as a hard stop
-     * until that's confirmed, unlike the three retry signals below.
+     * "See Phone" outcome (Mastercard message 0x20, Visa CLSS_REFER_CONSUMER_DEVICE): the phone
+     * wants the cardholder to verify on it (unlock / Face ID / fingerprint) and tap again. Not a
+     * decline — EMV contactless Book A's "end application with restart": show the prompt and
+     * restart the same transaction, contactless only, waiting for the re-tap. Shares
+     * {@link #MAX_TAP_RETRIES} with the other tap-again retries, so a phone that keeps asking
+     * still ends in a decline.
      */
     // [CONTACTLESS — only checkContactlessResult() calls this; no CDCVM concept in contact]
     public void seePhone() {
-        finishError("See Phone: Continue on the phone");
+        int retries = requireEngine().getRetryCount();
+        if (retries >= MAX_TAP_RETRIES) {
+            completeDeclined("See Phone: verification on the phone not completed");
+            return;
+        }
+        requireEngine().apduTrace().note("PICC", "SEE PHONE — verify on the phone, then tap again");
+        retryWithMode(EntryMethod.CONTACTLESS, "See Phone: waiting for the re-tap",
+                "See phone — verify on your phone, then tap again");
     }
 
     /** Scheme declined the contactless attempt outright (e.g. low-value rules) — retry contact. */

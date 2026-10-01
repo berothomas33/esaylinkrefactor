@@ -340,9 +340,9 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
                 // Apple Pay / Google Pay style CDCVM — the phone verified the cardholder itself
                 // (Face ID/Touch ID/passcode), no PIN or signature needed here. Was falling into
                 // default below and getting rejected as CLSS_PARAM_ERR, which meant every PayWave
-                // CDCVM tap (e.g. Apple Pay) failed outright instead of completing — see how
-                // ClssPayPassProcess/checkContactlessResult already handle this CVM result via
-                // CvmResultEnum.CVM_CONSUMER_DEVICE + seePhone().
+                // CDCVM tap (e.g. Apple Pay) failed outright instead of completing. A completed
+                // CDCVM is a successful CVM: PaxEmvBehavior#checkContactlessResult maps the
+                // outcome as for any other CVM (only RESULT_CLSS_SEE_PHONE asks for a re-tap).
                 result.setCvmResult(CvmResultEnum.CVM_CONSUMER_DEVICE);
                 break;
             default:
