@@ -1,6 +1,7 @@
 package com.emvenhance.network;
 
 import android.content.Context;
+import android.util.Log;
 import androidx.annotation.Nullable;
 
 import com.emvenhance.core.card.EmvTransactionResult;
@@ -25,6 +26,7 @@ import com.google.gson.Gson;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -96,6 +98,10 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
      * successful old-app sale ({@code "cvm":2} alongside {@code "pinEnterMode":"ONLINE"});
      * {@link #CVM_OFFLINE_PIN} = 1 is inferred from that, not independently confirmed.
      */
+    private static final String TAG = "SaleComm";
+    /** Logcat truncates a single line at ~4000 characters. */
+    private static final int LOG_CHUNK = 3500;
+
     private static final int CVM_NONE = 0;
     private static final int CVM_OFFLINE_PIN = 1;
     private static final int CVM_ONLINE_PIN = 2;
@@ -170,7 +176,9 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
         String encSerializedRequest;
         try {
-            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, gson.toJson(exchangeRequest));
+            String serialized = gson.toJson(exchangeRequest);
+            logSerialized("EXCHANGE_REQUEST", serialized);
+            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
         } catch (GeneralSecurityException e) {
             return Single.error(new SaleException("Failed to AES-encrypt the exchange request", e));
         }
@@ -188,7 +196,9 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
         String encSerializedRequest;
         try {
-            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, gson.toJson(saleRequest));
+            String serialized = gson.toJson(saleRequest);
+            logSerialized("SALE_REQUEST", serialized);
+            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
         } catch (GeneralSecurityException e) {
             return Single.error(new SaleException("Failed to AES-encrypt the sale request", e));
         }
@@ -214,9 +224,35 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         }
         try {
             String decrypted = AesEnvelopeCrypto.decrypt(tek, response.getData().getEncSerializedResponse());
+            logSerialized(step.toUpperCase(Locale.US) + "_RESPONSE", decrypted);
             return Single.just(gson.fromJson(decrypted, type));
         } catch (GeneralSecurityException e) {
             return Single.error(new SaleException("Failed to decrypt the " + step + " response", e));
+        }
+    }
+
+    /**
+     * Logs a request's JSON before it's AES-encrypted into {@code encSerializedRequest}, or a
+     * response's after decryption — OkHttp's log only shows the encrypted envelope. Same as the
+     * old app's {@code "SALE_REQUEST:Serialized: "} log. Filter Logcat by {@value #TAG}.
+     *
+     * <p>Debug builds only: the plain JSON holds the PAN, chip data and track 2 trailer.
+     * Split into chunks because Logcat truncates a line at about 4000 characters.
+     */
+    private static void logSerialized(String label, String json) {
+        if (!BuildConfig.DEBUG) {
+            return;
+        }
+        String header = label + ":Serialized: ";
+        if (json.length() <= LOG_CHUNK) {
+            Log.i(TAG, header + json);
+            return;
+        }
+        int parts = (json.length() + LOG_CHUNK - 1) / LOG_CHUNK;
+        for (int i = 0; i < parts; i++) {
+            int from = i * LOG_CHUNK;
+            Log.i(TAG, header + "(" + (i + 1) + "/" + parts + ") "
+                    + json.substring(from, Math.min(json.length(), from + LOG_CHUNK)));
         }
     }
 
