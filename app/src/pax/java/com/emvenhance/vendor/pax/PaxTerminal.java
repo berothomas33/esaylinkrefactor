@@ -105,7 +105,7 @@ public class PaxTerminal extends PosTerminal {
         if (config.isManual()) {
             listener.onSearchStarted(config);
             CardPresence card = CardPresence.manual(null);
-            listener.onManualEntrySelected(card);
+//            listener.onManualEntrySelected(card);
             return card;
         }
 
