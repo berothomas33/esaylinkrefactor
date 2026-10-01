@@ -193,6 +193,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
         initOk = true;
         lastAuth = null;
+        // This behavior outlives transactions: without this, an online PIN block (and its
+        // RSA-wrapped key) from an earlier sale would be sent again with the next sale's
+        // exchange/sale requests — even an offline-PIN or no-CVM one, flagged as online PIN.
+        clearOnlinePin();
         super.prepare(engine, config);
         return initOk && !isCancelled() && engine.isRunning();
     }
@@ -1393,6 +1397,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         PinService pinService = new PinService();
 
         if (!isOnlinePin) {
+            // Offline PIN never produces a PIN block for the host — nothing goes in encPinBlock.
+            clearOnlinePin();
             // Offline PIN is the kernel's job, not ours: once we say CONTACT_OK, it calls
             // EmvDeviceImpl#pedVerifyPlainPin / #pedVerifyCipherPin (the native IDevice
             // callback) directly, which is already fully wired to IPed#verifyPlainPin /
@@ -1416,6 +1422,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // key-event listener always has a live dialog to update. Uses PinService directly
         // (same object for both the listener and the actual collection) instead of duplicating
         // its already-correct getPinBlock(keyIndex, pinLenCsv, panBytes, mode, timeoutMs) call.
+        lastOnlinePinBlock = null;
         provisionOnlinePinKey();
 
         PaxPinPad pad = new PaxPinPad("Enter Online PIN");
@@ -1430,6 +1437,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
         } catch (PinException | PedDevException e) {
             LogUtils.e(TAG, "online PIN entry failed", e);
+            // No PIN block, so no PIN key either — the host must not expect one.
+            clearOnlinePin();
             if (supportPINByPass) {
                 return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
             }
@@ -1438,6 +1447,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             pinService.setInputPinListener(null);
             pad.dismiss();
         }
+    }
+
+    /** Forgets this transaction's online PIN block and PIN key (none collected / not online). */
+    private void clearOnlinePin() {
+        lastOnlinePinBlock = null;
+        lastOnlinePinKeyEncrypted = null;
     }
 
     /**
