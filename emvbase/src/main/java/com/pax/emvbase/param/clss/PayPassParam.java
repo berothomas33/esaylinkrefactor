@@ -117,6 +117,10 @@ public class PayPassParam extends BaseParam<PayPassAid> {
         transType = param.getTransType();
         amount = param.getAmountBytes();
         otherAmount = param.getAmountOtherBytes();
+        // Was missing (PayWave/EFT/MIR/DPAS all copy it): transCurrCode stayed null, so 5F2A
+        // reached the card as 0000.
+        transCurrCode = param.getTransCurrencyCode();
+        transCurrExp = param.getTransCurrencyExponent();
         return this;
     }
 
