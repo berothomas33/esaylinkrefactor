@@ -190,6 +190,10 @@ public class PayPassAid extends BaseAid {
     private byte[] maxTornLifetime;
     private byte[] deviceSN;
     private byte[] dsOperatorId;
+    /** Mobile Support Indicator (9F7E). */
+    private byte[] mobileSupport;
+    /** Account Type (5F57). */
+    private byte[] accountType;
 
 
     public byte[] getTacDenial() {
@@ -414,5 +418,21 @@ public class PayPassAid extends BaseAid {
 
     public void setDsOperatorId(byte[] dsOperatorId) {
         this.dsOperatorId = dsOperatorId;
+    }
+
+    public byte[] getMobileSupport() {
+        return mobileSupport;
+    }
+
+    public void setMobileSupport(byte[] mobileSupport) {
+        this.mobileSupport = mobileSupport;
+    }
+
+    public byte[] getAccountType() {
+        return accountType;
+    }
+
+    public void setAccountType(byte[] accountType) {
+        this.accountType = accountType;
     }
 }

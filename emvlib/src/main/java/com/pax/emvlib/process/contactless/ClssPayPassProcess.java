@@ -397,10 +397,10 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
     /**enable or disable kernel functions by Clss_SetTLVDataList_MC and Clss_SetTagPresent_MC
     * the detail describe in EMV Contactless Book C-2*/
     private void setDefaultMcTermParam() {
-        setTlv(TagsTable.ACCOUNT_TYPE, null);
+        setTlv(TagsTable.ACCOUNT_TYPE, clssParam.getAccountType());//Account Type (host XML AccoutType)
         setTlv(TagsTable.ACQUIRER_ID, null);
         setTlv(TagsTable.INTER_DEV_NUM, clssParam.getDeviceSN());
-        setTlv(TagsTable.MOB_SUP, null);
+        setTlv(TagsTable.MOB_SUP, clssParam.getMobileSupport());//Mobile Support Indicator (host XML MobileSupport)
 
         setTlv(TagsTable.DS_AC_TYPE, null);
         setTlv(TagsTable.DS_INPUT_CARD, null);

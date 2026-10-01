@@ -724,6 +724,12 @@ public class EmvParamService {
                 payPassAid.setSupportDefaultMcTermParam(item.getSupportDefaultMcTermParam());
                 payPassAid.setDeviceSN(item.getDeviceSNBytes());
                 payPassAid.setDsOperatorId(item.getDsOperatorIdBytes());
+                if (item.getMobileSupport() != null) {
+                    payPassAid.setMobileSupport(item.getMobileSupportBytes());
+                }
+                if (item.getAccountType() != null) {
+                    payPassAid.setAccountType(item.getAccountTypeBytes());
+                }
                 payPassAidList.add(payPassAid);
             }
             param.setAidList(payPassAidList);

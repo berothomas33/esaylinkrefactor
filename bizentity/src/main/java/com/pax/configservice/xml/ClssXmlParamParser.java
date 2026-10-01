@@ -142,7 +142,9 @@ public final class ClssXmlParamParser {
                 hexByte(XmlDomUtils.text(config, "MaximumTornNumber"), 1), // DF811D
                 hexByte(XmlDomUtils.text(config, "TornLeftTime"), 2), // DF811C
                 null, // deviceSN — no source tag
-                null); // dsOperatorId — no source tag
+                null, // dsOperatorId — no source tag
+                XmlDomUtils.text(config, "MobileSupport"), // 9F7E
+                accountType(config)); // 5F57
     }
 
     // ─── PayWave (Visa) ────────────────────────────────────────────────────
@@ -287,6 +289,13 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.byteOf(drlEl, "StatusCheckFlg", 0),
                 XmlDomUtils.byteOf(drlEl, "AmtZeroNoAllowed", 0),
                 (byte) hexToInt(XmlDomUtils.text(drlEl, "DynaLmicLimitSet", "0")));
+    }
+
+    /** Account Type — the host's files spell the tag "AccoutType". */
+    @Nullable
+    private static String accountType(@Nullable Element config) {
+        String value = XmlDomUtils.text(config, "AccoutType");
+        return value != null ? value : XmlDomUtils.text(config, "AccountType");
     }
 
     /** Mag-stripe "No CVM Required" capability — the host's files spell the tag "MageticNoCVM". */

@@ -51,6 +51,8 @@ public class PayPassParam extends BaseParam<PayPassAid> {
     private byte[] maxTornLifetime;
     private byte[] deviceSN;
     private byte[] dsOperatorId;
+    private byte[] mobileSupport;
+    private byte[] accountType;
 
     public PayPassParam() {
         dataExchangeSupportFlag = 0x01;
@@ -95,6 +97,8 @@ public class PayPassParam extends BaseParam<PayPassAid> {
         maxTornLifetime = aid.getMaxTornLifetime();
         deviceSN = aid.getDeviceSN();
         dsOperatorId = aid.getDsOperatorId();
+        mobileSupport = aid.getMobileSupport();
+        accountType = aid.getAccountType();
         return this;
     }
 
@@ -237,5 +241,15 @@ public class PayPassParam extends BaseParam<PayPassAid> {
 
     public byte[] getDsOperatorId() {
         return dsOperatorId;
+    }
+
+    /** Mobile Support Indicator (9F7E) — {@code null} when the host XML has none. */
+    public byte[] getMobileSupport() {
+        return mobileSupport;
+    }
+
+    /** Account Type (5F57) — {@code null} when the host XML has none. */
+    public byte[] getAccountType() {
+        return accountType;
     }
 }

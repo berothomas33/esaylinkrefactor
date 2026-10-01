@@ -136,6 +136,13 @@ public class PayPassAidBean implements Serializable {
     private String dsOperatorId;
     @Transient
     private byte[] dsOperatorIdBytes;
+    /**
+     * Mobile Support Indicator (9F7E) — PAYPASSCONFIGURATION/MobileSupport, e.g. "01" (mobile
+     * supported). Added in schema 2.
+     */
+    private String mobileSupport;
+    /** Account Type (5F57) — PAYPASSCONFIGURATION/AccoutType, e.g. "00" (default). Schema 2. */
+    private String accountType;
 
 
     @Generated(hash = 903366745)
@@ -148,7 +155,8 @@ public class PayPassAidBean implements Serializable {
             String magCvm, String magNoCvm, String kernelId, byte[] kernelIdBytes,
             byte dataExchangeSupportFlag, String tlvParam, String defaultUDOL,
             long refundVoidFloorLimit, String refundVoidTacDenial, boolean supportDefaultMcTermParam,
-            String maxTornNum, String maxTornLifetime, String deviceSN, String dsOperatorId) {
+            String maxTornNum, String maxTornLifetime, String deviceSN, String dsOperatorId,
+            String mobileSupport, String accountType) {
         this.id = id;
         this.appName = appName;
         this.aid = aid;
@@ -188,6 +196,8 @@ public class PayPassAidBean implements Serializable {
         this.maxTornLifetime = maxTornLifetime;
         this.deviceSN = deviceSN;
         this.dsOperatorId = dsOperatorId;
+        this.mobileSupport = mobileSupport;
+        this.accountType = accountType;
     }
     @Generated(hash = 216977840)
     public PayPassAidBean() {
@@ -743,5 +753,29 @@ public class PayPassAidBean implements Serializable {
 
     public void setDsOperatorIdBytes(byte[] dsOperatorIdBytes) {
         this.dsOperatorIdBytes = dsOperatorIdBytes;
+    }
+
+    public String getMobileSupport() {
+        return mobileSupport;
+    }
+
+    public void setMobileSupport(String mobileSupport) {
+        this.mobileSupport = mobileSupport;
+    }
+
+    public byte[] getMobileSupportBytes() {
+        return ConvertUtils.strToBcdPaddingLeft(mobileSupport);
+    }
+
+    public String getAccountType() {
+        return accountType;
+    }
+
+    public void setAccountType(String accountType) {
+        this.accountType = accountType;
+    }
+
+    public byte[] getAccountTypeBytes() {
+        return ConvertUtils.strToBcdPaddingLeft(accountType);
     }
 }

@@ -63,6 +63,8 @@ public class PayPassAidBeanDao extends AbstractDao<PayPassAidBean, Long> {
         public final static Property MaxTornLifetime = new Property(36, String.class, "maxTornLifetime", false, "MAX_TORN_LIFETIME");
         public final static Property DeviceSN = new Property(37, String.class, "deviceSN", false, "DEVICE_SN");
         public final static Property DsOperatorId = new Property(38, String.class, "dsOperatorId", false, "DS_OPERATOR_ID");
+        public final static Property MobileSupport = new Property(39, String.class, "mobileSupport", false, "MOBILE_SUPPORT");
+        public final static Property AccountType = new Property(40, String.class, "accountType", false, "ACCOUNT_TYPE");
     }
 
 
@@ -116,7 +118,9 @@ public class PayPassAidBeanDao extends AbstractDao<PayPassAidBean, Long> {
                 "\"MAX_TORN_NUM\" TEXT," + // 35: maxTornNum
                 "\"MAX_TORN_LIFETIME\" TEXT," + // 36: maxTornLifetime
                 "\"DEVICE_SN\" TEXT," + // 37: deviceSN
-                "\"DS_OPERATOR_ID\" TEXT);"); // 38: dsOperatorId
+                "\"DS_OPERATOR_ID\" TEXT," + // 38: dsOperatorId
+                "\"MOBILE_SUPPORT\" TEXT," + // 39: mobileSupport (schema 2)
+                "\"ACCOUNT_TYPE\" TEXT);"); // 40: accountType (schema 2)
     }
 
     /** Drops the underlying database table. */
@@ -279,6 +283,16 @@ public class PayPassAidBeanDao extends AbstractDao<PayPassAidBean, Long> {
         if (dsOperatorId != null) {
             stmt.bindString(39, dsOperatorId);
         }
+ 
+        String mobileSupport = entity.getMobileSupport();
+        if (mobileSupport != null) {
+            stmt.bindString(40, mobileSupport);
+        }
+ 
+        String accountType = entity.getAccountType();
+        if (accountType != null) {
+            stmt.bindString(41, accountType);
+        }
     }
 
     @Override
@@ -435,6 +449,16 @@ public class PayPassAidBeanDao extends AbstractDao<PayPassAidBean, Long> {
         if (dsOperatorId != null) {
             stmt.bindString(39, dsOperatorId);
         }
+ 
+        String mobileSupport = entity.getMobileSupport();
+        if (mobileSupport != null) {
+            stmt.bindString(40, mobileSupport);
+        }
+ 
+        String accountType = entity.getAccountType();
+        if (accountType != null) {
+            stmt.bindString(41, accountType);
+        }
     }
 
     @Override
@@ -483,7 +507,9 @@ public class PayPassAidBeanDao extends AbstractDao<PayPassAidBean, Long> {
             cursor.isNull(offset + 35) ? null : cursor.getString(offset + 35), // maxTornNum
             cursor.isNull(offset + 36) ? null : cursor.getString(offset + 36), // maxTornLifetime
             cursor.isNull(offset + 37) ? null : cursor.getString(offset + 37), // deviceSN
-            cursor.isNull(offset + 38) ? null : cursor.getString(offset + 38) // dsOperatorId
+            cursor.isNull(offset + 38) ? null : cursor.getString(offset + 38), // dsOperatorId
+            cursor.isNull(offset + 39) ? null : cursor.getString(offset + 39), // mobileSupport
+            cursor.isNull(offset + 40) ? null : cursor.getString(offset + 40) // accountType
         );
         return entity;
     }
@@ -529,6 +555,8 @@ public class PayPassAidBeanDao extends AbstractDao<PayPassAidBean, Long> {
         entity.setMaxTornLifetime(cursor.isNull(offset + 36) ? null : cursor.getString(offset + 36));
         entity.setDeviceSN(cursor.isNull(offset + 37) ? null : cursor.getString(offset + 37));
         entity.setDsOperatorId(cursor.isNull(offset + 38) ? null : cursor.getString(offset + 38));
+        entity.setMobileSupport(cursor.isNull(offset + 39) ? null : cursor.getString(offset + 39));
+        entity.setAccountType(cursor.isNull(offset + 40) ? null : cursor.getString(offset + 40));
      }
     
     @Override

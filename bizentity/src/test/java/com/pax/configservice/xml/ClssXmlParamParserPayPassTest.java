@@ -54,6 +54,8 @@ public class ClssXmlParamParserPayPassTest {
             assertEquals(id, "00", aid.getMagNoCvm()); // XML spells it MageticNoCVM
             assertEquals(id, "02", aid.getMaxTornNum());
             assertEquals(id, "0006", aid.getMaxTornLifetime());
+            assertEquals(id, "01", aid.getMobileSupport()); // 9F7E
+            assertEquals(id, "00", aid.getAccountType()); // 5F57 — XML spells it AccoutType
         }
     }
 
