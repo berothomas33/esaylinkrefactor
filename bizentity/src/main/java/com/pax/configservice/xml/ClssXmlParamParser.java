@@ -39,9 +39,12 @@ import androidx.annotation.Nullable;
  * describes). Only DPAS/EFT/JCB/MIR/PBOC/PURE/RUPAY are out of scope here — this sample file
  * doesn't contain those sections, so there was no tag structure to verify a mapping against.
  *
- * <p>Several bean fields (PayPass: {@code kernelConfig}/{@code cardDataInput}/
- * {@code cvmRequired}/{@code noCvmRequired}/{@code kernelId}/{@code tlvParam}/
- * {@code defaultUDOL}/{@code deviceSN}/{@code dsOperatorId}; Amex: {@code exFunction}/
+ * <p>PayPass and Amex each carry one shared configuration block ({@code PAYPASSCONFIGURATION} /
+ * {@code EXPRESSPAYCONFIGURATION}: Kernel Configuration, Terminal Type, CVM capabilities...),
+ * applied to every AID of that scheme.
+ *
+ * <p>Several bean fields (PayPass: {@code tlvParam}/{@code defaultUDOL}/{@code deviceSN}/
+ * {@code dsOperatorId}/{@code acquirerId}/refund-void limits; Amex: {@code exFunction}/
  * {@code aucRFU}) have no corresponding tag anywhere in this file and are left unset — not
  * defaulted to a guessed value.
  */
@@ -83,17 +86,22 @@ public final class ClssXmlParamParser {
     // ─── PayPass (Mastercard) ─────────────────────────────────────────────
 
     private static PayPassParamBean parsePayPass(Element payPassEl) {
+        // Kernel settings shared by every PayPass AID — Kernel Configuration, Terminal Type, CVM
+        // capabilities, Security Capability... Not reading this block left them all unset, so
+        // the kernel ran with terminal type FF, no CVM support (online PIN skipped) and
+        // On-device CVM off (See Phone reported as a decline).
+        Element config = XmlDomUtils.firstChild(payPassEl, "PAYPASSCONFIGURATION");
         Element aidList = XmlDomUtils.firstChild(payPassEl, "AIDLIST");
         List<PayPassAidBean> aids = new ArrayList<>();
         for (Element aidEl : XmlDomUtils.children(aidList, "AID")) {
-            aids.add(parsePayPassAid(aidEl));
+            aids.add(parsePayPassAid(aidEl, config));
         }
         PayPassParamBean bean = new PayPassParamBean();
         bean.setAid(aids);
         return bean;
     }
 
-    private static PayPassAidBean parsePayPassAid(Element aidEl) {
+    private static PayPassAidBean parsePayPassAid(Element aidEl, @Nullable Element config) {
         return new PayPassAidBean(
                 null,
                 XmlDomUtils.text(aidEl, "LocalAIDName", ""),
@@ -112,28 +120,29 @@ public final class ClssXmlParamParser {
                 null, // acquirerId — no source tag
                 XmlDomUtils.text(aidEl, "TerminalAIDVersion"),
                 XmlDomUtils.text(aidEl, "TerminalRisk"),
-                null, // terminalType — no per-AID or shared source tag found for PayPass
-                null, // terminalAdditionalCapability
-                null, // kernelConfig
-                null, // cardDataInput
-                null, // cvmRequired
-                null, // noCvmRequired
-                null, // securityCapability
-                XmlDomUtils.text(aidEl, "MagneticApplicationVersionNumber"),
-                null, // magCvm
-                null, // magNoCvm
-                null, // kernelId
+                // Shared across every AID in this scheme — from PAYPASSCONFIGURATION.
+                XmlDomUtils.text(config, "TerminalType"), // 9F35
+                XmlDomUtils.text(config, "AdditionalTerminalCapability"), // 9F40
+                XmlDomUtils.text(config, "KernelConfiguration"), // DF811B
+                XmlDomUtils.text(config, "CardDataInput"), // DF8117
+                XmlDomUtils.text(config, "CVMCapability_CVMRequired"), // DF8118
+                XmlDomUtils.text(config, "CVMCapability_NoCVMRequired"), // DF8119
+                XmlDomUtils.text(config, "SecurityCapability"), // DF811F
+                XmlDomUtils.text(aidEl, "MagneticApplicationVersionNumber"), // 9F6D
+                XmlDomUtils.text(config, "MagneticCVM"), // DF811E
+                magNoCvm(config), // DF812C
+                XmlDomUtils.text(config, "KernelID"), // DF810C
                 null, // kernelIdBytes (@Transient)
-                (byte) 0, // dataExchangeSupportFlag
-                null, // tlvParam
-                null, // defaultUDOL
-                0L, // refundVoidFloorLimit
-                null, // refundVoidTacDenial
+                (byte) 0, // dataExchangeSupportFlag — no source tag
+                null, // tlvParam — no source tag
+                null, // defaultUDOL — no source tag
+                0L, // refundVoidFloorLimit — no source tag
+                null, // refundVoidTacDenial — no source tag
                 true, // supportDefaultMcTermParam — matches PayPassAidBean's own field default
-                null, // maxTornNum
-                null, // maxTornLifetime
-                null, // deviceSN
-                null); // dsOperatorId
+                hexByte(XmlDomUtils.text(config, "MaximumTornNumber"), 1), // DF811D
+                hexByte(XmlDomUtils.text(config, "TornLeftTime"), 2), // DF811C
+                null, // deviceSN — no source tag
+                null); // dsOperatorId — no source tag
     }
 
     // ─── PayWave (Visa) ────────────────────────────────────────────────────
@@ -278,6 +287,31 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.byteOf(drlEl, "StatusCheckFlg", 0),
                 XmlDomUtils.byteOf(drlEl, "AmtZeroNoAllowed", 0),
                 (byte) hexToInt(XmlDomUtils.text(drlEl, "DynaLmicLimitSet", "0")));
+    }
+
+    /** Mag-stripe "No CVM Required" capability — the host's files spell the tag "MageticNoCVM". */
+    @Nullable
+    private static String magNoCvm(@Nullable Element config) {
+        String value = XmlDomUtils.text(config, "MageticNoCVM");
+        return value != null ? value : XmlDomUtils.text(config, "MagneticNoCVM");
+    }
+
+    /**
+     * A numeric value as a {@code bytes}-long hex string, left-padded — e.g. MaximumTornNumber
+     * "2" → "02" (DF811D is 1 byte), TornLeftTime "06" → "0006" (DF811C is 2 bytes). {@code null}
+     * stays {@code null}.
+     */
+    @Nullable
+    static String hexByte(@Nullable String value, int bytes) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        String hex = value.trim().toUpperCase();
+        StringBuilder padded = new StringBuilder();
+        for (int i = hex.length(); i < bytes * 2; i++) {
+            padded.append('0');
+        }
+        return padded.append(hex).toString();
     }
 
     /** No explicit enable-flag tag exists alongside these limits — treat "value present" as "on". */

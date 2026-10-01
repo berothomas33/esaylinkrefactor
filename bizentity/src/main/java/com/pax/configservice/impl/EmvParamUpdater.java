@@ -11,7 +11,6 @@ import com.pax.bizentity.db.helper.PaywaveFloorLimitDbHelper;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.xml.ClssXmlParamParser;
 import com.pax.configservice.xml.EmvXmlParamParser;
-import com.pax.configservice.xml.PayPassXmlDefaults;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -119,10 +118,6 @@ public final class EmvParamUpdater {
             EmvParamService service = new EmvParamService();
 
             if (parsed.payPass != null && notEmpty(parsed.payPass.getAid())) {
-                // The XML has no tags for the kernel settings (Kernel Configuration, Terminal
-                // Type, CVM capabilities...) — fill those from the bundled defaults, or the
-                // kernel runs without them (no See Phone, terminal type FF, no CVM).
-                PayPassXmlDefaults.fill(parsed.payPass.getAid(), PayPassXmlDefaults.loadBundled());
                 PaypassAidDbHelper.getInstance().deleteAll();
                 if (service.insertPaypassParam(parsed.payPass)) {
                     result.applied("PayPass", parsed.payPass.getAid().size());
