@@ -95,10 +95,15 @@ public class ConfigInit {
         if (!acquirerIssuerService.insertAcquirer(acquirers)) {
             throw new IllegalStateException("insertAcquirer failed");
         }
-        // Every acquirer takes every issuer, so no acquirer-issuer link table; a card range
-        // keeps its issuer's name in the same row (no join).
-        for (CardRange cardRange : cardRanges) {
-            cardRange.setIssuerName(cardRange.getName());
+        // Every acquirer takes every issuer, so no acquirer-issuer link table. A card range
+        // keeps its issuer's id (ids are set by insertIssuer above) — a plain column, no join.
+        for (Issuer issuer : issuers) {
+            for (CardRange cardRange : cardRanges) {
+                if (cardRange.getName().equals(issuer.getName())) {
+                    cardRange.setIssuerId(issuer.getId());
+                    cardRange.setIssuerName(issuer.getName());
+                }
+            }
         }
         acquirerIssuerService.insertCardRange(cardRanges);
     }

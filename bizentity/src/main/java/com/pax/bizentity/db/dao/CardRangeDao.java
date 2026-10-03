@@ -31,6 +31,7 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         public final static Property PanRangeLow = new Property(3, String.class, "panRangeLow", false, "card_range_low");
         public final static Property PanRangeHigh = new Property(4, String.class, "panRangeHigh", false, "card_range_high");
         public final static Property PanLength = new Property(5, int.class, "panLength", false, "card_length");
+        public final static Property IssuerId = new Property(6, long.class, "issuerId", false, "ISSUER_ID");
     }
 
 
@@ -52,7 +53,8 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
                 "\"issuer_name\" TEXT," + // 2: issuerName
                 "\"card_range_low\" TEXT NOT NULL UNIQUE ," + // 3: panRangeLow
                 "\"card_range_high\" TEXT NOT NULL UNIQUE ," + // 4: panRangeHigh
-                "\"card_length\" INTEGER NOT NULL );"); // 5: panLength
+                "\"card_length\" INTEGER NOT NULL ," + // 5: panLength
+                "\"ISSUER_ID\" INTEGER NOT NULL );"); // 6: issuerId
     }
 
     /** Drops the underlying database table. */
@@ -82,6 +84,7 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         stmt.bindString(4, entity.getPanRangeLow());
         stmt.bindString(5, entity.getPanRangeHigh());
         stmt.bindLong(6, entity.getPanLength());
+        stmt.bindLong(7, entity.getIssuerId());
     }
 
     @Override
@@ -105,6 +108,7 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         stmt.bindString(4, entity.getPanRangeLow());
         stmt.bindString(5, entity.getPanRangeHigh());
         stmt.bindLong(6, entity.getPanLength());
+        stmt.bindLong(7, entity.getIssuerId());
     }
 
     @Override
@@ -120,7 +124,8 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
             cursor.isNull(offset + 2) ? null : cursor.getString(offset + 2), // issuerName
             cursor.getString(offset + 3), // panRangeLow
             cursor.getString(offset + 4), // panRangeHigh
-            cursor.getInt(offset + 5) // panLength
+            cursor.getInt(offset + 5), // panLength
+            cursor.getLong(offset + 6) // issuerId
         );
         return entity;
     }
@@ -133,6 +138,7 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         entity.setPanRangeLow(cursor.getString(offset + 3));
         entity.setPanRangeHigh(cursor.getString(offset + 4));
         entity.setPanLength(cursor.getInt(offset + 5));
+        entity.setIssuerId(cursor.getLong(offset + 6));
      }
     
     @Override

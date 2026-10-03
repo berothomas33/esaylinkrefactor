@@ -68,8 +68,8 @@ public class CardRangeDbHelper extends BaseDaoHelper<CardRange> {
         return null;
     }
 
-    public final List<CardRange> findCardRangesOfIssuer(String issuerName) {
-        return getNoSessionQuery().where(CardRangeDao.Properties.IssuerName.eq(issuerName)).list();
+    public final List<CardRange> findCardRangesOfIssuer(long issuerId) {
+        return getNoSessionQuery().where(CardRangeDao.Properties.IssuerId.eq(issuerId)).list();
     }
 
 }

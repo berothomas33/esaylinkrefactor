@@ -63,23 +63,29 @@ public class CardRange implements Serializable {
     @Property(nameInDb = LENGTH_FIELD_NAME)
     private int panLength;
 
+    // Plain reference (no join): load the issuer by id when needed.
+    private long issuerId;
+
     public CardRange() {
     }
 
     @Generated(hash = 1881461910)
-    public CardRange(Long id, String name, String issuerName, @NotNull String panRangeLow, @NotNull String panRangeHigh, int panLength) {
+    public CardRange(Long id, String name, String issuerName, @NotNull String panRangeLow, @NotNull String panRangeHigh, int panLength,
+            long issuerId) {
         this.id = id;
         this.name = name;
         this.issuerName = issuerName;
         this.panRangeLow = panRangeLow;
         this.panRangeHigh = panRangeHigh;
         this.panLength = panLength;
+        this.issuerId = issuerId;
     }
 
     public void update(@NonNull CardRange cardRange) {
         name = cardRange.getName();
         panLength = cardRange.getPanLength();
         issuerName = cardRange.getIssuerName();
+        issuerId = cardRange.getIssuerId();
     }
 
     public Long getId() {
@@ -128,5 +134,13 @@ public class CardRange implements Serializable {
 
     public void setPanLength(int panLength) {
         this.panLength = panLength;
+    }
+
+    public long getIssuerId() {
+        return this.issuerId;
+    }
+
+    public void setIssuerId(long issuerId) {
+        this.issuerId = issuerId;
     }
 }
