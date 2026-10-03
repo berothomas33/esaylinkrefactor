@@ -268,13 +268,12 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.byteOf(aidEl, "ZeroAmountNoAllowed", 0),
                 null, // securityCapability — no source tag
                 (byte) 0, // domesticOnly
-                (byte) 0); // enDDAVerNo
+                (byte) 0, // enDDAVerNo
+                null); // interWareFloorLimit — set by parsePayWave from INTERWARELIST
     }
 
     private static PayWaveInterFloorLimitBean parsePayWaveFloorLimit(Element entry) {
         return new PayWaveInterFloorLimitBean(
-                null,
-                null, // paywaveAidId — set by EmvParamService after the parent AID gets its id
                 (byte) hexToInt(XmlDomUtils.text(entry, "TransactionType", "00")),
                 XmlDomUtils.longOf(entry, "TerminalFloorLimit", 0),
                 XmlDomUtils.longOf(entry, "ContactlessTransactionLimit", 0),

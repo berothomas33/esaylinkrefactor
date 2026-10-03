@@ -49,6 +49,4 @@ dependencies {
     api project(':poslib')
 
     testImplementation "junit:junit:$rootProject.junit"
-    // Real SQLite for the GreenDAO schema-migration test (SchemaMigrationsTest).
-    testImplementation 'org.xerial:sqlite-jdbc:3.45.1.0'
 }

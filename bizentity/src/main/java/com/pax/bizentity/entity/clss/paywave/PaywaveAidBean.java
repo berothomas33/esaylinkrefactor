@@ -18,18 +18,14 @@
 package com.pax.bizentity.entity.clss.paywave;
 
 import android.text.TextUtils;
-import com.pax.bizentity.db.dao.DaoSession;
-import com.pax.bizentity.db.dao.PayWaveInterFloorLimitBeanDao;
-import com.pax.bizentity.db.dao.PaywaveAidBeanDao;
 import com.pax.commonlib.utils.ConvertUtils;
 import java.io.Serializable;
 import java.util.List;
-import org.greenrobot.greendao.DaoException;
+import org.greenrobot.greendao.annotation.Convert;
 import org.greenrobot.greendao.annotation.Entity;
 import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
 import org.greenrobot.greendao.annotation.Property;
-import org.greenrobot.greendao.annotation.ToMany;
 import org.greenrobot.greendao.annotation.Transient;
 
 @Entity(nameInDb = "paywave_aid")
@@ -70,19 +66,16 @@ public class PaywaveAidBean implements Serializable {
     private byte[] securityCapabilityBytes;
     private byte domesticOnly;
     private byte enDDAVerNo;
-    @ToMany(referencedJoinProperty = ID_FIELD_NAME)
+    // Limits per transaction type (sale, cash, cashback, refund), kept in this row as JSON.
+    @Property(nameInDb = "FLOOR_LIMITS")
+    @Convert(converter = FloorLimitsConverter.class, columnType = String.class)
     private List<PayWaveInterFloorLimitBean> interWareFloorLimit;
-    /** Used to resolve relations */
-    @Generated(hash = 2040040024)
-    private transient DaoSession daoSession;
-    /** Used for active entity operations. */
-    @Generated(hash = 1296453004)
-    private transient PaywaveAidBeanDao myDao;
 
-    @Generated(hash = 32203421)
+    @Generated(hash = 1567370406)
     public PaywaveAidBean(Long id, String appName, String aid, byte selFlag, String version,
             String terminalType, String ttq, byte crypto17Flag, byte statusCheckFlag,
-            byte amountZeroNoAllowed, String securityCapability, byte domesticOnly, byte enDDAVerNo) {
+            byte amountZeroNoAllowed, String securityCapability, byte domesticOnly, byte enDDAVerNo,
+            List<PayWaveInterFloorLimitBean> interWareFloorLimit) {
         this.id = id;
         this.appName = appName;
         this.aid = aid;
@@ -96,6 +89,7 @@ public class PaywaveAidBean implements Serializable {
         this.securityCapability = securityCapability;
         this.domesticOnly = domesticOnly;
         this.enDDAVerNo = enDDAVerNo;
+        this.interWareFloorLimit = interWareFloorLimit;
     }
 
     @Generated(hash = 1155075677)
@@ -261,77 +255,7 @@ public class PaywaveAidBean implements Serializable {
         this.interWareFloorLimit = interWareFloorLimit;
     }
 
-    /**
-     * To-many relationship, resolved on first access (and after reset).
-     * Changes to to-many relations are not persisted, make changes to the target entity.
-     */
-    @Generated(hash = 1825627674)
     public List<PayWaveInterFloorLimitBean> getInterWareFloorLimit() {
-        if (interWareFloorLimit == null) {
-            final DaoSession daoSession = this.daoSession;
-            if (daoSession == null) {
-                throw new DaoException("Entity is detached from DAO context");
-            }
-            PayWaveInterFloorLimitBeanDao targetDao = daoSession
-                    .getPayWaveInterFloorLimitBeanDao();
-            List<PayWaveInterFloorLimitBean> interWareFloorLimitNew = targetDao
-                    ._queryPaywaveAidBean_InterWareFloorLimit(id);
-            synchronized (this) {
-                if (interWareFloorLimit == null) {
-                    interWareFloorLimit = interWareFloorLimitNew;
-                }
-            }
-        }
         return interWareFloorLimit;
     }
-
-    /** Resets a to-many relationship, making the next get call to query for a fresh result. */
-    @Generated(hash = 684653369)
-    public synchronized void resetInterWareFloorLimit() {
-        interWareFloorLimit = null;
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#delete(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 128553479)
-    public void delete() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.delete(this);
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#refresh(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 1942392019)
-    public void refresh() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.refresh(this);
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#update(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 713229351)
-    public void update() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.update(this);
-    }
-
-    /** called by internal mechanisms, do not call yourself. */
-    @Generated(hash = 65894659)
-    public void __setDaoSession(DaoSession daoSession) {
-        this.daoSession = daoSession;
-        myDao = daoSession != null ? daoSession.getPaywaveAidBeanDao() : null;
-    }
-
 }

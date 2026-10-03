@@ -17,7 +17,7 @@ import org.greenrobot.greendao.identityscope.IdentityScopeType;
  * Master of DAO (schema version 1): knows all DAOs.
  */
 public class DaoMaster extends AbstractDaoMaster {
-    public static final int SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 1;
 
     /** Creates underlying database table using DAOs. */
     public static void createAllTables(Database db, boolean ifNotExists) {
@@ -40,7 +40,6 @@ public class DaoMaster extends AbstractDaoMaster {
         JcbAidBeanDao.createTable(db, ifNotExists);
         MirAidBeanDao.createTable(db, ifNotExists);
         PayPassAidBeanDao.createTable(db, ifNotExists);
-        PayWaveInterFloorLimitBeanDao.createTable(db, ifNotExists);
         PaywaveAidBeanDao.createTable(db, ifNotExists);
         PBOCAidBeanDao.createTable(db, ifNotExists);
         PureAidBeanDao.createTable(db, ifNotExists);
@@ -68,7 +67,6 @@ public class DaoMaster extends AbstractDaoMaster {
         JcbAidBeanDao.dropTable(db, ifExists);
         MirAidBeanDao.dropTable(db, ifExists);
         PayPassAidBeanDao.dropTable(db, ifExists);
-        PayWaveInterFloorLimitBeanDao.dropTable(db, ifExists);
         PaywaveAidBeanDao.dropTable(db, ifExists);
         PBOCAidBeanDao.dropTable(db, ifExists);
         PureAidBeanDao.dropTable(db, ifExists);
@@ -110,7 +108,6 @@ public class DaoMaster extends AbstractDaoMaster {
         registerDaoClass(JcbAidBeanDao.class);
         registerDaoClass(MirAidBeanDao.class);
         registerDaoClass(PayPassAidBeanDao.class);
-        registerDaoClass(PayWaveInterFloorLimitBeanDao.class);
         registerDaoClass(PaywaveAidBeanDao.class);
         registerDaoClass(PBOCAidBeanDao.class);
         registerDaoClass(PureAidBeanDao.class);

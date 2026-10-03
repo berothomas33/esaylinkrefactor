@@ -38,6 +38,13 @@ public class MyEncryptedSQLiteOpenHelper extends BaseOpenHelper {
     }
 
     @Override
+    public void onUpgrade(Database db, int oldVersion, int newVersion) {
+        LogUtils.e(TAG, "No migration path from schema " + oldVersion + " to " + newVersion + ", recreating tables");
+        DaoMaster.dropAllTables(db, true);
+        onCreate(db);
+    }
+
+    @Override
     public Database getEncryptedWritableDb(String password) {
         int version = DaoMaster.SCHEMA_VERSION;
         MyEncryptedHelper encryptedHelper = new MyEncryptedHelper(this.context, this.name, version, true);

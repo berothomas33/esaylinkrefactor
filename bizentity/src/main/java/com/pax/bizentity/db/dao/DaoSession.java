@@ -27,7 +27,6 @@ import com.pax.bizentity.entity.clss.eft.EFTAidBean;
 import com.pax.bizentity.entity.clss.jcb.JcbAidBean;
 import com.pax.bizentity.entity.clss.mir.MirAidBean;
 import com.pax.bizentity.entity.clss.paypass.PayPassAidBean;
-import com.pax.bizentity.entity.clss.paywave.PayWaveInterFloorLimitBean;
 import com.pax.bizentity.entity.clss.paywave.PaywaveAidBean;
 import com.pax.bizentity.entity.clss.pboc.PBOCAidBean;
 import com.pax.bizentity.entity.clss.pure.PureAidBean;
@@ -52,7 +51,6 @@ import com.pax.bizentity.db.dao.EFTAidBeanDao;
 import com.pax.bizentity.db.dao.JcbAidBeanDao;
 import com.pax.bizentity.db.dao.MirAidBeanDao;
 import com.pax.bizentity.db.dao.PayPassAidBeanDao;
-import com.pax.bizentity.db.dao.PayWaveInterFloorLimitBeanDao;
 import com.pax.bizentity.db.dao.PaywaveAidBeanDao;
 import com.pax.bizentity.db.dao.PBOCAidBeanDao;
 import com.pax.bizentity.db.dao.PureAidBeanDao;
@@ -86,7 +84,6 @@ public class DaoSession extends AbstractDaoSession {
     private final DaoConfig jcbAidBeanDaoConfig;
     private final DaoConfig mirAidBeanDaoConfig;
     private final DaoConfig payPassAidBeanDaoConfig;
-    private final DaoConfig payWaveInterFloorLimitBeanDaoConfig;
     private final DaoConfig paywaveAidBeanDaoConfig;
     private final DaoConfig pBOCAidBeanDaoConfig;
     private final DaoConfig pureAidBeanDaoConfig;
@@ -111,7 +108,6 @@ public class DaoSession extends AbstractDaoSession {
     private final JcbAidBeanDao jcbAidBeanDao;
     private final MirAidBeanDao mirAidBeanDao;
     private final PayPassAidBeanDao payPassAidBeanDao;
-    private final PayWaveInterFloorLimitBeanDao payWaveInterFloorLimitBeanDao;
     private final PaywaveAidBeanDao paywaveAidBeanDao;
     private final PBOCAidBeanDao pBOCAidBeanDao;
     private final PureAidBeanDao pureAidBeanDao;
@@ -178,8 +174,6 @@ public class DaoSession extends AbstractDaoSession {
         payPassAidBeanDaoConfig = daoConfigMap.get(PayPassAidBeanDao.class).clone();
         payPassAidBeanDaoConfig.initIdentityScope(type);
 
-        payWaveInterFloorLimitBeanDaoConfig = daoConfigMap.get(PayWaveInterFloorLimitBeanDao.class).clone();
-        payWaveInterFloorLimitBeanDaoConfig.initIdentityScope(type);
 
         paywaveAidBeanDaoConfig = daoConfigMap.get(PaywaveAidBeanDao.class).clone();
         paywaveAidBeanDaoConfig.initIdentityScope(type);
@@ -213,7 +207,6 @@ public class DaoSession extends AbstractDaoSession {
         jcbAidBeanDao = new JcbAidBeanDao(jcbAidBeanDaoConfig, this);
         mirAidBeanDao = new MirAidBeanDao(mirAidBeanDaoConfig, this);
         payPassAidBeanDao = new PayPassAidBeanDao(payPassAidBeanDaoConfig, this);
-        payWaveInterFloorLimitBeanDao = new PayWaveInterFloorLimitBeanDao(payWaveInterFloorLimitBeanDaoConfig, this);
         paywaveAidBeanDao = new PaywaveAidBeanDao(paywaveAidBeanDaoConfig, this);
         pBOCAidBeanDao = new PBOCAidBeanDao(pBOCAidBeanDaoConfig, this);
         pureAidBeanDao = new PureAidBeanDao(pureAidBeanDaoConfig, this);
@@ -238,7 +231,6 @@ public class DaoSession extends AbstractDaoSession {
         registerDao(JcbAidBean.class, jcbAidBeanDao);
         registerDao(MirAidBean.class, mirAidBeanDao);
         registerDao(PayPassAidBean.class, payPassAidBeanDao);
-        registerDao(PayWaveInterFloorLimitBean.class, payWaveInterFloorLimitBeanDao);
         registerDao(PaywaveAidBean.class, paywaveAidBeanDao);
         registerDao(PBOCAidBean.class, pBOCAidBeanDao);
         registerDao(PureAidBean.class, pureAidBeanDao);
@@ -265,7 +257,6 @@ public class DaoSession extends AbstractDaoSession {
         jcbAidBeanDaoConfig.clearIdentityScope();
         mirAidBeanDaoConfig.clearIdentityScope();
         payPassAidBeanDaoConfig.clearIdentityScope();
-        payWaveInterFloorLimitBeanDaoConfig.clearIdentityScope();
         paywaveAidBeanDaoConfig.clearIdentityScope();
         pBOCAidBeanDaoConfig.clearIdentityScope();
         pureAidBeanDaoConfig.clearIdentityScope();
@@ -346,10 +337,6 @@ public class DaoSession extends AbstractDaoSession {
 
     public PayPassAidBeanDao getPayPassAidBeanDao() {
         return payPassAidBeanDao;
-    }
-
-    public PayWaveInterFloorLimitBeanDao getPayWaveInterFloorLimitBeanDao() {
-        return payWaveInterFloorLimitBeanDao;
     }
 
     public PaywaveAidBeanDao getPaywaveAidBeanDao() {

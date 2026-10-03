@@ -29,7 +29,6 @@ import com.pax.bizentity.db.helper.MirAidDbHelper;
 import com.pax.bizentity.db.helper.PBOCAidDbHelper;
 import com.pax.bizentity.db.helper.PaypassAidDbHelper;
 import com.pax.bizentity.db.helper.PaywaveAidDbHelper;
-import com.pax.bizentity.db.helper.PaywaveFloorLimitDbHelper;
 import com.pax.bizentity.db.helper.PureAidDbHelper;
 import com.pax.bizentity.db.helper.RupayAidDbHelper;
 import com.pax.bizentity.entity.Acquirer;
@@ -200,17 +199,8 @@ public class EmvParamService {
         List<PaywaveAidBean> aid = payWaveParamBean.getAid();
         boolean aidInsert = false;
         if (aid != null){
+            // The per-transaction-type limits are stored in each paywave_aid row (FLOOR_LIMITS).
             aidInsert = PaywaveAidDbHelper.getInstance().insert(aid);
-            for (PaywaveAidBean item : aid){
-                List<PayWaveInterFloorLimitBean> interWareFloorLimit = item.getInterWareFloorLimit();
-                if (interWareFloorLimit == null){
-                    continue;
-                }
-                for (PayWaveInterFloorLimitBean interFloorLimitBean: interWareFloorLimit){
-                    interFloorLimitBean.setPaywaveAidId(item.getId());
-                }
-                PaywaveFloorLimitDbHelper.getInstance().insert(interWareFloorLimit);
-            }
         }
         cachedBuilder.setPayWaveParam(paywaveConvert(payWaveParamBean));
         return aidInsert;

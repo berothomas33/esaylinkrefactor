@@ -18,21 +18,13 @@
 package com.pax.bizentity.entity.clss.paywave;
 
 import java.io.Serializable;
-import org.greenrobot.greendao.annotation.Entity;
-import org.greenrobot.greendao.annotation.Generated;
-import org.greenrobot.greendao.annotation.Id;
-import org.greenrobot.greendao.annotation.Property;
 
-@Entity(nameInDb = "paywave_floor_limit")
+/**
+ * Contactless limits for one transaction type (9C) of a Visa AID. Not a table of its own: the
+ * list for an AID is stored as JSON in paywave_aid.FLOOR_LIMITS ({@link FloorLimitsConverter}).
+ */
 public class PayWaveInterFloorLimitBean implements Serializable {
     private static final long serialVersionUID = 1L;
-    private static final String ID_FIELD_NAME = "paywave_floor_limit_id";
-    private static final String FOREIGN_KEY = "paywaveAidId";
-    @Id(autoincrement = true)
-    @Property(nameInDb = ID_FIELD_NAME)
-    private Long id;
-    @Property(nameInDb = FOREIGN_KEY)
-    private Long paywaveAidId;
     private byte transType;
     private long floorLimit;
     private long transLimit;
@@ -41,12 +33,8 @@ public class PayWaveInterFloorLimitBean implements Serializable {
     private byte cvmLimitFlag;
     private byte floorLimitFlag;
 
-    @Generated(hash = 627473974)
-    public PayWaveInterFloorLimitBean(Long id, Long paywaveAidId, byte transType, long floorLimit,
-            long transLimit, long cvmLimit, byte transLimitFlag, byte cvmLimitFlag,
-            byte floorLimitFlag) {
-        this.id = id;
-        this.paywaveAidId = paywaveAidId;
+    public PayWaveInterFloorLimitBean(byte transType, long floorLimit, long transLimit,
+            long cvmLimit, byte transLimitFlag, byte cvmLimitFlag, byte floorLimitFlag) {
         this.transType = transType;
         this.floorLimit = floorLimit;
         this.transLimit = transLimit;
@@ -56,24 +44,7 @@ public class PayWaveInterFloorLimitBean implements Serializable {
         this.floorLimitFlag = floorLimitFlag;
     }
 
-    @Generated(hash = 1224974087)
     public PayWaveInterFloorLimitBean() {
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public Long getPaywaveAidId() {
-        return paywaveAidId;
-    }
-
-    public void setPaywaveAidId(Long paywaveAidId) {
-        this.paywaveAidId = paywaveAidId;
     }
 
     public byte getTransType() {
