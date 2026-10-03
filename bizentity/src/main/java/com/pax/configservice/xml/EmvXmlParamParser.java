@@ -4,6 +4,7 @@ import com.pax.bizentity.entity.CapkParamBean;
 import com.pax.bizentity.entity.CapkRevokeBean;
 import com.pax.bizentity.entity.EmvAid;
 import com.pax.bizentity.entity.EmvCapk;
+import com.pax.commonlib.utils.LogUtils;
 
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
@@ -11,7 +12,9 @@ import org.xml.sax.SAXException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.xml.parsers.ParserConfigurationException;
 
@@ -44,6 +47,8 @@ import androidx.annotation.Nullable;
  * </ul>
  */
 public final class EmvXmlParamParser {
+
+    private static final String TAG = "EmvXmlParamParser";
 
     /** No per-AID PIN-capability tag in this file — default to supporting online PIN (matches
      * the bundled contactAid.json's own primary entries) rather than silently disabling it. */
@@ -78,18 +83,34 @@ public final class EmvXmlParamParser {
         List<Element> cardSchemes = XmlDomUtils.children(cardSchemeConfiguration, "CARDSCHEME");
 
         Element aidList = XmlDomUtils.firstChild(root, "AIDLIST");
+        List<Element> aidElements = XmlDomUtils.children(aidList, "AID");
+        List<Element> icsPerAid = new ArrayList<>();
+        for (Element aidEl : aidElements) {
+            icsPerAid.add(resolveIcs(XmlDomUtils.text(aidEl, "ApplicationID", ""), icsConfiguration, cardSchemes));
+        }
+        Element fallbackIcs = fallbackIcs(icsPerAid, icsConfiguration);
+
         List<EmvAid> aids = new ArrayList<>();
-        for (Element aidEl : XmlDomUtils.children(aidList, "AID")) {
-            aids.add(parseAid(aidEl, icsConfiguration, cardSchemes));
+        for (int i = 0; i < aidElements.size(); i++) {
+            Element aidEl = aidElements.get(i);
+            Element ics = icsPerAid.get(i);
+            if (ics == null) {
+                // Not mapped in CARDSCHEMECONFIGRATION: without a profile 9F33/9F40 would be
+                // empty and 9F35 FF — and the contact kernel takes these from the first AID.
+                ics = fallbackIcs;
+                LogUtils.w(TAG, "AID " + XmlDomUtils.text(aidEl, "ApplicationID", "")
+                        + " has no CARDSCHEMECONFIGRATION entry — using ICS profile "
+                        + XmlDomUtils.text(ics, "Type"));
+            }
+            aids.add(parseAid(aidEl, ics));
         }
 
         CapkParamBean capk = parseCapk(root);
         return new Result(aids, capk);
     }
 
-    private static EmvAid parseAid(Element aidEl, Element icsConfiguration, List<Element> cardSchemes) {
+    private static EmvAid parseAid(Element aidEl, @Nullable Element ics) {
         String aid = XmlDomUtils.text(aidEl, "ApplicationID", "");
-        Element ics = resolveIcs(aid, icsConfiguration, cardSchemes);
 
         String cardDataInput = XmlDomUtils.text(ics, "CardDataInputCapability", "");
         String cvmCapability = XmlDomUtils.text(ics, "CVMCapability", "");
@@ -161,6 +182,29 @@ public final class EmvXmlParamParser {
             }
         }
         return null;
+    }
+
+    /**
+     * The ICS profile for an AID that {@code CARDSCHEMECONFIGRATION} doesn't map: the profile most
+     * of the mapped AIDs use (the first one on a tie), else the first {@code <ICS>} in the file.
+     */
+    @Nullable
+    static Element fallbackIcs(List<Element> icsPerAid, @Nullable Element icsConfiguration) {
+        Map<Element, Integer> uses = new IdentityHashMap<>();
+        Element best = null;
+        int bestUses = 0;
+        for (Element ics : icsPerAid) {
+            if (ics == null) {
+                continue;
+            }
+            int n = uses.containsKey(ics) ? uses.get(ics) + 1 : 1;
+            uses.put(ics, n);
+            if (n > bestUses) {
+                best = ics;
+                bestUses = n;
+            }
+        }
+        return best != null ? best : XmlDomUtils.firstChild(icsConfiguration, "ICS");
     }
 
     private static CapkParamBean parseCapk(Element root) {
