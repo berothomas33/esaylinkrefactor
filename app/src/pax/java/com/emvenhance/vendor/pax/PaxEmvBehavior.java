@@ -7,6 +7,7 @@ import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
@@ -639,16 +640,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
                 return ret;
             }
-        }
-        // Online-only terminal: no contactless transaction is approved without the host. A kernel
-        // "approved offline" — a card TC, or a refund: Visa cards answer refunds with an AAC
-        // that the Visa kernel reports as TC — goes to the host like an ARQC.
-        if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
-            LogUtils.w(TAG, "Kernel approved offline — online-only terminal, sending to the host");
-            requireEngine().apduTrace().note("PICC",
-                    "kernel approved offline — online-only terminal, sending to the host");
-            transResultEnum = TransResultEnum.RESULT_REQ_ONLINE;
-            clsTransResult.setTransResult(transResultEnum);
         }
         // check whether need goes online
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
@@ -1801,12 +1792,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // verified against those two methods directly, not assumed from the name. ────────────
 
     // [SHARED — both checkContactResult() and checkContactlessResult() call this]
-    // Online-only terminal: nothing is approved without the host. Contactless sends a kernel
-    // offline approval to the host (startContactlessTransProcess) and contact always goes online
-    // (ContactProcess forceOnline), so reaching this is unexpected — decline, never approve.
+    // Online-only terminal: nothing is approved without the host, so a kernel "approved offline"
+    // is declined. Contact always goes online (ContactProcess forceOnline) and a Visa sale's TTQ
+    // asks for an ARQC, so in practice this is a refund: the card answers it with an AAC (cards
+    // don't authorize refunds) and the Visa kernel reports TC.
     public void offlineApproved(boolean needSignature) {
-        LogUtils.e(TAG, "Offline approval reached — online-only terminal, declining");
-        completeDeclined("Declined: offline approval not allowed (online-only terminal)");
+        boolean refund = activeConfig != null && activeConfig.getType() == TransactionType.REFUND;
+        String reason = refund
+                ? "Declined: refund needs the host, and online refund isn't supported yet"
+                : "Declined: offline approval not allowed (online-only terminal)";
+        LogUtils.w(TAG, "Kernel approved offline — " + reason);
+        requireEngine().apduTrace().note("EMV", "kernel approved offline — " + reason);
+        completeDeclined(reason);
     }
 
     // [SHARED — 2-arg overload; contact's checkContactResult() calls this one specifically]
