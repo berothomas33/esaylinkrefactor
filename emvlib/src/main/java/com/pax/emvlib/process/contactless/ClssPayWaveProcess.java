@@ -135,7 +135,33 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
         return RetCode.EMV_OK;
     }
 
+    /**
+     * Logs the Visa reader settings that decide phone (CDCVM) and PIN handling, from the TTQ
+     * (Terminal Transaction Qualifiers, 9F66) loaded from GreenDAO: byte 1 bit 3 online PIN,
+     * bit 2 signature; byte 3 bit 7 Consumer Device CVM — without it, a Visa phone can't verify
+     * the cardholder itself.
+     */
+    private void logReaderTtq() {
+        byte[] ttq = clssParam.getTTQ();
+        if (ttq == null || ttq.length < 3) {
+            LogUtils.w(TAG, "PayWave params: TTQ (9F66) missing — check ReaderTTQ in the host XML");
+            return;
+        }
+        boolean cdcvm = (ttq[2] & 0x40) != 0;
+        LogUtils.i(TAG, "PayWave params: 9F66 TTQ=" + ConvertUtils.bcd2Str(ttq)
+                + " 9F35 TermType=" + String.format("%02X", clssParam.getTermType() & 0xFF)
+                + " SecurityCap=" + String.format("%02X", clssParam.getSecurityCapability() & 0xFF)
+                + " onlinePIN=" + ((ttq[0] & 0x04) != 0)
+                + " signature=" + ((ttq[0] & 0x02) != 0)
+                + " consumerDeviceCVM=" + cdcvm);
+        if (!cdcvm) {
+            LogUtils.w(TAG, "PayWave TTQ byte 3 bit 7 (Consumer Device CVM supported) is off — "
+                    + "Visa phones can't verify the cardholder on the phone");
+        }
+    }
+
     private int setTransParam() {
+        logReaderTtq();
         byte transType = clssParam.getTransType();
         int index = EmvParamConvert.getPayWaveInterFloorLimitIndexByTransType(transType,
                 clssParam.getInterFloorLimitList());
@@ -217,9 +243,13 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
             clssStatusListener.onRemoveCard();
         }
 
-        if (ret == RetCode.CLSS_REFER_CONSUMER_DEVICE
-                && preProcInterInfo != null && (preProcInterInfo.aucReaderTTQ[0] & 0x20) == 0x20) {
-            LogUtils.e(TAG, "Clss_Proctrans_Wave CLSS_REFER_CONSUMER_DEVICE and ttq support see phone = " + ret);
+        // The kernel returns CLSS_REFER_CONSUMER_DEVICE when the card (a phone) asks the
+        // cardholder to verify on it and tap again — "See Phone". This used to also require TTQ
+        // byte 1 bit 6 (0x20), which is "qVSDC supported", not a CDCVM bit, and could turn a See
+        // Phone into a decline. Consumer Device CVM support is TTQ byte 3 bit 7 — see
+        // logReaderTtq().
+        if (ret == RetCode.CLSS_REFER_CONSUMER_DEVICE) {
+            LogUtils.i(TAG, "Clss_Proctrans_Wave CLSS_REFER_CONSUMER_DEVICE → see phone");
             return new TransResult(ret, TransResultEnum.RESULT_CLSS_SEE_PHONE, CvmResultEnum.CVM_CONSUMER_DEVICE);
         } else if (ret == RetCode.CLSS_USE_CONTACT) {
             return new TransResult(ret, TransResultEnum.RESULT_CLSS_TRY_ANOTHER_INTERFACE, CvmResultEnum.CVM_NO_CVM);

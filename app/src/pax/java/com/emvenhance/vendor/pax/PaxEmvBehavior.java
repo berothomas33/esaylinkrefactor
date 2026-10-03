@@ -1765,8 +1765,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACTLESS]
     @Override
     public void onDetect2ndTap() {
-        requireEngine().notifyTransactionStep(TransactionStepEvent.of(
-                TransactionStep.WAITING_FOR_CARD, "Present card again"));
+        // Visa issuer update needs the same card tapped a second time — show the card UI again
+        // with the reason, like every other re-presentment (KEY_RETRY_PROMPT).
+        String prompt = "Tap the same card again to finish";
+        requireEngine().apduTrace().note("PICC", "2nd tap requested — " + prompt);
+        requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
+                TransactionStep.WAITING_FOR_CARD).message(prompt)
+                .put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt).build());
+        announceStep(EmvStep.SEARCH_CARD, prompt);
     }
 
     // [CONTACTLESS]
