@@ -19,6 +19,7 @@ package com.pax.emvlib.process.contactless;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.emvbase.param.clss.PayWaveAid;
+import com.pax.emvbase.param.clss.PayWaveInterFloorLimit;
 import com.pax.emvbase.param.clss.PayWaveParam;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.TransResult;
@@ -133,11 +134,17 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
         byte transType = clssParam.getTransType();
         int index = EmvParamConvert.getPayWaveInterFloorLimitIndexByTransType(transType,
                 clssParam.getInterFloorLimitList());
+        PayWaveInterFloorLimit limits = clssParam.getInterFloorLimitList().get(index);
+        LogUtils.i(TAG, String.format("PayWave limits for 9C=%02X: CVM=%d (flag %d) floor=%d (flag %d) "
+                        + "trans=%d (flag %d)", transType & 0xFF,
+                limits.getContactlessCvmLimit(), limits.getCvmLimitSupported(),
+                limits.getContactlessFloorLimit(), limits.getContactlessFloorLimitSupported(),
+                limits.getContactlessTransactionLimit(), limits.getContactlessTransactionLimitSupported()));
         byte area = clssParam.getDomesticOnly(); //supports domestic and international clss transaction
         byte[] cvmTypesSupport = toCvmReqTypes(clssParam.getTTQ());
         byte enDDAVerNo = clssParam.getEnDDAVerNo();//Reader support all DDA version IC card offline transaction
 
-        Clss_VisaAidParam clssVisaAidParam = new Clss_VisaAidParam(clssParam.getInterFloorLimitList().get(index).getContactlessFloorLimit(),
+        Clss_VisaAidParam clssVisaAidParam = new Clss_VisaAidParam(limits.getContactlessFloorLimit(),
                 area, (byte) cvmTypesSupport.length, cvmTypesSupport, enDDAVerNo);
 
         int ret = ClssWaveApi.Clss_SetVisaAidParam_Wave(clssVisaAidParam);

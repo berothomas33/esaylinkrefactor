@@ -16,6 +16,7 @@
 
 package com.pax.emvlib.base.utils;
 
+import com.pax.commonlib.utils.LogUtils;
 import com.pax.emvbase.param.clss.AmexAid;
 import com.pax.emvbase.param.clss.DpasAid;
 import com.pax.emvbase.param.clss.EFTAid;
@@ -279,12 +280,19 @@ public class EmvParamConvert {
         }
     }
 
+    /**
+     * The PayWave limits entry for this transaction type (9C). With no entry for it, the first
+     * entry (the host lists sale first) is used, and a warning says so.
+     */
     public static int getPayWaveInterFloorLimitIndexByTransType(byte transType, List<PayWaveInterFloorLimit> list){
         for (int i = 0; i < list.size(); i++) {
             if (list.get(i).getTransactionType() == transType) {
                 return i;
             }
         }
+        LogUtils.w(TAG, String.format("PayWave limits: no entry for transaction type 9C=%02X — using the "
+                + "first entry (9C=%02X)", transType & 0xFF,
+                list.isEmpty() ? 0 : list.get(0).getTransactionType() & 0xFF));
         return 0;
     }
 }
