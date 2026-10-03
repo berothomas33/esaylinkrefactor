@@ -42,7 +42,6 @@ public class DaoMaster extends AbstractDaoMaster {
         PayPassAidBeanDao.createTable(db, ifNotExists);
         PayWaveInterFloorLimitBeanDao.createTable(db, ifNotExists);
         PaywaveAidBeanDao.createTable(db, ifNotExists);
-        PaywaveDrlBeanDao.createTable(db, ifNotExists);
         PBOCAidBeanDao.createTable(db, ifNotExists);
         PureAidBeanDao.createTable(db, ifNotExists);
         RupayAidBeanDao.createTable(db, ifNotExists);
@@ -71,7 +70,6 @@ public class DaoMaster extends AbstractDaoMaster {
         PayPassAidBeanDao.dropTable(db, ifExists);
         PayWaveInterFloorLimitBeanDao.dropTable(db, ifExists);
         PaywaveAidBeanDao.dropTable(db, ifExists);
-        PaywaveDrlBeanDao.dropTable(db, ifExists);
         PBOCAidBeanDao.dropTable(db, ifExists);
         PureAidBeanDao.dropTable(db, ifExists);
         RupayAidBeanDao.dropTable(db, ifExists);
@@ -114,7 +112,6 @@ public class DaoMaster extends AbstractDaoMaster {
         registerDaoClass(PayPassAidBeanDao.class);
         registerDaoClass(PayWaveInterFloorLimitBeanDao.class);
         registerDaoClass(PaywaveAidBeanDao.class);
-        registerDaoClass(PaywaveDrlBeanDao.class);
         registerDaoClass(PBOCAidBeanDao.class);
         registerDaoClass(PureAidBeanDao.class);
         registerDaoClass(RupayAidBeanDao.class);

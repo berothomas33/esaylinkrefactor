@@ -8,7 +8,6 @@ import com.pax.bizentity.db.helper.CapkRevokeDbHelper;
 import com.pax.bizentity.db.helper.GreendaoHelper;
 import com.pax.bizentity.db.helper.PaypassAidDbHelper;
 import com.pax.bizentity.db.helper.PaywaveAidDbHelper;
-import com.pax.bizentity.db.helper.PaywaveDrlDbHelper;
 import com.pax.bizentity.db.helper.PaywaveFloorLimitDbHelper;
 import com.pax.bizentity.entity.EmvAid;
 import com.pax.commonlib.application.BaseApplication;
@@ -151,7 +150,6 @@ public final class EmvParamUpdater {
             if (parsed.payWave != null && notEmpty(parsed.payWave.getAid())) {
                 PaywaveAidDbHelper.getInstance().deleteAll();
                 PaywaveFloorLimitDbHelper.getInstance().deleteAll();
-                PaywaveDrlDbHelper.getInstance().deleteAll();
                 if (service.insertPaywaveParam(parsed.payWave)) {
                     result.applied("PayWave", parsed.payWave.getAid().size());
                 } else {

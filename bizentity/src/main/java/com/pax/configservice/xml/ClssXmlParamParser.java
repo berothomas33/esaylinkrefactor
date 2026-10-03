@@ -8,7 +8,6 @@ import com.pax.bizentity.entity.clss.paypass.PayPassParamBean;
 import com.pax.bizentity.entity.clss.paywave.PayWaveInterFloorLimitBean;
 import com.pax.bizentity.entity.clss.paywave.PayWaveParamBean;
 import com.pax.bizentity.entity.clss.paywave.PaywaveAidBean;
-import com.pax.bizentity.entity.clss.paywave.PaywaveDrlBean;
 import com.pax.commonlib.utils.LogUtils;
 
 import org.w3c.dom.Element;
@@ -250,15 +249,8 @@ public final class ClssXmlParamParser {
             aids.add(aid);
         }
 
-        Element programIdList = XmlDomUtils.firstChild(payWaveEl, "PROGRAMIDLIST");
-        List<PaywaveDrlBean> programs = new ArrayList<>();
-        for (Element programEl : XmlDomUtils.children(programIdList, "PROGRAMID")) {
-            programs.add(parsePayWaveProgram(programEl));
-        }
-
         PayWaveParamBean bean = new PayWaveParamBean();
         bean.setAid(aids);
-        bean.setProgramID(programs);
         return bean;
     }
 
@@ -290,21 +282,6 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.byteOf(entry, "ContactlessTransactionLimitSupported", 0),
                 XmlDomUtils.byteOf(entry, "CVMLimitSupported", 0),
                 XmlDomUtils.byteOf(entry, "TerminalFloorLimitSupported", 0));
-    }
-
-    private static PaywaveDrlBean parsePayWaveProgram(Element programEl) {
-        return new PaywaveDrlBean(
-                XmlDomUtils.text(programEl, "ProgramId", ""),
-                XmlDomUtils.longOf(programEl, "ContactlessTransactionLimit", 0),
-                XmlDomUtils.byteOf(programEl, "ContactlessTransactionLimitSupported", 0),
-                XmlDomUtils.longOf(programEl, "ContactlessCVMLimit", 0),
-                XmlDomUtils.byteOf(programEl, "CVMLimitSupported", 0),
-                XmlDomUtils.longOf(programEl, "TerminalFloorLimit", 0),
-                XmlDomUtils.byteOf(programEl, "TerminalFloorLimitSupported", 0),
-                XmlDomUtils.byteOf(programEl, "StatusCheckSupported", 0),
-                XmlDomUtils.byteOf(programEl, "ZeroAmountNoAllowed", 0),
-                XmlDomUtils.byteOf(programEl, "CryptogramVersion17Supported", 0),
-                XmlDomUtils.text(programEl, "ReaderTTQ"));
     }
 
     // ─── Amex ExpressPay ───────────────────────────────────────────────────

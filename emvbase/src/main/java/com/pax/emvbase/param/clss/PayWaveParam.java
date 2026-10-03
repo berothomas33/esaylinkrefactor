@@ -42,9 +42,6 @@ public class PayWaveParam extends BaseParam<PayWaveAid> {
     private byte domesticOnly;
     private byte enDDAVerNo;
 
-    // Other
-    private List<PayWaveProgramId> waveProgramIdList;
-
     public PayWaveParam() {
         // You can set default values for some fields here
         domesticOnly = 0x00;
@@ -92,15 +89,6 @@ public class PayWaveParam extends BaseParam<PayWaveAid> {
 
     public short getMerchantNameLocationLen() {
         return merchantNameLocationLen;
-    }
-
-    public List<PayWaveProgramId> getWaveProgramIdList() {
-        return waveProgramIdList;
-    }
-
-    public void setWaveProgramIdList(
-            List<PayWaveProgramId> waveProgramIdList) {
-        this.waveProgramIdList = waveProgramIdList;
     }
 
     public byte getReferCurrExp() {

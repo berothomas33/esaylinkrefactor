@@ -29,7 +29,6 @@ import com.pax.bizentity.db.helper.MirAidDbHelper;
 import com.pax.bizentity.db.helper.PBOCAidDbHelper;
 import com.pax.bizentity.db.helper.PaypassAidDbHelper;
 import com.pax.bizentity.db.helper.PaywaveAidDbHelper;
-import com.pax.bizentity.db.helper.PaywaveDrlDbHelper;
 import com.pax.bizentity.db.helper.PaywaveFloorLimitDbHelper;
 import com.pax.bizentity.db.helper.PureAidDbHelper;
 import com.pax.bizentity.db.helper.RupayAidDbHelper;
@@ -54,7 +53,6 @@ import com.pax.bizentity.entity.clss.paypass.PayPassParamBean;
 import com.pax.bizentity.entity.clss.paywave.PayWaveInterFloorLimitBean;
 import com.pax.bizentity.entity.clss.paywave.PayWaveParamBean;
 import com.pax.bizentity.entity.clss.paywave.PaywaveAidBean;
-import com.pax.bizentity.entity.clss.paywave.PaywaveDrlBean;
 import com.pax.bizentity.entity.clss.pboc.PBOCAidBean;
 import com.pax.bizentity.entity.clss.pboc.PBOCParamBean;
 import com.pax.bizentity.entity.clss.pure.PureAidBean;
@@ -83,7 +81,6 @@ import com.pax.emvbase.param.clss.PayPassParam;
 import com.pax.emvbase.param.clss.PayWaveAid;
 import com.pax.emvbase.param.clss.PayWaveInterFloorLimit;
 import com.pax.emvbase.param.clss.PayWaveParam;
-import com.pax.emvbase.param.clss.PayWaveProgramId;
 import com.pax.emvbase.param.clss.PbocAid;
 import com.pax.emvbase.param.clss.PbocParam;
 import com.pax.emvbase.param.clss.PureAid;
@@ -201,7 +198,6 @@ public class EmvParamService {
      */
     public boolean insertPaywaveParam(PayWaveParamBean payWaveParamBean) {
         List<PaywaveAidBean> aid = payWaveParamBean.getAid();
-        List<PaywaveDrlBean> programID = payWaveParamBean.getProgramID();
         boolean aidInsert = false;
         if (aid != null){
             aidInsert = PaywaveAidDbHelper.getInstance().insert(aid);
@@ -215,9 +211,6 @@ public class EmvParamService {
                 }
                 PaywaveFloorLimitDbHelper.getInstance().insert(interWareFloorLimit);
             }
-        }
-        if (programID != null){
-            PaywaveDrlDbHelper.getInstance().insert(programID);
         }
         cachedBuilder.setPayWaveParam(paywaveConvert(payWaveParamBean));
         return aidInsert;
@@ -607,7 +600,6 @@ public class EmvParamService {
 
     private PayWaveParam paywaveConvert(PayWaveParamBean payWaveParamBean) {
         List<PaywaveAidBean> paywaveAidBeans = payWaveParamBean.getAid();
-        List<PaywaveDrlBean> programID = payWaveParamBean.getProgramID();
         PayWaveParam param = new PayWaveParam();
         if (paywaveAidBeans != null && paywaveAidBeans.size() > 0){
             List<PayWaveAid> payWaveAids = new ArrayList<>();
@@ -633,25 +625,6 @@ public class EmvParamService {
                 payWaveAids.add(payWaveAid);
             }
             param.setAidList(payWaveAids);
-        }
-        if (programID != null && programID.size() > 0){
-            List<PayWaveProgramId> waveProgramIdList = new ArrayList<>();
-            for (PaywaveDrlBean item : programID){
-                PayWaveProgramId waveProgramId = new PayWaveProgramId();
-                waveProgramId.setProgramId(item.getProgramIdBytes());
-                waveProgramId.setContactlessTransactionLimit(item.getTransLimit());
-                waveProgramId.setContactlessTransactionLimitSupported(item.getTransLimitFlag());
-                waveProgramId.setContactlessFloorLimit(item.getFloorLimit());
-                waveProgramId.setContactlessFloorLimitSupported(item.getFloorLimitFlag());
-                waveProgramId.setContactlessCvmLimit(item.getCvmLimit());
-                waveProgramId.setCvmLimitSupported(item.getCvmLimitFlag());
-                waveProgramId.setCryptogramVersion17Supported(item.getCrypto17Flag());
-                waveProgramId.setZeroAmountNoAllowed(item.getAmountZeroNoAllowed());
-                waveProgramId.setStatusCheckSupported(item.getStatusCheckFlag());
-                waveProgramId.setReaderTtq(item.getTtqBytes());
-                waveProgramIdList.add(waveProgramId);
-            }
-            param.setWaveProgramIdList(waveProgramIdList);
         }
         return param;
     }
@@ -888,10 +861,8 @@ public class EmvParamService {
         cachedBuilder.setPassParam(paypassConvert(payPassParamBean));
 
         List<PaywaveAidBean> paywaveAidBeans = PaywaveAidDbHelper.getInstance().loadAll();
-        List<PaywaveDrlBean> paywaveDrlBeans = PaywaveDrlDbHelper.getInstance().loadAll();
         PayWaveParamBean payWaveParamBean = new PayWaveParamBean();
         payWaveParamBean.setAid(paywaveAidBeans);
-        payWaveParamBean.setProgramID(paywaveDrlBeans);
         cachedBuilder.setPayWaveParam(paywaveConvert(payWaveParamBean));
 
         List<DpasAidBean> dpasAidBeans = DpasAidDbHelper.getInstance().loadAll();

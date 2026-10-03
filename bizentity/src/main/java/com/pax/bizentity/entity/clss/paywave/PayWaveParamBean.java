@@ -21,7 +21,6 @@ import java.util.List;
 
 public class PayWaveParamBean {
     private List<PaywaveAidBean> aid;
-    private List<PaywaveDrlBean> programID;
 
     public List<PaywaveAidBean> getAid() {
         return aid;
@@ -29,13 +28,5 @@ public class PayWaveParamBean {
 
     public void setAid(List<PaywaveAidBean> aid) {
         this.aid = aid;
-    }
-
-    public List<PaywaveDrlBean> getProgramID() {
-        return programID;
-    }
-
-    public void setProgramID(List<PaywaveDrlBean> programID) {
-        this.programID = programID;
     }
 }

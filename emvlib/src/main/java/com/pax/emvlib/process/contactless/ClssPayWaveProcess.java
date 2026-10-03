@@ -20,7 +20,6 @@ import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.emvbase.param.clss.PayWaveAid;
 import com.pax.emvbase.param.clss.PayWaveParam;
-import com.pax.emvbase.param.clss.PayWaveProgramId;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.TransResult;
 import com.pax.emvbase.process.enums.CvmResultEnum;
@@ -30,7 +29,6 @@ import com.pax.emvlib.base.contactless.ClssKernelProcess;
 import com.pax.emvlib.base.utils.EmvParamConvert;
 import com.pax.jemv.clcommon.ACType;
 import com.pax.jemv.clcommon.ByteArray;
-import com.pax.jemv.clcommon.Clss_ProgramID;
 import com.pax.jemv.clcommon.Clss_ReaderParam;
 import com.pax.jemv.clcommon.Clss_VisaAidParam;
 import com.pax.jemv.clcommon.CvmType;
@@ -43,7 +41,6 @@ import com.pax.jemv.clcommon.TransactionPath;
 import com.pax.jemv.entrypoint.api.ClssEntryApi;
 import com.pax.jemv.paywave.api.ClssWaveApi;
 import java.util.Arrays;
-import java.util.List;
 
 public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
     private static final String TAG = "ClssPayWaveProcess";
@@ -106,35 +103,6 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
         return new byte[0];
     }
 
-
-    private int setProgramIdParam(ByteArray programId) {
-        List<PayWaveProgramId> programIds = clssParam.getWaveProgramIdList();
-
-        for (PayWaveProgramId payWaveProgramId : programIds) {
-            if (Arrays.equals(programId.data, payWaveProgramId.getProgramId())) {
-                Clss_ProgramID clssProgramID = new Clss_ProgramID(payWaveProgramId.getContactlessTransactionLimit(),
-                        payWaveProgramId.getContactlessCvmLimit(),
-                        payWaveProgramId.getContactlessFloorLimit(),
-                        payWaveProgramId.getContactlessFloorLimit(),
-                        programId.data,
-                        (byte) programId.length,
-                        payWaveProgramId.getContactlessFloorLimitSupported(),
-                        payWaveProgramId.getContactlessTransactionLimitSupported(),
-                        payWaveProgramId.getCvmLimitSupported(),
-                        payWaveProgramId.getContactlessFloorLimitSupported(),
-                        payWaveProgramId.getStatusCheckSupported(),
-                        payWaveProgramId.getZeroAmountNoAllowed(),
-                        new byte[4]);
-                return ClssWaveApi.Clss_SetDRLParam_Wave(clssProgramID);
-            }
-
-        }
-
-        //if not find drl configure in paywave_param.clss_wave, continue.
-        //depend on business, also can return RetCode.CLSS_PARAM_ERR to abort transaction
-        return RetCode.EMV_OK;
-    }
-
     /**
      * Logs the Visa reader settings that decide phone (CDCVM) and PIN handling, from the TTQ
      * (Terminal Transaction Qualifiers, 9F66) loaded from GreenDAO: byte 1 bit 3 online PIN,
@@ -176,17 +144,6 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
         if (ret != RetCode.EMV_OK) {
             LogUtils.e(TAG, "Clss_SetVisaAidParam_Wave ret = " + ret);
             return ret;
-        }
-
-        ByteArray proID = new ByteArray();
-        ret = getTlv(0x9F5A, proID);
-        //card support program ID
-        if (ret == RetCode.EMV_OK) {
-            ret = setProgramIdParam(proID);
-            if (ret != 0) {
-                LogUtils.e(TAG, "setProgramIdParam ret = " + ret);
-                return ret;
-            }
         }
 
         return ClssWaveApi.Clss_SetTransData_Wave(transParam, preProcInterInfo);
