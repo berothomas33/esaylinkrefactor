@@ -220,8 +220,9 @@ public final class EmvEngine {
         try {
             result = communication.authorize(config).blockingGet();
         } catch (Exception e) {
-            result = AuthResult.declined("96",
-                    e.getMessage() != null ? e.getMessage() : "Online failed");
+            // No usable host answer (network, timeout, envelope error): online failed, not a
+            // host decline.
+            result = AuthResult.failed(e.getMessage() != null ? e.getMessage() : "Online failed");
         }
         notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, result.getMessage())

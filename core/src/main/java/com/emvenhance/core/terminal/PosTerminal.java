@@ -118,7 +118,16 @@ public abstract class PosTerminal {
      * Preferred UI entry point.
      */
     public final void acceptCard(TransactionType type, long amountMinor) {
-        startTransaction(new TransactionConfig(type, amountMinor, EntryMethod.ANY));
+        acceptCard(type, amountMinor, null);
+    }
+
+    /**
+     * {@link #acceptCard(TransactionType, long)} with the original sale's reference number, which
+     * a refund needs for the host — see {@link TransactionConfig#getReferenceNumber()}.
+     */
+    public final void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
+        startTransaction(new TransactionConfig(type, amountMinor, EntryMethod.ANY)
+                .withReferenceNumber(referenceNumber));
     }
 
     /**

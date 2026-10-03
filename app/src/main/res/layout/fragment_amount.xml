@@ -55,6 +55,41 @@
         android:textColor="?attr/colorError"
         android:visibility="gone" />
 
+    <!-- Refund only: the original sale's reference number (AmountFragment shows it on the
+         Refund tab). -->
+    <LinearLayout
+        android:id="@+id/referenceGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/label_reference_number" />
+
+        <EditText
+            android:id="@+id/referenceInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:autofillHints="none"
+            android:hint="@string/hint_reference_number"
+            android:inputType="text"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/referenceError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/reference_number_required"
+            android:textColor="?attr/colorError"
+            android:visibility="gone" />
+    </LinearLayout>
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnConfirmAmount"
         android:layout_width="match_parent"

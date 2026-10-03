@@ -1,6 +1,7 @@
 package com.emvenhance.ui;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
@@ -67,9 +68,13 @@ public class MainViewModel extends ViewModel {
         return terminal.apduTrace().wrapped(width);
     }
 
-    /** Preferred: accept chip / tap / swipe — vendor terminal decides. */
-    public void acceptCard(TransactionType type, long amountMinor) {
-        terminal.acceptCard(type, amountMinor);
+    /**
+     * Preferred: accept chip / tap / swipe — vendor terminal decides.
+     *
+     * @param referenceNumber the original sale's reference number, for a refund; else {@code null}
+     */
+    public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
+        terminal.acceptCard(type, amountMinor, referenceNumber);
     }
 
     public void cancel() {

@@ -16,6 +16,7 @@ import com.emvenhance.network.model.ExchangeRequest;
 import com.emvenhance.network.model.ExchangeResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
+import com.emvenhance.network.model.RefundRequest;
 import com.emvenhance.network.model.SaleExtraData;
 import com.emvenhance.network.model.SaleRequest;
 import com.emvenhance.network.model.SaleResponse;
@@ -93,6 +94,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
      * constraint that only a real device log caught, rejecting {@code "SALE"} outright.
      */
     private static final String TRANSACTION_TYPE_SALE = "PURCHASE";
+    /** {@code TransactionTypes.REFUND.getType()} in the old project. */
+    private static final String TRANSACTION_TYPE_REFUND = "REFUND";
 
     /**
      * CVM codes — see {@link #cvmCode}. {@link #CVM_ONLINE_PIN} = 2 is confirmed by a real
@@ -128,14 +131,29 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         this.sn = sn;
     }
 
+    /**
+     * Sends the transaction to the host by its type: SALE → {@code orchestration/sale}, REFUND →
+     * {@code orchestration/refund}, each after its own {@code orchestration/exchange}. Anything
+     * that can't go online — a type with no host request yet, a refund without the original
+     * reference number — is {@link AuthResult#failed online failed}: this terminal approves
+     * nothing offline, and a type is never sent as another (a refund sent as a PURCHASE would
+     * charge the card).
+     */
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
-        if (config.getType() == TransactionType.REFUND) {
-            // Every request below goes to the host as a PURCHASE (TRANSACTION_TYPE_SALE): a
-            // refund sent this way would charge the card instead of crediting it. Refunds don't go
-            // online until the host's refund request is implemented.
-            Log.w(TAG, "Refund not sent to the host — no refund request implemented yet");
-            return Single.just(AuthResult.declined(null, "Refund isn't supported online yet"));
+        TransactionType type = config.getType();
+        if (type == TransactionType.REFUND) {
+            String reference = config.getReferenceNumber();
+            if (reference == null || reference.trim().isEmpty()) {
+                Log.w(TAG, "Refund without the original reference number — not sent to the host");
+                return Single.just(AuthResult.failed(
+                        "Refund needs the original sale's reference number"));
+            }
+        } else if (type != TransactionType.SALE) {
+            // CASH_IN (POS-as-ATM deposit: atm/exchange + atm/deposit) has no request body yet —
+            // the old app's screen that built it wasn't shared.
+            Log.w(TAG, type + " has no host request yet — not sent to the host");
+            return Single.just(AuthResult.failed(type.getLabel() + " isn't supported online yet"));
         }
         EmvTransactionResult emvResult = config.getEmvResult();
         if (emvResult == null) {
@@ -171,16 +189,21 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
         String asyncRequestId = UUID.randomUUID().toString();
 
-        return exchange(headers, config, emvResult, tek, transactionKeyEncrypted, asyncRequestId)
-                .flatMap(exchangeResponse -> sale(headers, config, emvResult, tek, asyncRequestId))
+        boolean refund = config.getType() == TransactionType.REFUND;
+        String exchangeType = refund ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;
+        return exchange(headers, config, emvResult, tek, transactionKeyEncrypted, asyncRequestId, exchangeType)
+                .flatMap(exchangeResponse -> refund
+                        ? refund(headers, config, emvResult, tek, asyncRequestId)
+                        : sale(headers, config, emvResult, tek, asyncRequestId))
                 .map(SaleCommunicationBehavior::toAuthResult);
     }
 
     private Single<ExchangeResponse> exchange(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, byte[] tek, String transactionKeyEncrypted, String asyncRequestId) {
+            EmvTransactionResult emvResult, byte[] tek, String transactionKeyEncrypted, String asyncRequestId,
+            String transactionType) {
         int cvm = cvmCode(config, emvResult);
         ExchangeRequest exchangeRequest = new ExchangeRequest(
-                asyncRequestId, emvResult.getPan(), cvm, TRANSACTION_TYPE_SALE);
+                asyncRequestId, emvResult.getPan(), cvm, transactionType);
 
         String encSerializedRequest;
         try {
@@ -192,7 +215,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         }
 
         GeneralRequest request = GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
-                transactionKeyEncrypted, pinKeyToSend(config), TRANSACTION_TYPE_SALE);
+                transactionKeyEncrypted, pinKeyToSend(config), transactionType);
 
         return connection.exchange(headers, request)
                 .flatMap(response -> decryptEnvelope(response, tek, "Exchange", ExchangeResponse.class));
@@ -222,6 +245,32 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
         return connection.sale(saleHeaders, request)
                 .flatMap(response -> decryptEnvelope(response, tek, "Sale", SaleResponse.class));
+    }
+
+    /** {@code orchestration/refund} — same envelope and headers as {@link #sale}. */
+    private Single<SaleResponse> refund(Map<String, String> headers, TransactionConfig config,
+            EmvTransactionResult emvResult, byte[] tek, String asyncRequestId) {
+        RefundRequest refundRequest = buildRefundRequest(config, emvResult);
+
+        String encSerializedRequest;
+        try {
+            String serialized = gson.toJson(refundRequest);
+            logSerialized("REFUND_REQUEST", serialized);
+            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
+        } catch (GeneralSecurityException e) {
+            return Single.error(new SaleException("Failed to AES-encrypt the refund request", e));
+        }
+
+        GeneralRequest request = GeneralRequest.forSale(
+                encSerializedRequest, asyncRequestId, pinBlockToSend(config));
+
+        Map<String, String> refundHeaders = new HashMap<>(headers);
+        refundHeaders.put("mToken", hostSettings.getMToken());
+
+        // The old RefundResponse has SaleResponse's fields (responseCode, responseMessage,
+        // authCode, chipData, referenceNumber, ...), so it's decoded the same way.
+        return connection.refund(refundHeaders, request)
+                .flatMap(response -> decryptEnvelope(response, tek, "Refund", SaleResponse.class));
     }
 
     private <T> Single<T> decryptEnvelope(GeneralResponse response, byte[] tek, String step, Class<T> type) {
@@ -264,30 +313,38 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         }
     }
 
-    private SaleRequest buildSaleRequest(TransactionConfig config, EmvTransactionResult emvResult) {
-        int expirationMonth = 0;
-        int expirationYear = 0;
+    /** The card fields {@link SaleRequest} and {@link RefundRequest} share. */
+    private static final class CardFields {
+        int expirationMonth;
+        int expirationYear;
+        String trailer = "";
+    }
+
+    private static CardFields cardFields(EmvTransactionResult emvResult) {
+        CardFields fields = new CardFields();
         String expDate = emvResult.getExpDate();
         if (expDate != null && expDate.length() >= 4) {
             try {
-                expirationYear = Integer.parseInt(expDate.substring(0, 2));
-                expirationMonth = Integer.parseInt(expDate.substring(2, 4));
+                fields.expirationYear = Integer.parseInt(expDate.substring(0, 2));
+                fields.expirationMonth = Integer.parseInt(expDate.substring(2, 4));
             } catch (NumberFormatException ignored) {
                 // Leave both at 0 — matches the old project's getSaleRequest(), which also
                 // swallows a malformed expiry rather than failing the whole request.
             }
         }
 
-        String trailer = "";
         String pan = emvResult.getPan();
         String track2 = emvResult.getTrack2();
         if (track2 != null && pan != null && expDate != null) {
             String prefix = pan + "D" + expDate;
             if (track2.length() > prefix.length() && track2.startsWith(prefix)) {
-                trailer = track2.substring(prefix.length());
+                fields.trailer = track2.substring(prefix.length());
             }
         }
+        return fields;
+    }
 
+    private String extraDataJson(TransactionConfig config, EmvTransactionResult emvResult) {
         SaleExtraData extraData = new SaleExtraData(
                 emvResult.getAid() != null ? emvResult.getAid() : "",
                 emvResult.getEmvAppName() != null ? emvResult.getEmvAppName() : "",
@@ -295,6 +352,11 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 pinEnterMode(config, emvResult),
                 emvResult.getCardHolderName(),
                 cardTypeLabel(config.getMode()));
+        return gson.toJson(extraData);
+    }
+
+    private SaleRequest buildSaleRequest(TransactionConfig config, EmvTransactionResult emvResult) {
+        CardFields card = cardFields(emvResult);
 
         // SaleRequest#getAmount()/getNetAmount() are major-currency-unit doubles (e.g. 10.50),
         // not TransactionConfig#getAmountMinor()'s minor-unit long (cents) — see SaleRequest's
@@ -306,16 +368,36 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 amountMajor,
                 amountMajor,
                 cvmCode(config, emvResult),
-                pan,
+                emvResult.getPan(),
                 pinBlockToSend(config),
                 config.getIccData(),
-                expirationMonth,
-                expirationYear,
-                trailer,
+                card.expirationMonth,
+                card.expirationYear,
+                card.trailer,
                 PosEntryModeCodes.forEntryMethod(config.getMode()),
                 emvResult.getIssuerName(),
                 "false",
-                gson.toJson(extraData));
+                extraDataJson(config, emvResult));
+    }
+
+    /** Same card fields as {@link #buildSaleRequest}, plus the original sale's reference number. */
+    RefundRequest buildRefundRequest(TransactionConfig config, EmvTransactionResult emvResult) {
+        CardFields card = cardFields(emvResult);
+        return new RefundRequest(
+                config.getReferenceNumber() != null ? config.getReferenceNumber().trim() : "",
+                config.getAmountMinor() / 100.0,
+                cvmCode(config, emvResult),
+                emvResult.getPan(),
+                pinBlockToSend(config),
+                config.getIccData(),
+                card.expirationMonth,
+                card.expirationYear,
+                PosEntryModeCodes.forEntryMethod(config.getMode()),
+                emvResult.getIssuerName(),
+                card.trailer,
+                "false",
+                null,
+                extraDataJson(config, emvResult));
     }
 
     /**

@@ -641,6 +641,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return ret;
             }
         }
+        // Online-only terminal: nothing completes without the host. A refund goes online whatever
+        // the card answered (cards don't authorize refunds: they return an AAC, which the Visa
+        // kernel reports as TC), and so does any kernel "approved offline". There's no ARQC to
+        // complete in those cases, so the host's answer is the outcome.
+        if (needsHostWithoutArqc(transResultEnum, resultCode)) {
+            noteOnlineWithoutArqc(transResultEnum);
+            clsTransResult = hostOutcome(startOnlineProcess(), cvmResult);
+            return clsTransResult.getResultCode();
+        }
         // check whether need goes online
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
             OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
@@ -665,6 +674,41 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         return clsTransResult.getResultCode();
+    }
+
+    /**
+     * True when the card finished without an ARQC but the transaction still has to go to the host:
+     * any refund the card answered (TC or AAC — cards don't authorize refunds), or a kernel
+     * "approved offline" for any type (this terminal approves nothing offline). A card decline
+     * (AAC) on anything but a refund stays a decline.
+     */
+    private boolean needsHostWithoutArqc(TransResultEnum result, int resultCode) {
+        if (resultCode != RetCode.EMV_OK) {
+            return false;
+        }
+        if (result == TransResultEnum.RESULT_OFFLINE_APPROVED) {
+            return true;
+        }
+        return result == TransResultEnum.RESULT_OFFLINE_DENIED && isRefund();
+    }
+
+    private boolean isRefund() {
+        return activeConfig != null && activeConfig.getType() == TransactionType.REFUND;
+    }
+
+    private void noteOnlineWithoutArqc(TransResultEnum cardResult) {
+        String why = isRefund() ? "refund" : "kernel approved offline";
+        LogUtils.i(TAG, "Going online without an ARQC (" + why + ", card result " + cardResult + ")");
+        requireEngine().apduTrace().note("EMV", why + " — card result " + cardResult
+                + ", sending to the host (online-only terminal)");
+    }
+
+    /** The host's answer as the transaction result, for a card that gave no ARQC to complete. */
+    private static TransResult hostOutcome(OnlineResultWrapper online, CvmResultEnum cvmResult) {
+        TransResultEnum outcome = online.getTransResultEnum();
+        int code = outcome == TransResultEnum.RESULT_ONLINE_APPROVED ? RetCode.EMV_OK
+                : outcome.ordinal();
+        return new TransResult(code, outcome, cvmResult != null ? cvmResult : CvmResultEnum.CVM_NO_CVM);
     }
 
     /**
@@ -1039,6 +1083,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         TransResultEnum transResultEnum = transResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
             return resultCode;
+        }
+        // Same rule as contactless (see startContactlessTransProcess): a refund goes online
+        // whatever the card answered at 1st GAC — no 2nd GAC, the host's answer is the outcome.
+        if (needsHostWithoutArqc(transResultEnum, resultCode)) {
+            noteOnlineWithoutArqc(transResultEnum);
+            transResult = hostOutcome(startOnlineProcess(), transResult.getCvmResult());
+            return transResult.getResultCode();
         }
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
             OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
@@ -1560,8 +1611,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         AuthResult auth = requestOnline(requireEngine());
         lastAuth = auth;
-        announceStep(EmvStep.ISSUER_AUTHENTICATION,
-                auth.isApproved() ? "host approved" : "host declined");
+        announceStep(EmvStep.ISSUER_AUTHENTICATION, auth.isApproved() ? "host approved"
+                : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined");
         return toOnlineResultWrapper(auth);
     }
 
@@ -1792,18 +1843,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // verified against those two methods directly, not assumed from the name. ────────────
 
     // [SHARED — both checkContactResult() and checkContactlessResult() call this]
-    // Online-only terminal: nothing is approved without the host, so a kernel "approved offline"
-    // is declined. Contact always goes online (ContactProcess forceOnline) and a Visa sale's TTQ
-    // asks for an ARQC, so in practice this is a refund: the card answers it with an AAC (cards
-    // don't authorize refunds) and the Visa kernel reports TC.
+    // Online-only terminal: nothing is approved without the host. Every kernel "approved offline"
+    // is sent to the host first (needsHostWithoutArqc), so reaching this means it wasn't —
+    // report online failed, never approved.
     public void offlineApproved(boolean needSignature) {
-        boolean refund = activeConfig != null && activeConfig.getType() == TransactionType.REFUND;
-        String reason = refund
-                ? "Declined: refund needs the host, and online refund isn't supported yet"
-                : "Declined: offline approval not allowed (online-only terminal)";
-        LogUtils.w(TAG, "Kernel approved offline — " + reason);
-        requireEngine().apduTrace().note("EMV", "kernel approved offline — " + reason);
-        completeDeclined(reason);
+        LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
+        requireEngine().apduTrace().note("EMV", "offline approval without the host — online failed");
+        announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
+        finishError("Online Failed: not sent to the host");
     }
 
     // [SHARED — 2-arg overload; contact's checkContactResult() calls this one specifically]
@@ -1830,8 +1877,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     // [SHARED]
     public void onlineFailed() {
+        String reason = lastAuth != null && lastAuth.isFailed() && lastAuth.getMessage() != null
+                ? "Online Failed: " + lastAuth.getMessage()
+                : "Online Failed: no host response";
         announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
-        finishError("Online Failed: no host response");
+        finishError(reason);
     }
 
     // [SHARED]
@@ -1996,7 +2046,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private static OnlineResultWrapper toOnlineResultWrapper(@Nullable AuthResult auth) {
         OnlineResultWrapper wrapper = new OnlineResultWrapper();
         IssuerRspData rsp = new IssuerRspData();
-        if (auth == null) {
+        if (auth == null || auth.isFailed()) {
             wrapper.setResultCode(EOnlineResult.FAILED.getResultCode());
             wrapper.setTransResultEnum(TransResultEnum.RESULT_ONLINE_FAILED);
             rsp.setOnlineResult(EOnlineResult.FAILED.getEmvOnlineResult());

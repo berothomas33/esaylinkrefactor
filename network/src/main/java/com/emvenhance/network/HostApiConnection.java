@@ -46,6 +46,14 @@ public interface HostApiConnection {
     Single<GeneralResponse> sale(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
 
     /**
+     * Card-present refund over the same encrypted envelope as {@link #sale}, after an
+     * {@link #exchange} with transaction type {@code "REFUND"} — the old project's
+     * {@code EmvApiConnection#refund}. The payload is {@code RefundRequest}.
+     */
+    @POST("orchestration/refund")
+    Single<GeneralResponse> refund(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
+
+    /**
      * Downloads this terminal's EMV/CLSS parameter package (a zip of {@code emv_param.emv} /
      * {@code clss_param.clss}) — see {@code EmvApiConnection#emvFileDownload} in the old project.
      * The raw bytes are handed to {@code EmvParamUpdater.applyFromZip} (bizentity module, since

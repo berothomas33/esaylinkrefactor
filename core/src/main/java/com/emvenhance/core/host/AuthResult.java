@@ -11,6 +11,8 @@ import androidx.annotation.Nullable;
 public final class AuthResult {
 
     private final boolean approved;
+    /** The host couldn't be reached or the request couldn't complete — see {@link #failed}. */
+    private final boolean failed;
     private final String authCode;
     private final String responseCode;
     private final String message;
@@ -21,10 +23,11 @@ public final class AuthResult {
     @Nullable
     private final byte[] issuerScript;
 
-    private AuthResult(boolean approved, @Nullable String authCode,
+    private AuthResult(boolean approved, boolean failed, @Nullable String authCode,
             @Nullable String responseCode, @Nullable String message,
             @Nullable byte[] arpc, @Nullable byte[] issuerScript) {
         this.approved = approved;
+        this.failed = failed;
         this.authCode = authCode;
         this.responseCode = responseCode;
         this.message = message;
@@ -40,15 +43,29 @@ public final class AuthResult {
      */
     public static AuthResult approved(String authCode, String responseCode,
             @Nullable byte[] arpc, @Nullable byte[] issuerScript) {
-        return new AuthResult(true, authCode, responseCode, "Approved", arpc, issuerScript);
+        return new AuthResult(true, false, authCode, responseCode, "Approved", arpc, issuerScript);
     }
 
+    /** The host answered and declined. */
     public static AuthResult declined(String responseCode, String message) {
-        return new AuthResult(false, null, responseCode, message, null, null);
+        return new AuthResult(false, false, null, responseCode, message, null, null);
+    }
+
+    /**
+     * Online failed: the host couldn't be reached, didn't answer, or the request couldn't be built
+     * or sent (e.g. a transaction type with no host request yet). Never an approval — this
+     * terminal doesn't approve anything offline.
+     */
+    public static AuthResult failed(String message) {
+        return new AuthResult(false, true, null, null, message, null, null);
     }
 
     public boolean isApproved() {
         return approved;
+    }
+
+    public boolean isFailed() {
+        return failed;
     }
 
     @Nullable

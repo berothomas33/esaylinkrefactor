@@ -42,14 +42,18 @@ public class SearchCardFragment extends Fragment {
 
     private static final String ARG_TRANSACTION_TYPE = "transactionType";
     private static final String ARG_AMOUNT_MINOR = "amountMinor";
+    private static final String ARG_REFERENCE_NUMBER = "referenceNumber";
 
     /** Characters per printed line: 384-dot head with PaxPrinter's 12x24 font. */
     private static final int PRINT_WIDTH = 32;
 
-    public static SearchCardFragment newInstance(TransactionType type, long amountMinor) {
+    /** @param referenceNumber the original sale's reference number, for a refund; else {@code null} */
+    public static SearchCardFragment newInstance(TransactionType type, long amountMinor,
+            @Nullable String referenceNumber) {
         Bundle args = new Bundle();
         args.putString(ARG_TRANSACTION_TYPE, type.name());
         args.putLong(ARG_AMOUNT_MINOR, amountMinor);
+        args.putString(ARG_REFERENCE_NUMBER, referenceNumber);
         SearchCardFragment fragment = new SearchCardFragment();
         fragment.setArguments(args);
         return fragment;
@@ -70,6 +74,7 @@ public class SearchCardFragment extends Fragment {
         TransactionType type = TransactionType.valueOf(
                 args.getString(ARG_TRANSACTION_TYPE, TransactionType.SALE.name()));
         long amountMinor = args.getLong(ARG_AMOUNT_MINOR, 0);
+        String referenceNumber = args.getString(ARG_REFERENCE_NUMBER);
 
         MainViewModel viewModel = new ViewModelProvider(requireActivity(),
                 new MainViewModelFactory(((EmvEnhanceApp) requireActivity().getApplication()).getTerminal()))
@@ -109,7 +114,7 @@ public class SearchCardFragment extends Fragment {
         view.findViewById(R.id.btnOutcomeDone).setOnClickListener(v -> requireActivity().finish());
         view.findViewById(R.id.btnOutcomeRetry).setOnClickListener(v -> {
             outcomeGroup.setVisibility(View.GONE);
-            viewModel.acceptCard(type, amountMinor);
+            viewModel.acceptCard(type, amountMinor, referenceNumber);
         });
 
         bindKvRow(view, R.id.rowPan, getString(R.string.label_pan_result));
@@ -216,7 +221,7 @@ public class SearchCardFragment extends Fragment {
         // Fire the search the moment this screen is up, so the reader is live as soon as the
         // cardholder sees "present card" — matches AmountFragment's old behavior, just moved
         // here now that there's a dedicated screen for it.
-        viewModel.acceptCard(type, amountMinor);
+        viewModel.acceptCard(type, amountMinor, referenceNumber);
     }
 
     /**

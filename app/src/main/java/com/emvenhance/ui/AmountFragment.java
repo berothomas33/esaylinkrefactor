@@ -42,6 +42,27 @@ public class AmountFragment extends Fragment {
         transactionTypeTabs = view.findViewById(R.id.transactionTypeTabs);
         EditText amountInput = view.findViewById(R.id.amountInput);
         TextView amountError = view.findViewById(R.id.amountError);
+        View referenceGroup = view.findViewById(R.id.referenceGroup);
+        EditText referenceInput = view.findViewById(R.id.referenceInput);
+        TextView referenceError = view.findViewById(R.id.referenceError);
+
+        // A refund needs the original sale's reference number (the host's refund request).
+        transactionTypeTabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                referenceGroup.setVisibility(selectedTransactionType() == TransactionType.REFUND
+                        ? View.VISIBLE : View.GONE);
+                referenceError.setVisibility(View.GONE);
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+            }
+        });
 
         view.findViewById(R.id.btnConfirmAmount).setOnClickListener(v -> {
             Long amountMinor = parseAmountMinor(amountInput.getText().toString());
@@ -50,9 +71,19 @@ public class AmountFragment extends Fragment {
                 return;
             }
             amountError.setVisibility(View.GONE);
+            TransactionType type = selectedTransactionType();
+            String referenceNumber = null;
+            if (type == TransactionType.REFUND) {
+                referenceNumber = referenceInput.getText().toString().trim();
+                if (referenceNumber.isEmpty()) {
+                    referenceError.setVisibility(View.VISIBLE);
+                    return;
+                }
+            }
+            referenceError.setVisibility(View.GONE);
             requireActivity().getSupportFragmentManager().beginTransaction()
                     .replace(R.id.fragmentContainer,
-                            SearchCardFragment.newInstance(selectedTransactionType(), amountMinor))
+                            SearchCardFragment.newInstance(type, amountMinor, referenceNumber))
                     .addToBackStack(null)
                     .commit();
         });
