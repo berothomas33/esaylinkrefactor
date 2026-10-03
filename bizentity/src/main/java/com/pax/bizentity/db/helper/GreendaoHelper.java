@@ -34,10 +34,6 @@ public class GreendaoHelper {
         return IssuerDbHelper.getInstance();
     }
 
-    public static AcqIssuerRelationDbHelper getAcqIssuerRelationHelper() {
-        return AcqIssuerRelationDbHelper.getInstance();
-    }
-
     public static CardBinDbHelper getCardBinHelper() {
         return CardBinDbHelper.getInstance();
     }

@@ -16,18 +16,11 @@
  */
 package com.pax.bizentity.entity;
 
-import com.pax.bizentity.db.dao.AcquirerDao;
-import com.pax.bizentity.db.dao.DaoSession;
-import com.pax.bizentity.db.dao.TransTotalDao;
-import com.pax.bizentity.db.helper.DaoManager;
 import java.io.Serializable;
-import org.greenrobot.greendao.DaoException;
 import org.greenrobot.greendao.annotation.Entity;
 import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
-import org.greenrobot.greendao.annotation.Keep;
 import org.greenrobot.greendao.annotation.Property;
-import org.greenrobot.greendao.annotation.ToOne;
 
 /**
  * 交易总计
@@ -88,9 +81,8 @@ public class TransTotal implements Serializable {
     @Property(nameInDb = TIME_FIELD_NAME)
     private String dateTime;
 
-    private long acquirer_id;
-    @ToOne(joinProperty = ID_FIELD_NAME)
-    private Acquirer acquirer;
+    // Acquirer name kept in the row itself — no join to acquirer.
+    private String acquirerName;
 
     @Property(nameInDb = IS_CLOSED_FIELD_NAME)
     private boolean isClosed;
@@ -168,17 +160,9 @@ public class TransTotal implements Serializable {
     @Property(nameInDb = OFFLINE_NUM)
     private long offlineTotalNum;
 
-    /** Used to resolve relations */
-    @Generated(hash = 2040040024)
-    private transient DaoSession daoSession;
-
-    /** Used for active entity operations. */
-    @Generated(hash = 1507415572)
-    private transient TransTotalDao myDao;
-
 
     @Generated(hash = 1774638778)
-    public TransTotal(Long id, String merchantID, String terminalID, int batchNo, String dateTime, long acquirer_id, boolean isClosed,
+    public TransTotal(Long id, String merchantID, String terminalID, int batchNo, String dateTime, String acquirerName, boolean isClosed,
             long saleTotalAmt, long saleTotalNum, long voidTotalAmt, long voidTotalNum, long refundTotalAmt, long refundTotalNum,
             long refundVoidTotalAmt, long refundVoidTotalNum, long saleVoidTotalAmt, long saleVoidTotalNum, long authTotalAmt,
             long authTotalNum, long offlineTotalAmt, long offlineTotalNum) {
@@ -187,7 +171,7 @@ public class TransTotal implements Serializable {
         this.terminalID = terminalID;
         this.batchNo = batchNo;
         this.dateTime = dateTime;
-        this.acquirer_id = acquirer_id;
+        this.acquirerName = acquirerName;
         this.isClosed = isClosed;
         this.saleTotalAmt = saleTotalAmt;
         this.saleTotalNum = saleTotalNum;
@@ -209,9 +193,6 @@ public class TransTotal implements Serializable {
     public TransTotal() {
     }
 
-
-    @Generated(hash = 86676445)
-    private transient Long acquirer__resolvedKey;
 
 
     public boolean isZero() {
@@ -430,86 +411,11 @@ public class TransTotal implements Serializable {
     }
 
 
-    @Keep
-    public Acquirer getAcquirer() {
-        Long __key = this.id;
-        if (acquirer__resolvedKey == null || !acquirer__resolvedKey.equals(__key)) {
-            DaoSession daoSession = this.daoSession;
-            if (daoSession == null) {
-                daoSession = DaoManager.getInstance().getDaoSession();
-            }
-            AcquirerDao targetDao = daoSession.getAcquirerDao();
-            Acquirer acquirerNew = targetDao.load(__key);
-            synchronized (this) {
-                acquirer = acquirerNew;
-                acquirer__resolvedKey = __key;
-            }
-        }
-        return acquirer;
+    public String getAcquirerName() {
+        return this.acquirerName;
     }
 
-
-    public long getAcquirer_id() {
-        return this.acquirer_id;
+    public void setAcquirerName(String acquirerName) {
+        this.acquirerName = acquirerName;
     }
-
-
-    public void setAcquirer_id(long acquirer_id) {
-        this.acquirer_id = acquirer_id;
-    }
-
-
-    /** called by internal mechanisms, do not call yourself. */
-    @Generated(hash = 328964330)
-    public void setAcquirer(Acquirer acquirer) {
-        synchronized (this) {
-            this.acquirer = acquirer;
-            id = acquirer == null ? null : acquirer.getId();
-            acquirer__resolvedKey = id;
-        }
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#delete(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 128553479)
-    public void delete() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.delete(this);
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#refresh(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 1942392019)
-    public void refresh() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.refresh(this);
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#update(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 713229351)
-    public void update() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.update(this);
-    }
-
-    /** called by internal mechanisms, do not call yourself. */
-    @Generated(hash = 918122530)
-    public void __setDaoSession(DaoSession daoSession) {
-        this.daoSession = daoSession;
-        myDao = daoSession != null ? daoSession.getTransTotalDao() : null;
-    }
-
 }

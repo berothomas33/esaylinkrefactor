@@ -49,7 +49,7 @@ public class TransTotalDbHelper extends BaseDaoHelper<TransTotal> {
     public final List<TransTotal> findAllTransTotal(Acquirer acquirer, boolean isClosed) {
         QueryBuilder<TransTotal> builder = getNoSessionQuery().where(TransTotalDao.Properties.IsClosed.eq(isClosed));
         if (acquirer != null) {
-            builder.where(TransTotalDao.Properties.Acquirer_id.eq(acquirer.getId()));
+            builder.where(TransTotalDao.Properties.AcquirerName.eq(acquirer.getName()));
         }
         return builder.list();
     }
@@ -97,7 +97,7 @@ public class TransTotalDbHelper extends BaseDaoHelper<TransTotal> {
         obj = TransDataDbHelper.getInstance().countSumOfOffline(acquirer, ETransType.OFFLINE_TRANS_SEND.name(), filter);
         total.setOfflineTotalNum(obj[0]);
         total.setOfflineTotalAmt(obj[1]);
-        total.setAcquirer(acquirer);
+        total.setAcquirerName(acquirer.getName());
 
         return total;
     }

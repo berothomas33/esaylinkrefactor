@@ -19,7 +19,6 @@ package com.pax.bizentity.db.helper;
 import androidx.annotation.Nullable;
 import com.pax.bizentity.db.dao.CardRangeDao;
 import com.pax.bizentity.entity.CardRange;
-import com.pax.bizentity.entity.Issuer;
 import java.util.List;
 
 public class CardRangeDbHelper extends BaseDaoHelper<CardRange> {
@@ -69,8 +68,8 @@ public class CardRangeDbHelper extends BaseDaoHelper<CardRange> {
         return null;
     }
 
-    public final List<CardRange> findCardRange(Issuer issuer) {
-        return getNoSessionQuery().where(CardRangeDao.Properties.Issuer_id.eq(issuer.getId())).list();
+    public final List<CardRange> findCardRangesOfIssuer(String issuerName) {
+        return getNoSessionQuery().where(CardRangeDao.Properties.IssuerName.eq(issuerName)).list();
     }
 
 }

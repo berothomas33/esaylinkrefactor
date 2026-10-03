@@ -17,6 +17,7 @@
 package com.pax.bizentity.db.helper;
 
 import android.database.Cursor;
+import android.database.DatabaseUtils;
 import com.pax.bizentity.db.dao.TransDataDao;
 import com.pax.bizentity.entity.Acquirer;
 import com.pax.bizentity.entity.ETransType;
@@ -74,14 +75,14 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
      *
      * @param types TransData.transType
      * @param statuses TransData.transState
-     * @param acq TransData.acquirer_id
+     * @param acq TransData.acquirerName
      * @return All transaction data that meet the requirements
      */
     public final List<TransData> findTransData(List<String> types, List<TransData.ETransStatus> statuses, Acquirer acq) {
         return getNoSessionQuery().where(TransDataDao.Properties.TransType.in(types)
                 , TransDataDao.Properties.TransState.notIn(statuses)
                 , TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)
-                , TransDataDao.Properties.Acquirer_id.eq(acq.getId())).list();
+                , TransDataDao.Properties.AcquirerName.eq(acq.getName())).list();
     }
 
     /**
@@ -99,7 +100,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
         query.where(TransDataDao.Properties.TransType.in(types)
                 , TransDataDao.Properties.TransState.notIn(statuses)
                 , TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)
-                , TransDataDao.Properties.Acquirer_id.eq(acq.getId())
+                , TransDataDao.Properties.AcquirerName.eq(acq.getName())
                 , query.or(TransDataDao.Properties.TransType.notEq(ETransType.OFFLINE_TRANS_SEND),
                         query.and(TransDataDao.Properties.TransType.eq(ETransType.OFFLINE_TRANS_SEND),
                                 TransDataDao.Properties.OfflineSendState.eq(TransData.OfflineStatus.OFFLINE_SENT))));
@@ -134,7 +135,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
 
     public final List<TransData> findAllTransData(Acquirer acq, boolean includeVoid) {
         QueryBuilder<TransData> builder = getNoSessionQuery().where(TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)
-                , TransDataDao.Properties.Acquirer_id.eq(acq.getId()));
+                , TransDataDao.Properties.AcquirerName.eq(acq.getName()));
         if (!includeVoid) {
             builder.where(TransDataDao.Properties.TransState.notEq(TransData.ETransStatus.VOIDED));
         }
@@ -163,7 +164,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
     /**
      * select count(*),sum(amount) from trans_data where transType = type
      * and transState = status
-     * and acquirer_id = acquirer.id
+     * and acquirer_name = acquirer.name
      * and reversalStatus = normal
      * <p>
      * SELECT count(*),sum(trans_data.amount) FROM trans_data
@@ -171,7 +172,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
      * trans_data.state='NORMAL'
      * AND trans_data.type = 'SALE'
      * AND trans_data.REVERSAL ='NORMAL'
-     * AND trans_data.acquirer_id = 1
+     * AND trans_data.acquirer_name = 'acquirer0'
      */
     public final long[] countSumOf(Acquirer acquirer, String type, TransData.ETransStatus status) {
         long[] longArray = new long[]{0L, 0L};
@@ -187,7 +188,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
                 .append(SQL_AND)
                 .append(TransDataDao.Properties.TransType.columnName).append(" = '").append(type).append("'")
                 .append(SQL_AND)
-                .append(TransDataDao.Properties.Acquirer_id.columnName).append(" = ").append(acquirer.getId());
+                .append(TransDataDao.Properties.AcquirerName.columnName).append(" = ").append(DatabaseUtils.sqlEscapeString(acquirer.getName()));
         Cursor cursor = (Cursor) null;
         try {
             cursor = getDatabase().rawQuery(stringBuilder.toString(), null);
@@ -221,7 +222,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
      * WHERE
      * trans_data.state IN('NORMAL','TEST')
      * AND trans_data.REVERSAL = 'NORMAL'
-     * AND trans_data.acquirer_id = 1
+     * AND trans_data.acquirer_name = 'acquirer0'
      * AND trans_data.type = 'SALE'
      */
     public final long[] countSumOf(Acquirer acquirer, String type, List<TransData.ETransStatus> status) {
@@ -244,7 +245,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
                 .append(SQL_AND)
                 .append(TransDataDao.Properties.TransType.columnName).append(" = '").append(type).append("'")
                 .append(SQL_AND)
-                .append(TransDataDao.Properties.Acquirer_id.columnName).append(" = ").append(acquirer.getId());
+                .append(TransDataDao.Properties.AcquirerName.columnName).append(" = ").append(DatabaseUtils.sqlEscapeString(acquirer.getName()));
         Cursor cursor = (Cursor) null;
         try {
             cursor = getDatabase().rawQuery(sqlBuilder.toString(), null);
@@ -290,7 +291,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
                 .append(SQL_AND)
                 .append(TransDataDao.Properties.TransType.columnName).append(" = '").append(type).append("'")
                 .append(SQL_AND)
-                .append(TransDataDao.Properties.Acquirer_id.columnName).append(" = ").append(acquirer.getId())
+                .append(TransDataDao.Properties.AcquirerName.columnName).append(" = ").append(DatabaseUtils.sqlEscapeString(acquirer.getName()))
                 .append(SQL_AND)
                 .append(TransDataDao.Properties.OfflineSendState.columnName).append(" IN('").append(TransData.OfflineStatus.OFFLINE_SENT.toString())
                 .append("','").append(TransData.OfflineStatus.OFFLINE_NOT_SENT.toString()).append("')");
@@ -336,7 +337,7 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
      */
     public final List<TransData> findPagingTransData(Acquirer acq,boolean includeVoid,int offset,int limit) {
         QueryBuilder<TransData> builder = getNoSessionQuery().where(TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)
-                , TransDataDao.Properties.Acquirer_id.eq(acq.getId()));
+                , TransDataDao.Properties.AcquirerName.eq(acq.getName()));
         if (!includeVoid) {
             builder.where(TransDataDao.Properties.TransState.notEq(TransData.ETransStatus.VOIDED));
         }

@@ -1,18 +1,14 @@
 package com.pax.bizentity.db.dao;
 
-import java.util.List;
-import java.util.ArrayList;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteStatement;
 
 import org.greenrobot.greendao.AbstractDao;
 import org.greenrobot.greendao.Property;
-import org.greenrobot.greendao.internal.SqlUtils;
 import org.greenrobot.greendao.internal.DaoConfig;
 import org.greenrobot.greendao.database.Database;
 import org.greenrobot.greendao.database.DatabaseStatement;
 
-import com.pax.bizentity.entity.Issuer;
 
 import com.pax.bizentity.entity.CardRange;
 
@@ -35,10 +31,8 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         public final static Property PanRangeLow = new Property(3, String.class, "panRangeLow", false, "card_range_low");
         public final static Property PanRangeHigh = new Property(4, String.class, "panRangeHigh", false, "card_range_high");
         public final static Property PanLength = new Property(5, int.class, "panLength", false, "card_length");
-        public final static Property Issuer_id = new Property(6, long.class, "issuer_id", false, "ISSUER_ID");
     }
 
-    private DaoSession daoSession;
 
 
     public CardRangeDao(DaoConfig config) {
@@ -47,7 +41,6 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
     
     public CardRangeDao(DaoConfig config, DaoSession daoSession) {
         super(config, daoSession);
-        this.daoSession = daoSession;
     }
 
     /** Creates the underlying database table. */
@@ -59,8 +52,7 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
                 "\"issuer_name\" TEXT," + // 2: issuerName
                 "\"card_range_low\" TEXT NOT NULL UNIQUE ," + // 3: panRangeLow
                 "\"card_range_high\" TEXT NOT NULL UNIQUE ," + // 4: panRangeHigh
-                "\"card_length\" INTEGER NOT NULL ," + // 5: panLength
-                "\"ISSUER_ID\" INTEGER NOT NULL );"); // 6: issuer_id
+                "\"card_length\" INTEGER NOT NULL );"); // 5: panLength
     }
 
     /** Drops the underlying database table. */
@@ -90,7 +82,6 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         stmt.bindString(4, entity.getPanRangeLow());
         stmt.bindString(5, entity.getPanRangeHigh());
         stmt.bindLong(6, entity.getPanLength());
-        stmt.bindLong(7, entity.getIssuer_id());
     }
 
     @Override
@@ -114,13 +105,6 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         stmt.bindString(4, entity.getPanRangeLow());
         stmt.bindString(5, entity.getPanRangeHigh());
         stmt.bindLong(6, entity.getPanLength());
-        stmt.bindLong(7, entity.getIssuer_id());
-    }
-
-    @Override
-    protected final void attachEntity(CardRange entity) {
-        super.attachEntity(entity);
-        entity.__setDaoSession(daoSession);
     }
 
     @Override
@@ -136,8 +120,7 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
             cursor.isNull(offset + 2) ? null : cursor.getString(offset + 2), // issuerName
             cursor.getString(offset + 3), // panRangeLow
             cursor.getString(offset + 4), // panRangeHigh
-            cursor.getInt(offset + 5), // panLength
-            cursor.getLong(offset + 6) // issuer_id
+            cursor.getInt(offset + 5) // panLength
         );
         return entity;
     }
@@ -150,7 +133,6 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
         entity.setPanRangeLow(cursor.getString(offset + 3));
         entity.setPanRangeHigh(cursor.getString(offset + 4));
         entity.setPanLength(cursor.getInt(offset + 5));
-        entity.setIssuer_id(cursor.getLong(offset + 6));
      }
     
     @Override
@@ -177,98 +159,5 @@ public class CardRangeDao extends AbstractDao<CardRange, Long> {
     protected final boolean isEntityUpdateable() {
         return true;
     }
-    
-    private String selectDeep;
 
-    protected String getSelectDeep() {
-        if (selectDeep == null) {
-            StringBuilder builder = new StringBuilder("SELECT ");
-            SqlUtils.appendColumns(builder, "T", getAllColumns());
-            builder.append(',');
-            SqlUtils.appendColumns(builder, "T0", daoSession.getIssuerDao().getAllColumns());
-            builder.append(" FROM card_range T");
-            builder.append(" LEFT JOIN issuer T0 ON T.\"ISSUER_ID\"=T0.\"issuer_id\"");
-            builder.append(' ');
-            selectDeep = builder.toString();
-        }
-        return selectDeep;
-    }
-    
-    protected CardRange loadCurrentDeep(Cursor cursor, boolean lock) {
-        CardRange entity = loadCurrent(cursor, 0, lock);
-        int offset = getAllColumns().length;
-
-        Issuer issuer = loadCurrentOther(daoSession.getIssuerDao(), cursor, offset);
-         if(issuer != null) {
-            entity.setIssuer(issuer);
-        }
-
-        return entity;    
-    }
-
-    public CardRange loadDeep(Long key) {
-        assertSinglePk();
-        if (key == null) {
-            return null;
-        }
-
-        StringBuilder builder = new StringBuilder(getSelectDeep());
-        builder.append("WHERE ");
-        SqlUtils.appendColumnsEqValue(builder, "T", getPkColumns());
-        String sql = builder.toString();
-        
-        String[] keyArray = new String[] { key.toString() };
-        Cursor cursor = db.rawQuery(sql, keyArray);
-        
-        try {
-            boolean available = cursor.moveToFirst();
-            if (!available) {
-                return null;
-            } else if (!cursor.isLast()) {
-                throw new IllegalStateException("Expected unique result, but count was " + cursor.getCount());
-            }
-            return loadCurrentDeep(cursor, true);
-        } finally {
-            cursor.close();
-        }
-    }
-    
-    /** Reads all available rows from the given cursor and returns a list of new ImageTO objects. */
-    public List<CardRange> loadAllDeepFromCursor(Cursor cursor) {
-        int count = cursor.getCount();
-        List<CardRange> list = new ArrayList<CardRange>(count);
-        
-        if (cursor.moveToFirst()) {
-            if (identityScope != null) {
-                identityScope.lock();
-                identityScope.reserveRoom(count);
-            }
-            try {
-                do {
-                    list.add(loadCurrentDeep(cursor, false));
-                } while (cursor.moveToNext());
-            } finally {
-                if (identityScope != null) {
-                    identityScope.unlock();
-                }
-            }
-        }
-        return list;
-    }
-    
-    protected List<CardRange> loadDeepAllAndCloseCursor(Cursor cursor) {
-        try {
-            return loadAllDeepFromCursor(cursor);
-        } finally {
-            cursor.close();
-        }
-    }
-    
-
-    /** A raw-style query where you can pass any WHERE clause and arguments. */
-    public List<CardRange> queryDeep(String where, String... selectionArg) {
-        Cursor cursor = db.rawQuery(getSelectDeep() + where, selectionArg);
-        return loadDeepAllAndCloseCursor(cursor);
-    }
- 
 }

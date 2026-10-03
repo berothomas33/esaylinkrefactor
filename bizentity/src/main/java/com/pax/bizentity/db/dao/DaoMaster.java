@@ -21,7 +21,6 @@ public class DaoMaster extends AbstractDaoMaster {
 
     /** Creates underlying database table using DAOs. */
     public static void createAllTables(Database db, boolean ifNotExists) {
-        AcqIssuerRelationDao.createTable(db, ifNotExists);
         AcquirerDao.createTable(db, ifNotExists);
         CapkRevokeBeanDao.createTable(db, ifNotExists);
         CardBinDao.createTable(db, ifNotExists);
@@ -48,7 +47,6 @@ public class DaoMaster extends AbstractDaoMaster {
 
     /** Drops underlying database table using DAOs. */
     public static void dropAllTables(Database db, boolean ifExists) {
-        AcqIssuerRelationDao.dropTable(db, ifExists);
         AcquirerDao.dropTable(db, ifExists);
         CapkRevokeBeanDao.dropTable(db, ifExists);
         CardBinDao.dropTable(db, ifExists);
@@ -89,7 +87,6 @@ public class DaoMaster extends AbstractDaoMaster {
 
     public DaoMaster(Database db) {
         super(db, SCHEMA_VERSION);
-        registerDaoClass(AcqIssuerRelationDao.class);
         registerDaoClass(AcquirerDao.class);
         registerDaoClass(CapkRevokeBeanDao.class);
         registerDaoClass(CardBinDao.class);

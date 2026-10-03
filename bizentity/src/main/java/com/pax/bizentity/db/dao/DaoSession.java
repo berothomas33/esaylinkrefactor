@@ -8,7 +8,6 @@ import org.greenrobot.greendao.database.Database;
 import org.greenrobot.greendao.identityscope.IdentityScopeType;
 import org.greenrobot.greendao.internal.DaoConfig;
 
-import com.pax.bizentity.entity.AcqIssuerRelation;
 import com.pax.bizentity.entity.Acquirer;
 import com.pax.bizentity.entity.CapkRevokeBean;
 import com.pax.bizentity.entity.CardBin;
@@ -32,7 +31,6 @@ import com.pax.bizentity.entity.clss.pboc.PBOCAidBean;
 import com.pax.bizentity.entity.clss.pure.PureAidBean;
 import com.pax.bizentity.entity.clss.rupay.RupayAidBean;
 
-import com.pax.bizentity.db.dao.AcqIssuerRelationDao;
 import com.pax.bizentity.db.dao.AcquirerDao;
 import com.pax.bizentity.db.dao.CapkRevokeBeanDao;
 import com.pax.bizentity.db.dao.CardBinDao;
@@ -65,7 +63,6 @@ import com.pax.bizentity.db.dao.RupayAidBeanDao;
  */
 public class DaoSession extends AbstractDaoSession {
 
-    private final DaoConfig acqIssuerRelationDaoConfig;
     private final DaoConfig acquirerDaoConfig;
     private final DaoConfig capkRevokeBeanDaoConfig;
     private final DaoConfig cardBinDaoConfig;
@@ -89,7 +86,6 @@ public class DaoSession extends AbstractDaoSession {
     private final DaoConfig pureAidBeanDaoConfig;
     private final DaoConfig rupayAidBeanDaoConfig;
 
-    private final AcqIssuerRelationDao acqIssuerRelationDao;
     private final AcquirerDao acquirerDao;
     private final CapkRevokeBeanDao capkRevokeBeanDao;
     private final CardBinDao cardBinDao;
@@ -117,8 +113,6 @@ public class DaoSession extends AbstractDaoSession {
             daoConfigMap) {
         super(db);
 
-        acqIssuerRelationDaoConfig = daoConfigMap.get(AcqIssuerRelationDao.class).clone();
-        acqIssuerRelationDaoConfig.initIdentityScope(type);
 
         acquirerDaoConfig = daoConfigMap.get(AcquirerDao.class).clone();
         acquirerDaoConfig.initIdentityScope(type);
@@ -188,7 +182,6 @@ public class DaoSession extends AbstractDaoSession {
         rupayAidBeanDaoConfig = daoConfigMap.get(RupayAidBeanDao.class).clone();
         rupayAidBeanDaoConfig.initIdentityScope(type);
 
-        acqIssuerRelationDao = new AcqIssuerRelationDao(acqIssuerRelationDaoConfig, this);
         acquirerDao = new AcquirerDao(acquirerDaoConfig, this);
         capkRevokeBeanDao = new CapkRevokeBeanDao(capkRevokeBeanDaoConfig, this);
         cardBinDao = new CardBinDao(cardBinDaoConfig, this);
@@ -212,7 +205,6 @@ public class DaoSession extends AbstractDaoSession {
         pureAidBeanDao = new PureAidBeanDao(pureAidBeanDaoConfig, this);
         rupayAidBeanDao = new RupayAidBeanDao(rupayAidBeanDaoConfig, this);
 
-        registerDao(AcqIssuerRelation.class, acqIssuerRelationDao);
         registerDao(Acquirer.class, acquirerDao);
         registerDao(CapkRevokeBean.class, capkRevokeBeanDao);
         registerDao(CardBin.class, cardBinDao);
@@ -238,7 +230,6 @@ public class DaoSession extends AbstractDaoSession {
     }
     
     public void clear() {
-        acqIssuerRelationDaoConfig.clearIdentityScope();
         acquirerDaoConfig.clearIdentityScope();
         capkRevokeBeanDaoConfig.clearIdentityScope();
         cardBinDaoConfig.clearIdentityScope();
@@ -261,10 +252,6 @@ public class DaoSession extends AbstractDaoSession {
         pBOCAidBeanDaoConfig.clearIdentityScope();
         pureAidBeanDaoConfig.clearIdentityScope();
         rupayAidBeanDaoConfig.clearIdentityScope();
-    }
-
-    public AcqIssuerRelationDao getAcqIssuerRelationDao() {
-        return acqIssuerRelationDao;
     }
 
     public AcquirerDao getAcquirerDao() {

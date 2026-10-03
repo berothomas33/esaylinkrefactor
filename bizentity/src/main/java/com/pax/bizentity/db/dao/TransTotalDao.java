@@ -1,18 +1,14 @@
 package com.pax.bizentity.db.dao;
 
-import java.util.List;
-import java.util.ArrayList;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteStatement;
 
 import org.greenrobot.greendao.AbstractDao;
 import org.greenrobot.greendao.Property;
-import org.greenrobot.greendao.internal.SqlUtils;
 import org.greenrobot.greendao.internal.DaoConfig;
 import org.greenrobot.greendao.database.Database;
 import org.greenrobot.greendao.database.DatabaseStatement;
 
-import com.pax.bizentity.entity.Acquirer;
 
 import com.pax.bizentity.entity.TransTotal;
 
@@ -34,7 +30,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         public final static Property TerminalID = new Property(2, String.class, "terminalID", false, "tid");
         public final static Property BatchNo = new Property(3, int.class, "batchNo", false, "batch_no");
         public final static Property DateTime = new Property(4, String.class, "dateTime", false, "batch_time");
-        public final static Property Acquirer_id = new Property(5, long.class, "acquirer_id", false, "ACQUIRER_ID");
+        public final static Property AcquirerName = new Property(5, String.class, "acquirerName", false, "ACQUIRER_NAME");
         public final static Property IsClosed = new Property(6, boolean.class, "isClosed", false, "closed");
         public final static Property SaleTotalAmt = new Property(7, long.class, "saleTotalAmt", false, "SALE_AMOUNT");
         public final static Property SaleTotalNum = new Property(8, long.class, "saleTotalNum", false, "SALE_NUM");
@@ -52,7 +48,6 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         public final static Property OfflineTotalNum = new Property(20, long.class, "offlineTotalNum", false, "OFFLINE_NUM");
     }
 
-    private DaoSession daoSession;
 
 
     public TransTotalDao(DaoConfig config) {
@@ -61,7 +56,6 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
     
     public TransTotalDao(DaoConfig config, DaoSession daoSession) {
         super(config, daoSession);
-        this.daoSession = daoSession;
     }
 
     /** Creates the underlying database table. */
@@ -73,7 +67,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
                 "\"tid\" TEXT," + // 2: terminalID
                 "\"batch_no\" INTEGER NOT NULL ," + // 3: batchNo
                 "\"batch_time\" TEXT," + // 4: dateTime
-                "\"ACQUIRER_ID\" INTEGER NOT NULL ," + // 5: acquirer_id
+                "\"ACQUIRER_NAME\" TEXT," + // 5: acquirerName
                 "\"closed\" INTEGER NOT NULL ," + // 6: isClosed
                 "\"SALE_AMOUNT\" INTEGER NOT NULL ," + // 7: saleTotalAmt
                 "\"SALE_NUM\" INTEGER NOT NULL ," + // 8: saleTotalNum
@@ -121,7 +115,11 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         if (dateTime != null) {
             stmt.bindString(5, dateTime);
         }
-        stmt.bindLong(6, entity.getAcquirer_id());
+
+        String acquirerName = entity.getAcquirerName();
+        if (acquirerName != null) {
+            stmt.bindString(6, acquirerName);
+        }
         stmt.bindLong(7, entity.getIsClosed() ? 1L: 0L);
         stmt.bindLong(8, entity.getSaleTotalAmt());
         stmt.bindLong(9, entity.getSaleTotalNum());
@@ -163,7 +161,11 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         if (dateTime != null) {
             stmt.bindString(5, dateTime);
         }
-        stmt.bindLong(6, entity.getAcquirer_id());
+
+        String acquirerName = entity.getAcquirerName();
+        if (acquirerName != null) {
+            stmt.bindString(6, acquirerName);
+        }
         stmt.bindLong(7, entity.getIsClosed() ? 1L: 0L);
         stmt.bindLong(8, entity.getSaleTotalAmt());
         stmt.bindLong(9, entity.getSaleTotalNum());
@@ -182,12 +184,6 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
     }
 
     @Override
-    protected final void attachEntity(TransTotal entity) {
-        super.attachEntity(entity);
-        entity.__setDaoSession(daoSession);
-    }
-
-    @Override
     public Long readKey(Cursor cursor, int offset) {
         return cursor.isNull(offset + 0) ? null : cursor.getLong(offset + 0);
     }    
@@ -200,7 +196,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
             cursor.isNull(offset + 2) ? null : cursor.getString(offset + 2), // terminalID
             cursor.getInt(offset + 3), // batchNo
             cursor.isNull(offset + 4) ? null : cursor.getString(offset + 4), // dateTime
-            cursor.getLong(offset + 5), // acquirer_id
+            cursor.isNull(offset + 5) ? null : cursor.getString(offset + 5), // acquirerName
             cursor.getShort(offset + 6) != 0, // isClosed
             cursor.getLong(offset + 7), // saleTotalAmt
             cursor.getLong(offset + 8), // saleTotalNum
@@ -227,7 +223,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         entity.setTerminalID(cursor.isNull(offset + 2) ? null : cursor.getString(offset + 2));
         entity.setBatchNo(cursor.getInt(offset + 3));
         entity.setDateTime(cursor.isNull(offset + 4) ? null : cursor.getString(offset + 4));
-        entity.setAcquirer_id(cursor.getLong(offset + 5));
+        entity.setAcquirerName(cursor.isNull(offset + 5) ? null : cursor.getString(offset + 5));
         entity.setIsClosed(cursor.getShort(offset + 6) != 0);
         entity.setSaleTotalAmt(cursor.getLong(offset + 7));
         entity.setSaleTotalNum(cursor.getLong(offset + 8));
@@ -269,96 +265,5 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
     protected final boolean isEntityUpdateable() {
         return true;
     }
-    
-    private String selectDeep;
 
-    protected String getSelectDeep() {
-        if (selectDeep == null) {
-            StringBuilder builder = new StringBuilder("SELECT ");
-            SqlUtils.appendColumns(builder, "T", getAllColumns());
-            builder.append(',');
-            SqlUtils.appendColumns(builder, "T0", daoSession.getAcquirerDao().getAllColumns());
-            builder.append(" FROM trans_total T");
-            builder.append(" LEFT JOIN acquirer T0 ON T.\"id\"=T0.\"acquirer_id\"");
-            builder.append(' ');
-            selectDeep = builder.toString();
-        }
-        return selectDeep;
-    }
-    
-    protected TransTotal loadCurrentDeep(Cursor cursor, boolean lock) {
-        TransTotal entity = loadCurrent(cursor, 0, lock);
-        int offset = getAllColumns().length;
-
-        Acquirer acquirer = loadCurrentOther(daoSession.getAcquirerDao(), cursor, offset);
-        entity.setAcquirer(acquirer);
-
-        return entity;    
-    }
-
-    public TransTotal loadDeep(Long key) {
-        assertSinglePk();
-        if (key == null) {
-            return null;
-        }
-
-        StringBuilder builder = new StringBuilder(getSelectDeep());
-        builder.append("WHERE ");
-        SqlUtils.appendColumnsEqValue(builder, "T", getPkColumns());
-        String sql = builder.toString();
-        
-        String[] keyArray = new String[] { key.toString() };
-        Cursor cursor = db.rawQuery(sql, keyArray);
-        
-        try {
-            boolean available = cursor.moveToFirst();
-            if (!available) {
-                return null;
-            } else if (!cursor.isLast()) {
-                throw new IllegalStateException("Expected unique result, but count was " + cursor.getCount());
-            }
-            return loadCurrentDeep(cursor, true);
-        } finally {
-            cursor.close();
-        }
-    }
-    
-    /** Reads all available rows from the given cursor and returns a list of new ImageTO objects. */
-    public List<TransTotal> loadAllDeepFromCursor(Cursor cursor) {
-        int count = cursor.getCount();
-        List<TransTotal> list = new ArrayList<TransTotal>(count);
-        
-        if (cursor.moveToFirst()) {
-            if (identityScope != null) {
-                identityScope.lock();
-                identityScope.reserveRoom(count);
-            }
-            try {
-                do {
-                    list.add(loadCurrentDeep(cursor, false));
-                } while (cursor.moveToNext());
-            } finally {
-                if (identityScope != null) {
-                    identityScope.unlock();
-                }
-            }
-        }
-        return list;
-    }
-    
-    protected List<TransTotal> loadDeepAllAndCloseCursor(Cursor cursor) {
-        try {
-            return loadAllDeepFromCursor(cursor);
-        } finally {
-            cursor.close();
-        }
-    }
-    
-
-    /** A raw-style query where you can pass any WHERE clause and arguments. */
-    public List<TransTotal> queryDeep(String where, String... selectionArg) {
-        Cursor cursor = db.rawQuery(getSelectDeep() + where, selectionArg);
-        return loadDeepAllAndCloseCursor(cursor);
-    }
- 
 }

@@ -1,19 +1,14 @@
 package com.pax.bizentity.db.dao;
 
-import java.util.List;
-import java.util.ArrayList;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteStatement;
 
 import org.greenrobot.greendao.AbstractDao;
 import org.greenrobot.greendao.Property;
-import org.greenrobot.greendao.internal.SqlUtils;
 import org.greenrobot.greendao.internal.DaoConfig;
 import org.greenrobot.greendao.database.Database;
 import org.greenrobot.greendao.database.DatabaseStatement;
 
-import com.pax.bizentity.entity.Acquirer;
-import com.pax.bizentity.entity.Issuer;
 import com.pax.bizentity.entity.TransData.ETransStatus;
 import com.pax.bizentity.entity.TransData.ETransStatusConverter;
 import com.pax.bizentity.entity.TransData.EnterMode;
@@ -80,8 +75,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         public final static Property IsOnlineTrans = new Property(37, boolean.class, "isOnlineTrans", false, "IS_ONLINE_TRANS");
         public final static Property SignData = new Property(38, byte[].class, "signData", false, "SIGN_DATA");
         public final static Property SignPath = new Property(39, byte[].class, "signPath", false, "sign_path");
-        public final static Property Issuer_id = new Property(40, long.class, "issuer_id", false, "ISSUER_ID");
-        public final static Property Acquirer_id = new Property(41, long.class, "acquirer_id", false, "ACQUIRER_ID");
+        public final static Property IssuerName = new Property(40, String.class, "issuerName", false, "ISSUER_NAME");
+        public final static Property AcquirerName = new Property(41, String.class, "acquirerName", false, "ACQUIRER_NAME");
         public final static Property EmvResult = new Property(42, String.class, "emvResult", false, "EMV_RESULT");
         public final static Property CardSerialNo = new Property(43, String.class, "cardSerialNo", false, "CARD_SERIAL_NO");
         public final static Property SendIccData = new Property(44, String.class, "sendIccData", false, "SEND_ICC_DATA");
@@ -102,7 +97,6 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         public final static Property PanBlock = new Property(59, String.class, "panBlock", false, "PAN_BLOCK");
     }
 
-    private DaoSession daoSession;
 
     private final ETransStatusConverter transStateConverter = new ETransStatusConverter();
     private final OfflineStatusConverter offlineSendStateConverter = new OfflineStatusConverter();
@@ -116,7 +110,6 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
     
     public TransDataDao(DaoConfig config, DaoSession daoSession) {
         super(config, daoSession);
-        this.daoSession = daoSession;
     }
 
     /** Creates the underlying database table. */
@@ -163,8 +156,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
                 "\"IS_ONLINE_TRANS\" INTEGER NOT NULL ," + // 37: isOnlineTrans
                 "\"SIGN_DATA\" BLOB," + // 38: signData
                 "\"sign_path\" BLOB," + // 39: signPath
-                "\"ISSUER_ID\" INTEGER NOT NULL ," + // 40: issuer_id
-                "\"ACQUIRER_ID\" INTEGER NOT NULL ," + // 41: acquirer_id
+                "\"ISSUER_NAME\" TEXT," + // 40: issuerName
+                "\"ACQUIRER_NAME\" TEXT," + // 41: acquirerName
                 "\"EMV_RESULT\" TEXT," + // 42: emvResult
                 "\"CARD_SERIAL_NO\" TEXT," + // 43: cardSerialNo
                 "\"SEND_ICC_DATA\" TEXT," + // 44: sendIccData
@@ -342,8 +335,16 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         if (signPath != null) {
             stmt.bindBlob(40, signPath);
         }
-        stmt.bindLong(41, entity.getIssuer_id());
-        stmt.bindLong(42, entity.getAcquirer_id());
+
+        String issuerName = entity.getIssuerName();
+        if (issuerName != null) {
+            stmt.bindString(41, issuerName);
+        }
+
+        String acquirerName = entity.getAcquirerName();
+        if (acquirerName != null) {
+            stmt.bindString(42, acquirerName);
+        }
  
         String emvResult = entity.getEmvResult();
         if (emvResult != null) {
@@ -583,8 +584,16 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         if (signPath != null) {
             stmt.bindBlob(40, signPath);
         }
-        stmt.bindLong(41, entity.getIssuer_id());
-        stmt.bindLong(42, entity.getAcquirer_id());
+
+        String issuerName = entity.getIssuerName();
+        if (issuerName != null) {
+            stmt.bindString(41, issuerName);
+        }
+
+        String acquirerName = entity.getAcquirerName();
+        if (acquirerName != null) {
+            stmt.bindString(42, acquirerName);
+        }
  
         String emvResult = entity.getEmvResult();
         if (emvResult != null) {
@@ -674,12 +683,6 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
     }
 
     @Override
-    protected final void attachEntity(TransData entity) {
-        super.attachEntity(entity);
-        entity.__setDaoSession(daoSession);
-    }
-
-    @Override
     public Long readKey(Cursor cursor, int offset) {
         return cursor.isNull(offset + 0) ? null : cursor.getLong(offset + 0);
     }    
@@ -727,8 +730,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
             cursor.getShort(offset + 37) != 0, // isOnlineTrans
             cursor.isNull(offset + 38) ? null : cursor.getBlob(offset + 38), // signData
             cursor.isNull(offset + 39) ? null : cursor.getBlob(offset + 39), // signPath
-            cursor.getLong(offset + 40), // issuer_id
-            cursor.getLong(offset + 41), // acquirer_id
+            cursor.isNull(offset + 40) ? null : cursor.getString(offset + 40), // issuerName
+            cursor.isNull(offset + 41) ? null : cursor.getString(offset + 41), // acquirerName
             cursor.isNull(offset + 42) ? null : cursor.getString(offset + 42), // emvResult
             cursor.isNull(offset + 43) ? null : cursor.getString(offset + 43), // cardSerialNo
             cursor.isNull(offset + 44) ? null : cursor.getString(offset + 44), // sendIccData
@@ -793,8 +796,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         entity.setIsOnlineTrans(cursor.getShort(offset + 37) != 0);
         entity.setSignData(cursor.isNull(offset + 38) ? null : cursor.getBlob(offset + 38));
         entity.setSignPath(cursor.isNull(offset + 39) ? null : cursor.getBlob(offset + 39));
-        entity.setIssuer_id(cursor.getLong(offset + 40));
-        entity.setAcquirer_id(cursor.getLong(offset + 41));
+        entity.setIssuerName(cursor.isNull(offset + 40) ? null : cursor.getString(offset + 40));
+        entity.setAcquirerName(cursor.isNull(offset + 41) ? null : cursor.getString(offset + 41));
         entity.setEmvResult(cursor.isNull(offset + 42) ? null : cursor.getString(offset + 42));
         entity.setCardSerialNo(cursor.isNull(offset + 43) ? null : cursor.getString(offset + 43));
         entity.setSendIccData(cursor.isNull(offset + 44) ? null : cursor.getString(offset + 44));
@@ -839,107 +842,5 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
     protected final boolean isEntityUpdateable() {
         return true;
     }
-    
-    private String selectDeep;
 
-    protected String getSelectDeep() {
-        if (selectDeep == null) {
-            StringBuilder builder = new StringBuilder("SELECT ");
-            SqlUtils.appendColumns(builder, "T", getAllColumns());
-            builder.append(',');
-            SqlUtils.appendColumns(builder, "T0", daoSession.getIssuerDao().getAllColumns());
-            builder.append(',');
-            SqlUtils.appendColumns(builder, "T1", daoSession.getAcquirerDao().getAllColumns());
-            builder.append(" FROM trans_data T");
-            builder.append(" LEFT JOIN issuer T0 ON T.\"ISSUER_ID\"=T0.\"issuer_id\"");
-            builder.append(" LEFT JOIN acquirer T1 ON T.\"ACQUIRER_ID\"=T1.\"acquirer_id\"");
-            builder.append(' ');
-            selectDeep = builder.toString();
-        }
-        return selectDeep;
-    }
-    
-    protected TransData loadCurrentDeep(Cursor cursor, boolean lock) {
-        TransData entity = loadCurrent(cursor, 0, lock);
-        int offset = getAllColumns().length;
-
-        Issuer issuer = loadCurrentOther(daoSession.getIssuerDao(), cursor, offset);
-         if(issuer != null) {
-            entity.setIssuer(issuer);
-        }
-        offset += daoSession.getIssuerDao().getAllColumns().length;
-
-        Acquirer acquirer = loadCurrentOther(daoSession.getAcquirerDao(), cursor, offset);
-         if(acquirer != null) {
-            entity.setAcquirer(acquirer);
-        }
-
-        return entity;    
-    }
-
-    public TransData loadDeep(Long key) {
-        assertSinglePk();
-        if (key == null) {
-            return null;
-        }
-
-        StringBuilder builder = new StringBuilder(getSelectDeep());
-        builder.append("WHERE ");
-        SqlUtils.appendColumnsEqValue(builder, "T", getPkColumns());
-        String sql = builder.toString();
-        
-        String[] keyArray = new String[] { key.toString() };
-        Cursor cursor = db.rawQuery(sql, keyArray);
-        
-        try {
-            boolean available = cursor.moveToFirst();
-            if (!available) {
-                return null;
-            } else if (!cursor.isLast()) {
-                throw new IllegalStateException("Expected unique result, but count was " + cursor.getCount());
-            }
-            return loadCurrentDeep(cursor, true);
-        } finally {
-            cursor.close();
-        }
-    }
-    
-    /** Reads all available rows from the given cursor and returns a list of new ImageTO objects. */
-    public List<TransData> loadAllDeepFromCursor(Cursor cursor) {
-        int count = cursor.getCount();
-        List<TransData> list = new ArrayList<TransData>(count);
-        
-        if (cursor.moveToFirst()) {
-            if (identityScope != null) {
-                identityScope.lock();
-                identityScope.reserveRoom(count);
-            }
-            try {
-                do {
-                    list.add(loadCurrentDeep(cursor, false));
-                } while (cursor.moveToNext());
-            } finally {
-                if (identityScope != null) {
-                    identityScope.unlock();
-                }
-            }
-        }
-        return list;
-    }
-    
-    protected List<TransData> loadDeepAllAndCloseCursor(Cursor cursor) {
-        try {
-            return loadAllDeepFromCursor(cursor);
-        } finally {
-            cursor.close();
-        }
-    }
-    
-
-    /** A raw-style query where you can pass any WHERE clause and arguments. */
-    public List<TransData> queryDeep(String where, String... selectionArg) {
-        Cursor cursor = db.rawQuery(getSelectDeep() + where, selectionArg);
-        return loadDeepAllAndCloseCursor(cursor);
-    }
- 
 }

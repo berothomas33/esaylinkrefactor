@@ -18,22 +18,14 @@ package com.pax.bizentity.entity;
 
 import androidx.annotation.Nullable;
 import com.alibaba.fastjson.JSON;
-import com.pax.bizentity.db.dao.AcquirerDao;
-import com.pax.bizentity.db.dao.DaoSession;
-import com.pax.bizentity.db.dao.IssuerDao;
-import com.pax.bizentity.db.dao.TransDataDao;
-import com.pax.bizentity.db.helper.DaoManager;
 import java.io.Serializable;
 import java.util.Locale;
-import org.greenrobot.greendao.DaoException;
 import org.greenrobot.greendao.annotation.Convert;
 import org.greenrobot.greendao.annotation.Entity;
 import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
-import org.greenrobot.greendao.annotation.Keep;
 import org.greenrobot.greendao.annotation.NotNull;
 import org.greenrobot.greendao.annotation.Property;
-import org.greenrobot.greendao.annotation.ToOne;
 import org.greenrobot.greendao.annotation.Transient;
 import org.greenrobot.greendao.annotation.Unique;
 import org.greenrobot.greendao.converter.PropertyConverter;
@@ -250,13 +242,9 @@ public class TransData implements Serializable {
     @Property(nameInDb = SIGN_PATH)
     private byte[] signPath; // raw sign path
 
-    private long issuer_id;
-    @ToOne(joinProperty = "issuer_id")
-    protected Issuer issuer;
-
-    private long acquirer_id;
-    @ToOne(joinProperty = "acquirer_id")
-    protected Acquirer acquirer;
+    // Names kept in the row itself — no join to issuer / acquirer.
+    private String issuerName;
+    private String acquirerName;
 
     // =================EMV数据=============================
     protected String emvResult = null; // EMV交易的执行状态
@@ -306,20 +294,6 @@ public class TransData implements Serializable {
     protected String recvIccData;
     @Transient
     protected String field3;
-
-    /** Used to resolve relations */
-    @Generated(hash = 2040040024)
-    private transient DaoSession daoSession;
-
-    /** Used for active entity operations. */
-    @Generated(hash = 1906158038)
-    private transient TransDataDao myDao;
-
-    @Generated(hash = 1724583466)
-    private transient Long issuer__resolvedKey;
-
-    @Generated(hash = 86676445)
-    private transient Long acquirer__resolvedKey;
 
 
     public TransData(){
@@ -393,7 +367,7 @@ public class TransData implements Serializable {
 
         this.emvResult = other.emvResult;
         this.enterMode = other.enterMode;
-        this.issuer = other.issuer;
+        this.issuerName = other.issuerName;
         this.maskPan = other.maskPan;
         this.panBlock = other.panBlock;
     }
@@ -408,7 +382,7 @@ public class TransData implements Serializable {
             String origAuthCode, String issuerCode, String acqCode, boolean hasPin, String track1,
             String track2, String track3, String dupReason, String reserved, boolean pinFree,
             boolean signFree, boolean isCDCVM, boolean isOnlineTrans, byte[] signData, byte[] signPath,
-            long issuer_id, long acquirer_id, String emvResult, String cardSerialNo, String sendIccData,
+            String issuerName, String acquirerName, String emvResult, String cardSerialNo, String sendIccData,
             String dupIccData, String tc, String arqc, String arpc, String tvr, String aid,
             String emvAppLabel, String emvAppName, String tsi, String atc,
             @NotNull ReversalStatus reversalStatus, String phoneNum, String email, String maskPan,
@@ -453,8 +427,8 @@ public class TransData implements Serializable {
         this.isOnlineTrans = isOnlineTrans;
         this.signData = signData;
         this.signPath = signPath;
-        this.issuer_id = issuer_id;
-        this.acquirer_id = acquirer_id;
+        this.issuerName = issuerName;
+        this.acquirerName = acquirerName;
         this.emvResult = emvResult;
         this.cardSerialNo = cardSerialNo;
         this.sendIccData = sendIccData;
@@ -928,20 +902,20 @@ public class TransData implements Serializable {
         this.signPath = signPath;
     }
 
-    public long getIssuer_id() {
-        return this.issuer_id;
+    public String getIssuerName() {
+        return this.issuerName;
     }
 
-    public void setIssuer_id(long issuer_id) {
-        this.issuer_id = issuer_id;
+    public void setIssuerName(String issuerName) {
+        this.issuerName = issuerName;
     }
 
-    public long getAcquirer_id() {
-        return this.acquirer_id;
+    public String getAcquirerName() {
+        return this.acquirerName;
     }
 
-    public void setAcquirer_id(long acquirer_id) {
-        this.acquirer_id = acquirer_id;
+    public void setAcquirerName(String acquirerName) {
+        this.acquirerName = acquirerName;
     }
 
     public String getEmvResult() {
@@ -1072,50 +1046,6 @@ public class TransData implements Serializable {
         this.email = email;
     }
 
-
-
-    @Nullable
-    @Keep
-    public Issuer getIssuer() {
-        long __key = this.issuer_id;
-        if (issuer__resolvedKey == null || !issuer__resolvedKey.equals(__key)) {
-            DaoSession daoSession = this.daoSession;
-            if (daoSession == null) {
-                daoSession = DaoManager.getInstance().getDaoSession();
-            }
-            IssuerDao targetDao = daoSession.getIssuerDao();
-            Issuer issuerNew = targetDao.load(__key);
-            synchronized (this) {
-                issuer = issuerNew;
-                issuer__resolvedKey = __key;
-            }
-        }
-        return issuer;
-    }
-
-
-    @Keep
-    public Acquirer getAcquirer() {
-        long __key = this.acquirer_id;
-        if (acquirer__resolvedKey == null || !acquirer__resolvedKey.equals(__key)) {
-            DaoSession daoSession = this.daoSession;
-            if (daoSession == null) {
-                daoSession = DaoManager.getInstance().getDaoSession();
-            }
-            AcquirerDao targetDao = daoSession.getAcquirerDao();
-            Acquirer acquirerNew = targetDao.load(__key);
-            synchronized (this) {
-                acquirer = acquirerNew;
-                acquirer__resolvedKey = __key;
-            }
-        }
-        return acquirer;
-    }
-
-
-
-
-
     public static class ETransStatusConverter implements PropertyConverter<ETransStatus, String> {
 
         @Override
@@ -1223,76 +1153,5 @@ public class TransData implements Serializable {
     @Override
     public boolean equals(@Nullable Object obj) {
         return super.equals(obj);
-    }
-
-    /** called by internal mechanisms, do not call yourself. */
-    @Generated(hash = 1331604593)
-    public void setIssuer(@NotNull Issuer issuer) {
-        if (issuer == null) {
-            throw new DaoException(
-                    "To-one property 'issuer_id' has not-null constraint; cannot set to-one to null");
-        }
-        synchronized (this) {
-            this.issuer = issuer;
-            issuer_id = issuer.getId();
-            issuer__resolvedKey = issuer_id;
-        }
-    }
-
-    /** called by internal mechanisms, do not call yourself. */
-    @Generated(hash = 346746627)
-    public void setAcquirer(@NotNull Acquirer acquirer) {
-        if (acquirer == null) {
-            throw new DaoException(
-                    "To-one property 'acquirer_id' has not-null constraint; cannot set to-one to null");
-        }
-        synchronized (this) {
-            this.acquirer = acquirer;
-            acquirer_id = acquirer.getId();
-            acquirer__resolvedKey = acquirer_id;
-        }
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#delete(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 128553479)
-    public void delete() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.delete(this);
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#refresh(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 1942392019)
-    public void refresh() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.refresh(this);
-    }
-
-    /**
-     * Convenient call for {@link org.greenrobot.greendao.AbstractDao#update(Object)}.
-     * Entity must attached to an entity context.
-     */
-    @Generated(hash = 713229351)
-    public void update() {
-        if (myDao == null) {
-            throw new DaoException("Entity is detached from DAO context");
-        }
-        myDao.update(this);
-    }
-
-    /** called by internal mechanisms, do not call yourself. */
-    @Generated(hash = 718476260)
-    public void __setDaoSession(DaoSession daoSession) {
-        this.daoSession = daoSession;
-        myDao = daoSession != null ? daoSession.getTransDataDao() : null;
     }
 }

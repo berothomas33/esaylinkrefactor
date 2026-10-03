@@ -16,13 +16,8 @@
  */
 package com.pax.bizentity.db.helper;
 
-import com.pax.bizentity.db.dao.AcqIssuerRelationDao;
 import com.pax.bizentity.db.dao.IssuerDao;
-import com.pax.bizentity.entity.AcqIssuerRelation;
-import com.pax.bizentity.entity.Acquirer;
 import com.pax.bizentity.entity.Issuer;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Database operation helper of Issuer
@@ -49,21 +44,6 @@ public class IssuerDbHelper extends BaseDaoHelper<Issuer> {
 
     public final Issuer findIssuerByIssuerId(long issuerId) {
         return getNoSessionQuery().where(IssuerDao.Properties.Id.eq(issuerId)).unique();
-    }
-
-    public final List<Issuer> lookupIssuersForAcquirer(Acquirer acquirer) {
-        ArrayList<Issuer> issuerList = new ArrayList<>();
-        List<AcqIssuerRelation> list = getDaoSession().getAcqIssuerRelationDao()
-                .queryBuilder()
-                .where(AcqIssuerRelationDao.Properties.Acquirer_id.eq(acquirer.getId()))
-                .list();
-        if (list.isEmpty()) {
-            return issuerList;
-        }
-        for (AcqIssuerRelation item : list) {
-            issuerList.add(item.getIssuer());
-        }
-        return issuerList;
     }
 
 }

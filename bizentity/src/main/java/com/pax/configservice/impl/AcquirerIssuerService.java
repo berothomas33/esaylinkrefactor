@@ -18,7 +18,6 @@
 package com.pax.configservice.impl;
 
 import com.pax.bizentity.db.helper.GreendaoHelper;
-import com.pax.bizentity.entity.AcqIssuerRelation;
 import com.pax.bizentity.entity.Acquirer;
 import com.pax.bizentity.entity.CardRange;
 import com.pax.bizentity.entity.Issuer;
@@ -58,36 +57,6 @@ public class AcquirerIssuerService {
      */
     public void insertIssuer(List<Issuer> issuerList) {
         GreendaoHelper.getIssuerHelper().insert(issuerList);
-    }
-
-    /**
-     * check whether Acquirer and Issuer is bind
-     *
-     * @param root   Acquirer
-     * @param issuer Issuer
-     * @return bind result
-     */
-    public boolean isBind(final Acquirer root, final Issuer issuer) {
-        boolean success = true;
-        try {
-            AcqIssuerRelation relation = GreendaoHelper.getAcqIssuerRelationHelper().findRelation(root, issuer);
-            if (relation == null) {
-                success = false;
-            }
-        } catch (Exception var5) {
-            success = false;
-        }
-        return success;
-    }
-
-    /**
-     * bind acquirer and issuer relation
-     *
-     * @param acqIssuerRelationList acqIssuerRelationList
-     * @return bind result
-     */
-    public boolean insertAcqIssuerRelation(List<AcqIssuerRelation> acqIssuerRelationList) {
-        return GreendaoHelper.getAcqIssuerRelationHelper().insert(acqIssuerRelationList);
     }
 
     /**

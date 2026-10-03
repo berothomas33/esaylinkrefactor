@@ -18,7 +18,6 @@
 package com.pax.configservice.impl;
 
 import com.alibaba.fastjson.TypeReference;
-import com.pax.bizentity.entity.AcqIssuerRelation;
 import com.pax.bizentity.entity.Acquirer;
 import com.pax.bizentity.entity.CapkParamBean;
 import com.pax.bizentity.entity.CardRange;
@@ -37,7 +36,6 @@ import com.pax.bizentity.entity.clss.rupay.RupayParamBean;
 import com.pax.commonlib.json.JsonProxy;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.poslib.model.ModelInfo;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,21 +95,12 @@ public class ConfigInit {
         if (!acquirerIssuerService.insertAcquirer(acquirers)) {
             throw new IllegalStateException("insertAcquirer failed");
         }
-        List<AcqIssuerRelation> acqIssuerRelationList = new ArrayList<>();
-        for (Issuer issuer : issuers) {
-            for (Acquirer acquirer : acquirers) {
-                if (!acquirerIssuerService.isBind(acquirer, issuer)) {
-                    acqIssuerRelationList.add(new AcqIssuerRelation(acquirer, issuer));
-                }
-            }
-            for (CardRange cardRange : cardRanges) {
-                if (cardRange.getName().equals(issuer.getName())) {
-                    cardRange.setIssuer(issuer);
-                }
-            }
+        // Every acquirer takes every issuer, so no acquirer-issuer link table; a card range
+        // keeps its issuer's name in the same row (no join).
+        for (CardRange cardRange : cardRanges) {
+            cardRange.setIssuerName(cardRange.getName());
         }
         acquirerIssuerService.insertCardRange(cardRanges);
-        acquirerIssuerService.insertAcqIssuerRelation(acqIssuerRelationList);
     }
 
     private void loadEmvParams() {
