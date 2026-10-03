@@ -171,7 +171,7 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
          * the kernel will return SEE PHONE in Message Identifier (byte1) of DF8116.
          */
         LogUtils.d(TAG, "clssPassListener.userInterReqData.data[0] = " + clssPassListener.userInterReqData.data[0]);
-        if(clssPassListener.userInterReqData.data[0] == 0x20){
+        if(clssPassListener.userInterReqData.data[0] == 0x20 || cardAsksToSeePhone()){
             return new TransResult(ret, TransResultEnum.RESULT_CLSS_SEE_PHONE, CvmResultEnum.CVM_CONSUMER_DEVICE);
         }
 
@@ -189,6 +189,37 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
         return genTransResult();
     }
 
+
+    /**
+     * The card's own "See Phone" signal (EMV Contactless Book C-2): an AAC whose POS Cardholder
+     * Interaction Information (DF4B) has any of the bits {@code 00030F} set — the phone wants the
+     * cardholder to verify on it (unlock, biometric, passcode) and tap again. Checked in addition
+     * to the kernel's own SEE PHONE message (UIRD 0x20), which the kernel only raises when
+     * On-device CVM is enabled in its Kernel Configuration — without this, a phone's AAC was
+     * reported as a plain decline whenever that configuration was missing or stale.
+     */
+    private boolean cardAsksToSeePhone() {
+        ByteArray cid = new ByteArray();
+        ByteArray pcii = new ByteArray();
+        if (getTlv(0x9F27, cid) != RetCode.EMV_OK || cid.length < 1
+                || getTlv(0xDF4B, pcii) != RetCode.EMV_OK || pcii.length < 3) {
+            return false;
+        }
+        boolean seePhone = isSeePhone(cid.data[0], pcii.data);
+        LogUtils.d(TAG, "CID=" + ConvertUtils.bcd2Str(cid.data, 1)
+                + " PCII(DF4B)=" + ConvertUtils.bcd2Str(pcii.data, 3)
+                + (seePhone ? " → SEE PHONE" : ""));
+        return seePhone;
+    }
+
+    /** C-2: AAC (CID bits 8-7 = 00) and (PCII AND '00030F') ≠ '000000'. */
+    static boolean isSeePhone(byte cid, byte[] pcii) {
+        if (pcii == null || pcii.length < 3) {
+            return false;
+        }
+        boolean aac = (cid & 0xC0) == 0x00;
+        return aac && ((pcii[1] & 0x03) != 0 || (pcii[2] & 0x0F) != 0);
+    }
 
     //generate transult and cvm result
     private TransResult genTransResult() {
@@ -316,6 +347,14 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
     }
 
     private int setAidParam() {
+        // The kernel settings actually loaded from GreenDAO — empty or FF here means the PayPass
+        // rows predate PAYPASSCONFIGURATION parsing: run the EMV parameter download again.
+        LogUtils.i(TAG, "PayPass params: 9F35 TermType=" + ConvertUtils.bcd2Str(clssParam.getTermTypeBytes())
+                + " DF811B KernelCfg=" + hexOrEmpty(clssParam.getKernelConfig())
+                + " DF8118 CvmReq=" + hexOrEmpty(clssParam.getCvmRequired())
+                + " DF8119 NoCvmReq=" + hexOrEmpty(clssParam.getNoCvmRequired())
+                + " DF811F Security=" + hexOrEmpty(clssParam.getSecurityCapability())
+                + " 9F7E MobileSupport=" + hexOrEmpty(clssParam.getMobileSupport()));
 
         byte transType = clssParam.getTransType();
         //refund or void, need to req AAC
@@ -428,6 +467,10 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
 
         setTagPresent(0xDF8130, false);
         setTagPresent(TagsTable.MESS_HOLD_TIME, false);
+    }
+
+    private static String hexOrEmpty(byte[] value) {
+        return value == null || value.length == 0 ? "(empty)" : ConvertUtils.bcd2Str(value);
     }
 
     private void setTagPresent(int tag, boolean present) {
