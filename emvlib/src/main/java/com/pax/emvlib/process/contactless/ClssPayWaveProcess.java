@@ -127,6 +127,15 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
             LogUtils.w(TAG, "PayWave TTQ byte 3 bit 7 (Consumer Device CVM supported) is off — "
                     + "Visa phones can't verify the cardholder on the phone");
         }
+        if (preProcInterInfo != null && preProcInterInfo.aucReaderTTQ != null
+                && preProcInterInfo.aucReaderTTQ.length >= 2) {
+            // The TTQ this transaction sends the card, after pre-processing set byte 2 from the
+            // amount: bit 8 online cryptogram required, bit 7 CVM required.
+            byte[] sent = preProcInterInfo.aucReaderTTQ;
+            LogUtils.i(TAG, "PayWave TTQ for this transaction=" + ConvertUtils.bcd2Str(sent)
+                    + " onlineRequired=" + ((sent[1] & 0x80) != 0)
+                    + " cvmRequired=" + ((sent[1] & 0x40) != 0));
+        }
     }
 
     private int setTransParam() {

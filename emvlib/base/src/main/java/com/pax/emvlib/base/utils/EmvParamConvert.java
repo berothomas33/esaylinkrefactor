@@ -104,6 +104,22 @@ public class EmvParamConvert {
         return clssPreProcInfo;
     }
 
+    /**
+     * The configured Visa TTQ (9F66) with byte 2 bits 8-7 ("online cryptogram required", "CVM
+     * required") cleared, as EMV Book B pre-processing starts from: the entry library then sets
+     * them per transaction from the amount and the floor / CVM limits. A host TTQ with them set
+     * (e.g. 36E04000) would otherwise force online and CVM on every tap if the library only sets
+     * bits. Returns a copy; the configured TTQ is left as is.
+     */
+    public static byte[] payWaveTtqForPreProcessing(byte[] ttq) {
+        if (ttq == null || ttq.length < 2) {
+            return ttq;
+        }
+        byte[] copy = ttq.clone();
+        copy[1] &= 0x3F;
+        return copy;
+    }
+
     public static Clss_PreProcInfo PayWavePreProcInfo(PayWaveAid aid, byte transType){
         Clss_PreProcInfo clssPreProcInfo = new Clss_PreProcInfo();
         if (aid.getPayWaveInterFloorLimitList() != null) {
@@ -119,7 +135,7 @@ public class EmvParamConvert {
             clssPreProcInfo.ulRdCVMLmt = aid.getPayWaveInterFloorLimitList().get(i).getContactlessCvmLimit();
             clssPreProcInfo.ulTermFLmt = aid.getPayWaveInterFloorLimitList().get(i).getContactlessFloorLimit();
             clssPreProcInfo.ulRdClssTxnLmt = aid.getPayWaveInterFloorLimitList().get(i).getContactlessTransactionLimit();
-            clssPreProcInfo.aucReaderTTQ = aid.getTTQ();
+            clssPreProcInfo.aucReaderTTQ = payWaveTtqForPreProcessing(aid.getTTQ());
             clssPreProcInfo.ucCrypto17Flg = aid.getCrypto17Flag();
             clssPreProcInfo.ucStatusCheckFlg = aid.getStatusCheckFlag();
             clssPreProcInfo.ucZeroAmtNoAllowed = aid.getZeroAmountNoAllowed();
