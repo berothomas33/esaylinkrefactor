@@ -75,8 +75,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         public final static Property IsOnlineTrans = new Property(37, boolean.class, "isOnlineTrans", false, "IS_ONLINE_TRANS");
         public final static Property SignData = new Property(38, byte[].class, "signData", false, "SIGN_DATA");
         public final static Property SignPath = new Property(39, byte[].class, "signPath", false, "sign_path");
-        public final static Property IssuerName = new Property(40, String.class, "issuerName", false, "ISSUER_NAME");
-        public final static Property AcquirerName = new Property(41, String.class, "acquirerName", false, "ACQUIRER_NAME");
+        public final static Property IssuerId = new Property(40, long.class, "issuerId", false, "ISSUER_ID");
+        public final static Property AcquirerId = new Property(41, long.class, "acquirerId", false, "ACQUIRER_ID");
         public final static Property EmvResult = new Property(42, String.class, "emvResult", false, "EMV_RESULT");
         public final static Property CardSerialNo = new Property(43, String.class, "cardSerialNo", false, "CARD_SERIAL_NO");
         public final static Property SendIccData = new Property(44, String.class, "sendIccData", false, "SEND_ICC_DATA");
@@ -156,8 +156,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
                 "\"IS_ONLINE_TRANS\" INTEGER NOT NULL ," + // 37: isOnlineTrans
                 "\"SIGN_DATA\" BLOB," + // 38: signData
                 "\"sign_path\" BLOB," + // 39: signPath
-                "\"ISSUER_NAME\" TEXT," + // 40: issuerName
-                "\"ACQUIRER_NAME\" TEXT," + // 41: acquirerName
+                "\"ISSUER_ID\" INTEGER NOT NULL ," + // 40: issuerId
+                "\"ACQUIRER_ID\" INTEGER NOT NULL ," + // 41: acquirerId
                 "\"EMV_RESULT\" TEXT," + // 42: emvResult
                 "\"CARD_SERIAL_NO\" TEXT," + // 43: cardSerialNo
                 "\"SEND_ICC_DATA\" TEXT," + // 44: sendIccData
@@ -335,16 +335,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         if (signPath != null) {
             stmt.bindBlob(40, signPath);
         }
-
-        String issuerName = entity.getIssuerName();
-        if (issuerName != null) {
-            stmt.bindString(41, issuerName);
-        }
-
-        String acquirerName = entity.getAcquirerName();
-        if (acquirerName != null) {
-            stmt.bindString(42, acquirerName);
-        }
+        stmt.bindLong(41, entity.getIssuerId());
+        stmt.bindLong(42, entity.getAcquirerId());
  
         String emvResult = entity.getEmvResult();
         if (emvResult != null) {
@@ -584,16 +576,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         if (signPath != null) {
             stmt.bindBlob(40, signPath);
         }
-
-        String issuerName = entity.getIssuerName();
-        if (issuerName != null) {
-            stmt.bindString(41, issuerName);
-        }
-
-        String acquirerName = entity.getAcquirerName();
-        if (acquirerName != null) {
-            stmt.bindString(42, acquirerName);
-        }
+        stmt.bindLong(41, entity.getIssuerId());
+        stmt.bindLong(42, entity.getAcquirerId());
  
         String emvResult = entity.getEmvResult();
         if (emvResult != null) {
@@ -730,8 +714,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
             cursor.getShort(offset + 37) != 0, // isOnlineTrans
             cursor.isNull(offset + 38) ? null : cursor.getBlob(offset + 38), // signData
             cursor.isNull(offset + 39) ? null : cursor.getBlob(offset + 39), // signPath
-            cursor.isNull(offset + 40) ? null : cursor.getString(offset + 40), // issuerName
-            cursor.isNull(offset + 41) ? null : cursor.getString(offset + 41), // acquirerName
+            cursor.getLong(offset + 40), // issuerId
+            cursor.getLong(offset + 41), // acquirerId
             cursor.isNull(offset + 42) ? null : cursor.getString(offset + 42), // emvResult
             cursor.isNull(offset + 43) ? null : cursor.getString(offset + 43), // cardSerialNo
             cursor.isNull(offset + 44) ? null : cursor.getString(offset + 44), // sendIccData
@@ -796,8 +780,8 @@ public class TransDataDao extends AbstractDao<TransData, Long> {
         entity.setIsOnlineTrans(cursor.getShort(offset + 37) != 0);
         entity.setSignData(cursor.isNull(offset + 38) ? null : cursor.getBlob(offset + 38));
         entity.setSignPath(cursor.isNull(offset + 39) ? null : cursor.getBlob(offset + 39));
-        entity.setIssuerName(cursor.isNull(offset + 40) ? null : cursor.getString(offset + 40));
-        entity.setAcquirerName(cursor.isNull(offset + 41) ? null : cursor.getString(offset + 41));
+        entity.setIssuerId(cursor.getLong(offset + 40));
+        entity.setAcquirerId(cursor.getLong(offset + 41));
         entity.setEmvResult(cursor.isNull(offset + 42) ? null : cursor.getString(offset + 42));
         entity.setCardSerialNo(cursor.isNull(offset + 43) ? null : cursor.getString(offset + 43));
         entity.setSendIccData(cursor.isNull(offset + 44) ? null : cursor.getString(offset + 44));

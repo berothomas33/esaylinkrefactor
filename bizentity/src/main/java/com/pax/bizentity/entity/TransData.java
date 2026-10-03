@@ -242,9 +242,9 @@ public class TransData implements Serializable {
     @Property(nameInDb = SIGN_PATH)
     private byte[] signPath; // raw sign path
 
-    // Names kept in the row itself — no join to issuer / acquirer.
-    private String issuerName;
-    private String acquirerName;
+    // Plain references (no join): load the issuer / acquirer by id when needed.
+    private long issuerId;
+    private long acquirerId;
 
     // =================EMV数据=============================
     protected String emvResult = null; // EMV交易的执行状态
@@ -367,7 +367,7 @@ public class TransData implements Serializable {
 
         this.emvResult = other.emvResult;
         this.enterMode = other.enterMode;
-        this.issuerName = other.issuerName;
+        this.issuerId = other.issuerId;
         this.maskPan = other.maskPan;
         this.panBlock = other.panBlock;
     }
@@ -382,7 +382,7 @@ public class TransData implements Serializable {
             String origAuthCode, String issuerCode, String acqCode, boolean hasPin, String track1,
             String track2, String track3, String dupReason, String reserved, boolean pinFree,
             boolean signFree, boolean isCDCVM, boolean isOnlineTrans, byte[] signData, byte[] signPath,
-            String issuerName, String acquirerName, String emvResult, String cardSerialNo, String sendIccData,
+            long issuerId, long acquirerId, String emvResult, String cardSerialNo, String sendIccData,
             String dupIccData, String tc, String arqc, String arpc, String tvr, String aid,
             String emvAppLabel, String emvAppName, String tsi, String atc,
             @NotNull ReversalStatus reversalStatus, String phoneNum, String email, String maskPan,
@@ -427,8 +427,8 @@ public class TransData implements Serializable {
         this.isOnlineTrans = isOnlineTrans;
         this.signData = signData;
         this.signPath = signPath;
-        this.issuerName = issuerName;
-        this.acquirerName = acquirerName;
+        this.issuerId = issuerId;
+        this.acquirerId = acquirerId;
         this.emvResult = emvResult;
         this.cardSerialNo = cardSerialNo;
         this.sendIccData = sendIccData;
@@ -902,20 +902,20 @@ public class TransData implements Serializable {
         this.signPath = signPath;
     }
 
-    public String getIssuerName() {
-        return this.issuerName;
+    public long getIssuerId() {
+        return this.issuerId;
     }
 
-    public void setIssuerName(String issuerName) {
-        this.issuerName = issuerName;
+    public void setIssuerId(long issuerId) {
+        this.issuerId = issuerId;
     }
 
-    public String getAcquirerName() {
-        return this.acquirerName;
+    public long getAcquirerId() {
+        return this.acquirerId;
     }
 
-    public void setAcquirerName(String acquirerName) {
-        this.acquirerName = acquirerName;
+    public void setAcquirerId(long acquirerId) {
+        this.acquirerId = acquirerId;
     }
 
     public String getEmvResult() {

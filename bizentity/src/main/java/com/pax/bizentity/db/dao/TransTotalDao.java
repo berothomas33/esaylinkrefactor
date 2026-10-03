@@ -30,7 +30,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         public final static Property TerminalID = new Property(2, String.class, "terminalID", false, "tid");
         public final static Property BatchNo = new Property(3, int.class, "batchNo", false, "batch_no");
         public final static Property DateTime = new Property(4, String.class, "dateTime", false, "batch_time");
-        public final static Property AcquirerName = new Property(5, String.class, "acquirerName", false, "ACQUIRER_NAME");
+        public final static Property AcquirerId = new Property(5, long.class, "acquirerId", false, "ACQUIRER_ID");
         public final static Property IsClosed = new Property(6, boolean.class, "isClosed", false, "closed");
         public final static Property SaleTotalAmt = new Property(7, long.class, "saleTotalAmt", false, "SALE_AMOUNT");
         public final static Property SaleTotalNum = new Property(8, long.class, "saleTotalNum", false, "SALE_NUM");
@@ -67,7 +67,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
                 "\"tid\" TEXT," + // 2: terminalID
                 "\"batch_no\" INTEGER NOT NULL ," + // 3: batchNo
                 "\"batch_time\" TEXT," + // 4: dateTime
-                "\"ACQUIRER_NAME\" TEXT," + // 5: acquirerName
+                "\"ACQUIRER_ID\" INTEGER NOT NULL ," + // 5: acquirerId
                 "\"closed\" INTEGER NOT NULL ," + // 6: isClosed
                 "\"SALE_AMOUNT\" INTEGER NOT NULL ," + // 7: saleTotalAmt
                 "\"SALE_NUM\" INTEGER NOT NULL ," + // 8: saleTotalNum
@@ -115,11 +115,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         if (dateTime != null) {
             stmt.bindString(5, dateTime);
         }
-
-        String acquirerName = entity.getAcquirerName();
-        if (acquirerName != null) {
-            stmt.bindString(6, acquirerName);
-        }
+        stmt.bindLong(6, entity.getAcquirerId());
         stmt.bindLong(7, entity.getIsClosed() ? 1L: 0L);
         stmt.bindLong(8, entity.getSaleTotalAmt());
         stmt.bindLong(9, entity.getSaleTotalNum());
@@ -161,11 +157,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         if (dateTime != null) {
             stmt.bindString(5, dateTime);
         }
-
-        String acquirerName = entity.getAcquirerName();
-        if (acquirerName != null) {
-            stmt.bindString(6, acquirerName);
-        }
+        stmt.bindLong(6, entity.getAcquirerId());
         stmt.bindLong(7, entity.getIsClosed() ? 1L: 0L);
         stmt.bindLong(8, entity.getSaleTotalAmt());
         stmt.bindLong(9, entity.getSaleTotalNum());
@@ -196,7 +188,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
             cursor.isNull(offset + 2) ? null : cursor.getString(offset + 2), // terminalID
             cursor.getInt(offset + 3), // batchNo
             cursor.isNull(offset + 4) ? null : cursor.getString(offset + 4), // dateTime
-            cursor.isNull(offset + 5) ? null : cursor.getString(offset + 5), // acquirerName
+            cursor.getLong(offset + 5), // acquirerId
             cursor.getShort(offset + 6) != 0, // isClosed
             cursor.getLong(offset + 7), // saleTotalAmt
             cursor.getLong(offset + 8), // saleTotalNum
@@ -223,7 +215,7 @@ public class TransTotalDao extends AbstractDao<TransTotal, Long> {
         entity.setTerminalID(cursor.isNull(offset + 2) ? null : cursor.getString(offset + 2));
         entity.setBatchNo(cursor.getInt(offset + 3));
         entity.setDateTime(cursor.isNull(offset + 4) ? null : cursor.getString(offset + 4));
-        entity.setAcquirerName(cursor.isNull(offset + 5) ? null : cursor.getString(offset + 5));
+        entity.setAcquirerId(cursor.getLong(offset + 5));
         entity.setIsClosed(cursor.getShort(offset + 6) != 0);
         entity.setSaleTotalAmt(cursor.getLong(offset + 7));
         entity.setSaleTotalNum(cursor.getLong(offset + 8));

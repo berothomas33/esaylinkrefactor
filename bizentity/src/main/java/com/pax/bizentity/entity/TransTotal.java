@@ -81,8 +81,8 @@ public class TransTotal implements Serializable {
     @Property(nameInDb = TIME_FIELD_NAME)
     private String dateTime;
 
-    // Acquirer name kept in the row itself — no join to acquirer.
-    private String acquirerName;
+    // Plain reference (no join): load the acquirer by id when needed.
+    private long acquirerId;
 
     @Property(nameInDb = IS_CLOSED_FIELD_NAME)
     private boolean isClosed;
@@ -162,7 +162,7 @@ public class TransTotal implements Serializable {
 
 
     @Generated(hash = 1774638778)
-    public TransTotal(Long id, String merchantID, String terminalID, int batchNo, String dateTime, String acquirerName, boolean isClosed,
+    public TransTotal(Long id, String merchantID, String terminalID, int batchNo, String dateTime, long acquirerId, boolean isClosed,
             long saleTotalAmt, long saleTotalNum, long voidTotalAmt, long voidTotalNum, long refundTotalAmt, long refundTotalNum,
             long refundVoidTotalAmt, long refundVoidTotalNum, long saleVoidTotalAmt, long saleVoidTotalNum, long authTotalAmt,
             long authTotalNum, long offlineTotalAmt, long offlineTotalNum) {
@@ -171,7 +171,7 @@ public class TransTotal implements Serializable {
         this.terminalID = terminalID;
         this.batchNo = batchNo;
         this.dateTime = dateTime;
-        this.acquirerName = acquirerName;
+        this.acquirerId = acquirerId;
         this.isClosed = isClosed;
         this.saleTotalAmt = saleTotalAmt;
         this.saleTotalNum = saleTotalNum;
@@ -411,11 +411,11 @@ public class TransTotal implements Serializable {
     }
 
 
-    public String getAcquirerName() {
-        return this.acquirerName;
+    public long getAcquirerId() {
+        return this.acquirerId;
     }
 
-    public void setAcquirerName(String acquirerName) {
-        this.acquirerName = acquirerName;
+    public void setAcquirerId(long acquirerId) {
+        this.acquirerId = acquirerId;
     }
 }
