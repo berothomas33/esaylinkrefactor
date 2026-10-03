@@ -7,6 +7,7 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.network.crypto.AesEnvelopeCrypto;
@@ -129,6 +130,13 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
+        if (config.getType() == TransactionType.REFUND) {
+            // Every request below goes to the host as a PURCHASE (TRANSACTION_TYPE_SALE): a
+            // refund sent this way would charge the card instead of crediting it. Refunds don't go
+            // online until the host's refund request is implemented.
+            Log.w(TAG, "Refund not sent to the host — no refund request implemented yet");
+            return Single.just(AuthResult.declined(null, "Refund isn't supported online yet"));
+        }
         EmvTransactionResult emvResult = config.getEmvResult();
         if (emvResult == null) {
             return Single.error(new SaleException(

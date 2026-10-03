@@ -640,6 +640,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return ret;
             }
         }
+        // Online-only terminal: no contactless transaction is approved without the host. A kernel
+        // "approved offline" — a card TC, or a refund: Visa cards answer refunds with an AAC
+        // that the Visa kernel reports as TC — goes to the host like an ARQC.
+        if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
+            LogUtils.w(TAG, "Kernel approved offline — online-only terminal, sending to the host");
+            requireEngine().apduTrace().note("PICC",
+                    "kernel approved offline — online-only terminal, sending to the host");
+            transResultEnum = TransResultEnum.RESULT_REQ_ONLINE;
+            clsTransResult.setTransResult(transResultEnum);
+        }
         // check whether need goes online
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
             OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
@@ -1137,7 +1147,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 onlineCardDenied(resultCode);
                 break;
             case RESULT_ONLINE_FAILED_CARD_APPROVED:
-                offlineApproved(isNeedSignature, false);
+                // No host answer: the card approving at 2nd GAC doesn't make it approved here.
+                onlineFailed();
                 break;
             case RESULT_ONLINE_FAILED:
                 onlineFailed();
@@ -1790,13 +1801,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // verified against those two methods directly, not assumed from the name. ────────────
 
     // [SHARED — both checkContactResult() and checkContactlessResult() call this]
+    // Online-only terminal: nothing is approved without the host. Contactless sends a kernel
+    // offline approval to the host (startContactlessTransProcess) and contact always goes online
+    // (ContactProcess forceOnline), so reaching this is unexpected — decline, never approve.
     public void offlineApproved(boolean needSignature) {
-        completeApproved("RESULT_OFFLINE_APPROVED", false);
+        LogUtils.e(TAG, "Offline approval reached — online-only terminal, declining");
+        completeDeclined("Declined: offline approval not allowed (online-only terminal)");
     }
 
     // [SHARED — 2-arg overload; contact's checkContactResult() calls this one specifically]
     public void offlineApproved(boolean needSignature, boolean needSetARC) {
-        completeApproved("RESULT_OFFLINE_APPROVED", false);
+        offlineApproved(needSignature);
     }
 
     // [SHARED]

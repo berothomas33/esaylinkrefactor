@@ -123,7 +123,10 @@ public class ContactProcess extends BaseContactProcess {
         emvParam.capability = emvAid.getTerminalCapability();
         emvParam.countryCode = terminalCfg.getTerminalCountryCode();
         emvParam.exCapability = emvAid.getAdditionalTerminalCapabilities();
-        emvParam.forceOnline = (byte) emvAid.getForcedOnlineCapability();
+        // Online-only terminal: merchant forced online (TVR byte 4 bit 4), so the kernel asks the
+        // card for an ARQC at 1st GAC and never approves offline — whatever the AID's FORCE_ONLINE
+        // flag, floor limit or TAC-Online say (e.g. the AMEX contact AIDs' TAC-Online is all 0).
+        emvParam.forceOnline = 1;
         emvParam.getDataPIN = (byte) emvAid.getGetDataForPINTryCounter();
         emvParam.merchCateCode = terminalCfg.getMerchantCategoryCode();
 
@@ -431,7 +434,7 @@ public class ContactProcess extends BaseContactProcess {
         EMVCallback.EMVGetParameter(emvParam);
         emvParam.capability = selectedAid.getTerminalCapability();
         emvParam.exCapability = selectedAid.getAdditionalTerminalCapabilities();
-        emvParam.forceOnline = (byte) selectedAid.getForcedOnlineCapability();
+        emvParam.forceOnline = 1; // online-only terminal — see setEmvAndMCKParam
         emvParam.getDataPIN = (byte) selectedAid.getGetDataForPINTryCounter();
         emvParam.terminalType = selectedAid.getTerminalType();
 
