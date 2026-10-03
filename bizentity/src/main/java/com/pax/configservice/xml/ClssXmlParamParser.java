@@ -9,6 +9,7 @@ import com.pax.bizentity.entity.clss.paywave.PayWaveInterFloorLimitBean;
 import com.pax.bizentity.entity.clss.paywave.PayWaveParamBean;
 import com.pax.bizentity.entity.clss.paywave.PaywaveAidBean;
 import com.pax.bizentity.entity.clss.paywave.PaywaveDrlBean;
+import com.pax.commonlib.utils.LogUtils;
 
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
@@ -49,6 +50,8 @@ import androidx.annotation.Nullable;
  * defaulted to a guessed value.
  */
 public final class ClssXmlParamParser {
+
+    private static final String TAG = "ClssXmlParamParser";
 
     private ClssXmlParamParser() {
     }
@@ -135,6 +138,21 @@ public final class ClssXmlParamParser {
         }
     }
 
+    /** Element children's tag names, for diagnosing an unexpected file structure. */
+    private static String childNames(Element parent) {
+        StringBuilder names = new StringBuilder();
+        org.w3c.dom.NodeList nodes = parent.getChildNodes();
+        for (int i = 0; i < nodes.getLength(); i++) {
+            if (nodes.item(i).getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                if (names.length() > 0) {
+                    names.append(", ");
+                }
+                names.append(nodes.item(i).getNodeName());
+            }
+        }
+        return names.toString();
+    }
+
     private static boolean blank(@Nullable String s) {
         return s == null || s.trim().isEmpty();
     }
@@ -147,6 +165,19 @@ public final class ClssXmlParamParser {
         // the kernel ran with terminal type FF, no CVM support (online PIN skipped) and
         // On-device CVM off (See Phone reported as a decline).
         Element config = XmlDomUtils.firstChild(payPassEl, "PAYPASSCONFIGURATION");
+        if (config == null) {
+            LogUtils.w(TAG, "PAYPASSPARAM has no PAYPASSCONFIGURATION — PayPass kernel settings "
+                    + "(Kernel Configuration, Terminal Type, CVM capabilities...) stay unset. "
+                    + "PAYPASSPARAM children: " + childNames(payPassEl));
+        } else {
+            LogUtils.i(TAG, "PAYPASSCONFIGURATION: KernelConfiguration="
+                    + XmlDomUtils.text(config, "KernelConfiguration")
+                    + " TerminalType=" + XmlDomUtils.text(config, "TerminalType")
+                    + " CVMCapability_CVMRequired=" + XmlDomUtils.text(config, "CVMCapability_CVMRequired")
+                    + " CVMCapability_NoCVMRequired=" + XmlDomUtils.text(config, "CVMCapability_NoCVMRequired")
+                    + " SecurityCapability=" + XmlDomUtils.text(config, "SecurityCapability")
+                    + " MobileSupport=" + XmlDomUtils.text(config, "MobileSupport"));
+        }
         Element aidList = XmlDomUtils.firstChild(payPassEl, "AIDLIST");
         List<PayPassAidBean> aids = new ArrayList<>();
         for (Element aidEl : XmlDomUtils.children(aidList, "AID")) {

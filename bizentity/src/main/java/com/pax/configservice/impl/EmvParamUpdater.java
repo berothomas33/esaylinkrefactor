@@ -1,6 +1,7 @@
 package com.pax.configservice.impl;
 
 import androidx.annotation.Nullable;
+import com.pax.bizentity.BuildConfig;
 import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.AmexDrlDbHelper;
 import com.pax.bizentity.db.helper.CapkRevokeDbHelper;
@@ -10,6 +11,7 @@ import com.pax.bizentity.db.helper.PaywaveAidDbHelper;
 import com.pax.bizentity.db.helper.PaywaveDrlDbHelper;
 import com.pax.bizentity.db.helper.PaywaveFloorLimitDbHelper;
 import com.pax.bizentity.entity.EmvAid;
+import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.xml.ClssXmlParamParser;
 import com.pax.configservice.xml.EmvXmlParamParser;
@@ -17,6 +19,8 @@ import com.pax.configservice.xml.TerminalWideValues;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
@@ -71,6 +75,9 @@ public final class EmvParamUpdater {
             result.failed("couldn't read the downloaded package (" + e.getMessage() + ")");
             return result;
         }
+
+        saveForDiagnosis("emv_param.emv", emvXml);
+        saveForDiagnosis("clss_param.clss", clssXml);
 
         List<EmvAid> contactAids = null;
         if (emvXml != null) {
@@ -163,6 +170,31 @@ public final class EmvParamUpdater {
         } catch (Exception e) {
             LogUtils.e(TAG, "Failed to parse/apply clss_param.clss", e);
             result.failed("clss_param.clss: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Debug builds only: keeps the last downloaded parameter files in the app's external files
+     * folder (Android/data/&lt;package&gt;/files/emv_param/), to compare what the host sent with
+     * what was stored — e.g. {@code adb pull /sdcard/Android/data/<package>/files/emv_param}.
+     * Parameters only, no card or key data.
+     */
+    private static void saveForDiagnosis(String name, @Nullable byte[] content) {
+        if (!BuildConfig.DEBUG || content == null) {
+            return;
+        }
+        try {
+            File dir = BaseApplication.getAppContext().getExternalFilesDir("emv_param");
+            if (dir == null || (!dir.exists() && !dir.mkdirs())) {
+                return;
+            }
+            File file = new File(dir, name);
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(content);
+            }
+            LogUtils.i(TAG, "Saved downloaded " + name + " to " + file.getAbsolutePath());
+        } catch (Exception e) {
+            LogUtils.w(TAG, "Couldn't save " + name + " for diagnosis: " + e.getMessage());
         }
     }
 
