@@ -1,5 +1,7 @@
 package com.emvenhance.vendor.pax;
 
+import android.util.Log;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.emvenhance.BuildConfig;
@@ -633,10 +635,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return 0;
         }
         if (cvmResult == CvmResultEnum.CVM_ONLINE_PIN || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
-            ret = onCardHolderPwd(true, true, 0, null);
+            ret = onCardHolderPwd(true, false, 0, null);
             // Because PIN Bypass is supported, it is necessary to exclude the case where the
             // returned result is NO PASSWORD.
-            if (ret != RetCode.EMV_OK && ret != RetCode.EMV_NO_PASSWORD) {
+            if (ret != RetCode.EMV_OK) {
                 clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
                 return ret;
             }
@@ -1110,7 +1112,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
              * ONLINE_APPROVE, ONLINE_DENIAL, and ONLINE_FAILED,
              * reference to the API doc of JNI_EMV_LIB_v102
              */
+            Log.d(TAG, "startContactTransProcess: "+issuerRspData);
             TransResult secondTransResult = process.completeTransProcess(issuerRspData);
+
             transResult.setResultCode(secondTransResult.getResultCode());
             if (onlineResultCode == EOnlineResult.APPROVE.getResultCode()) {
                 transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
