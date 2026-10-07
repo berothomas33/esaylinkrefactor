@@ -1719,34 +1719,49 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@link ClssProcess#getTlv} only ever return a tag's VALUE bytes, so the tag and length
      * prefix are encoded here.
      *
-     * <p>Not included: {@code EMV_TAG_TM_9F53}'s proprietary siblings — the random-selection
-     * target/max/threshold percentages and a distinct "service type" tag — because no confirmed
-     * real tag ID for them exists anywhere in this codebase or in PAX's own vendored kernels.
-     * {@code TagsTable}'s {@code DF14}/{@code DF16}/{@code DF8122}-range constants already mean
-     * something else here (terminal action codes, service ID) — reusing them would silently
-     * write the wrong value into Field 55. Add the real ones once you have PAX's ApiMap for this
-     * kernel; guessing risks a host silently misparsing the field.
+     * <p>The tag list is the old app's ({@code PaxUtils} → EasyLink {@code TransRequest#setTagList},
+     * sent as {@code chipData}): the card's cryptogram data — ARQC (9F26), CID (9F27), IAD (9F10),
+     * ATC (9F36), TVR (95), unpredictable number (9F37), AIP (82) — is what the host needs to
+     * validate the ARQC and compute the ARPC (tag 91). Without it an issuer simulator fails on
+     * field 55 / tag 91. The terminal tags requested earlier follow it. A tag the kernel doesn't
+     * have for this card is left out.
      */
     private String buildField55() {
         int[] tags = {
-                TagsTable.AMOUNT,                  // 9F02 Amount, Authorized
-                TagsTable.AMOUNT_OTHER,             // 9F03 Amount, Other
-                TagsTable.TRANS_DATE,               // 9A   Transaction Date
-                TagsTable.TRANS_TIME,               // 9F21 Transaction Time
-                TagsTable.TRNAS_NO,                 // 9F41 Transaction Sequence Counter
-                TagsTable.TERMINAL_TYPE,            // 9F35 Terminal Type
-                TagsTable.TERMINAL_CAPABILITY,      // 9F33 Terminal Capabilities
-                TagsTable.ADDITIONAL_CAPABILITY,    // 9F40 Additional Terminal Capabilities
-                TagsTable.COUNTRY_CODE,             // 9F1A Terminal Country Code
-                TagsTable.CURRENCY_CODE,            // 5F2A Transaction Currency Code
-                TagsTable.TRANS_TYPE,               // 9C   Transaction Type
-                TagsTable.RUPAY_FLOOR_LIMIT,        // 9F1B Terminal Floor Limit
-                TagsTable.APP_VER,                  // 9F09 Application Version Number
-                TagsTable.MERCHANT_CATEGORY_CODE,   // 9F15 Merchant Category Code
-                TagsTable.TERMINAL_ID,              // 9F1C Terminal Identification
-                TagsTable.DDOL,                     // 9F49 Default DDOL
-                TagsTable.TDOL,                     // 97   Default TDOL
-                TagsTable.CONSECUTIVE_TRANS_LIMIT,  // 9F53 Consecutive Transaction Limit (Intl)
+                // Old app's list, in its order
+                0x5F2A, // Transaction Currency Code
+                0x5F34, // PAN Sequence Number
+                0x82,   // Application Interchange Profile
+                0x84,   // Dedicated File (AID)
+                0x95,   // Terminal Verification Results
+                0x9A,   // Transaction Date
+                0x9C,   // Transaction Type
+                0x9F02, // Amount, Authorized
+                0x9F03, // Amount, Other
+                0x9F09, // Application Version Number (terminal)
+                0x9F10, // Issuer Application Data
+                0x9F21, // Transaction Time
+                0x9F1A, // Terminal Country Code
+                0x9F26, // Application Cryptogram (ARQC / TC / AAC)
+                0x9F27, // Cryptogram Information Data
+                0x9F33, // Terminal Capabilities
+                0x9F34, // CVM Results
+                0x9F35, // Terminal Type
+                0x9F36, // Application Transaction Counter
+                0x9F37, // Unpredictable Number
+                0x9F41, // Transaction Sequence Counter
+                0x9F42, // Application Currency Code
+                0x9F53, // Consecutive Transaction Limit (Intl) / Transaction Category Code
+                0x9F1E, // Interface Device Serial Number
+                0x9F63, // Card-specific (scheme-proprietary)
+                0x9F66, // Terminal Transaction Qualifiers (Visa contactless)
+                // Terminal tags requested earlier, not in the old app's list
+                0x9F40, // Additional Terminal Capabilities
+                0x9F1B, // Terminal Floor Limit
+                0x9F15, // Merchant Category Code
+                0x9F1C, // Terminal Identification
+                0x9F49, // Default DDOL
+                0x97,   // Default TDOL
         };
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
