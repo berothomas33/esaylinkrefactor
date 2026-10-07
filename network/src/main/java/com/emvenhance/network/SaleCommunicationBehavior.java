@@ -229,6 +229,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         try {
             String serialized = gson.toJson(saleRequest);
             logSerialized("SALE_REQUEST", serialized);
+            logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
             encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
         } catch (GeneralSecurityException e) {
             return Single.error(new SaleException("Failed to AES-encrypt the sale request", e));
@@ -256,6 +257,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         try {
             String serialized = gson.toJson(refundRequest);
             logSerialized("REFUND_REQUEST", serialized);
+            logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
             encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
         } catch (GeneralSecurityException e) {
             return Single.error(new SaleException("Failed to AES-encrypt the refund request", e));

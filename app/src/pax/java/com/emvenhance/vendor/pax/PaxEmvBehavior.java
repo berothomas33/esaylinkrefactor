@@ -1719,67 +1719,93 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@link ClssProcess#getTlv} only ever return a tag's VALUE bytes, so the tag and length
      * prefix are encoded here.
      *
-     * <p>The tag list is the old app's ({@code PaxUtils} → EasyLink {@code TransRequest#setTagList},
-     * sent as {@code chipData}): the card's cryptogram data — ARQC (9F26), CID (9F27), IAD (9F10),
-     * ATC (9F36), TVR (95), unpredictable number (9F37), AIP (82) — is what the host needs to
-     * validate the ARQC and compute the ARPC (tag 91). Without it an issuer simulator fails on
-     * field 55 / tag 91. The terminal tags requested earlier follow it. A tag the kernel doesn't
-     * have for this card is left out.
+     * <p>Tags are {@link #FIELD55_TAGS}. A tag the kernel doesn't have for this card is left out,
+     * and listed as missing in Logcat ({@code Field 55 missing}) and the APDU trace, next to every
+     * tag sent with its name and value.
      */
     private String buildField55() {
-        int[] tags = {
-                // Old app's list, in its order
-                0x5F2A, // Transaction Currency Code
-                0x5F34, // PAN Sequence Number
-                0x82,   // Application Interchange Profile
-                0x84,   // Dedicated File (AID)
-                0x95,   // Terminal Verification Results
-                0x9A,   // Transaction Date
-                0x9C,   // Transaction Type
-                0x9F02, // Amount, Authorized
-                0x9F03, // Amount, Other
-                0x9F09, // Application Version Number (terminal)
-                0x9F10, // Issuer Application Data
-                0x9F21, // Transaction Time
-                0x9F1A, // Terminal Country Code
-                0x9F26, // Application Cryptogram (ARQC / TC / AAC)
-                0x9F27, // Cryptogram Information Data
-                0x9F33, // Terminal Capabilities
-                0x9F34, // CVM Results
-                0x9F35, // Terminal Type
-                0x9F36, // Application Transaction Counter
-                0x9F37, // Unpredictable Number
-                0x9F41, // Transaction Sequence Counter
-                0x9F42, // Application Currency Code
-                0x9F53, // Consecutive Transaction Limit (Intl) / Transaction Category Code
-                0x9F1E, // Interface Device Serial Number
-                0x9F63, // Card-specific (scheme-proprietary)
-                0x9F66, // Terminal Transaction Qualifiers (Visa contactless)
-                // Terminal tags requested earlier, not in the old app's list
-                0x9F40, // Additional Terminal Capabilities
-                0x9F1B, // Terminal Floor Limit
-                0x9F15, // Merchant Category Code
-                0x9F1C, // Terminal Identification
-                0x9F49, // Default DDOL
-                0x97,   // Default TDOL
-        };
-
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        for (int tag : tags) {
-            byte[] value = readKernelTlv(tag);
+        StringBuilder present = new StringBuilder();
+        StringBuilder missing = new StringBuilder();
+        for (Field55Tag t : FIELD55_TAGS) {
+            byte[] value = readKernelTlv(t.tag);
+            String tagHex = Integer.toHexString(t.tag).toUpperCase(Locale.US);
             if (value.length == 0) {
                 // Not present for this card/session (e.g. kernel never populated it) — omit
                 // the tag entirely rather than writing a zero-length or padded placeholder.
+                missing.append(missing.length() == 0 ? "" : " ").append(tagHex);
                 continue;
             }
-            writeTlv(out, tag, value);
+            writeTlv(out, t.tag, value);
+            String valueHex = ConvertUtils.bcd2Str(value, value.length);
+            present.append('\n').append(tagHex).append(' ').append(t.name).append(" = ").append(valueHex);
         }
 
         byte[] field55 = out.toByteArray();
         String hex = ConvertUtils.bcd2Str(field55, field55.length);
-        LogUtils.tlv(TAG, "Field 55 (ICC data)", field55, hex);
+        String source = activeCard != null && activeCard.isContactless() ? "contactless" : "contact";
+        LogUtils.tlv(TAG, "Field 55 (ICC data, " + source + ")", field55, hex);
+        LogUtils.i(TAG, "Field 55 tags:" + present);
+        LogUtils.i(TAG, "Field 55 missing (kernel has no value): "
+                + (missing.length() == 0 ? "none" : missing));
+        requireEngine().apduTrace().note("EMV", "FIELD 55 (" + source + ", " + field55.length
+                + " bytes)" + present + "\nmissing: " + (missing.length() == 0 ? "none" : missing)
+                + "\nhex: " + hex);
         return hex;
     }
+
+    /** One field 55 tag and its EMV name, for the log. */
+    private static final class Field55Tag {
+        final int tag;
+        final String name;
+
+        Field55Tag(int tag, String name) {
+            this.tag = tag;
+            this.name = name;
+        }
+    }
+
+    /**
+     * Field 55 tags, in order: the old app's list ({@code PaxUtils} → EasyLink
+     * {@code TransRequest#setTagList}, sent as {@code chipData}), then the terminal tags
+     * requested earlier. The card's cryptogram data (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82) is
+     * what the host needs to validate the ARQC and compute the ARPC (tag 91). 9F66 (TTQ) only
+     * exists for Visa-type kernels; Mastercard has none.
+     */
+    private static final Field55Tag[] FIELD55_TAGS = {
+            new Field55Tag(0x5F2A, "Transaction Currency Code"),
+            new Field55Tag(0x5F34, "PAN Sequence Number"),
+            new Field55Tag(0x82, "Application Interchange Profile"),
+            new Field55Tag(0x84, "Dedicated File Name (AID)"),
+            new Field55Tag(0x95, "Terminal Verification Results"),
+            new Field55Tag(0x9A, "Transaction Date"),
+            new Field55Tag(0x9C, "Transaction Type"),
+            new Field55Tag(0x9F02, "Amount, Authorized"),
+            new Field55Tag(0x9F03, "Amount, Other"),
+            new Field55Tag(0x9F09, "Application Version Number"),
+            new Field55Tag(0x9F10, "Issuer Application Data"),
+            new Field55Tag(0x9F21, "Transaction Time"),
+            new Field55Tag(0x9F1A, "Terminal Country Code"),
+            new Field55Tag(0x9F26, "Application Cryptogram"),
+            new Field55Tag(0x9F27, "Cryptogram Information Data"),
+            new Field55Tag(0x9F33, "Terminal Capabilities"),
+            new Field55Tag(0x9F34, "CVM Results"),
+            new Field55Tag(0x9F35, "Terminal Type"),
+            new Field55Tag(0x9F36, "Application Transaction Counter"),
+            new Field55Tag(0x9F37, "Unpredictable Number"),
+            new Field55Tag(0x9F41, "Transaction Sequence Counter"),
+            new Field55Tag(0x9F42, "Application Currency Code"),
+            new Field55Tag(0x9F53, "Transaction Category Code"),
+            new Field55Tag(0x9F1E, "Interface Device Serial Number"),
+            new Field55Tag(0x9F63, "Scheme-proprietary 9F63"),
+            new Field55Tag(0x9F66, "Terminal Transaction Qualifiers"),
+            new Field55Tag(0x9F40, "Additional Terminal Capabilities"),
+            new Field55Tag(0x9F1B, "Terminal Floor Limit"),
+            new Field55Tag(0x9F15, "Merchant Category Code"),
+            new Field55Tag(0x9F1C, "Terminal Identification"),
+            new Field55Tag(0x9F49, "Default DDOL"),
+            new Field55Tag(0x97, "Default TDOL"),
+    };
 
     /** {@link ContactProcess#getTlv}/{@link ClssProcess#getTlv} both return only value bytes. */
     private byte[] readKernelTlv(int tag) {

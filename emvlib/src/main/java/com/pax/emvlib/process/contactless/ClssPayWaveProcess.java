@@ -435,6 +435,14 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
     @Override
     public int getTlv(int tag, ByteArray value) {
         int ret = ClssWaveApi.Clss_GetTLVData_Wave((short) tag, value);
+        if (tag == 0x9F66 && (ret != RetCode.EMV_OK || value.length == 0)
+                && preProcInterInfo != null && preProcInterInfo.aucReaderTTQ != null) {
+            // The TTQ is the reader's own (built in pre-processing, sent in the GPO), not card
+            // data, so the kernel may not keep it as a TLV: answer with the one actually sent.
+            value.data = preProcInterInfo.aucReaderTTQ.clone();
+            value.length = value.data.length;
+            ret = RetCode.EMV_OK;
+        }
         EmvDebugger.d(TAG, "getTlv", tag, value);
         return ret;
     }
