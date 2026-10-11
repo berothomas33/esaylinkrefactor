@@ -90,6 +90,7 @@ import com.pax.emvbase.param.common.Capk;
 import com.pax.emvbase.param.common.CapkParam;
 import com.pax.emvbase.param.common.CapkRevoke;
 import com.pax.emvbase.param.common.Config;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
@@ -932,6 +933,7 @@ public class EmvParamService {
             curAcq = acquirerIssuerService.findAllAcquirers().get(0);
         }
         termConfig.setMerchantId(curAcq.getMerchantId().getBytes());
+        termConfig.setTerminalId(curAcq.getTerminalId().getBytes(StandardCharsets.US_ASCII));
         String nameLocation = String.format(Locale.US, "%s,%s",
                 configParamService.getString(ConfigKeyConstant.EDC_MERCHANT_NAME_EN),
                 configParamService.getString(ConfigKeyConstant.EDC_MERCHANT_ADDRESS));

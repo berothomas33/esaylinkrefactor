@@ -19,6 +19,9 @@ public class Config {
     //tag 9F16, Merchant Identifier
     private byte[] merchantId;
 
+    //tag 9F1C, Terminal Identification: the acquirer's TID (8 characters)
+    private byte[] terminalId;
+
     //tag 9F4E, Merchant Name and Location
     private String merchantNameAndLocation;
     private byte[] merchantNameAndLocationBytes;
@@ -43,6 +46,7 @@ public class Config {
 
     public Config() {
         merchantId = new byte[0];
+        terminalId = new byte[0];
         merchantNameAndLocation = "";
         merchantNameAndLocationBytes = new byte[0];
         merchantCategoryCode = new byte[0];
@@ -57,6 +61,14 @@ public class Config {
 
     public void setMerchantId(byte[] merchantId) {
         this.merchantId = merchantId;
+    }
+
+    public byte[] getTerminalId() {
+        return terminalId;
+    }
+
+    public void setTerminalId(byte[] terminalId) {
+        this.terminalId = terminalId;
     }
 
     public String getMerchantNameAndLocation() {

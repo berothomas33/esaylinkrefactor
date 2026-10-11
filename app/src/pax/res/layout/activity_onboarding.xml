@@ -39,6 +39,35 @@
             android:text="@string/placeholder"
             android:textSize="13sp" />
 
+        <!-- PIN bypass: both off unless turned on here (PinBypassSettings). -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/pin_bypass_title"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/pin_bypass_help"
+            android:textSize="13sp" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchOnlinePinBypass"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/label_online_pin_bypass" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchOfflinePinBypass"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_offline_pin_bypass" />
+
         <!-- mToken: shows the fixed build value until one is saved here; the saved value is
              what orchestration/sale sends (HostSettings). -->
         <TextView

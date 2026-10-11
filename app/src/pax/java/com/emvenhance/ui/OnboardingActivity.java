@@ -14,7 +14,9 @@ import com.emvenhance.network.HostSettings;
 import com.emvenhance.network.onboarding.OnboardingClient;
 import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.network.onboarding.model.CreateTokenResult;
+import com.emvenhance.settings.PinBypassSettings;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.pax.poslib.model.ModelInfo;
 
 import java.nio.charset.StandardCharsets;
@@ -40,7 +42,8 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * anywhere in it. (An earlier version of this screen had Account ID / Token fields, added before
  * that was known — removed now that they're confirmed to feed nothing real.)
  *
- * <p>Below the button: the {@code mToken} sent on {@code orchestration/sale}, editable — it
+ * <p>Below the button: the PIN bypass switches ({@link PinBypassSettings}), then the
+ * {@code mToken} sent on {@code orchestration/sale}, editable — it
  * shows the fixed build value until a new one is saved here ({@link HostSettings}), and the saved
  * value is what sales use from then on — and every request header, read-only.
  */
@@ -66,6 +69,16 @@ public class OnboardingActivity extends AppCompatActivity {
         onboardingProgress = findViewById(R.id.onboardingProgress);
         onboardingStatusText = findViewById(R.id.onboardingStatusText);
         btnStartOnboarding.setOnClickListener(v -> startOnboarding());
+
+        PinBypassSettings pinBypass = new PinBypassSettings(this);
+        SwitchMaterial onlinePinBypass = findViewById(R.id.switchOnlinePinBypass);
+        SwitchMaterial offlinePinBypass = findViewById(R.id.switchOfflinePinBypass);
+        onlinePinBypass.setChecked(pinBypass.isOnlinePinBypassEnabled());
+        offlinePinBypass.setChecked(pinBypass.isOfflinePinBypassEnabled());
+        onlinePinBypass.setOnCheckedChangeListener(
+                (button, checked) -> pinBypass.setOnlinePinBypassEnabled(checked));
+        offlinePinBypass.setOnCheckedChangeListener(
+                (button, checked) -> pinBypass.setOfflinePinBypassEnabled(checked));
 
         hostSettings = new HostSettings(this);
         mTokenInput = findViewById(R.id.mTokenInput);

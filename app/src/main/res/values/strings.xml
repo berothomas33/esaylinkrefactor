@@ -74,6 +74,10 @@
     <string name="onboarding_succeeded">Onboarding complete — terminal paired</string>
     <string name="onboarding_failed">Onboarding failed: %1$s</string>
     <string name="mtoken_title">mToken (sale request header)</string>
+    <string name="pin_bypass_title">PIN bypass</string>
+    <string name="pin_bypass_help">Lets the cardholder press Enter without typing a PIN. Contact cards also need their AID to allow bypass.</string>
+    <string name="label_online_pin_bypass">Online PIN bypass (contact and contactless)</string>
+    <string name="label_offline_pin_bypass">Offline PIN bypass (contact)</string>
     <string name="mtoken_hint">Paste a new mToken, then Save</string>
     <string name="mtoken_source_fixed">Using the fixed build value</string>
     <string name="mtoken_source_saved">Using the value saved on this terminal</string>

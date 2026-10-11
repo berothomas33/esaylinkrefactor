@@ -23,6 +23,7 @@ import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
 import com.emvenhance.network.onboarding.OnboardingState;
+import com.emvenhance.settings.PinBypassSettings;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.bizlib.card.TrackUtils;
 import com.pax.bizlib.ped.PedHelper;
@@ -34,6 +35,7 @@ import com.pax.dal.IPed;
 import com.pax.dal.entity.EAesCheckMode;
 import com.pax.dal.entity.EPedKeyType;
 import com.pax.dal.entity.EPiccType;
+import com.pax.dal.exceptions.EPedDevException;
 import com.pax.dal.exceptions.PedDevException;
 import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
@@ -55,7 +57,6 @@ import com.pax.emvservice.export.exceptions.PinException;
 import com.pax.jemv.clcommon.RetCode;
 import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
-import com.pax.poslib.model.ModelInfo;
 import com.pax.poslib.utils.PosDeviceUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -632,10 +633,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return 0;
         }
         if (cvmResult == CvmResultEnum.CVM_ONLINE_PIN || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
-            ret = onCardHolderPwd(true, false, 0, null);
-            // Because PIN Bypass is supported, it is necessary to exclude the case where the
-            // returned result is NO PASSWORD.
-            if (ret != RetCode.EMV_OK) {
+            ret = onCardHolderPwd(true, pinBypass.isOnlinePinBypassEnabled(), 0, null);
+            // NO_PASSWORD is a PIN bypass (only possible when it's enabled): go online without
+            // a PIN block and let the issuer decide.
+            if (ret != RetCode.EMV_OK && ret != EmvConstant.ContactCallbackStatus.NO_PASSWORD) {
                 clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
                 return ret;
             }
@@ -1326,6 +1327,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private static final long AMOUNT_OTHER_MINOR = 0L;
 
+    private final PinBypassSettings pinBypass =
+            new PinBypassSettings(BaseApplication.getAppContext());
+
     private static final String COUNTER_PREFS = "emv_counters";
     private static final String KEY_TRANSACTION_SEQUENCE_COUNTER = "transaction_sequence_counter";
     private static final long MAX_TRANSACTION_SEQUENCE_COUNTER = 999_999L;
@@ -1369,7 +1373,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .setTransType(proc[0])
                 .setAmount(config.getAmountMinor())
                 .setAmountOther(AMOUNT_OTHER_MINOR)
-                .setTerminalID(ModelInfo.getInstance().getSN().getBytes())
+                .setTerminalID(cachedEmvParam.getTermConfig().getTerminalId())
                 .setTransCurrencyCode(CurrencyConverter.getCurrencyCode())
                 .setTransCurrencyExponent((byte) CurrencyConverter.getDigitsNum())
                 .setTransDate(ConvertUtils.strToBcdPaddingLeft(dateTime.substring(2, 8)))
@@ -1378,7 +1382,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .setFlowType(EmvTransParam.FLOWTYPE_COMPLETE)
                 .setMaskPattern("")
                 .setPciMode((byte) 1)
-                .setPinLenSet("0,4,5,6,7,8,9,10,11,12\0".getBytes())
+                .setPinLenSet(offlinePinLengths().getBytes(StandardCharsets.US_ASCII))
                 .setPciTimeout(60 * 1000)
                 .create();
         EmvProcessParam.Builder processParamBuilder = new EmvProcessParam.Builder()
@@ -1442,6 +1446,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public int confirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
         kernel.contactless.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
+        // The contactless kernels don't take the TID from the trans param; set it for field 55.
+        kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
+                kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactlessPan()))
@@ -1501,7 +1508,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
                 TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
-                .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass)
+                .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass && (isOnlinePin
+                        ? pinBypass.isOnlinePinBypassEnabled()
+                        : pinBypass.isOfflinePinBypassEnabled()))
                 .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
                 .build());
 
@@ -1533,31 +1542,62 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // key-event listener always has a live dialog to update. Uses PinService directly
         // (same object for both the listener and the actual collection) instead of duplicating
         // its already-correct getPinBlock(keyIndex, pinLenCsv, panBytes, mode, timeoutMs) call.
+        //
+        // Bypass needs the terminal setting, and for contact the selected AID too
+        // (supportPINByPass); contactless passes the setting itself.
+        boolean bypassAllowed = supportPINByPass && pinBypass.isOnlinePinBypassEnabled();
         lastOnlinePinBlock = null;
         provisionOnlinePinKey();
 
-        PaxPinPad pad = new PaxPinPad("Enter Online PIN");
+        PaxPinPad pad = new PaxPinPad(bypassAllowed
+                ? "Enter Online PIN (Enter to skip)" : "Enter Online PIN");
         activePinPad = pad;
         pad.showForOnlinePin();
         pinService.setInputPinListener(pad);
         try {
             IPed ped = PedHelper.getPed();
             ped.setIntervalTime(1, 1);
-            lastOnlinePinBlock = pinService.getEncryptedPinData(safe(getContactPan()),
-                    supportPINByPass, false);
+            String pan = activeCard != null && activeCard.isContactless()
+                    ? getContactlessPan() : getContactPan();
+            byte[] pinBlock = pinService.getEncryptedPinData(safe(pan), bypassAllowed, false);
+            if (pinBlock == null || pinBlock.length == 0) {
+                // Enter with no digits: the PIN pad only allows it when bypass is allowed.
+                clearOnlinePin();
+                return bypassAllowed ? EmvConstant.ContactCallbackStatus.NO_PASSWORD
+                        : EmvConstant.ContactCallbackStatus.USER_CANCEL;
+            }
+            lastOnlinePinBlock = pinBlock;
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        } catch (PinException | PedDevException e) {
-            LogUtils.e(TAG, "online PIN entry failed", e);
+        } catch (PinException e) {
             // No PIN block, so no PIN key either — the host must not expect one.
             clearOnlinePin();
-            if (supportPINByPass) {
+            if (bypassAllowed && NO_PIN_INPUT.equals(e.getErrCode())) {
                 return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
             }
+            LogUtils.e(TAG, "online PIN entry failed", e);
+            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
+        } catch (PedDevException e) {
+            LogUtils.e(TAG, "online PIN entry failed", e);
+            clearOnlinePin();
             return EmvConstant.ContactCallbackStatus.USER_CANCEL;
         } finally {
             pinService.setInputPinListener(null);
             pad.dismiss();
         }
+    }
+
+    /** {@code PinException#getErrCode} when the PIN pad's Enter was pressed with no digits. */
+    private static final String NO_PIN_INPUT =
+            String.valueOf(EPedDevException.PED_ERR_NO_PIN_INPUT.getErrCodeFromBasement());
+
+    /**
+     * PIN lengths the PIN pad accepts for offline PIN (the contact kernel's PCI mode). A {@code 0}
+     * lets Enter with no digits through, which the kernel treats as a PIN bypass — only when
+     * offline PIN bypass is enabled.
+     */
+    private String offlinePinLengths() {
+        String lengths = "4,5,6,7,8,9,10,11,12";
+        return (pinBypass.isOfflinePinBypassEnabled() ? "0," + lengths : lengths) + "\0";
     }
 
     /** Forgets this transaction's online PIN block and PIN key (none collected / not online). */
@@ -1702,10 +1742,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         CvmResultEnum cvmResult = contactless
                 ? (clsTransResult != null ? clsTransResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM)
                 : (transResult != null ? transResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM);
+        // An online PIN CVM with no PIN block was bypassed: no PIN.
         boolean hasPin = onlinePinBlockHex != null
-                || cvmResult == CvmResultEnum.CVM_OFFLINE_PIN
-                || cvmResult == CvmResultEnum.CVM_ONLINE_PIN
-                || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG;
+                || cvmResult == CvmResultEnum.CVM_OFFLINE_PIN;
 
         String cid = readKernelTlvHex(TagsTable.CRYPTO);
         int cidValue = cid != null && !cid.isEmpty() ? Integer.parseInt(cid, 16) : -1;
