@@ -1356,19 +1356,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * it as a separate object.
      */
     private byte runPreTransProcess(@NonNull TransactionConfig config, byte searchCardMode) {
-        DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-        byte[] proc = ConvertHelper.getConvert().strToBcdPaddingRight(config.getProcCode());
         if (!SearchMode.isSupportIcc(searchCardMode) && !SearchMode.isWave(searchCardMode)) {
             return 0;
         }
-        if (kernel.params == null) {
-            LogUtils.e(TAG, "EmvParamService missing");
-            return searchCardMode;
-        }
+        DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
+        byte[] proc = ConvertHelper.getConvert().strToBcdPaddingRight(config.getProcCode());
         EmvProcessParam cachedEmvParam = kernel.params.getCachedEmvParam();
         String dateTime = timestamp();
-        EmvTransParam.Builder builder = new EmvTransParam.Builder();
-        builder.setTransType(proc[0])
+        // One trans param for both kernels. PCI mode, PIN lengths and PIN timeout are read by
+        // the contact kernel only (EMVSetPCIModeParam); contactless ignores them.
+        EmvTransParam transParam = new EmvTransParam.Builder()
+                .setTransType(proc[0])
                 .setAmount(config.getAmountMinor())
                 .setAmountOther(AMOUNT_OTHER_MINOR)
                 .setTerminalID(ModelInfo.getInstance().getSN().getBytes())
@@ -1379,27 +1377,25 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .setTransTraceNo(nextTransactionSequenceCounter())
                 .setFlowType(EmvTransParam.FLOWTYPE_COMPLETE)
                 .setMaskPattern("")
+                .setPciMode((byte) 1)
                 .setPinLenSet("0,4,5,6,7,8,9,10,11,12\0".getBytes())
-                .setPciTimeout(60 * 1000);
+                .setPciTimeout(60 * 1000)
+                .create();
         EmvProcessParam.Builder processParamBuilder = new EmvProcessParam.Builder()
                 .setTermConfig(cachedEmvParam.getTermConfig())
-                .setCapkParam(cachedEmvParam.getCapkParam());
+                .setCapkParam(cachedEmvParam.getCapkParam())
+                .setEmvTransParam(transParam);
 
-        if (SearchMode.isSupportIcc(searchCardMode) && kernel.contact != null) {
-            builder.setPciMode((byte) 1);
-            processParamBuilder.setEmvTransParam(builder.create())
-                    .setEmvAidList(cachedEmvParam.getEmvAidList());
+        if (SearchMode.isSupportIcc(searchCardMode)) {
+            processParamBuilder.setEmvAidList(cachedEmvParam.getEmvAidList());
             int contactRet = kernel.contact.preTransProcess(processParamBuilder.create());
             if (contactRet != RetCode.EMV_OK) {
                 LogUtils.e(TAG, "contact pre process failed, ret=" + contactRet);
                 searchCardMode = (byte) (searchCardMode & (~SearchMode.INSERT));
             }
         }
-        if ((SearchMode.isSupportInternalPicc(searchCardMode)
-                || SearchMode.isSupportExternalPicc(searchCardMode)) && kernel.contactless != null) {
-            if (!SearchMode.isSupportIcc(searchCardMode)) {
-                processParamBuilder.setEmvTransParam(builder.create());
-            }
+        if (SearchMode.isSupportInternalPicc(searchCardMode)
+                || SearchMode.isSupportExternalPicc(searchCardMode)) {
             processParamBuilder.setAmexParam(cachedEmvParam.getAmexParam())
                     .setPassParam(cachedEmvParam.getPayPassParam())
                     .setPayWaveParam(cachedEmvParam.getPayWaveParam())
