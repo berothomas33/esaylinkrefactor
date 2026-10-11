@@ -1,5 +1,7 @@
 package com.emvenhance.vendor.pax;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -1300,6 +1302,35 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
+     * Amount, Other (9F03): no cashback, so always zero. The kernels get it in the trans param,
+     * and it's also set as a tag at SET_TRANSACTION_DATA: the contact kernel computes the ARQC
+     * over it (CDOL1) but doesn't return it when read back unless it's set, and the host needs
+     * it in field 55 to check the ARQC.
+     */
+    private static final long AMOUNT_OTHER_MINOR = 0L;
+
+    private static final String COUNTER_PREFS = "emv_counters";
+    private static final String KEY_TRANSACTION_SEQUENCE_COUNTER = "transaction_sequence_counter";
+    private static final long MAX_TRANSACTION_SEQUENCE_COUNTER = 999_999L;
+
+    private static byte[] amountOtherBcd() {
+        return ConvertUtils.strToBcdPaddingLeft(String.format(Locale.US, "%012d", AMOUNT_OTHER_MINOR));
+    }
+
+    /**
+     * Transaction Sequence Counter (9F41): 1, 2, 3, ... kept in SharedPreferences, one per
+     * kernel run, back to 1 after {@value #MAX_TRANSACTION_SEQUENCE_COUNTER}.
+     */
+    private static long nextTransactionSequenceCounter() {
+        SharedPreferences prefs = EmvFlowRuntime.getApp()
+                .getSharedPreferences(COUNTER_PREFS, Context.MODE_PRIVATE);
+        long next = prefs.getLong(KEY_TRANSACTION_SEQUENCE_COUNTER, 0L)
+                % MAX_TRANSACTION_SEQUENCE_COUNTER + 1;
+        prefs.edit().putLong(KEY_TRANSACTION_SEQUENCE_COUNTER, next).commit();
+        return next;
+    }
+
+    /**
      * Builds {@link EmvTransParam}/{@link EmvProcessParam} from {@code config} and the cached
      * EMV parameters, then runs contact / contactless {@code preTransProcess}, clearing the
      * corresponding {@link SearchMode} bit for whichever one fails. Ported from
@@ -1322,13 +1353,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         EmvTransParam.Builder builder = new EmvTransParam.Builder();
         builder.setTransType(proc[0])
                 .setAmount(config.getAmountMinor())
-                .setAmountOther(0L)
+                .setAmountOther(AMOUNT_OTHER_MINOR)
                 .setTerminalID(ModelInfo.getInstance().getSN().getBytes())
                 .setTransCurrencyCode(CurrencyConverter.getCurrencyCode())
                 .setTransCurrencyExponent((byte) CurrencyConverter.getDigitsNum())
                 .setTransDate(ConvertUtils.strToBcdPaddingLeft(dateTime.substring(2, 8)))
                 .setTransTime(ConvertUtils.strToBcdPaddingLeft(dateTime.substring(8)))
-                .setTransTraceNo(Long.parseLong(ConvertUtils.getPaddedNumber(0, 6)))
+                .setTransTraceNo(nextTransactionSequenceCounter())
                 .setFlowType(EmvTransParam.FLOWTYPE_COMPLETE)
                 .setMaskPattern("")
                 .setPinLenSet("0,4,5,6,7,8,9,10,11,12\0".getBytes())
@@ -1397,6 +1428,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int confirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
+        kernel.contactless.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactlessPan()))
@@ -1434,6 +1466,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int showConfirmCard() {
         announceStep(EmvStep.SET_TRANSACTION_DATA, null);
+        kernel.contact.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
