@@ -423,7 +423,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void runContactlessAppSelect() {
         requireEngine();
-        ClssProcess process = kernel.contactless;
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
@@ -435,14 +434,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // reset every transaction
             clsCachedTrack2Data = null;
             resetTransactionSummary();
-            process.registerClssProcessListener(this);
-            clsTransResult = process.selectApplication();
+            kernel.contactless.registerClssProcessListener(this);
+            clsTransResult = kernel.contactless.selectApplication();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
-                process.unregisterClssProcessListener();
+                kernel.contactless.unregisterClssProcessListener();
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless app select failed", e);
@@ -456,7 +455,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // EFT/PayPass expose read/offline-auth/restrictions as their own calls; the other
             // eight brands' SDKs bundle the whole transaction into one call instead — see
             // ClssKernelProcess#supportsGranularSteps().
-            advanceContactlessStage(process.supportsGranularSteps()
+            advanceContactlessStage(kernel.contactless.supportsGranularSteps()
                     ? EmvStep.READ_APPLICATION_DATA
                     : EmvStep.PROCESS_RESTRICTIONS);
         }
@@ -464,7 +463,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Read App Data stage — reached via {@link #onReadApplicationData}'s contactless branch. */
     private void runContactlessReadAppData() {
-        ClssProcess process = kernel.contactless;
         boolean proceed = false;
         try {
             if (isCancelled()) {
@@ -472,13 +470,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contactless EMV: Read App Data ============");
-            clsTransResult = process.readApplicationData();
+            clsTransResult = kernel.contactless.readApplicationData();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
-                process.unregisterClssProcessListener();
+                kernel.contactless.unregisterClssProcessListener();
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless read app data failed", e);
@@ -498,7 +496,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * contactless branch.
      */
     private void runContactlessCardAuth() {
-        ClssProcess process = kernel.contactless;
         boolean proceed = false;
         try {
             if (isCancelled()) {
@@ -506,13 +503,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contactless EMV: Offline Data Authentication ============");
-            clsTransResult = process.offlineDataAuthentication();
+            clsTransResult = kernel.contactless.offlineDataAuthentication();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "offlineDataAuthentication ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
-                process.unregisterClssProcessListener();
+                kernel.contactless.unregisterClssProcessListener();
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless offline data authentication failed", e);
@@ -537,8 +534,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * contact side.
      */
     private void runContactlessProcessRestrictions() {
-        ClssProcess process = kernel.contactless;
-        if (!process.supportsGranularSteps()) {
+        if (!kernel.contactless.supportsGranularSteps()) {
             runContactlessStartTransaction();
             return;
         }
@@ -549,13 +545,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contactless EMV: Processing Restrictions ============");
-            clsTransResult = process.processRestrictions();
+            clsTransResult = kernel.contactless.processRestrictions();
             int ret = clsTransResult.getResultCode();
             LogUtils.d(TAG, "processRestrictions ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
-                process.unregisterClssProcessListener();
+                kernel.contactless.unregisterClssProcessListener();
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless processing restrictions failed", e);
@@ -579,21 +575,20 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void runContactlessStartTransaction() {
         requireEngine();
-        ClssProcess process = kernel.contactless;
         try {
             if (isCancelled()) {
                 finishError("Transaction cancelled");
                 return;
             }
             LogUtils.d(TAG, "============ Contactless EMV: Start Transaction ============");
-            int ret = startContactlessTransProcess(process);
+            int ret = startContactlessTransProcess();
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
             captureTransactionSummary();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
         } finally {
-            process.unregisterClssProcessListener();
+            kernel.contactless.unregisterClssProcessListener();
             finishContactlessStage();
         }
     }
@@ -613,8 +608,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * itself has no getter for the flow type it was built with, and per its own header comment it
      * shouldn't be touched to add one.
      */
-    private int startContactlessTransProcess(ClssProcess process) {
-        clsTransResult = process.startTransProcess();
+    private int startContactlessTransProcess() {
+        clsTransResult = kernel.contactless.startTransProcess();
         CvmResultEnum cvmResult = clsTransResult.getCvmResult();
         int resultCode = clsTransResult.getResultCode();
         TransResultEnum transResultEnum = clsTransResult.getTransResult();
@@ -665,10 +660,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 clsTransResult.setResultCode(onlineTransResultEnum.ordinal());
                 return onlineTransResultEnum.ordinal();
             }
-            boolean needSecondTap = process.isNeedSecondTap(issuerRspData);
+            boolean needSecondTap = kernel.contactless.isNeedSecondTap(issuerRspData);
             if (needSecondTap) {
                 onDetect2ndTap();
-                clsTransResult = process.completeTransProcess(issuerRspData);
+                clsTransResult = kernel.contactless.completeTransProcess(issuerRspData);
             } else {
                 clsTransResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
             }
@@ -895,7 +890,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void runContactAppSelect() {
         requireEngine();
-        ContactProcess process = kernel.contact;
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
@@ -907,15 +901,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // reset every transaction — mirrors EmvContactService#selectApplication
             cachedTrack2Data = null;
             resetTransactionSummary();
-            process.registerEmvProcessListener(this);
-            transResult = selectApplicationWithRetry(process);
+            kernel.contact.registerEmvProcessListener(this);
+            transResult = selectApplicationWithRetry();
             int ret = transResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
             if (!proceed) {
                 // Selection failed — the transaction ends here; release the listener now since
                 // startTransProcess() (and its own unregister) will never run.
-                process.registerEmvProcessListener(null);
+                kernel.contact.registerEmvProcessListener(null);
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact app select failed", e);
@@ -941,8 +935,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * catch on our side, only the code to react to. Restarting app selection from scratch on
      * retry is safe: nothing has been selected yet at this point in the flow.
      */
-    private TransResult selectApplicationWithRetry(ContactProcess process) {
-        TransResult result = process.selectApplication();
+    private TransResult selectApplicationWithRetry() {
+        TransResult result = kernel.contact.selectApplication();
         for (int attempt = 1; result.getResultCode() != RetCode.EMV_OK
                 && attempt < ICC_APP_SELECT_MAX_ATTEMPTS && !isCancelled(); attempt++) {
             LogUtils.w(TAG, "selectApplication ret=" + result.getResultCode() + " (attempt "
@@ -960,14 +954,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 Thread.currentThread().interrupt();
                 break;
             }
-            result = process.selectApplication();
+            result = kernel.contact.selectApplication();
         }
         return result;
     }
 
     /** Read App Data stage — reached via {@link #onReadApplicationData}'s chip branch. */
     private void runContactReadAppData() {
-        ContactProcess process = kernel.contact;
         boolean proceed = false;
         try {
             if (isCancelled()) {
@@ -975,12 +968,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
-            transResult = process.readApplicationData();
+            transResult = kernel.contact.readApplicationData();
             int ret = transResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
             if (!proceed) {
-                process.registerEmvProcessListener(null);
+                kernel.contact.registerEmvProcessListener(null);
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact read app data failed", e);
@@ -1000,7 +993,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@link #onOfflineDataAuthentication}'s chip branch.
      */
     private void runContactCardAuth() {
-        ContactProcess process = kernel.contact;
         boolean proceed = false;
         try {
             if (isCancelled()) {
@@ -1008,12 +1000,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
-            transResult = process.cardAuthentication();
+            transResult = kernel.contact.cardAuthentication();
             int ret = transResult.getResultCode();
             LogUtils.d(TAG, "cardAuthentication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
             if (!proceed) {
-                process.registerEmvProcessListener(null);
+                kernel.contact.registerEmvProcessListener(null);
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact card auth failed", e);
@@ -1052,7 +1044,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void runContactStartTransaction() {
         requireEngine();
-        ContactProcess process = kernel.contact;
         try {
             if (isCancelled()) {
                 finishError("Transaction cancelled");
@@ -1062,14 +1053,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // CVM is separately announced from onCardHolderPwd below when the kernel actually
             // asks for it; terminal risk management and terminal action analysis have no
             // callback and stay unannounced (see class doc).
-            int ret = startContactTransProcess(process);
+            int ret = startContactTransProcess();
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
             captureTransactionSummary();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
         } finally {
-            process.registerEmvProcessListener(null);
+            kernel.contact.registerEmvProcessListener(null);
             finishContactStage();
         }
     }
@@ -1080,9 +1071,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@code EmvContactService#startTransProcess} — the AET-146 comment below is carried over
      * verbatim.
      */
-    private int startContactTransProcess(ContactProcess process) {
-        process.registerEmvProcessListener(this);
-        transResult = process.startTransProcess();
+    private int startContactTransProcess() {
+        kernel.contact.registerEmvProcessListener(this);
+        transResult = kernel.contact.startTransProcess();
         int resultCode = transResult.getResultCode();
         TransResultEnum transResultEnum = transResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
@@ -1115,7 +1106,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
              * reference to the API doc of JNI_EMV_LIB_v102
              */
             Log.d(TAG, "startContactTransProcess: "+issuerRspData);
-            TransResult secondTransResult = process.completeTransProcess(issuerRspData);
+            TransResult secondTransResult = kernel.contact.completeTransProcess(issuerRspData);
 
             transResult.setResultCode(secondTransResult.getResultCode());
             if (onlineResultCode == EOnlineResult.APPROVE.getResultCode()) {

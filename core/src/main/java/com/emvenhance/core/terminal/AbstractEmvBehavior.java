@@ -142,16 +142,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * online (the PAX kernel's {@code startOnlineProcess} callback, or {@code onStartOnlineProcess}).
      */
     protected final AuthResult authorizeOnline() {
-        EmvEngine eng = engine;
-        TransactionConfig config = activeConfig;
-        CardPresence card = activeCard;
-        if (eng == null || config == null) {
+        if (engine == null || activeConfig == null) {
             return AuthResult.failed("Online failed: no active transaction");
         }
         if (isCancelled()) {
             return AuthResult.declined("17", "Cancelled");
         }
-        if (card != null && !isSynchronousEntry(card)) {
+        // Built up here and stored once: an early return leaves activeConfig as it was.
+        TransactionConfig config = activeConfig;
+        if (activeCard != null && !isSynchronousEntry(activeCard)) {
             String iccData = buildField55();
             if (iccData.isEmpty()) {
                 return AuthResult.failed("Online failed: no chip data (field 55) to send");
@@ -160,7 +159,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return eng.authorize(config);
+        return engine.authorize(config);
     }
 
     /**
@@ -225,64 +224,61 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     private void dispatchStepMethod(EmvStep step) {
-        TransactionConfig config = activeConfig;
-        CardPresence card = activeCard;
-        EmvEngine eng = engine;
-        if (eng == null || config == null) {
+        if (engine == null || activeConfig == null) {
             return;
         }
 
         switch (step) {
             case TERMINAL_INITIALIZATION:
-                onTerminalInitialization(eng, config);
+                onTerminalInitialization(engine, activeConfig);
                 break;
             case SEARCH_CARD:
-                onSearchCard(eng, config, card);
+                onSearchCard(engine, activeConfig, activeCard);
                 break;
             case APPLICATION_SELECTION:
-                onApplicationSelection(eng, config, card);
+                onApplicationSelection(engine, activeConfig, activeCard);
                 break;
             case WAIT_APPLICATION_SELECTION:
-                onWaitApplicationSelection(eng, config, card);
+                onWaitApplicationSelection(engine, activeConfig, activeCard);
                 break;
             case FINAL_APPLICATION_SELECTION:
-                onFinalApplicationSelection(eng, config, card);
+                onFinalApplicationSelection(engine, activeConfig, activeCard);
                 break;
             case READ_APPLICATION_DATA:
-                onReadApplicationData(eng, config, card);
+                onReadApplicationData(engine, activeConfig, activeCard);
                 break;
             case SET_TRANSACTION_DATA:
-                onSetTransactionData(eng, config, card);
+                onSetTransactionData(engine, activeConfig, activeCard);
                 break;
             case OFFLINE_DATA_AUTHENTICATION:
-                onOfflineDataAuthentication(eng, config, card);
+                onOfflineDataAuthentication(engine, activeConfig, activeCard);
                 break;
             case PROCESS_RESTRICTIONS:
-                onProcessRestrictions(eng, config, card);
+                onProcessRestrictions(engine, activeConfig, activeCard);
                 break;
             case CARDHOLDER_VERIFICATION:
-                onCardholderVerification(eng, config, card);
+                onCardholderVerification(engine, activeConfig, activeCard);
                 break;
             case OFFLINE_PIN_VERIFICATION:
-                onOfflinePinVerification(eng, config, card);
+                onOfflinePinVerification(engine, activeConfig, activeCard);
                 break;
             case TERMINAL_RISK_MANAGEMENT:
-                onTerminalRiskManagement(eng, config, card);
+                onTerminalRiskManagement(engine, activeConfig, activeCard);
                 break;
             case TERMINAL_ACTION_ANALYSIS:
-                onTerminalActionAnalysis(eng, config, card);
+                onTerminalActionAnalysis(engine, activeConfig, activeCard);
                 break;
             case START_ONLINE_PROCESS:
-                onStartOnlineProcess(eng, config, card);
+                onStartOnlineProcess(engine, activeConfig, activeCard);
                 break;
             case ISSUER_AUTHENTICATION:
-                onIssuerAuthentication(eng, config, card);
+                onIssuerAuthentication(engine, activeConfig, activeCard);
                 break;
             case SCRIPT_PROCESSING:
-                onScriptProcessing(eng, config, card);
+                onScriptProcessing(engine, activeConfig, activeCard);
                 break;
             case TRANSACTION_COMPLETION:
-                onTransactionCompletion(eng, config, card);
+                onTransactionCompletion(engine, activeConfig, activeCard);
                 break;
             default:
                 finishError("Unknown EMV step: " + step);
