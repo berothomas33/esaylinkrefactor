@@ -22,10 +22,19 @@ public final class AuthResult {
     /** Issuer Script Template 1/2 (EMV tags 71/72) — see {@link #getIssuerScript}. */
     @Nullable
     private final byte[] issuerScript;
+    /** The host's id for this request — see {@link #getAsyncRequestId}. */
+    @Nullable
+    private final String asyncRequestId;
 
     private AuthResult(boolean approved, boolean failed, @Nullable String authCode,
             @Nullable String responseCode, @Nullable String message,
             @Nullable byte[] arpc, @Nullable byte[] issuerScript) {
+        this(approved, failed, authCode, responseCode, message, arpc, issuerScript, null);
+    }
+
+    private AuthResult(boolean approved, boolean failed, @Nullable String authCode,
+            @Nullable String responseCode, @Nullable String message,
+            @Nullable byte[] arpc, @Nullable byte[] issuerScript, @Nullable String asyncRequestId) {
         this.approved = approved;
         this.failed = failed;
         this.authCode = authCode;
@@ -33,6 +42,13 @@ public final class AuthResult {
         this.message = message;
         this.arpc = arpc;
         this.issuerScript = issuerScript;
+        this.asyncRequestId = asyncRequestId;
+    }
+
+    /** Same result, carrying the {@code asyncRequestId} the host answered. */
+    public AuthResult withAsyncRequestId(@Nullable String asyncRequestId) {
+        return new AuthResult(approved, failed, authCode, responseCode, message, arpc,
+                issuerScript, asyncRequestId);
     }
 
     /**
@@ -91,5 +107,16 @@ public final class AuthResult {
     @Nullable
     public byte[] getIssuerScript() {
         return issuerScript;
+    }
+
+    /**
+     * The {@code asyncRequestId} sent with the exchange and the sale/refund this result answers:
+     * what the acknowledgement API sends back to tell the host the transaction completed
+     * (keep it for settlement; without it the host reverses it). {@code null} when no request
+     * reached the host.
+     */
+    @Nullable
+    public String getAsyncRequestId() {
+        return asyncRequestId;
     }
 }
