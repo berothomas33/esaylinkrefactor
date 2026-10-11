@@ -117,6 +117,8 @@ public class EmvParamActivity extends AppCompatActivity {
                             setSyncBusy(false);
                             paramSyncStatusText.setText(result.summarize());
                             if (result.isSuccess() && !result.getAppliedSections().isEmpty()) {
+                                // New parameters in the database: the next transaction loads them.
+                                state.requireTerminalInitialization();
                                 // Refresh whichever category is on screen so an applied download
                                 // shows up immediately instead of waiting for the next tab switch.
                                 showCategory(EmvParamListFragment.Category.AID);

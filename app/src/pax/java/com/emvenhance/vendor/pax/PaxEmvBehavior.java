@@ -2,6 +2,7 @@ package com.emvenhance.vendor.pax;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -1263,6 +1264,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return false;
         }
 
+        initializeTerminalIfNeeded();
+
         // Defensive reset: close every reader before this attempt touches any of them, in case
         // the previous transaction (crash, process death, a partial closeReaders() failure) left
         // one open. Closing an already-closed reader is a no-op, so this is safe to run
@@ -1283,7 +1286,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // Fresh kernel object per transaction attempt, not a process-lifetime singleton —
             // this reset used to live inside EmvContactService#preTransProcess.
             kernel.contact = new ContactProcess();
+            long setUpStart = SystemClock.elapsedRealtime();
             byte adjusted = runPreTransProcess(config, requested);
+            requireEngine().apduTrace().note("EMV", "kernel set-up for this transaction: "
+                    + (SystemClock.elapsedRealtime() - setUpStart) + " ms");
             kernel.contactReady = SearchMode.isSupportIcc(adjusted);
             kernel.contactlessReady = SearchMode.isWave(adjusted);
             if (config.allowsContactless() && !kernel.contactlessReady) {
@@ -1299,6 +1305,26 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.e(TAG, "preTransProcess failed", e);
             return false;
         }
+    }
+
+    /**
+     * Terminal initialization, once per onboarding or parameter download
+     * ({@link OnboardingState#isTerminalInitialized}): loads every EMV/CLSS parameter (AIDs,
+     * CAPKs, terminal config, contactless kernels) from the database into memory. Every
+     * transaction after that reuses them and only runs its own kernel set-up
+     * ({@link #runPreTransProcess}: amount, date/time, 9F41, contactless pre-processing), which
+     * PAX and EMV need per transaction.
+     */
+    private void initializeTerminalIfNeeded() {
+        OnboardingState state = new OnboardingState(BaseApplication.getAppContext());
+        if (state.isTerminalInitialized()) {
+            return;
+        }
+        long start = SystemClock.elapsedRealtime();
+        kernel.params.reloadFromDatabase();
+        state.markTerminalInitialized();
+        requireEngine().apduTrace().note("EMV", "terminal initialization (once per onboarding / "
+                + "parameter download): " + (SystemClock.elapsedRealtime() - start) + " ms");
     }
 
     /**

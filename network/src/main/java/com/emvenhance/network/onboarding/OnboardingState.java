@@ -28,6 +28,7 @@ public final class OnboardingState {
     private static final String PREFS_NAME = "onboarding_state";
     private static final String KEY_OFFLINE_ONBOARDED = "offline_onboarded";
     private static final String KEY_ONLINE_ONBOARDED = "online_onboarded";
+    private static final String KEY_TERMINAL_INITIALIZED = "terminal_initialized";
     private static final String KEY_SACS = "sacs";
     private static final String KEY_CHALLENGE = "challenge";
     private static final String KEY_PUBLIC_KEY = "public_key";
@@ -59,7 +60,29 @@ public final class OnboardingState {
     }
 
     public void markOfflineOnboarded() {
-        prefs.edit().putBoolean(KEY_OFFLINE_ONBOARDED, true).apply();
+        prefs.edit()
+                .putBoolean(KEY_OFFLINE_ONBOARDED, true)
+                .putBoolean(KEY_TERMINAL_INITIALIZED, false)
+                .apply();
+    }
+
+    /**
+     * Whether the vendor's one-time terminal initialization (EMV parameters loaded from the
+     * database) has run since the last onboarding or parameter download. Cleared by
+     * {@link #markOfflineOnboarded} and {@link #requireTerminalInitialization}; the next
+     * transaction then initializes the terminal and calls {@link #markTerminalInitialized}.
+     */
+    public boolean isTerminalInitialized() {
+        return prefs.getBoolean(KEY_TERMINAL_INITIALIZED, false);
+    }
+
+    public void markTerminalInitialized() {
+        prefs.edit().putBoolean(KEY_TERMINAL_INITIALIZED, true).apply();
+    }
+
+    /** The terminal's parameters changed (e.g. a parameter download): initialize it again. */
+    public void requireTerminalInitialization() {
+        prefs.edit().putBoolean(KEY_TERMINAL_INITIALIZED, false).apply();
     }
 
     public boolean isOnlineOnboarded() {

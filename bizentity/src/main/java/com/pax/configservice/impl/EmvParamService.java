@@ -98,7 +98,7 @@ import java.util.Locale;
 public class EmvParamService {
     private static final String TAG = "EmvParamService";
 
-    private final EmvProcessParam.Builder cachedBuilder;
+    private EmvProcessParam.Builder cachedBuilder;
     public EmvParamService() {
         cachedBuilder = new EmvProcessParam.Builder();
     }
@@ -801,6 +801,16 @@ public class EmvParamService {
             emvAids.add(emvAid);
         }
         return emvAids;
+    }
+
+    /**
+     * Drops the in-memory copy and loads every EMV/CLSS parameter from the database again. Call
+     * it after the database changed (parameter download, onboarding): otherwise
+     * {@link #getCachedEmvParam} keeps returning what it loaded before, until the app restarts.
+     */
+    public EmvProcessParam reloadFromDatabase() {
+        cachedBuilder = new EmvProcessParam.Builder();
+        return getCachedEmvParam();
     }
 
     /**

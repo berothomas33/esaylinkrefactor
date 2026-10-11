@@ -3,6 +3,7 @@ package com.emvenhance.ui;
 import android.content.Intent;
 import android.widget.Toast;
 import com.emvenhance.databinding.ActivityMainBinding;
+import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.vendor.pax.PaxHardwarePermissions;
 import com.pax.configservice.impl.ConfigInit;
 
@@ -16,6 +17,7 @@ final class VendorDebugPanel {
         PaxHardwarePermissions.request(activity);
         binding.btnInsertEmvParam.setOnClickListener(v -> {
             new ConfigInit().init();
+            new OnboardingState(activity).requireTerminalInitialization();
             Toast.makeText(activity, "Inserting EMV param data…", Toast.LENGTH_SHORT).show();
         });
         binding.btnShowEmvParam.setOnClickListener(
