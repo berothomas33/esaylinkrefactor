@@ -289,7 +289,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishError("Cancelled");
                 return;
             }
-            lastAuth = engine.authorize(config);
+            lastAuth = authorizeOnline();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
@@ -1597,27 +1597,43 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public OnlineResultWrapper startOnlineProcess() {
         announceStep(EmvStep.START_ONLINE_PROCESS, null);
-        if (activeConfig != null) {
-            boolean contactless = activeCard != null && activeCard.isContactless();
-            String pan = contactless ? getContactlessPan() : getContactPan();
-            String track2 = contactless ? getContactlessTrack2Data() : getContactTrack2Data();
-            String cardHolderName = contactless ? getContactlessCardholderName() : getContactCardholderName();
-            String onlinePinBlockHex = lastOnlinePinBlock != null
-                    ? ConvertUtils.bcd2Str(lastOnlinePinBlock, lastOnlinePinBlock.length)
-                    : null;
-            String chipData = buildField55();
-            activeConfig = activeConfig.withIccData(chipData)
-                    .withPan(pan)
-                    .withOnlinePinBlock(onlinePinBlockHex)
-                    .withOnlinePinKeyEncrypted(lastOnlinePinKeyEncrypted)
-                    .withEmvResult(buildEmvTransactionResult(
-                            pan, track2, cardHolderName, chipData, onlinePinBlockHex, contactless));
-        }
-        AuthResult auth = requestOnline(requireEngine());
+        // Field 55 (buildIccData) and the card data (addOnlineRequestData) are attached here,
+        // after the 1st GENERATE AC returned the ARQC.
+        AuthResult auth = authorizeOnline();
         lastAuth = auth;
         announceStep(EmvStep.ISSUER_AUTHENTICATION, auth.isApproved() ? "host approved"
                 : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined");
         return toOnlineResultWrapper(auth);
+    }
+
+    /** Field 55 from whichever PAX kernel ran this card — see {@link #buildField55}. */
+    @Override
+    public String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card) {
+        return buildField55();
+    }
+
+    /**
+     * Chip/contactless only: the PAN, online PIN block and {@link EmvTransactionResult} read from
+     * the kernel, next to the field 55 {@link #authorizeOnline} already attached. Magstripe and
+     * manual send the config as it is.
+     */
+    @Override
+    protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
+        if (activeCard == null || isSynchronousEntry(activeCard)) {
+            return config;
+        }
+        boolean contactless = activeCard.isContactless();
+        String pan = contactless ? getContactlessPan() : getContactPan();
+        String track2 = contactless ? getContactlessTrack2Data() : getContactTrack2Data();
+        String cardHolderName = contactless ? getContactlessCardholderName() : getContactCardholderName();
+        String onlinePinBlockHex = lastOnlinePinBlock != null
+                ? ConvertUtils.bcd2Str(lastOnlinePinBlock, lastOnlinePinBlock.length)
+                : null;
+        return config.withPan(pan)
+                .withOnlinePinBlock(onlinePinBlockHex)
+                .withOnlinePinKeyEncrypted(lastOnlinePinKeyEncrypted)
+                .withEmvResult(buildEmvTransactionResult(pan, track2, cardHolderName,
+                        config.getIccData(), onlinePinBlockHex, contactless));
     }
 
     /**
@@ -2069,14 +2085,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private String readKernelTlvHex(int tag) {
         byte[] value = readKernelTlv(tag);
         return value.length == 0 ? null : ConvertUtils.bcd2Str(value, value.length);
-    }
-
-    @NonNull
-    private AuthResult requestOnline(@NonNull EmvEngine eng) {
-        if (isCancelled()) {
-            return AuthResult.declined("17", "Cancelled");
-        }
-        return eng.authorize(activeConfig);
     }
 
     @NonNull

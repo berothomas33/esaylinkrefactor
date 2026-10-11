@@ -151,12 +151,22 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
             finishError("Cancelled");
             return;
         }
-        lastAuth = engine.authorize(config);
+        lastAuth = authorizeOnline();
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
         } else {
             goToStep(EmvStep.TRANSACTION_COMPLETION);
         }
+    }
+
+    /**
+     * Demo field 55 (no kernel): a fixed ARQC (9F26), CID 80 (9F27), ATC (9F36) and IAD (9F10),
+     * so the online request has the same shape as a real card's.
+     */
+    @Override
+    public String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card) {
+        return "9F2608F43D166EC361A9B2" + "9F270180" + "9F36020001"
+                + "9F10120110A5000F040000000000000000000000FF";
     }
 
     @Override

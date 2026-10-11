@@ -146,8 +146,18 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
             finishError("Cancelled");
             return;
         }
-        lastAuth = engine.authorize(config);
+        lastAuth = authorizeOnline();
         goToStep(EmvStep.TRANSACTION_COMPLETION);
+    }
+
+    /**
+     * Stub field 55 until the Ingenico SDK is attached: then read the same tags from its kernel
+     * (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82, 84, 9F02, 9A, 9C, ...) — see PaxEmvBehavior's list.
+     */
+    @Override
+    public String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card) {
+        Log.w(TAG, "Ingenico EMV SDK not attached — stub field 55");
+        return "9F2608F43D166EC361A9B2" + "9F270180" + "9F36020001";
     }
 
     @Override

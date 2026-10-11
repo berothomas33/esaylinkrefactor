@@ -79,4 +79,21 @@ public interface EmvBehavior {
     void onScriptProcessing(EmvEngine engine, TransactionConfig config, CardPresence card);
 
     void onTransactionCompletion(EmvEngine engine, TransactionConfig config, CardPresence card);
+
+    // ─── Online request data — mandatory ────────────────────────────────────
+
+    /**
+     * Field 55 (ICC System Related Data) for the host: hex-encoded BER-TLV, read from this
+     * vendor's own kernel in whatever way its SDK offers (tag by tag, one TLV-list call, ...).
+     *
+     * <p>Called by {@link AbstractEmvBehavior#authorizeOnline} for every chip and contactless
+     * online request, after the 1st GENERATE AC has returned the ARQC and before anything is
+     * sent. It must carry the card's cryptogram data — 9F26 (ARQC), 9F27 (CID), 9F10 (IAD),
+     * 9F36 (ATC) — plus the data the ARQC was computed over (95, 9F37, 9F02, 9A, 9C, 82, ...);
+     * without them the host can't check the ARQC or build the ARPC (tag 91).
+     *
+     * <p>Never called for magstripe or manual entry. Returning {@code null} or an empty string
+     * ends the request as online failed, without contacting the host.
+     */
+    String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card);
 }

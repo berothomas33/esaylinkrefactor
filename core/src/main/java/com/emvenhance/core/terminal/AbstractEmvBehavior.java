@@ -7,6 +7,7 @@ import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.host.AuthResult;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -126,6 +127,46 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected final boolean isCancelled() {
         return cancelled.get();
+    }
+
+    /**
+     * The one way a vendor goes online. For chip and contactless it first calls the vendor's
+     * {@link #buildIccData} and attaches the result to {@link #activeConfig}, so no request
+     * reaches the host without field 55; a vendor that has none gets online failed instead.
+     * Then {@link #addOnlineRequestData} lets the vendor attach anything else it read, and
+     * {@link EmvEngine#authorize} sends it.
+     *
+     * <p>Call it once the kernel asks to go online, after the 1st GENERATE AC returned the
+     * ARQC (the PAX kernel's {@code startOnlineProcess} callback, or {@code onStartOnlineProcess}).
+     */
+    protected final AuthResult authorizeOnline() {
+        EmvEngine eng = engine;
+        TransactionConfig config = activeConfig;
+        CardPresence card = activeCard;
+        if (eng == null || config == null) {
+            return AuthResult.failed("Online failed: no active transaction");
+        }
+        if (isCancelled()) {
+            return AuthResult.declined("17", "Cancelled");
+        }
+        if (card != null && !isSynchronousEntry(card)) {
+            String iccData = buildIccData(eng, config, card);
+            if (iccData == null || iccData.isEmpty()) {
+                return AuthResult.failed("Online failed: no chip data (field 55) to send");
+            }
+            config = config.withIccData(iccData);
+        }
+        config = addOnlineRequestData(config);
+        activeConfig = config;
+        return eng.authorize(config);
+    }
+
+    /**
+     * Vendor extras for the online request (PAN, PIN block, EMV result, ...), added to
+     * {@code config} after field 55 is attached. Default: nothing to add.
+     */
+    protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
+        return config;
     }
 
     /**
