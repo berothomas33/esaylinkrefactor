@@ -151,13 +151,21 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     }
 
     /**
-     * Stub field 55 until the Ingenico SDK is attached: then read the same tags from its kernel
-     * (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82, 84, 9F02, 9A, 9C, ...) — see PaxEmvBehavior's list.
+     * Stub until the Ingenico SDK is attached: then return the tag's value from its kernel.
+     * Only the cryptogram tags are faked here, so the online request isn't empty.
      */
     @Override
-    public String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card) {
-        Log.w(TAG, "Ingenico EMV SDK not attached — stub field 55");
-        return "9F2608F43D166EC361A9B2" + "9F270180" + "9F36020001";
+    public byte[] readIccTag(int tag) {
+        switch (tag) {
+            case 0x9F26:
+                return new byte[] {(byte) 0xF4, 0x3D, 0x16, 0x6E, (byte) 0xC3, 0x61, (byte) 0xA9, (byte) 0xB2};
+            case 0x9F27:
+                return new byte[] {(byte) 0x80};
+            case 0x9F36:
+                return new byte[] {0x00, 0x01};
+            default:
+                return new byte[0];
+        }
     }
 
     @Override

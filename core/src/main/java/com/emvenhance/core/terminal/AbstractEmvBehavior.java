@@ -2,12 +2,14 @@ package com.emvenhance.core.terminal;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
+import com.emvenhance.core.card.Field55;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.util.EmvLog;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -130,14 +132,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * The one way a vendor goes online. For chip and contactless it first calls the vendor's
-     * {@link #buildIccData} and attaches the result to {@link #activeConfig}, so no request
-     * reaches the host without field 55; a vendor that has none gets online failed instead.
-     * Then {@link #addOnlineRequestData} lets the vendor attach anything else it read, and
-     * {@link EmvEngine#authorize} sends it.
+     * The one way a vendor goes online. For chip and contactless it first builds field 55 from
+     * the vendor's {@link #readIccTag} ({@link #buildField55}) and attaches it to
+     * {@link #activeConfig}, so no request reaches the host without it; with no tag at all the
+     * request is online failed instead. Then {@link #addOnlineRequestData} lets the vendor
+     * attach anything else it read, and {@link EmvEngine#authorize} sends it.
      *
-     * <p>Call it once the kernel asks to go online, after the 1st GENERATE AC returned the
-     * ARQC (the PAX kernel's {@code startOnlineProcess} callback, or {@code onStartOnlineProcess}).
+     * <p>Call it right after the 1st GENERATE AC returned the ARQC, when the kernel asks to go
+     * online (the PAX kernel's {@code startOnlineProcess} callback, or {@code onStartOnlineProcess}).
      */
     protected final AuthResult authorizeOnline() {
         EmvEngine eng = engine;
@@ -150,8 +152,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return AuthResult.declined("17", "Cancelled");
         }
         if (card != null && !isSynchronousEntry(card)) {
-            String iccData = buildIccData(eng, config, card);
-            if (iccData == null || iccData.isEmpty()) {
+            String iccData = buildField55();
+            if (iccData.isEmpty()) {
                 return AuthResult.failed("Online failed: no chip data (field 55) to send");
             }
             config = config.withIccData(iccData);
@@ -159,6 +161,23 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         config = addOnlineRequestData(config);
         activeConfig = config;
         return eng.authorize(config);
+    }
+
+    /**
+     * Field 55 as hex BER-TLV, read tag by tag through {@link #readIccTag}. Every tag sent (name
+     * and value) and every tag missing goes to the APDU trace and the debug log. Empty when the
+     * kernel had none of the tags.
+     */
+    protected final String buildField55() {
+        Field55 field55 = Field55.read(this::readIccTag);
+        String source = activeCard == null ? null
+                : activeCard.isContactless() ? "contactless" : "contact";
+        String summary = field55.describe(source);
+        EmvLog.d(summary);
+        if (engine != null) {
+            engine.apduTrace().note("EMV", summary);
+        }
+        return field55.hex();
     }
 
     /**

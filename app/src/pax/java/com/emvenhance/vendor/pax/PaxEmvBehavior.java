@@ -54,7 +54,6 @@ import com.pax.jemv.device.DeviceManager;
 import com.pax.poslib.gl.convert.ConvertHelper;
 import com.pax.poslib.model.ModelInfo;
 import com.pax.poslib.utils.PosDeviceUtils;
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
@@ -1597,8 +1596,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public OnlineResultWrapper startOnlineProcess() {
         announceStep(EmvStep.START_ONLINE_PROCESS, null);
-        // Field 55 (buildIccData) and the card data (addOnlineRequestData) are attached here,
-        // after the 1st GENERATE AC returned the ARQC.
+        // Right after the 1st GENERATE AC returned the ARQC: field 55 (read through readIccTag)
+        // and the card data (addOnlineRequestData) are attached here, then sent.
         AuthResult auth = authorizeOnline();
         lastAuth = auth;
         announceStep(EmvStep.ISSUER_AUTHENTICATION, auth.isApproved() ? "host approved"
@@ -1606,10 +1605,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return toOnlineResultWrapper(auth);
     }
 
-    /** Field 55 from whichever PAX kernel ran this card — see {@link #buildField55}. */
+    /** Field 55 tags come from whichever PAX kernel ran this card — see {@link #readKernelTlv}. */
     @Override
-    public String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card) {
-        return buildField55();
+    public byte[] readIccTag(int tag) {
+        return readKernelTlv(tag);
     }
 
     /**
@@ -1727,147 +1726,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return value.length == 0 ? null : new String(value, StandardCharsets.US_ASCII).trim();
     }
 
-    /**
-     * Field 55 (ICC System Related Data) as BER-TLV, hex-encoded — built here because
-     * {@code START_ONLINE_PROCESS} is the one place every chip/contactless transaction reaches
-     * (mag/manual never call this method at all; there's no ICC data to send for them). Reads
-     * whichever kernel actually drove the transaction — {@link ContactProcess#getTlv}/
-     * {@link ClssProcess#getTlv} only ever return a tag's VALUE bytes, so the tag and length
-     * prefix are encoded here.
-     *
-     * <p>Tags are {@link #FIELD55_TAGS}. A tag the kernel doesn't have for this card is left out,
-     * and listed as missing in Logcat ({@code Field 55 missing}) and the APDU trace, next to every
-     * tag sent with its name and value.
-     */
-    private String buildField55() {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        StringBuilder present = new StringBuilder();
-        StringBuilder missing = new StringBuilder();
-        for (Field55Tag t : FIELD55_TAGS) {
-            byte[] value = readKernelTlv(t.tag);
-            String tagHex = Integer.toHexString(t.tag).toUpperCase(Locale.US);
-            if (value.length == 0) {
-                // Not present for this card/session (e.g. kernel never populated it) — omit
-                // the tag entirely rather than writing a zero-length or padded placeholder.
-                missing.append(missing.length() == 0 ? "" : " ").append(tagHex);
-                continue;
-            }
-            writeTlv(out, t.tag, value);
-            String valueHex = ConvertUtils.bcd2Str(value, value.length);
-            present.append('\n').append(tagHex).append(' ').append(t.name).append(" = ").append(valueHex);
-        }
-
-        byte[] field55 = out.toByteArray();
-        String hex = ConvertUtils.bcd2Str(field55, field55.length);
-        String source = activeCard != null && activeCard.isContactless() ? "contactless" : "contact";
-        LogUtils.tlv(TAG, "Field 55 (ICC data, " + source + ")", field55, hex);
-        LogUtils.i(TAG, "Field 55 tags:" + present);
-        LogUtils.i(TAG, "Field 55 missing (kernel has no value): "
-                + (missing.length() == 0 ? "none" : missing));
-        requireEngine().apduTrace().note("EMV", "FIELD 55 (" + source + ", " + field55.length
-                + " bytes)" + present + "\nmissing: " + (missing.length() == 0 ? "none" : missing)
-                + "\nhex: " + hex);
-        return hex;
-    }
-
-    /** One field 55 tag and its EMV name, for the log. */
-    private static final class Field55Tag {
-        final int tag;
-        final String name;
-
-        Field55Tag(int tag, String name) {
-            this.tag = tag;
-            this.name = name;
-        }
-    }
-
-    /**
-     * Field 55 tags, in order: the old app's list ({@code PaxUtils} → EasyLink
-     * {@code TransRequest#setTagList}, sent as {@code chipData}), then the terminal tags
-     * requested earlier. The card's cryptogram data (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82) is
-     * what the host needs to validate the ARQC and compute the ARPC (tag 91). 9F66 (TTQ) only
-     * exists for Visa-type kernels; Mastercard has none.
-     */
-    private static final Field55Tag[] FIELD55_TAGS = {
-            new Field55Tag(0x5F2A, "Transaction Currency Code"),
-            new Field55Tag(0x5F34, "PAN Sequence Number"),
-            new Field55Tag(0x82, "Application Interchange Profile"),
-            new Field55Tag(0x84, "Dedicated File Name (AID)"),
-            new Field55Tag(0x95, "Terminal Verification Results"),
-            new Field55Tag(0x9A, "Transaction Date"),
-            new Field55Tag(0x9C, "Transaction Type"),
-            new Field55Tag(0x9F02, "Amount, Authorized"),
-            new Field55Tag(0x9F03, "Amount, Other"),
-            new Field55Tag(0x9F09, "Application Version Number"),
-            new Field55Tag(0x9F10, "Issuer Application Data"),
-            new Field55Tag(0x9F21, "Transaction Time"),
-            new Field55Tag(0x9F1A, "Terminal Country Code"),
-            new Field55Tag(0x9F26, "Application Cryptogram"),
-            new Field55Tag(0x9F27, "Cryptogram Information Data"),
-            new Field55Tag(0x9F33, "Terminal Capabilities"),
-            new Field55Tag(0x9F34, "CVM Results"),
-            new Field55Tag(0x9F35, "Terminal Type"),
-            new Field55Tag(0x9F36, "Application Transaction Counter"),
-            new Field55Tag(0x9F37, "Unpredictable Number"),
-            new Field55Tag(0x9F41, "Transaction Sequence Counter"),
-            new Field55Tag(0x9F42, "Application Currency Code"),
-            new Field55Tag(0x9F53, "Transaction Category Code"),
-            new Field55Tag(0x9F1E, "Interface Device Serial Number"),
-            new Field55Tag(0x9F63, "Scheme-proprietary 9F63"),
-            new Field55Tag(0x9F66, "Terminal Transaction Qualifiers"),
-            new Field55Tag(0x9F40, "Additional Terminal Capabilities"),
-            new Field55Tag(0x9F1B, "Terminal Floor Limit"),
-            new Field55Tag(0x9F15, "Merchant Category Code"),
-            new Field55Tag(0x9F1C, "Terminal Identification"),
-            new Field55Tag(0x9F49, "Default DDOL"),
-            new Field55Tag(0x97, "Default TDOL"),
-    };
-
     /** {@link ContactProcess#getTlv}/{@link ClssProcess#getTlv} both return only value bytes. */
     private byte[] readKernelTlv(int tag) {
         if (activeCard != null && activeCard.isContactless()) {
             return kernel.contactless.getTlv(tag);
         }
         return kernel.contact.getTlv(tag);
-    }
-
-    /** Appends one BER-TLV entry (tag + length + value) for {@code tag}/{@code value}. */
-    private static void writeTlv(ByteArrayOutputStream out, int tag, byte[] value) {
-        byte[] tagBytes = tagToBytes(tag);
-        out.write(tagBytes, 0, tagBytes.length);
-        writeBerLength(out, value.length);
-        out.write(value, 0, value.length);
-    }
-
-    /**
-     * BER-TLV tag encoding for a {@link TagsTable} constant — one byte for a plain tag
-     * (e.g. {@code 0x9A}), two for an {@code 0x9F}/{@code 0x5F}-class tag (e.g. {@code 0x9F02}),
-     * three for a proprietary {@code 0xDF}-class tag (e.g. {@code 0xDF8120}). Matches how these
-     * constants are already written in {@link TagsTable} — the int's own magnitude says its
-     * byte length, no separate lookup needed.
-     */
-    private static byte[] tagToBytes(int tag) {
-        if (tag <= 0xFF) {
-            return new byte[]{(byte) tag};
-        }
-        if (tag <= 0xFFFF) {
-            return new byte[]{(byte) (tag >> 8), (byte) tag};
-        }
-        return new byte[]{(byte) (tag >> 16), (byte) (tag >> 8), (byte) tag};
-    }
-
-    /** BER-TLV length: short form under 128 bytes, one length-of-length byte above it. */
-    private static void writeBerLength(ByteArrayOutputStream out, int length) {
-        if (length < 0x80) {
-            out.write(length);
-        } else if (length <= 0xFF) {
-            out.write(0x81);
-            out.write(length);
-        } else {
-            out.write(0x82);
-            out.write((length >> 8) & 0xFF);
-            out.write(length & 0xFF);
-        }
     }
 
     // [CONTACTLESS]

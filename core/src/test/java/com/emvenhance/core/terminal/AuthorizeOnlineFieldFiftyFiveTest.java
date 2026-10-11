@@ -18,11 +18,12 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * {@link AbstractEmvBehavior#authorizeOnline} asks the vendor for field 55 before every chip or
- * contactless request, and never reaches the host without it.
+ * {@link AbstractEmvBehavior#authorizeOnline} builds field 55 from the vendor's tags before every
+ * chip or contactless request, and never reaches the host without it.
  */
 public class AuthorizeOnlineFieldFiftyFiveTest {
 
+    private static final byte[] ARQC = {(byte) 0xF4, 0x3D, 0x16, 0x6E, (byte) 0xC3, 0x61, (byte) 0xA9, (byte) 0xB2};
     private static final String FIELD_55 = "9F2608F43D166EC361A9B29F270180";
 
     private EmvEngine engine;
@@ -39,12 +40,12 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
 
     @Test
     public void chipRequestCarriesTheVendorsFieldFiftyFive() {
-        VendorBehavior vendor = new VendorBehavior(FIELD_55);
+        VendorBehavior vendor = new VendorBehavior(true);
 
         AuthResult result = vendor.goOnline(engine, CardPresence.chip());
 
         assertTrue(result.isApproved());
-        assertEquals(1, vendor.iccDataCalls);
+        assertTrue(vendor.tagsRead > 0);
         assertEquals(1, sentToHost.size());
         assertEquals(FIELD_55, sentToHost.get(0).getIccData());
         assertEquals("extras see field 55", FIELD_55, vendor.iccDataSeenByExtras);
@@ -52,7 +53,7 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
 
     @Test
     public void contactlessWithoutFieldFiftyFiveIsOnlineFailedAndNeverSent() {
-        VendorBehavior vendor = new VendorBehavior("");
+        VendorBehavior vendor = new VendorBehavior(false);
 
         AuthResult result = vendor.goOnline(engine, CardPresence.contactless(null));
 
@@ -64,24 +65,24 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
 
     @Test
     public void magstripeNeverAsksForFieldFiftyFive() {
-        VendorBehavior vendor = new VendorBehavior(FIELD_55);
+        VendorBehavior vendor = new VendorBehavior(true);
 
         vendor.goOnline(engine, CardPresence.magstripe(null, "4111111111111111=2812", null));
 
-        assertEquals(0, vendor.iccDataCalls);
+        assertEquals(0, vendor.tagsRead);
         assertEquals(1, sentToHost.size());
         assertNull(sentToHost.get(0).getIccData());
     }
 
-    /** Minimal vendor: every phase is a no-op, field 55 is whatever the test hands it. */
+    /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */
     private static final class VendorBehavior extends AbstractEmvBehavior {
 
-        private final String iccData;
-        int iccDataCalls;
+        private final boolean hasCryptogram;
+        int tagsRead;
         String iccDataSeenByExtras;
 
-        VendorBehavior(String iccData) {
-            this.iccData = iccData;
+        VendorBehavior(boolean hasCryptogram) {
+            this.hasCryptogram = hasCryptogram;
         }
 
         AuthResult goOnline(EmvEngine engine, CardPresence card) {
@@ -90,9 +91,12 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
         }
 
         @Override
-        public String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card) {
-            iccDataCalls++;
-            return iccData;
+        public byte[] readIccTag(int tag) {
+            tagsRead++;
+            if (!hasCryptogram) {
+                return new byte[0];
+            }
+            return tag == 0x9F26 ? ARQC : tag == 0x9F27 ? new byte[] {(byte) 0x80} : null;
         }
 
         @Override

@@ -160,13 +160,23 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     }
 
     /**
-     * Demo field 55 (no kernel): a fixed ARQC (9F26), CID 80 (9F27), ATC (9F36) and IAD (9F10),
+     * Demo card data (no kernel): a fixed ARQC (9F26), CID 80 (9F27), ATC (9F36) and IAD (9F10),
      * so the online request has the same shape as a real card's.
      */
     @Override
-    public String buildIccData(EmvEngine engine, TransactionConfig config, CardPresence card) {
-        return "9F2608F43D166EC361A9B2" + "9F270180" + "9F36020001"
-                + "9F10120110A5000F040000000000000000000000FF";
+    public byte[] readIccTag(int tag) {
+        switch (tag) {
+            case 0x9F26:
+                return new byte[] {(byte) 0xF4, 0x3D, 0x16, 0x6E, (byte) 0xC3, 0x61, (byte) 0xA9, (byte) 0xB2};
+            case 0x9F27:
+                return new byte[] {(byte) 0x80};
+            case 0x9F36:
+                return new byte[] {0x00, 0x01};
+            case 0x9F10:
+                return new byte[] {0x01, 0x10, (byte) 0xA5, 0x00, 0x0F, 0x04, 0x00, 0x00};
+            default:
+                return new byte[0];
+        }
     }
 
     @Override
