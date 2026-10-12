@@ -10,7 +10,12 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.core.Observer;
+import io.reactivex.rxjava3.disposables.Disposable;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import io.reactivex.rxjava3.subjects.Subject;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Vendor base: each step method does vendor work, then calls {@link #goToStep} to
@@ -26,6 +31,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>{@link #prepare} only starts {@link EmvStep#TERMINAL_INITIALIZATION} (does not
  * chain further — PosTerminal searches next). {@link #start} kicks the first post-search
  * step; the vendor chain continues via {@link #goToStep}.
+ *
+ * <p>Steps go through {@link #stepStream}: the next method runs once the current one returns
+ * (queued, not nested inside it), on the same thread, and {@link #prepare} / {@link #start}
+ * return only after every step they led to has run.
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
@@ -38,6 +47,23 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Nullable
     protected CardPresence activeCard;
 
+    /**
+     * Every step change, in order. {@link #dispatchStepMethod} only emits here; one
+     * {@link StepObserver} runs the step's {@code onXxx} method. Serialized, so steps run one at a
+     * time, and a {@link #goToStep} made from inside a step method is queued until that method
+     * returns. No scheduler: steps run on the thread that called {@link #prepare} /
+     * {@link #start} — the PAX kernel's calls and callbacks stay on the thread that initialized
+     * it and powered up the reader, and those two calls stay synchronous for {@link PosTerminal}.
+     */
+    private final Subject<EmvStep> stepStream = PublishSubject.<EmvStep>create().toSerialized();
+
+    /** Held while {@link #prepare} or {@link #start} runs its steps — see {@link #runSteps}. */
+    private final ReentrantLock stepLock = new ReentrantLock();
+
+    /** The {@link StepObserver}'s subscription — live only while {@link #stepLock} is held. */
+    @Nullable
+    private Disposable stepSubscription;
+
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
         this.engine = engine;
@@ -47,7 +73,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
-        enterStep(EmvStep.TERMINAL_INITIALIZATION);
+        runSteps(() -> enterStep(EmvStep.TERMINAL_INITIALIZATION));
         return !cancelled.get() && engine.isRunning();
     }
 
@@ -59,9 +85,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         cancelled.set(false);
 
         // First post-search step — vendor methods chain via goToStep from here.
-        goToStep(firstStepAfterSearch(card));
+        runSteps(() -> goToStep(firstStepAfterSearch(card)));
     }
 
+    /**
+     * Flags the transaction cancelled: {@link #goToStep} refuses every later step. A step method
+     * already running isn't interrupted — it checks {@link #isCancelled} itself (PAX closes its
+     * readers that way) — and the step stream is disposed when {@link #prepare} / {@link #start}
+     * return, not here, so a step already queued still gets to clean up.
+     */
     @Override
     public void cancel() {
         cancelled.set(true);
@@ -216,73 +248,145 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         if (cancelled.get()) {
             return;
         }
+        dispatchStepMethod(step);
+    }
+
+    /** Emits {@code step} on {@link #stepStream}; the {@link StepObserver} runs its method. */
+    private void dispatchStepMethod(EmvStep step) {
+        stepStream.onNext(step);
+    }
+
+    /**
+     * Subscribes the {@link StepObserver}, runs {@code first} (which dispatches the first step),
+     * then disposes the subscription. The outermost {@code onNext} drains the queue before it
+     * returns, so by then every step {@code first} led to has run — {@link PosTerminal} reads the
+     * init result right after {@link #prepare} and the pending retry right after {@link #start}.
+     *
+     * <p>{@link #stepLock} keeps that true across threads: a transaction started while a cancelled
+     * one is still blocked inside a step (host, PIN pad) waits here for that chain to end, instead
+     * of having its steps queued behind it — run later, on the other thread, after this call had
+     * already returned. A nested call on the same thread reuses the live subscription; a second
+     * observer would run every step twice.
+     */
+    private void runSteps(Runnable first) {
+        stepLock.lock();
+        boolean outermost = stepLock.getHoldCount() == 1;
         try {
-            dispatchStepMethod(step);
-        } catch (Exception e) {
-            finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
+            if (outermost) {
+                stepStream.subscribe(new StepObserver());
+            }
+            first.run();
+        } finally {
+            if (outermost) {
+                Disposable subscription = stepSubscription;
+                stepSubscription = null;
+                if (subscription != null) {
+                    subscription.dispose();
+                }
+            }
+            stepLock.unlock();
         }
     }
 
-    private void dispatchStepMethod(EmvStep step) {
-        if (engine == null || activeConfig == null) {
-            return;
+    /**
+     * The one subscriber to {@link #stepStream}: runs each step's {@code onXxx} method with the
+     * current {@link #engine}, {@link #activeConfig} and {@link #activeCard}. Never throws — an
+     * observer that threw would leave the serialized stream stuck "emitting", silently queueing
+     * every later step — so a failing step method ends the transaction through
+     * {@link #finishError}, as before, and later steps still run.
+     */
+    private final class StepObserver implements Observer<EmvStep> {
+
+        @Override
+        public void onSubscribe(Disposable d) {
+            stepSubscription = d;
         }
 
-        switch (step) {
-            case TERMINAL_INITIALIZATION:
-                onTerminalInitialization(engine, activeConfig);
-                break;
-            case SEARCH_CARD:
-                onSearchCard(engine, activeConfig, activeCard);
-                break;
-            case APPLICATION_SELECTION:
-                onApplicationSelection(engine, activeConfig, activeCard);
-                break;
-            case WAIT_APPLICATION_SELECTION:
-                onWaitApplicationSelection(engine, activeConfig, activeCard);
-                break;
-            case FINAL_APPLICATION_SELECTION:
-                onFinalApplicationSelection(engine, activeConfig, activeCard);
-                break;
-            case READ_APPLICATION_DATA:
-                onReadApplicationData(engine, activeConfig, activeCard);
-                break;
-            case SET_TRANSACTION_DATA:
-                onSetTransactionData(engine, activeConfig, activeCard);
-                break;
-            case OFFLINE_DATA_AUTHENTICATION:
-                onOfflineDataAuthentication(engine, activeConfig, activeCard);
-                break;
-            case PROCESS_RESTRICTIONS:
-                onProcessRestrictions(engine, activeConfig, activeCard);
-                break;
-            case CARDHOLDER_VERIFICATION:
-                onCardholderVerification(engine, activeConfig, activeCard);
-                break;
-            case OFFLINE_PIN_VERIFICATION:
-                onOfflinePinVerification(engine, activeConfig, activeCard);
-                break;
-            case TERMINAL_RISK_MANAGEMENT:
-                onTerminalRiskManagement(engine, activeConfig, activeCard);
-                break;
-            case TERMINAL_ACTION_ANALYSIS:
-                onTerminalActionAnalysis(engine, activeConfig, activeCard);
-                break;
-            case START_ONLINE_PROCESS:
-                onStartOnlineProcess(engine, activeConfig, activeCard);
-                break;
-            case ISSUER_AUTHENTICATION:
-                onIssuerAuthentication(engine, activeConfig, activeCard);
-                break;
-            case SCRIPT_PROCESSING:
-                onScriptProcessing(engine, activeConfig, activeCard);
-                break;
-            case TRANSACTION_COMPLETION:
-                onTransactionCompletion(engine, activeConfig, activeCard);
-                break;
-            default:
-                finishError("Unknown EMV step: " + step);
-                break;
+        @Override
+        public void onNext(EmvStep step) {
+            if (engine == null || activeConfig == null) {
+                return;
+            }
+            try {
+                switch (step) {
+                    case TERMINAL_INITIALIZATION:
+                        onTerminalInitialization(engine, activeConfig);
+                        break;
+                    case SEARCH_CARD:
+                        onSearchCard(engine, activeConfig, activeCard);
+                        break;
+                    case APPLICATION_SELECTION:
+                        onApplicationSelection(engine, activeConfig, activeCard);
+                        break;
+                    case WAIT_APPLICATION_SELECTION:
+                        onWaitApplicationSelection(engine, activeConfig, activeCard);
+                        break;
+                    case FINAL_APPLICATION_SELECTION:
+                        onFinalApplicationSelection(engine, activeConfig, activeCard);
+                        break;
+                    case READ_APPLICATION_DATA:
+                        onReadApplicationData(engine, activeConfig, activeCard);
+                        break;
+                    case SET_TRANSACTION_DATA:
+                        onSetTransactionData(engine, activeConfig, activeCard);
+                        break;
+                    case OFFLINE_DATA_AUTHENTICATION:
+                        onOfflineDataAuthentication(engine, activeConfig, activeCard);
+                        break;
+                    case PROCESS_RESTRICTIONS:
+                        onProcessRestrictions(engine, activeConfig, activeCard);
+                        break;
+                    case CARDHOLDER_VERIFICATION:
+                        onCardholderVerification(engine, activeConfig, activeCard);
+                        break;
+                    case OFFLINE_PIN_VERIFICATION:
+                        onOfflinePinVerification(engine, activeConfig, activeCard);
+                        break;
+                    case TERMINAL_RISK_MANAGEMENT:
+                        onTerminalRiskManagement(engine, activeConfig, activeCard);
+                        break;
+                    case TERMINAL_ACTION_ANALYSIS:
+                        onTerminalActionAnalysis(engine, activeConfig, activeCard);
+                        break;
+                    case START_ONLINE_PROCESS:
+                        onStartOnlineProcess(engine, activeConfig, activeCard);
+                        break;
+                    case ISSUER_AUTHENTICATION:
+                        onIssuerAuthentication(engine, activeConfig, activeCard);
+                        break;
+                    case SCRIPT_PROCESSING:
+                        onScriptProcessing(engine, activeConfig, activeCard);
+                        break;
+                    case TRANSACTION_COMPLETION:
+                        onTransactionCompletion(engine, activeConfig, activeCard);
+                        break;
+                    default:
+                        finishError("Unknown EMV step: " + step);
+                        break;
+                }
+            } catch (Throwable t) {
+                failStep(step, t);
+            }
+        }
+
+        @Override
+        public void onError(Throwable e) {
+            // Never called: nothing terminates stepStream.
+        }
+
+        @Override
+        public void onComplete() {
+            // Never called: nothing terminates stepStream.
+        }
+
+        private void failStep(EmvStep step, Throwable t) {
+            try {
+                finishError(t.getMessage() != null ? t.getMessage() : step.getTitle());
+            } catch (Throwable reportFailed) {
+                // Swallowed, not rethrown: throwing here would leave stepStream stuck.
+                EmvLog.d("EmvStep " + step + " failed (" + t + ") and reporting it failed: "
+                        + reportFailed);
+            }
         }
     }
 }

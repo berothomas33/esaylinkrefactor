@@ -50,6 +50,16 @@ finishError("…");
 `onTerminalInitialization` **متستدعش** `goToStep` — بعدها `PosTerminal.searchCard`.
 `start()` هو اللي يفتح أول خطوة بعد البحث.
 
+## الـ step stream (RxJava)
+
+`goToStep` → `dispatchStepMethod` → `stepStream.onNext(step)` بس، و`Observer` واحد (`StepObserver`) هو اللي ينادي `onXxx`.
+
+- الخطوة الجاية بتتنفّذ **بعد** ما الـ method الحالية ترجع (queued)، مش جواها.
+- نفس الـ thread ومن غير scheduler: `prepare()` / `start()` مبيرجعوش غير لما كل الخطوات تخلص — `PosTerminal` بيقرا نتيجة الـ init والـ retry بعدهم على طول.
+- لو معاملة جديدة بدأت والقديمة (اللي اتلغت) لسه واقفة جوه خطوة (host / PIN pad)، الجديدة بتستنى (`stepLock`) لحد ما القديمة تخلص، وبعدين خطواتها بتتنفّذ على الـ thread بتاعها.
+- exception أو `Error` في `onXxx` → `finishError`، والـ stream يفضل شغّال.
+- الـ subscription بتتفتح وتتقفل جوه `prepare()` / `start()`؛ أي `goToStep` بعد ما يرجعوا مبيعملش حاجة. `cancel()` بيعلّم الـ flag بس، عشان خطوة اتحطت في الـ queue قبل الـ cancel تلحق تقفل الـ readers.
+
 ## PAX
 
 `PaxEmvBehavior extends AbstractEmvBehavior`:
