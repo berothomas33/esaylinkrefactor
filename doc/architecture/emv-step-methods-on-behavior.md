@@ -13,7 +13,15 @@
 goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
 ```
 
-ده ينشر الخطوة على الـ observable وينفّذ الـ method الجاية.
+ده يبعت الخطوة على الـ `steps` subject اللي جوه `AbstractEmvBehavior`. الـ Observer الوحيد بتاعه
+هو `dispatchStepMethod`: يتأكد إن المعاملة ما اتلغتش، ينشر الخطوة على **EmvStep observable** بتاع
+الـ engine (للـ UI)، وبعدين يعمل `switch` على الخطوة وينادي الـ `onXxx` بتاعها.
+
+الـ subject بيشتغل serialized ومن غير scheduler. يعني لو `goToStep` اتنادت من جوه `onXxx`، الخطوة
+الجاية بتتحط في الطابور وتشتغل بعد ما `onXxx` الحالية ترجع، على نفس الـ thread بتاع المعاملة. الخطوات
+بتشتغل ورا بعض في loop بدل ما كل method تنادي اللي بعدها والـ stack يكبر، والسلسلة كلها بتخلص قبل
+ما `start()` ترجع، و`PosTerminal` معتمد على كده علشان يشوف الـ retry بعدها على طول. مفيش
+`observeOn(computation())` لأن نداءات الـ kernel بتاعة الـ vendor بتعمل block.
 
 ## مثال (Fake)
 

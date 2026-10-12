@@ -270,9 +270,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         if (card.isChip()) {
-            // Reached via runContactAppSelect's goToStep(READ_APPLICATION_DATA) — never via the
-            // framework's own cancellation short-circuit in goToStep, which returns before
-            // dispatchStepMethod runs at all.
+            // Reached via runContactAppSelect's goToStep(READ_APPLICATION_DATA) — never after a
+            // cancel: dispatchStepMethod checks for one before it runs the step method.
             runContactReadAppData();
         }
         if (card.isContactless()) {
@@ -873,7 +872,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * simple-flow-end, per {@link #isContactTransactionFinished()}, stops and reports
      * via {@link #finishContactStage}.
      *
-     * <p>{@link #goToStep} itself returns early on cancellation, before dispatching at all —
+     * <p>The framework's step dispatch stops on cancellation before running the next step
+     * method —
      * which for every other goToStep transition in this class (mag/manual,
      * APPLICATION_SELECTION) is fine, since there's no vendor-owned resource left open to clean
      * up. For chip the ICC reader stays activated across the whole app-select → start-transaction
