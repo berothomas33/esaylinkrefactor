@@ -225,13 +225,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     private void dispatchStepMethod(EmvStepEvent event) {
         EmvStep step = event.getStep();
         try {
+            // engine and activeConfig are set by prepare()/start() before any goToStep.
             if (cancelled.get()) {
-                if (engine != null && engine.isRunning()) {
+                if (engine.isRunning()) {
                     engine.notifyError("Transaction cancelled");
                 }
-                return;
-            }
-            if (engine == null || activeConfig == null) {
                 return;
             }
             engine.notifyEmvStep(step, event.getDetail()); // EmvStep observable → UI
