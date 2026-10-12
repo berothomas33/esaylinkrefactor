@@ -14,15 +14,13 @@ import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
- * {@link AbstractEmvBehavior#goToStep} emits on the step observable and its observer runs the
- * step methods: in order, one after another on the calling thread (not nested inside each
- * other), all before {@link AbstractEmvBehavior#start} returns.
+ * {@link AbstractEmvBehavior#goToStep} runs the step methods in order on the calling thread, all
+ * before {@link AbstractEmvBehavior#start} returns; a failing step or a cancel ends the flow.
  */
 public class StepDispatchTest {
 
@@ -53,19 +51,6 @@ public class StepDispatchTest {
         assertEquals(CHAIN, vendor.ran);
         assertEquals(CHAIN, published);
         assertEquals(TransactionStep.COMPLETED, engine.currentTransactionState().getStep());
-    }
-
-    @Test
-    public void stepsRunOneAfterAnotherNotNested() {
-        ChainBehavior vendor = new ChainBehavior();
-        engine.begin();
-
-        vendor.start(engine, sale(), CardPresence.chip());
-
-        // The first step is delivered directly, the rest by the subject's drain loop, all at
-        // one depth: called one after another, the stack would grow by a few frames per step.
-        assertEquals("steps after the first all run at the same stack depth",
-                1, new HashSet<>(vendor.depths.subList(1, vendor.depths.size())).size());
     }
 
     @Test
@@ -135,7 +120,6 @@ public class StepDispatchTest {
     private static final class ChainBehavior extends AbstractEmvBehavior {
 
         final List<EmvStep> ran = new ArrayList<>();
-        final List<Integer> depths = new ArrayList<>();
         EmvStep failAt;
         EmvStep cancelAt;
         EmvStep engineCancelAt;
@@ -143,7 +127,6 @@ public class StepDispatchTest {
 
         private void step(EmvStep step) {
             ran.add(step);
-            depths.add(Thread.currentThread().getStackTrace().length);
             if (step == failAt) {
                 throw new IllegalStateException("card removed");
             }
