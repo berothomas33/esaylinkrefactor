@@ -148,7 +148,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (isCancelled()) {
-            finishError("Cancelled");
+            finishCancelled();
             return;
         }
         lastAuth = authorizeOnline();

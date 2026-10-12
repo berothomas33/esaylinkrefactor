@@ -2,6 +2,7 @@ package com.emvenhance.core.terminal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.EntryMethod;
@@ -89,7 +90,7 @@ public class StepDispatchTest {
     }
 
     @Test
-    public void cancelStopsBeforeTheNextStep() {
+    public void cancelStopsBeforeTheNextStepReportsWhereAndReleasesTheVendor() {
         ChainBehavior vendor = new ChainBehavior();
         vendor.cancelAt = EmvStep.READ_APPLICATION_DATA;
         engine.begin();
@@ -98,8 +99,32 @@ public class StepDispatchTest {
 
         assertEquals(CHAIN.subList(0, 2), vendor.ran);
         assertEquals(TransactionStep.ERROR, engine.currentTransactionState().getStep());
-        assertEquals("Transaction cancelled", engine.currentTransactionState().getMessage());
+        assertEquals("Transaction cancelled at Read application data",
+                engine.currentTransactionState().getMessage());
         assertFalse(engine.isRunning());
+        assertEquals(1, vendor.flowCancelled);
+        assertTrue(engine.apduTrace().text(), engine.apduTrace().text().contains(
+                "EMV flow cancelled at Read application data — "
+                        + "Offline data authentication (SDA/DDA/CDA) not run"));
+    }
+
+    @Test
+    public void cancelFromTheTerminalIsReportedOnceAtTheCurrentStep() {
+        ChainBehavior vendor = new ChainBehavior();
+        vendor.engineCancelAt = EmvStep.OFFLINE_DATA_AUTHENTICATION;
+        engine.attachBehavior(vendor);
+        List<String> errors = new ArrayList<>();
+        engine.transactionSteps()
+                .filter(e -> e.getStep() == TransactionStep.ERROR)
+                .subscribe(e -> errors.add(e.getMessage()));
+        engine.begin();
+
+        vendor.start(engine, sale(), CardPresence.chip());
+
+        assertEquals(CHAIN.subList(0, 3), vendor.ran);
+        assertEquals(Arrays.asList(
+                "Transaction cancelled at Offline data authentication (SDA/DDA/CDA)"), errors);
+        assertEquals(1, vendor.flowCancelled);
     }
 
     private static TransactionConfig sale() {
@@ -113,6 +138,8 @@ public class StepDispatchTest {
         final List<Integer> depths = new ArrayList<>();
         EmvStep failAt;
         EmvStep cancelAt;
+        EmvStep engineCancelAt;
+        int flowCancelled;
 
         private void step(EmvStep step) {
             ran.add(step);
@@ -123,12 +150,20 @@ public class StepDispatchTest {
             if (step == cancelAt) {
                 cancel();
             }
+            if (step == engineCancelAt) {
+                engine.cancel();
+            }
             int next = CHAIN.indexOf(step) + 1;
             if (next < CHAIN.size()) {
                 goToStep(CHAIN.get(next));
             } else {
                 finishApproved("APPROVED");
             }
+        }
+
+        @Override
+        protected void onFlowCancelled() {
+            flowCancelled++;
         }
 
         @Override public byte[] readIccTag(int tag) { return null; }

@@ -43,6 +43,12 @@ public final class EmvEngine {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    /** The last EMV step published this transaction — where a cancel stopped it. */
+    @Nullable
+    private volatile EmvStep currentEmvStep;
+    /** Set once the cancel is reported, so a transaction reports it only once. */
+    private final AtomicBoolean cancelReported = new AtomicBoolean(false);
+
     @Nullable
     private EmvBehavior behavior;
 
@@ -101,6 +107,8 @@ public final class EmvEngine {
         }
         retryCount.set(0);
         retryPrompt = null;
+        currentEmvStep = null;
+        cancelReported.set(false);
         apduTrace.beginTransaction();
         return true;
     }
@@ -118,13 +126,32 @@ public final class EmvEngine {
         if (behavior != null) {
             behavior.cancel();
         }
-        if (running.get()) {
-            notifyError("Transaction cancelled");
+        notifyCancelled();
+    }
+
+    /**
+     * Ends the running transaction as cancelled, naming the EMV step it was at:
+     * "Transaction cancelled at Read application data". Reported once — the UI's cancel and the
+     * transaction thread noticing it may both call this — and not at all once the transaction
+     * has already ended.
+     */
+    public void notifyCancelled() {
+        if (!running.get() || !cancelReported.compareAndSet(false, true)) {
+            return;
         }
+        EmvStep at = currentEmvStep;
+        notifyError(at == null ? "Transaction cancelled" : "Transaction cancelled at " + at.getTitle());
+    }
+
+    /** The last EMV step published this transaction, or {@code null} before the first. */
+    @Nullable
+    public EmvStep currentEmvStep() {
+        return currentEmvStep;
     }
 
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);
+        currentEmvStep = step;
         EmvLog.d("EmvStep: " + event);
         apduTrace.kernelStep(event.toString());
         emvSteps.onNext(event);

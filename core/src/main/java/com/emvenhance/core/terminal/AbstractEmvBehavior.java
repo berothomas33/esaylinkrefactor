@@ -136,6 +136,25 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         engine.notifyError(message);
     }
 
+    /**
+     * Ends the transaction as cancelled, naming the step it was at — see
+     * {@link EmvEngine#notifyCancelled}. Use it wherever a step notices the cancel itself.
+     */
+    protected final void finishCancelled() {
+        if (engine == null) {
+            return;
+        }
+        engine.notifyCancelled();
+    }
+
+    /**
+     * The transaction was cancelled between two steps, so no later step will release what the
+     * vendor holds open (card readers, kernel listeners, PIN pad): release it here. The cancel is
+     * already reported — don't report a result. Default: nothing to release.
+     */
+    protected void onFlowCancelled() {
+    }
+
     protected final boolean isCancelled() {
         return cancelled.get();
     }
@@ -217,6 +236,25 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
+     * A cancel reached the step chain before {@code notRun}: report it at the step the
+     * transaction was at, note in the APDU trace where the flow stopped, and let the vendor
+     * release what it holds open. The chain ends here: no step method runs after this.
+     */
+    private void stopCancelled(EmvStep notRun) {
+        EmvStep at = engine.currentEmvStep();
+        String where = "EMV flow cancelled" + (at != null ? " at " + at.getTitle() : "")
+                + " — " + notRun.getTitle() + " not run";
+        EmvLog.d(where);
+        engine.apduTrace().note("EMV", where);
+        engine.notifyCancelled();
+        try {
+            onFlowCancelled();
+        } catch (Exception e) {
+            EmvLog.d("onFlowCancelled failed: " + e);
+        }
+    }
+
+    /**
      * The observer of {@link #steps}: publishes the step on the engine's EmvStep observable (UI)
      * and runs its {@code onXxx} method. Nothing may escape it — a throw would leave the
      * serialized {@link #steps} stuck mid-emission and every later step queued forever — so any
@@ -227,9 +265,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         try {
             // engine and activeConfig are set by prepare()/start() before any goToStep.
             if (cancelled.get()) {
-                if (engine.isRunning()) {
-                    engine.notifyError("Transaction cancelled");
-                }
+                stopCancelled(step);
                 return;
             }
             engine.notifyEmvStep(step, event.getDetail()); // EmvStep observable → UI

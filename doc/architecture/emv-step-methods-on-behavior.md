@@ -71,3 +71,12 @@ finishError("…");
 // Kernel callback example
 announceKernelStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN");
 ```
+
+## الإلغاء
+
+- `EmvEngine` بيفتكر آخر `EmvStep` اتنشرت، سواء جت من `goToStep` أو من `announceStep`. لما المعاملة
+  تتلغي بيبلّغ مرة واحدة بس: `Transaction cancelled at <الخطوة>`.
+- لو الإلغاء وصل بين خطوتين، `dispatchStepMethod` بيوقف قبل الخطوة الجاية. بيكتب في الـ APDU trace
+  الخطوة اللي وقف عندها والخطوة اللي ما اشتغلتش، وبعدين ينادي `onFlowCancelled()` علشان الـ vendor
+  يقفل الـ readers والـ listener والـ PIN pad.
+- لو الـ vendor لاحظ الإلغاء جوه خطوة، يستخدم `finishCancelled()` مش `finishError(...)`.
