@@ -6,26 +6,32 @@ import com.emvenhance.core.card.Field55;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
+import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import io.reactivex.rxjava3.subjects.Subject;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Vendor base: each step method does vendor work, then calls {@link #goToStep}, which runs the
- * next step through {@link #dispatchStepMethod}: it publishes the step on the engine's EmvStep
- * observable (UI) and calls that step's {@code onXxx} method.
+ * Vendor base: each step method does vendor work, then calls {@link #goToStep}, which emits the
+ * next step on {@link #steps}. The one observer of {@link #steps}, {@link #dispatchStepMethod},
+ * publishes it to the UI and runs that step's {@code onXxx} method.
  *
  * <pre>
  *   onApplicationSelection(...) {
  *       // vendor work…
- *       goToStep(EmvStep.WAIT_APPLICATION_SELECTION);  // → dispatchStepMethod → onXxx
+ *       goToStep(EmvStep.WAIT_APPLICATION_SELECTION);  // → steps → dispatchStepMethod → onXxx
  *   }
  * </pre>
  *
- * <p>Everything runs on the calling (transaction) thread, so the chain ends before
- * {@link #start} returns, which {@code PosTerminal} relies on (it checks for a retry right after).
+ * <p>{@link #steps} is serialized and observed on the emitting thread, with no scheduler: a step
+ * emitted from inside a step method is queued and runs once that method returns, so the chain
+ * runs as a loop on the transaction thread instead of one method calling the next. It still runs
+ * to the end before {@link #start} returns, which {@code PosTerminal} relies on (it checks for a
+ * retry right after), and the vendor kernel's blocking calls stay off Rx's shared pools.
  *
  * <p>{@link #prepare} only starts {@link EmvStep#TERMINAL_INITIALIZATION} (does not
  * chain further — PosTerminal searches next). {@link #start} kicks the first post-search
@@ -41,6 +47,13 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected TransactionConfig activeConfig;
     @Nullable
     protected CardPresence activeCard;
+
+    /** Steps to run, emitted by {@link #goToStep} and handled by {@link #dispatchStepMethod}. */
+    private final Subject<EmvStepEvent> steps = PublishSubject.<EmvStepEvent>create().toSerialized();
+
+    protected AbstractEmvBehavior() {
+        steps.subscribe(this::dispatchStepMethod);
+    }
 
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
@@ -73,15 +86,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * Vendor finished the current step → {@link #dispatchStepMethod} publishes {@code step} to
-     * the UI and runs its {@code onXxx} method.
+     * Vendor finished the current step → emit {@code step} on {@link #steps};
+     * {@link #dispatchStepMethod} publishes it to the UI and runs its {@code onXxx} method.
      */
     protected final void goToStep(EmvStep step) {
         goToStep(step, null);
     }
 
     protected final void goToStep(EmvStep step, @Nullable String detail) {
-        dispatchStepMethod(step, detail);
+        steps.onNext(new EmvStepEvent(step, detail));
     }
 
     /**
@@ -242,18 +255,20 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * Publishes {@code step} on the engine's EmvStep observable (UI) and runs its {@code onXxx}
-     * method — unless the transaction was cancelled, which ends the flow here. A step method that
-     * throws ends the transaction as an error.
+     * The observer of {@link #steps}: publishes the step on the engine's EmvStep observable (UI)
+     * and runs its {@code onXxx} method. Nothing may escape it — a throw would leave the
+     * serialized {@link #steps} stuck mid-emission and every later step queued forever — so any
+     * failure ends the transaction as an error instead.
      */
-    private void dispatchStepMethod(EmvStep step, @Nullable String detail) {
+    private void dispatchStepMethod(EmvStepEvent event) {
+        EmvStep step = event.getStep();
         try {
             // engine and activeConfig are set by prepare()/start() before any goToStep.
             if (cancelled.get()) {
                 stopCancelled(step);
                 return;
             }
-            engine.notifyEmvStep(step, detail); // EmvStep observable → UI
+            engine.notifyEmvStep(step, event.getDetail()); // EmvStep observable → UI
 
             switch (step) {
                 case TERMINAL_INITIALIZATION:
@@ -311,7 +326,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                     finishError("Unknown EMV step: " + step);
                     break;
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             EmvLog.d("EMV step " + step + " failed: " + e);
             finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
         }
