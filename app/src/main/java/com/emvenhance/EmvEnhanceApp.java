@@ -17,7 +17,7 @@ import com.pax.commonlib.utils.LogUtils;
  * independent flavor dimension ("environment" — prod/envtest/uat/uatr3/bank/pos_as_atm/dss);
  * {@link EnvironmentProvider#setBaseUrl} must run before {@link TerminalFactory#create}, since
  * building a vendor terminal is what constructs its {@code CommunicationBehavior} (PAX:
- * {@code SaleCommunicationBehavior}).
+ * {@code HostCommunicationBehavior}).
  *
  * <p>{@link #getOnboarding} / {@link #getOnboardingState} are exposed for a setup screen to run
  * the onboarding cycle and check its status — onboarding isn't auto-run at startup or gated on

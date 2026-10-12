@@ -2,8 +2,6 @@ package com.emvenhance.network;
 
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
-import com.emvenhance.network.model.PurchaseRequest;
-import com.emvenhance.network.model.PurchaseResponse;
 
 import java.util.Map;
 
@@ -17,13 +15,9 @@ import retrofit2.http.Path;
 
 public interface HostApiConnection {
 
-    /** Online purchase authorization — see {@code EmvApiConnection#purchase} in the old project. */
-    @POST("crypto/purchase")
-    Single<PurchaseResponse> purchase(@Body PurchaseRequest request);
-
     /**
      * Establishes the encrypted-envelope session (TEK, and PEK if online PIN was collected) for a
-     * transaction ahead of {@link #sale} — see {@code SaleCommunicationBehavior} and the old
+     * transaction ahead of {@link #sale} — see {@code HostEnvelope} and the old
      * project's {@code SaleActivity#callExchangeProcess}/{@code EmvApiConnection#saleInquiry}.
      *
      * <p>Path confirmed against the real {@code EmvApiConnection} interface (found in an uploaded
@@ -37,7 +31,7 @@ public interface HostApiConnection {
 
     /**
      * Online sale authorization over the encrypted {@code GeneralRequest}/{@code GeneralResponse}
-     * envelope — see {@code SaleCommunicationBehavior} and the old project's
+     * envelope — see {@code HostCommunicationBehavior} and the old project's
      * {@code SaleActivity#callSaleProcess}/{@code EmvApiConnection#sale}. Requires a prior
      * {@link #exchange} call for the same {@code asyncRequestId}. Path confirmed the same way as
      * {@link #exchange}'s — {@code orchestration/sale}, not {@code cacore/sale}.

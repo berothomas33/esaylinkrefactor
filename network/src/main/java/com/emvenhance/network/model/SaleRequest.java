@@ -20,7 +20,7 @@ import androidx.annotation.Nullable;
  * {@link #getNetAmount()} presumably differs from {@link #getAmount()} when a surcharge/fee
  * applies — this codebase has no such concept, so both carry the same value.
  * {@link #getSingleTap()} is the Mastercard-CLSS single-tap retry marker (old project:
- * {@code "ST"}) — out of scope here (see {@code SaleCommunicationBehavior}'s javadoc), always
+ * {@code "ST"}) — out of scope here (see {@code HostCommunicationBehavior}'s javadoc), always
  * {@code null}.
  *
  * <p>Two fields are still placeholders pending the real per-issuer tables, same disclosure as
@@ -83,7 +83,7 @@ public final class SaleRequest {
     @Nullable
     private final String singleTap;
 
-    /** {@link SaleExtraData}, JSON-serialized — see {@code SaleCommunicationBehavior}. */
+    /** {@link SaleExtraData}, JSON-serialized — see {@code HostRequests}. */
     @SerializedName("extraData")
     private final String extraData;
 

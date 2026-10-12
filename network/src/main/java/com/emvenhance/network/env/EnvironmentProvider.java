@@ -8,7 +8,7 @@ import androidx.annotation.Nullable;
  * bank/pos_as_atm/dss), same as the old project's per-build {@code Constants.EndPoint} — not a
  * runtime switch. {@code EmvEnhanceApp.onCreate()} calls {@link #setBaseUrl} with
  * {@code BuildConfig.baseUrl} before any vendor terminal (and so any
- * {@link com.emvenhance.network.RetrofitCommunicationBehavior}) is constructed.
+ * {@link com.emvenhance.network.HostCommunicationBehavior}) is constructed.
  */
 public final class EnvironmentProvider {
 

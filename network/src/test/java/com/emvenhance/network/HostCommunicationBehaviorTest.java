@@ -18,10 +18,10 @@ import org.junit.Test;
  * as another type), and a refund's payload carries the original reference number. Nulls for
  * every network dependency prove the guarded cases touch nothing.
  */
-public class SaleRefundGuardTest {
+public class HostCommunicationBehaviorTest {
 
-    private final SaleCommunicationBehavior behavior =
-            new SaleCommunicationBehavior(null, null, null, null, "SN");
+    private final HostCommunicationBehavior behavior =
+            new HostCommunicationBehavior(null, null, null, null, "SN");
 
     @Test
     public void refundWithoutReferenceNumberIsOnlineFailed() {
@@ -55,7 +55,7 @@ public class SaleRefundGuardTest {
                 .hasPin(false)
                 .build();
 
-        RefundRequest request = behavior.buildRefundRequest(config, emv);
+        RefundRequest request = HostRequests.refund(config, emv);
         String json = new Gson().toJson(request);
 
         assertEquals("123456789012", request.getReferenceNumber());

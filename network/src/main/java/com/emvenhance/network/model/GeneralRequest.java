@@ -8,7 +8,7 @@ import androidx.annotation.Nullable;
  * Generic encrypted-envelope request shape — the request-side counterpart to
  * {@link GeneralResponse}, mirrors the old project's {@code GeneralRequest} as used by
  * {@code orchestration/exchange} and {@code orchestration/sale} (see
- * {@code SaleCommunicationBehavior}).
+ * {@code HostEnvelope}).
  *
  * <p>Field set confirmed against the real {@code GeneralRequest} class, found in an uploaded
  * {@code model_layer.rar}:
@@ -45,7 +45,7 @@ public final class GeneralRequest {
     @Nullable
     private final String encPinBlock;
 
-    /** {@code "PURCHASE"} for a sale — see {@code SaleCommunicationBehavior#TRANSACTION_TYPE_SALE}. */
+    /** {@code "PURCHASE"} for a sale — see {@code HostRequests#TRANSACTION_TYPE_SALE}. */
     @SerializedName("transactionType")
     @Nullable
     private final String transactionType;

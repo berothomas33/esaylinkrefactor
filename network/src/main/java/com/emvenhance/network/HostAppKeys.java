@@ -19,7 +19,7 @@ package com.emvenhance.network;
  * {@link #ACCOUNT_ID} is fixed too (per direction), unlike the old project's
  * {@code ConfigurationActivity#accountId}, which came from an aggregator app's launch
  * {@code Intent} — used for {@code orchestration/exchange}/{@code orchestration/sale}'s
- * {@code accountId} header (see {@code SaleCommunicationBehavior}); not needed by onboarding or
+ * {@code accountId} header (see {@code HostCommunicationBehavior}); not needed by onboarding or
  * {@code tmsFileDownload}, which worked without it.
  *
  * <p>See {@link HostHeaders} for where these get assembled into an actual header map.

@@ -3,10 +3,9 @@ package com.emvenhance.network;
 import com.emvenhance.core.card.EntryMethod;
 
 /**
- * ISO 8583-style POS entry mode codes — same values the old project's {@code PurchaseRequest}/
- * {@code SaleRequest} expected. Shared so {@link RetrofitCommunicationBehavior}'s
- * {@code crypto/purchase} flow and {@code SaleCommunicationBehavior}'s
- * {@code cacore/exchange}+{@code cacore/sale} flow can't drift onto two different tables.
+ * ISO 8583-style POS entry mode codes — same values the old project's {@code SaleRequest}
+ * expected. Used by {@link HostRequests} for every request body that carries
+ * {@code posEntryMode}.
  */
 public final class PosEntryModeCodes {
 

@@ -22,7 +22,7 @@ import javax.crypto.Cipher;
  * block), and sends this RSA-wrapped copy of the same key so the host can recover it and
  * decrypt/verify independently. The old project reused this same pattern for a second key (its
  * "TEK") to encrypt whole request/response bodies — that's wired up too, in
- * {@code SaleCommunicationBehavior}.
+ * {@code HostEnvelope}.
  *
  * <p>The old project's {@code Encryptor} class wasn't shared, so this was reconstructed from
  * usage, not a verified server response — status per field:

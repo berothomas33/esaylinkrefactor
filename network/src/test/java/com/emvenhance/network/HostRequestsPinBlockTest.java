@@ -19,7 +19,7 @@ import org.junit.Test;
  * leave them out of the JSON entirely. Serialized with a plain {@code new Gson()} — what Retrofit's
  * {@code GsonConverterFactory.create()} (HostApiClient) uses.
  */
-public class SalePinBlockTest {
+public class HostRequestsPinBlockTest {
 
     private static final String PIN_BLOCK = "0123456789ABCDEF0123456789ABCDEF";
     private static final String PIN_KEY = "RSA-WRAPPED-PEK";
@@ -32,9 +32,9 @@ public class SalePinBlockTest {
                 .withOnlinePinKeyEncrypted(PIN_KEY);
         EmvTransactionResult emv = result(true);
 
-        assertEquals(PIN_BLOCK, SaleCommunicationBehavior.pinBlockToSend(config));
-        assertEquals(PIN_KEY, SaleCommunicationBehavior.pinKeyToSend(config));
-        assertEquals("ONLINE", SaleCommunicationBehavior.pinEnterMode(config, emv));
+        assertEquals(PIN_BLOCK, HostRequests.pinBlockToSend(config));
+        assertEquals(PIN_KEY, HostRequests.pinKeyToSend(config));
+        assertEquals("ONLINE", HostRequests.pinEnterMode(config, emv));
         assertTrue(saleEnvelopeJson(config).contains("\"encPinBlock\":\"" + PIN_BLOCK + "\""));
         assertTrue(saleBodyJson(config, emv).contains("\"pinBlock\":\"" + PIN_BLOCK + "\""));
         assertTrue(exchangeEnvelopeJson(config).contains("\"pinKey\":\"" + PIN_KEY + "\""));
@@ -45,7 +45,7 @@ public class SalePinBlockTest {
         TransactionConfig config = sale();
         EmvTransactionResult emv = result(true); // PIN verified by the card
 
-        assertEquals("OFFLINE", SaleCommunicationBehavior.pinEnterMode(config, emv));
+        assertEquals("OFFLINE", HostRequests.pinEnterMode(config, emv));
         assertNoPinFields(config, emv);
     }
 
@@ -54,7 +54,7 @@ public class SalePinBlockTest {
         TransactionConfig config = sale();
         EmvTransactionResult emv = result(false); // no PIN at all: no CVM, or signature
 
-        assertEquals("NO_CVM", SaleCommunicationBehavior.pinEnterMode(config, emv));
+        assertEquals("NO_CVM", HostRequests.pinEnterMode(config, emv));
         assertNoPinFields(config, emv);
     }
 
@@ -63,7 +63,7 @@ public class SalePinBlockTest {
         TransactionConfig config = sale().withOnlinePinBlock("  ").withOnlinePinKeyEncrypted(PIN_KEY);
         EmvTransactionResult emv = result(true);
 
-        assertEquals("OFFLINE", SaleCommunicationBehavior.pinEnterMode(config, emv));
+        assertEquals("OFFLINE", HostRequests.pinEnterMode(config, emv));
         assertNoPinFields(config, emv);
     }
 
@@ -71,15 +71,15 @@ public class SalePinBlockTest {
     public void pinKeyWithoutPinBlockIsNotSent() {
         TransactionConfig config = sale().withOnlinePinKeyEncrypted(PIN_KEY); // PIN bypassed
 
-        assertNull(SaleCommunicationBehavior.pinKeyToSend(config));
+        assertNull(HostRequests.pinKeyToSend(config));
         assertFalse(exchangeEnvelopeJson(config).contains("pinKey"));
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────
 
     private void assertNoPinFields(TransactionConfig config, EmvTransactionResult emv) {
-        assertNull(SaleCommunicationBehavior.pinBlockToSend(config));
-        assertNull(SaleCommunicationBehavior.pinKeyToSend(config));
+        assertNull(HostRequests.pinBlockToSend(config));
+        assertNull(HostRequests.pinKeyToSend(config));
         assertFalse(saleEnvelopeJson(config).contains("encPinBlock"));
         assertFalse(saleBodyJson(config, emv).contains("pinBlock"));
         assertFalse(exchangeEnvelopeJson(config).contains("pinKey"));
@@ -87,18 +87,18 @@ public class SalePinBlockTest {
 
     private String saleEnvelopeJson(TransactionConfig config) {
         return gson.toJson(GeneralRequest.forSale("enc", "id",
-                SaleCommunicationBehavior.pinBlockToSend(config)));
+                HostRequests.pinBlockToSend(config)));
     }
 
     private String exchangeEnvelopeJson(TransactionConfig config) {
         return gson.toJson(GeneralRequest.forExchange("enc", "id", "tek",
-                SaleCommunicationBehavior.pinKeyToSend(config), "PURCHASE"));
+                HostRequests.pinKeyToSend(config), "PURCHASE"));
     }
 
     private String saleBodyJson(TransactionConfig config, EmvTransactionResult emv) {
         return gson.toJson(new SaleRequest(10.0, 10.0,
-                SaleCommunicationBehavior.cvmCode(config, emv), "4111111111111111",
-                SaleCommunicationBehavior.pinBlockToSend(config), "9F2608", 12, 30, "",
+                HostRequests.cvmCode(config, emv), "4111111111111111",
+                HostRequests.pinBlockToSend(config), "9F2608", 12, 30, "",
                 "051", "CHIP", "false", "{}"));
     }
 

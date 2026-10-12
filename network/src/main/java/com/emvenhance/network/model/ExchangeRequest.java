@@ -19,11 +19,11 @@ public final class ExchangeRequest {
     @SerializedName("pan")
     private final String pan;
 
-    /** CVM used for this transaction — see {@code SaleCommunicationBehavior#cvmCode}. */
+    /** CVM used for this transaction — see {@code HostRequests#cvmCode}. */
     @SerializedName("cvm")
     private final int cvm;
 
-    /** {@code "PURCHASE"} for a sale — see {@code SaleCommunicationBehavior#TRANSACTION_TYPE_SALE}. */
+    /** {@code "PURCHASE"} for a sale — see {@code HostRequests#TRANSACTION_TYPE_SALE}. */
     @SerializedName("transactionType")
     private final String transactionType;
 

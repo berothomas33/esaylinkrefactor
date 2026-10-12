@@ -10,8 +10,7 @@ import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
-import com.emvenhance.network.RetrofitCommunicationBehavior;
-import com.emvenhance.network.SaleCommunicationBehavior;
+import com.emvenhance.network.HostCommunicationBehavior;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
 import com.pax.commonlib.utils.LogUtils;
@@ -63,16 +62,14 @@ public class PaxTerminal extends PosTerminal {
     private volatile ICardReaderHelper activeCardReaderHelper;
 
     /**
-     * Wired to {@link SaleCommunicationBehavior} ({@code cacore/exchange} + {@code cacore/sale}) —
-     * it builds its headers via {@code HostHeaders.build}, the real confirmed contract, which
-     * needs this terminal's own serial number ({@link ModelInfo#getSN()}); {@code :network} stays
-     * vendor-agnostic, so that's passed in here rather than fetched from inside it.
-     * {@link RetrofitCommunicationBehavior} ({@code crypto/purchase}) is still available as the
-     * plain-JSON alternative if this app ever needs to switch back.
+     * Wired to {@link HostCommunicationBehavior} ({@code orchestration/exchange} + the request for
+     * the transaction's type). Its headers need this terminal's own serial number
+     * ({@link ModelInfo#getSN()}); {@code :network} stays vendor-agnostic, so that's passed in
+     * here rather than fetched from inside it.
      */
     public PaxTerminal() {
         this(new PaxKernel(),
-                new SaleCommunicationBehavior(BaseApplication.getAppContext(), ModelInfo.getInstance().getSN()),
+                new HostCommunicationBehavior(BaseApplication.getAppContext(), ModelInfo.getInstance().getSN()),
                 new PaxPrinter());
     }
 

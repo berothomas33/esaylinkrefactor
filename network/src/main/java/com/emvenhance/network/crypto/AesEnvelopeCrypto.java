@@ -12,7 +12,7 @@ import javax.crypto.spec.SecretKeySpec;
  * AES-encrypts/decrypts a request/response body with a locally-generated transaction key (TEK) —
  * mirrors the old project's {@code EncryptorHelper#encryptByAESKey}/{@code #decryptByAESKey},
  * the software counterpart to {@code RsaPublicKeyEncryptor} (which transports the same key to the
- * host) — see {@code SaleCommunicationBehavior} for where both come together.
+ * host) — see {@code HostEnvelope} for where both come together.
  *
  * <p>The old project's {@code EncryptorHelper} wasn't shared, so the exact scheme here is a
  * reconstruction — status per field:

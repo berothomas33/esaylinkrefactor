@@ -33,31 +33,29 @@ See [`doc/architecture/emv-step-methods-on-behavior.md`](doc/architecture/emv-st
 
 | Package | Contents |
 |---------|----------|
-| *(root)* | `HostApiConnection` (Retrofit), `HostApiClient`, `RetrofitCommunicationBehavior` — real `CommunicationBehavior` impl, online purchase + 2nd GAC issuer data; `SaleCommunicationBehavior` — the encrypted-envelope alternative (`cacore/exchange` + `cacore/sale`), see below |
+| *(root)* | `HostApiConnection` (Retrofit), `HostApiClient`; `HostCommunicationBehavior` — the `CommunicationBehavior` that talks to our host, routing by transaction type; `HostEnvelope` (TEK, exchange, AES envelope, `mToken`), `HostRequests` (request bodies per type), `HostResponses` (answer → `AuthResult`), `HostException`; see below |
 | `env` | `EnvironmentProvider` — holds `BuildConfig.baseUrl` from `:app`'s "environment" flavor dimension |
-| `model` | `PurchaseRequest`, `PurchaseResponse` (the `crypto/purchase` shape) plus `GeneralRequest`/`GeneralResponse`/`DataModel` (the generic encrypted envelope, shared with `onboarding`) and `ExchangeRequest`/`ExchangeResponse`/`SaleRequest`/`SaleExtraData`/`SaleResponse` (the payloads that travel inside that envelope for `SaleCommunicationBehavior`) |
-| `tlv` | `BerTlv`, `IssuerResponseFields` — minimal BER-TLV reader plus the shared ARPC/issuer-script tag extraction both `CommunicationBehavior` impls use |
+| `model` | `GeneralRequest`/`GeneralResponse`/`DataModel` (the generic encrypted envelope, shared with `onboarding`) and `ExchangeRequest`/`ExchangeResponse`/`SaleRequest`/`RefundRequest`/`SaleExtraData`/`SaleResponse` (the payloads that travel inside that envelope) |
+| `tlv` | `BerTlv`, `IssuerResponseFields` — minimal BER-TLV reader plus the ARPC/issuer-script tag extraction `HostResponses` uses |
 | `onboarding` | `OnboardingClient`, `OnboardingApiConnection`, `OnboardingState`, `ChallengeGenerator`, `OnboardingException` — the offline (pair terminal) and online (per-bank TMK provisioning) onboarding cycles; see `onboarding.model` for the six endpoints' request/response shapes |
-| `crypto` | `RsaPublicKeyEncryptor` — RSA-wraps a symmetric session key (online PIN key or transaction key) with the host's public key from onboarding, so the host can independently recover it; `AesEnvelopeCrypto` — AES-encrypts/decrypts the `encSerializedRequest`/`encSerializedResponse` body under that key. See `app/src/pax/.../PaxEmvBehavior#provisionOnlinePinKey` for the PIN-key use, `SaleCommunicationBehavior` for the transaction-key use |
+| `crypto` | `RsaPublicKeyEncryptor` — RSA-wraps a symmetric session key (online PIN key or transaction key) with the host's public key from onboarding, so the host can independently recover it; `AesEnvelopeCrypto` — AES-encrypts/decrypts the `encSerializedRequest`/`encSerializedResponse` body under that key. See `app/src/pax/.../PaxEmvBehavior#provisionOnlinePinKey` for the PIN-key use, `HostEnvelope` for the transaction-key use |
 
 `HostApiConnection.emvFileDownload` + `EmvParamDownloadClient` fetch the EMV/CLSS parameter
 package as raw bytes only — see `:bizentity` below for where those bytes get unzipped, parsed,
 and applied.
 
-`SaleCommunicationBehavior` is the encrypted-envelope sale flow, wired into `PaxTerminal` —
-`exchange()` (establishes a fresh per-transaction TEK, RSA-wrapped for the host, plus the online
-PEK if one was provisioned) then `sale()` (the actual authorization) — built from
-`TransactionConfig#getEmvResult()`, the `EmvTransactionResult` a vendor `EmvBehavior` assembles
-from the kernel right before going online (see `PaxEmvBehavior#buildEmvTransactionResult`). Its
-`Account-Id`/bearer-token headers are read fresh off `OnboardingState#getAccountId`/`#getToken`
-on every call — `OnboardingActivity`'s Account ID/Token fields persist there on every successful
-onboarding run, so whatever a technician last entered on that screen is what a live sale uses; no
-separate credentials screen. `RetrofitCommunicationBehavior`
-(`crypto/purchase`, plain JSON, no TEK/PEK envelope) is still available as the non-default
-alternative. Several of `SaleCommunicationBehavior`'s request fields (the CVM code, the per-issuer
-`cardType`/`dcc` values) are reconstructions flagged in its own and its model classes' javadoc —
-no source was available for the old project's real `GeneralRequest`/`SaleRequest`/`PinEnterMode`
-shapes, only their call sites.
+`HostCommunicationBehavior` is wired into `PaxTerminal`. For each transaction it opens a
+`HostEnvelope` session (a fresh TEK, RSA-wrapped with the host's public key from onboarding, and an
+`asyncRequestId`), calls `orchestration/exchange` (TEK, plus the online PIN key when one was
+collected), then the request for the transaction's type: `orchestration/sale` or
+`orchestration/refund`. Any other type, or a refund without the original reference number, is
+online failed without contacting the host. Bodies are built by `HostRequests` from
+`TransactionConfig#getEmvResult()`, the `EmvTransactionResult` the vendor `EmvBehavior` assembles
+right before going online (see `PaxEmvBehavior#buildEmvTransactionResult`). Headers carry a bearer
+token from `OnboardingClient#ensureValidAccessToken`, refreshed when near expiry, and `mToken`
+from `HostSettings`. The plain request and response JSON is logged in debug builds under the
+`HostComm` Logcat tag. Several request fields (the CVM code, the per-issuer `cardType`/`dcc`
+values) are reconstructions flagged in `HostRequests` and the model classes' javadoc.
 
 ### `:bizentity` — `com.pax.configservice.*`, `com.pax.bizentity.*` (PAX-only)
 
