@@ -139,8 +139,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private final PaxKernel kernel;
 
-    private boolean initOk = true;
-
     @Nullable
     private AuthResult lastAuth;
 
@@ -197,14 +195,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
-        initOk = true;
         lastAuth = null;
         // This behavior outlives transactions: without this, an online PIN block (and its
         // RSA-wrapped key) from an earlier sale would be sent again with the next sale's
         // exchange/sale requests — even an offline-PIN or no-CVM one, flagged as online PIN.
         clearOnlinePin();
-        super.prepare(engine, config);
-        return initOk && !isCancelled() && engine.isRunning();
+        // A failed onTerminalInitialization reports an error, which stops the engine, so
+        // super.prepare() already returns false for it.
+        return super.prepare(engine, config);
     }
 
     @Override
@@ -212,7 +210,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // The kernel calls EmvDeviceImpl directly, so hand it this transaction's APDU trace.
         EmvDeviceImpl.getInstance().setApduTrace(engine.apduTrace());
         if (!prepareKernel(config)) {
-            initOk = false;
             finishError("Terminal initialization failed");
         }
         // Do not goToStep — PosTerminal.searchCard runs next.
@@ -287,10 +284,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             CardPresence card) {
         // Mag / manual sync path
         if (isSynchronousEntry(card)) {
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             lastAuth = authorizeOnline();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
@@ -426,10 +419,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: App Select ============");
             // reset every transaction
             clsCachedTrack2Data = null;
@@ -465,10 +454,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactlessReadAppData() {
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Read App Data ============");
             clsTransResult = kernel.contactless.readApplicationData();
             int ret = clsTransResult.getResultCode();
@@ -498,10 +483,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactlessCardAuth() {
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Offline Data Authentication ============");
             clsTransResult = kernel.contactless.offlineDataAuthentication();
             int ret = clsTransResult.getResultCode();
@@ -540,10 +521,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Processing Restrictions ============");
             clsTransResult = kernel.contactless.processRestrictions();
             int ret = clsTransResult.getResultCode();
@@ -896,10 +873,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: App Select ============");
             // reset every transaction — mirrors EmvContactService#selectApplication
             cachedTrack2Data = null;
@@ -966,10 +939,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactReadAppData() {
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
             transResult = kernel.contact.readApplicationData();
             int ret = transResult.getResultCode();
@@ -998,10 +967,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactCardAuth() {
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
             transResult = kernel.contact.cardAuthentication();
             int ret = transResult.getResultCode();
@@ -1033,10 +998,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactStartTransaction() {
         requireEngine();
         try {
-            if (isCancelled()) {
-                finishCancelled();
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
             // CVM is separately announced from onCardHolderPwd below when the kernel actually
             // asks for it; terminal risk management and terminal action analysis have no
