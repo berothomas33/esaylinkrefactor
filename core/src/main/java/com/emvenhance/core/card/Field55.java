@@ -25,10 +25,12 @@ public final class Field55 {
 
     /**
      * Field 55 tags, in order: the old app's list ({@code PaxUtils} → EasyLink
-     * {@code TransRequest#setTagList}, sent as {@code chipData}), then the terminal tags
-     * requested earlier. The card's cryptogram data (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82) is
-     * what the host needs to validate the ARQC and compute the ARPC (tag 91). 9F66 (TTQ) only
-     * exists for Visa-type kernels; Mastercard has none.
+     * {@code TransRequest#setTagList}, sent as {@code chipData}), exactly as it sent it. The
+     * old app's field 55 for a Mastercard offline-PIN chip sale, which the host approved, ends
+     * with 9F09, 9F33, 9F34, 9F35 and 9F41 a second time, so they are sent twice here too. The
+     * card's cryptogram data (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82) is what the host needs to
+     * validate the ARQC and compute the ARPC (tag 91). 9F66 (TTQ) only exists for Visa-type
+     * kernels; Mastercard has none.
      */
     private static final Tag[] TAGS = {
             new Tag(0x5F2A, "Transaction Currency Code"),
@@ -57,6 +59,11 @@ public final class Field55 {
             new Tag(0x9F1E, "Interface Device Serial Number"),
             new Tag(0x9F63, "Scheme-proprietary 9F63"),
             new Tag(0x9F66, "Terminal Transaction Qualifiers"),
+            new Tag(0x9F09, "Application Version Number"),
+            new Tag(0x9F33, "Terminal Capabilities"),
+            new Tag(0x9F34, "CVM Results"),
+            new Tag(0x9F35, "Terminal Type"),
+            new Tag(0x9F41, "Transaction Sequence Counter"),
 //            new Tag(0x9F40, "Additional Terminal Capabilities"),
 //            new Tag(0x9F1B, "Terminal Floor Limit"),
 //            new Tag(0x9F15, "Merchant Category Code"),

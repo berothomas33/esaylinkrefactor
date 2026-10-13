@@ -1,7 +1,5 @@
 package com.emvenhance.vendor.pax;
 
-import android.content.Context;
-import android.content.SharedPreferences;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -1330,25 +1328,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private final PinBypassSettings pinBypass =
             new PinBypassSettings(BaseApplication.getAppContext());
 
-    private static final String COUNTER_PREFS = "emv_counters";
-    private static final String KEY_TRANSACTION_SEQUENCE_COUNTER = "transaction_sequence_counter";
-    private static final long MAX_TRANSACTION_SEQUENCE_COUNTER = 999_999L;
+    /**
+     * Transaction Sequence Counter (9F41): always 0, as the old app sent it. Its field 55 with
+     * 9F41 = 00000000 is the one the host approved.
+     */
+    private static final long TRANSACTION_SEQUENCE_COUNTER = 0L;
 
     private static byte[] amountOtherBcd() {
         return ConvertUtils.strToBcdPaddingLeft(String.format(Locale.US, "%012d", AMOUNT_OTHER_MINOR));
-    }
-
-    /**
-     * Transaction Sequence Counter (9F41): 1, 2, 3, ... kept in SharedPreferences, one per
-     * kernel run, back to 1 after {@value #MAX_TRANSACTION_SEQUENCE_COUNTER}.
-     */
-    private static long nextTransactionSequenceCounter() {
-        SharedPreferences prefs = EmvFlowRuntime.getApp()
-                .getSharedPreferences(COUNTER_PREFS, Context.MODE_PRIVATE);
-        long next = prefs.getLong(KEY_TRANSACTION_SEQUENCE_COUNTER, 0L)
-                % MAX_TRANSACTION_SEQUENCE_COUNTER + 1;
-        prefs.edit().putLong(KEY_TRANSACTION_SEQUENCE_COUNTER, next).commit();
-        return next;
     }
 
     /**
@@ -1378,7 +1365,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .setTransCurrencyExponent((byte) CurrencyConverter.getDigitsNum())
                 .setTransDate(ConvertUtils.strToBcdPaddingLeft(dateTime.substring(2, 8)))
                 .setTransTime(ConvertUtils.strToBcdPaddingLeft(dateTime.substring(8)))
-                .setTransTraceNo(nextTransactionSequenceCounter())
+                .setTransTraceNo(TRANSACTION_SEQUENCE_COUNTER)
                 .setFlowType(EmvTransParam.FLOWTYPE_COMPLETE)
                 .setMaskPattern("")
                 .setPciMode((byte) 1)
