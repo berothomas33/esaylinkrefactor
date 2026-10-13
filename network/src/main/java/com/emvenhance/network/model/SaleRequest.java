@@ -17,8 +17,7 @@ import androidx.annotation.Nullable;
  *   <li>{@link #getNetAmount()} and {@link #getSingleTap()} weren't in the reconstructed version
  *       at all.
  * </ul>
- * {@link #getNetAmount()} presumably differs from {@link #getAmount()} when a surcharge/fee
- * applies — this codebase has no such concept, so both carry the same value.
+ * {@link #getNetAmount()} is {@code 0.0}, as in the old app's approved sale.
  * {@link #getSingleTap()} is the Mastercard-CLSS single-tap retry marker (old project:
  * {@code "ST"}) — out of scope here (see {@code SaleCommunicationBehavior}'s javadoc), always
  * {@code null}.
@@ -30,7 +29,8 @@ import androidx.annotation.Nullable;
  *       lookup (issuer/network → numeric or short code) that wasn't shared; this carries the raw
  *       issuer name instead of guessing at that table.
  *   <li>{@link #getDcc()} — the old project derived this from a {@code getDCC(issuerName)} lookup
- *       (which issuers are DCC-eligible) that also wasn't shared; always {@code "false"} here.
+ *       (which issuers are DCC-eligible) that also wasn't shared. Its approved Mastercard sale
+ *       sent {@code "true"}, so Mastercard is {@code "true"}; every other scheme {@code "false"}.
  * </ul>
  * Confirm both against the server team before relying on this for a live transaction.
  */

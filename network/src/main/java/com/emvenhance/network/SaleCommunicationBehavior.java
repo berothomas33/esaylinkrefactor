@@ -111,6 +111,10 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     private static final int CVM_ONLINE_PIN = 2;
     private static final int CVM_OFFLINE_PIN = 3;
 
+    /** {@code netAmount}: the old app's approved sale sent {@code 0.0} next to its amount. */
+    private static final double NET_AMOUNT = 0.0;
+    private static final String MASTERCARD_RID = "A000000004";
+
     private final HostApiConnection connection;
     private final OnboardingClient onboarding;
     private final OnboardingState onboardingState;
@@ -354,22 +358,21 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 emvResult.getIssuerName(),
                 pinEnterMode(config, emvResult),
                 emvResult.getCardHolderName(),
-                cardTypeLabel(config.getMode()));
+                cardTypeLabel(emvResult.getEntryMethod()));
         return gson.toJson(extraData);
     }
 
-    private SaleRequest buildSaleRequest(TransactionConfig config, EmvTransactionResult emvResult) {
+    SaleRequest buildSaleRequest(TransactionConfig config, EmvTransactionResult emvResult) {
         CardFields card = cardFields(emvResult);
 
-        // SaleRequest#getAmount()/getNetAmount() are major-currency-unit doubles (e.g. 10.50),
-        // not TransactionConfig#getAmountMinor()'s minor-unit long (cents) — see SaleRequest's
-        // javadoc for how that was confirmed. No surcharge/fee concept here, so both are the same
-        // value.
+        // SaleRequest#getAmount() is a major-currency-unit double (e.g. 10.50), not
+        // TransactionConfig#getAmountMinor()'s minor-unit long (cents) — see SaleRequest's
+        // javadoc for how that was confirmed.
         double amountMajor = config.getAmountMinor() / 100.0;
 
         return new SaleRequest(
                 amountMajor,
-                amountMajor,
+                NET_AMOUNT,
                 cvmCode(config, emvResult),
                 emvResult.getPan(),
                 pinBlockToSend(config),
@@ -377,9 +380,9 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 card.expirationMonth,
                 card.expirationYear,
                 card.trailer,
-                PosEntryModeCodes.forEntryMethod(config.getMode()),
-                emvResult.getIssuerName(),
-                "false",
+                PosEntryModeCodes.forEntryMethod(emvResult.getEntryMethod()),
+                cardType(emvResult),
+                dcc(emvResult),
                 extraDataJson(config, emvResult));
     }
 
@@ -395,10 +398,10 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 config.getIccData(),
                 card.expirationMonth,
                 card.expirationYear,
-                PosEntryModeCodes.forEntryMethod(config.getMode()),
-                emvResult.getIssuerName(),
+                PosEntryModeCodes.forEntryMethod(emvResult.getEntryMethod()),
+                cardType(emvResult),
                 card.trailer,
-                "false",
+                dcc(emvResult),
                 null,
                 extraDataJson(config, emvResult));
     }
@@ -450,6 +453,26 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             default:
                 return "NO_CVM";
         }
+    }
+
+    /**
+     * {@code cardType}: the issuer name in capitals. The old app's approved Mastercard chip sale
+     * sent {@code "MASTERCARD"} with {@code extraData.issuerName} {@code "MasterCard"}.
+     */
+    @Nullable
+    static String cardType(EmvTransactionResult emvResult) {
+        String issuerName = emvResult.getIssuerName();
+        return issuerName != null ? issuerName.toUpperCase(Locale.US) : null;
+    }
+
+    /**
+     * {@code dcc}: {@code "true"} for Mastercard, as the old app sent for its approved Mastercard
+     * chip sale. The old app's list for the other schemes isn't known, so they stay
+     * {@code "false"}.
+     */
+    static String dcc(EmvTransactionResult emvResult) {
+        String aid = emvResult.getAid();
+        return aid != null && aid.toUpperCase(Locale.US).startsWith(MASTERCARD_RID) ? "true" : "false";
     }
 
     /**

@@ -853,10 +853,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return clsCachedTrack2Data;
     }
 
-    /** Ported from {@code ContactlessService#getCardholderName}. */
+    /** Cardholder name (5F20) as text, e.g. "MTIP06 MCD 25A", as the old app sent it. */
     private String getContactlessCardholderName() {
-        byte[] cardholderName = kernel.contactless.getTlv(TagsTable.CARDHOLDER_NAME);
-        return ConvertUtils.bcd2Str(cardholderName);
+        return asciiText(kernel.contactless.getTlv(TagsTable.CARDHOLDER_NAME));
     }
 
     /**
@@ -1232,10 +1231,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return cachedTrack2Data;
     }
 
-    /** Ported from {@code EmvContactService#getCardholderName}. */
+    /** Cardholder name (5F20) as text, e.g. "MTIP06 MCD 25A", as the old app sent it. */
     private String getContactCardholderName() {
-        byte[] cardholderName = kernel.contact.getTlv(TagsTable.CARDHOLDER_NAME);
-        return ConvertUtils.bcd2Str(cardholderName);
+        return asciiText(kernel.contact.getTlv(TagsTable.CARDHOLDER_NAME));
+    }
+
+    private static String asciiText(byte[] value) {
+        return new String(value, StandardCharsets.US_ASCII).trim();
     }
 
     // ─── SHARED — kernel bring-up used by both contact and contactless ───
@@ -1718,7 +1720,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      *
      * <p>{@link EmvTransactionResult#getIssuerName()} has no real source: this codebase has no
      * BIN-range/issuer-identification table (the old project's own source for one was never shared
-     * either), so the EMV Application Label — falling back to the Application Preferred Name — is
+     * either), so the EMV Application Preferred Name — falling back to the Application Label — is
      * reused as a best-available proxy; it's usually brand text like "VISA CREDIT" or
      * "MASTERCARD", which is what the old project's {@code SaleExtraData}/DCC lookups actually
      * keyed off of. Confirm against the server team before relying on this for real issuer routing.
@@ -1744,7 +1746,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         String emvAppLabel = readKernelAsciiTlv(TagsTable.APP_LABEL);
         String emvAppName = readKernelAsciiTlv(TagsTable.APP_NAME);
-        String issuerName = emvAppLabel != null ? emvAppLabel : emvAppName;
+        // The old app's issuerName was the Application Preferred Name ("MasterCard"), not the
+        // label ("MASTERCARD").
+        String issuerName = emvAppName != null ? emvAppName : emvAppLabel;
 
         return new EmvTransactionResult.Builder()
                 .pan(pan)
@@ -1795,7 +1799,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Nullable
     private String readKernelAsciiTlv(int tag) {
         byte[] value = readKernelTlv(tag);
-        return value.length == 0 ? null : new String(value, StandardCharsets.US_ASCII).trim();
+        return value.length == 0 ? null : asciiText(value);
     }
 
     /** {@link ContactProcess#getTlv}/{@link ClssProcess#getTlv} both return only value bytes. */

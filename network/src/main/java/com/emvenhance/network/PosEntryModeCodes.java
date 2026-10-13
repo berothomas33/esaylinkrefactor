@@ -3,8 +3,9 @@ package com.emvenhance.network;
 import com.emvenhance.core.card.EntryMethod;
 
 /**
- * ISO 8583-style POS entry mode codes — same values the old project's {@code PurchaseRequest}/
- * {@code SaleRequest} expected. Shared so {@link RetrofitCommunicationBehavior}'s
+ * ISO 8583 POS entry mode (three digits): how the PAN was read, then the terminal's PIN entry
+ * capability ({@code 1}: can accept a PIN). The old app's approved chip sale sent {@code "051"};
+ * the other entry methods follow the same layout. Shared so {@link RetrofitCommunicationBehavior}'s
  * {@code crypto/purchase} flow and {@code SaleCommunicationBehavior}'s
  * {@code cacore/exchange}+{@code cacore/sale} flow can't drift onto two different tables.
  */
@@ -13,7 +14,13 @@ public final class PosEntryModeCodes {
     private PosEntryModeCodes() {
     }
 
+    private static final String PIN_ENTRY_CAPABLE = "1";
+
     public static String forEntryMethod(EntryMethod mode) {
+        return panEntryMode(mode) + PIN_ENTRY_CAPABLE;
+    }
+
+    private static String panEntryMode(EntryMethod mode) {
         switch (mode) {
             case CHIP:
                 return "05";
