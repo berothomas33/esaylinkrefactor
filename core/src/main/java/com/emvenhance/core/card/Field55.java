@@ -57,12 +57,12 @@ public final class Field55 {
             new Tag(0x9F1E, "Interface Device Serial Number"),
             new Tag(0x9F63, "Scheme-proprietary 9F63"),
             new Tag(0x9F66, "Terminal Transaction Qualifiers"),
-            new Tag(0x9F40, "Additional Terminal Capabilities"),
-            new Tag(0x9F1B, "Terminal Floor Limit"),
-            new Tag(0x9F15, "Merchant Category Code"),
-            new Tag(0x9F1C, "Terminal Identification"),
-            new Tag(0x9F49, "Default DDOL"),
-            new Tag(0x97, "Default TDOL"),
+//            new Tag(0x9F40, "Additional Terminal Capabilities"),
+//            new Tag(0x9F1B, "Terminal Floor Limit"),
+//            new Tag(0x9F15, "Merchant Category Code"),
+//            new Tag(0x9F1C, "Terminal Identification"),
+//            new Tag(0x9F49, "Default DDOL"),
+//            new Tag(0x97, "Default TDOL"),
     };
 
     private final String hex;
