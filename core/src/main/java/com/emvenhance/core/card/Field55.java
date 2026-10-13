@@ -25,10 +25,15 @@ public final class Field55 {
 
     /**
      * Field 55 tags, in order: the old app's list ({@code PaxUtils} → EasyLink
-     * {@code TransRequest#setTagList}, sent as {@code chipData}), then the terminal tags
-     * requested earlier. The card's cryptogram data (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82) is
+     * {@code TransRequest#setTagList}, sent as {@code chipData}) and nothing else — that is what
+     * the host approved. The card's cryptogram data (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82) is
      * what the host needs to validate the ARQC and compute the ARPC (tag 91). 9F66 (TTQ) only
      * exists for Visa-type kernels; Mastercard has none.
+     *
+     * <p>Not sent: 9F40, 9F1B, 9F15, 9F1C, 9F49 and 97. They were appended after the old list,
+     * and the contact kernel has a value for each, so a Mastercard offline-PIN chip sale that the
+     * host approved with the old list was declined with them. 9F49 and 97 are DOL templates, not
+     * transaction data.
      */
     private static final Tag[] TAGS = {
             new Tag(0x5F2A, "Transaction Currency Code"),
@@ -57,12 +62,6 @@ public final class Field55 {
             new Tag(0x9F1E, "Interface Device Serial Number"),
             new Tag(0x9F63, "Scheme-proprietary 9F63"),
             new Tag(0x9F66, "Terminal Transaction Qualifiers"),
-            new Tag(0x9F40, "Additional Terminal Capabilities"),
-            new Tag(0x9F1B, "Terminal Floor Limit"),
-            new Tag(0x9F15, "Merchant Category Code"),
-            new Tag(0x9F1C, "Terminal Identification"),
-            new Tag(0x9F49, "Default DDOL"),
-            new Tag(0x97, "Default TDOL"),
     };
 
     private final String hex;
