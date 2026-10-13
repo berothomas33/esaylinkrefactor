@@ -6,22 +6,32 @@ import com.emvenhance.core.card.Field55;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
+import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import io.reactivex.rxjava3.subjects.Subject;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Vendor base: each step method does vendor work, then calls {@link #goToStep} to
- * publish on the EmvStep observable and run the next step method.
+ * Vendor base: each step method does vendor work, then calls {@link #goToStep}, which emits the
+ * next step on {@link #steps}. The one observer of {@link #steps}, {@link #dispatchStepMethod},
+ * publishes it to the UI and runs that step's {@code onXxx} method.
  *
  * <pre>
  *   onApplicationSelection(...) {
  *       // vendor work…
- *       goToStep(EmvStep.WAIT_APPLICATION_SELECTION);  // → observable + next method
+ *       goToStep(EmvStep.WAIT_APPLICATION_SELECTION);  // → steps → dispatchStepMethod → onXxx
  *   }
  * </pre>
+ *
+ * <p>{@link #steps} is serialized and observed on the emitting thread, with no scheduler: a step
+ * emitted from inside a step method is queued and runs once that method returns, so the chain
+ * runs as a loop on the transaction thread instead of one method calling the next. It still runs
+ * to the end before {@link #start} returns, which {@code PosTerminal} relies on (it checks for a
+ * retry right after), and the vendor kernel's blocking calls stay off Rx's shared pools.
  *
  * <p>{@link #prepare} only starts {@link EmvStep#TERMINAL_INITIALIZATION} (does not
  * chain further — PosTerminal searches next). {@link #start} kicks the first post-search
@@ -38,6 +48,13 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Nullable
     protected CardPresence activeCard;
 
+    /** Steps to run, emitted by {@link #goToStep} and handled by {@link #dispatchStepMethod}. */
+    private final Subject<EmvStepEvent> steps = PublishSubject.<EmvStepEvent>create().toSerialized();
+
+    protected AbstractEmvBehavior() {
+        steps.subscribe(this::dispatchStepMethod);
+    }
+
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
         this.engine = engine;
@@ -46,8 +63,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         cancelled.set(false);
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
-        // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
-        enterStep(EmvStep.TERMINAL_INITIALIZATION);
+        // Run init only — onTerminalInitialization does NOT goToStep further; PosTerminal will
+        // searchCard next.
+        goToStep(EmvStep.TERMINAL_INITIALIZATION);
         return !cancelled.get() && engine.isRunning();
     }
 
@@ -68,24 +86,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * Vendor finished the current step → publish {@code step} on the EmvStep observable
-     * and execute that step's {@code onXxx} method.
+     * Vendor finished the current step → emit {@code step} on {@link #steps};
+     * {@link #dispatchStepMethod} publishes it to the UI and runs its {@code onXxx} method.
      */
     protected final void goToStep(EmvStep step) {
         goToStep(step, null);
     }
 
     protected final void goToStep(EmvStep step, @Nullable String detail) {
-        if (cancelled.get()) {
-            if (engine != null && engine.isRunning()) {
-                engine.notifyError("Transaction cancelled");
-            }
-            return;
-        }
-        if (engine == null || activeConfig == null) {
-            return;
-        }
-        enterStep(step, detail);
+        steps.onNext(new EmvStepEvent(step, detail));
     }
 
     /**
@@ -125,6 +134,25 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return;
         }
         engine.notifyError(message);
+    }
+
+    /**
+     * Ends the transaction as cancelled, naming the step it was at — see
+     * {@link EmvEngine#notifyCancelled}. Use it wherever a step notices the cancel itself.
+     */
+    protected final void finishCancelled() {
+        if (engine == null) {
+            return;
+        }
+        engine.notifyCancelled();
+    }
+
+    /**
+     * The transaction was cancelled between two steps, so no later step will release what the
+     * vendor holds open (card readers, kernel listeners, PIN pad): release it here. The cancel is
+     * already reported — don't report a result. Default: nothing to release.
+     */
+    protected void onFlowCancelled() {
     }
 
     protected final boolean isCancelled() {
@@ -207,82 +235,100 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return EmvStep.APPLICATION_SELECTION;
     }
 
-    private void enterStep(EmvStep step) {
-        enterStep(step, null);
-    }
-
-    private void enterStep(EmvStep step, @Nullable String detail) {
-        engine.notifyEmvStep(step, detail); // EmvStep observable → UI
-        if (cancelled.get()) {
-            return;
-        }
+    /**
+     * A cancel reached the step chain before {@code notRun}: report it at the step the
+     * transaction was at, note in the APDU trace where the flow stopped, and let the vendor
+     * release what it holds open. The chain ends here: no step method runs after this.
+     */
+    private void stopCancelled(EmvStep notRun) {
+        EmvStep at = engine.currentEmvStep();
+        String where = "EMV flow cancelled" + (at != null ? " at " + at.getTitle() : "")
+                + " — " + notRun.getTitle() + " not run";
+        EmvLog.d(where);
+        engine.apduTrace().note("EMV", where);
+        engine.notifyCancelled();
         try {
-            dispatchStepMethod(step);
+            onFlowCancelled();
         } catch (Exception e) {
-            finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
+            EmvLog.d("onFlowCancelled failed: " + e);
         }
     }
 
-    private void dispatchStepMethod(EmvStep step) {
-        if (engine == null || activeConfig == null) {
-            return;
-        }
+    /**
+     * The observer of {@link #steps}: publishes the step on the engine's EmvStep observable (UI)
+     * and runs its {@code onXxx} method. Nothing may escape it — a throw would leave the
+     * serialized {@link #steps} stuck mid-emission and every later step queued forever — so any
+     * failure ends the transaction as an error instead.
+     */
+    private void dispatchStepMethod(EmvStepEvent event) {
+        EmvStep step = event.getStep();
+        try {
+            // engine and activeConfig are set by prepare()/start() before any goToStep.
+            if (cancelled.get()) {
+                stopCancelled(step);
+                return;
+            }
+            engine.notifyEmvStep(step, event.getDetail()); // EmvStep observable → UI
 
-        switch (step) {
-            case TERMINAL_INITIALIZATION:
-                onTerminalInitialization(engine, activeConfig);
-                break;
-            case SEARCH_CARD:
-                onSearchCard(engine, activeConfig, activeCard);
-                break;
-            case APPLICATION_SELECTION:
-                onApplicationSelection(engine, activeConfig, activeCard);
-                break;
-            case WAIT_APPLICATION_SELECTION:
-                onWaitApplicationSelection(engine, activeConfig, activeCard);
-                break;
-            case FINAL_APPLICATION_SELECTION:
-                onFinalApplicationSelection(engine, activeConfig, activeCard);
-                break;
-            case READ_APPLICATION_DATA:
-                onReadApplicationData(engine, activeConfig, activeCard);
-                break;
-            case SET_TRANSACTION_DATA:
-                onSetTransactionData(engine, activeConfig, activeCard);
-                break;
-            case OFFLINE_DATA_AUTHENTICATION:
-                onOfflineDataAuthentication(engine, activeConfig, activeCard);
-                break;
-            case PROCESS_RESTRICTIONS:
-                onProcessRestrictions(engine, activeConfig, activeCard);
-                break;
-            case CARDHOLDER_VERIFICATION:
-                onCardholderVerification(engine, activeConfig, activeCard);
-                break;
-            case OFFLINE_PIN_VERIFICATION:
-                onOfflinePinVerification(engine, activeConfig, activeCard);
-                break;
-            case TERMINAL_RISK_MANAGEMENT:
-                onTerminalRiskManagement(engine, activeConfig, activeCard);
-                break;
-            case TERMINAL_ACTION_ANALYSIS:
-                onTerminalActionAnalysis(engine, activeConfig, activeCard);
-                break;
-            case START_ONLINE_PROCESS:
-                onStartOnlineProcess(engine, activeConfig, activeCard);
-                break;
-            case ISSUER_AUTHENTICATION:
-                onIssuerAuthentication(engine, activeConfig, activeCard);
-                break;
-            case SCRIPT_PROCESSING:
-                onScriptProcessing(engine, activeConfig, activeCard);
-                break;
-            case TRANSACTION_COMPLETION:
-                onTransactionCompletion(engine, activeConfig, activeCard);
-                break;
-            default:
-                finishError("Unknown EMV step: " + step);
-                break;
+            switch (step) {
+                case TERMINAL_INITIALIZATION:
+                    onTerminalInitialization(engine, activeConfig);
+                    break;
+                case SEARCH_CARD:
+                    onSearchCard(engine, activeConfig, activeCard);
+                    break;
+                case APPLICATION_SELECTION:
+                    onApplicationSelection(engine, activeConfig, activeCard);
+                    break;
+                case WAIT_APPLICATION_SELECTION:
+                    onWaitApplicationSelection(engine, activeConfig, activeCard);
+                    break;
+                case FINAL_APPLICATION_SELECTION:
+                    onFinalApplicationSelection(engine, activeConfig, activeCard);
+                    break;
+                case READ_APPLICATION_DATA:
+                    onReadApplicationData(engine, activeConfig, activeCard);
+                    break;
+                case SET_TRANSACTION_DATA:
+                    onSetTransactionData(engine, activeConfig, activeCard);
+                    break;
+                case OFFLINE_DATA_AUTHENTICATION:
+                    onOfflineDataAuthentication(engine, activeConfig, activeCard);
+                    break;
+                case PROCESS_RESTRICTIONS:
+                    onProcessRestrictions(engine, activeConfig, activeCard);
+                    break;
+                case CARDHOLDER_VERIFICATION:
+                    onCardholderVerification(engine, activeConfig, activeCard);
+                    break;
+                case OFFLINE_PIN_VERIFICATION:
+                    onOfflinePinVerification(engine, activeConfig, activeCard);
+                    break;
+                case TERMINAL_RISK_MANAGEMENT:
+                    onTerminalRiskManagement(engine, activeConfig, activeCard);
+                    break;
+                case TERMINAL_ACTION_ANALYSIS:
+                    onTerminalActionAnalysis(engine, activeConfig, activeCard);
+                    break;
+                case START_ONLINE_PROCESS:
+                    onStartOnlineProcess(engine, activeConfig, activeCard);
+                    break;
+                case ISSUER_AUTHENTICATION:
+                    onIssuerAuthentication(engine, activeConfig, activeCard);
+                    break;
+                case SCRIPT_PROCESSING:
+                    onScriptProcessing(engine, activeConfig, activeCard);
+                    break;
+                case TRANSACTION_COMPLETION:
+                    onTransactionCompletion(engine, activeConfig, activeCard);
+                    break;
+                default:
+                    finishError("Unknown EMV step: " + step);
+                    break;
+            }
+        } catch (Throwable e) {
+            EmvLog.d("EMV step " + step + " failed: " + e);
+            finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
         }
     }
 }

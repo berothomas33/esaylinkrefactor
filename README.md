@@ -9,7 +9,7 @@ UI  →  PosTerminal
          ├── prepare() → onTerminalInitialization()
          ├── searchCard()
          └── start()   → goToStep(APPLICATION_SELECTION)
-                           vendor method → goToStep(next) → EmvStep observable → next method
+                           vendor method → goToStep(next) → steps subject → dispatchStepMethod → next method
                            …
                            finishApproved() / finishDeclined()
 ```

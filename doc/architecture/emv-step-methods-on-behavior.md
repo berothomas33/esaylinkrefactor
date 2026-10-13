@@ -13,7 +13,15 @@
 goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
 ```
 
-ده ينشر الخطوة على الـ observable وينفّذ الـ method الجاية.
+ده يبعت الخطوة على الـ `steps` subject اللي جوه `AbstractEmvBehavior`. الـ Observer الوحيد بتاعه
+هو `dispatchStepMethod`: يتأكد إن المعاملة ما اتلغتش، ينشر الخطوة على **EmvStep observable** بتاع
+الـ engine (للـ UI)، وبعدين يعمل `switch` على الخطوة وينادي الـ `onXxx` بتاعها.
+
+الـ subject بيشتغل serialized ومن غير scheduler. يعني لو `goToStep` اتنادت من جوه `onXxx`، الخطوة
+الجاية بتتحط في الطابور وتشتغل بعد ما `onXxx` الحالية ترجع، على نفس الـ thread بتاع المعاملة. الخطوات
+بتشتغل ورا بعض في loop بدل ما كل method تنادي اللي بعدها والـ stack يكبر، والسلسلة كلها بتخلص قبل
+ما `start()` ترجع، و`PosTerminal` معتمد على كده علشان يشوف الـ retry بعدها على طول. مفيش
+`observeOn(computation())` لأن نداءات الـ kernel بتاعة الـ vendor بتعمل block.
 
 ## مثال (Fake)
 
@@ -63,3 +71,12 @@ finishError("…");
 // Kernel callback example
 announceKernelStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN");
 ```
+
+## الإلغاء
+
+- `EmvEngine` بيفتكر آخر `EmvStep` اتنشرت، سواء جت من `goToStep` أو من `announceStep`. لما المعاملة
+  تتلغي بيبلّغ مرة واحدة بس: `Transaction cancelled at <الخطوة>`.
+- لو الإلغاء وصل بين خطوتين، `dispatchStepMethod` بيوقف قبل الخطوة الجاية. بيكتب في الـ APDU trace
+  الخطوة اللي وقف عندها والخطوة اللي ما اشتغلتش، وبعدين ينادي `onFlowCancelled()` علشان الـ vendor
+  يقفل الـ readers والـ listener والـ PIN pad.
+- لو الـ vendor لاحظ الإلغاء جوه خطوة، يستخدم `finishCancelled()` مش `finishError(...)`.
