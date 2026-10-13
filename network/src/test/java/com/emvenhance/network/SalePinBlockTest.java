@@ -35,6 +35,7 @@ public class SalePinBlockTest {
         assertEquals(PIN_BLOCK, SaleCommunicationBehavior.pinBlockToSend(config));
         assertEquals(PIN_KEY, SaleCommunicationBehavior.pinKeyToSend(config));
         assertEquals("ONLINE", SaleCommunicationBehavior.pinEnterMode(config, emv));
+        assertEquals(2, SaleCommunicationBehavior.cvmCode(config, emv));
         assertTrue(saleEnvelopeJson(config).contains("\"encPinBlock\":\"" + PIN_BLOCK + "\""));
         assertTrue(saleBodyJson(config, emv).contains("\"pinBlock\":\"" + PIN_BLOCK + "\""));
         assertTrue(exchangeEnvelopeJson(config).contains("\"pinKey\":\"" + PIN_KEY + "\""));
@@ -46,6 +47,9 @@ public class SalePinBlockTest {
         EmvTransactionResult emv = result(true); // PIN verified by the card
 
         assertEquals("OFFLINE", SaleCommunicationBehavior.pinEnterMode(config, emv));
+        // The old app's approved Mastercard offline-PIN chip sale sent "cvm":3.
+        assertEquals(3, SaleCommunicationBehavior.cvmCode(config, emv));
+        assertTrue(saleBodyJson(config, emv).contains("\"cvm\":3"));
         assertNoPinFields(config, emv);
     }
 

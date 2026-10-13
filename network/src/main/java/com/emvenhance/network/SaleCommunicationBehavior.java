@@ -97,18 +97,19 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     /** {@code TransactionTypes.REFUND.getType()} in the old project. */
     private static final String TRANSACTION_TYPE_REFUND = "REFUND";
 
-    /**
-     * CVM codes — see {@link #cvmCode}. {@link #CVM_ONLINE_PIN} = 2 is confirmed by a real
-     * successful old-app sale ({@code "cvm":2} alongside {@code "pinEnterMode":"ONLINE"});
-     * {@link #CVM_OFFLINE_PIN} = 1 is inferred from that, not independently confirmed.
-     */
     private static final String TAG = "SaleComm";
     /** Logcat truncates a single line at ~4000 characters. */
     private static final int LOG_CHUNK = 3500;
 
+    /**
+     * CVM codes — see {@link #cvmCode}. Both PIN codes are confirmed by real successful old-app
+     * sales: {@code "cvm":2} with {@code "pinEnterMode":"ONLINE"}, and {@code "cvm":3} with
+     * {@code "pinEnterMode":"OFFLINE"} (Mastercard chip, offline PIN). {@link #CVM_NONE} = 0 is
+     * not confirmed.
+     */
     private static final int CVM_NONE = 0;
-    private static final int CVM_OFFLINE_PIN = 1;
     private static final int CVM_ONLINE_PIN = 2;
+    private static final int CVM_OFFLINE_PIN = 3;
 
     private final HostApiConnection connection;
     private final OnboardingClient onboarding;
