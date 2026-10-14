@@ -48,6 +48,8 @@
     <string name="result_printed">Sent to printer</string>
     <string name="outcome_declined">TRANSACTION DECLINED</string>
     <string name="outcome_approved">TRANSACTION APPROVED</string>
+    <string name="outcome_terminal_busy">POS TERMINAL BUSY</string>
+    <string name="terminal_busy_reason">The previous transaction is still finishing — try again in a moment</string>
     <string name="action_try_again">Try again</string>
     <string name="action_done">Done</string>
     <string name="apdu_trace_title">APDU trace (every EMV level)</string>

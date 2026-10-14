@@ -28,6 +28,9 @@ public class MainViewModel extends ViewModel {
     private final MutableLiveData<Event<EmvStepEvent>> emvStep = new MutableLiveData<>();
     private final MutableLiveData<String> apduTrace;
 
+    /** This screen started a transaction — so leaving it cancels that one, never another's. */
+    private boolean startedTransaction;
+
     public MainViewModel(@NonNull PosTerminal terminal) {
         this.terminal = terminal;
         this.apduTrace = new MutableLiveData<>(terminal.apduTrace().text());
@@ -72,9 +75,13 @@ public class MainViewModel extends ViewModel {
      * Preferred: accept chip / tap / swipe — vendor terminal decides.
      *
      * @param referenceNumber the original sale's reference number, for a refund; else {@code null}
+     * @return {@code false} when the POS terminal is busy with the previous transaction: nothing
+     *         started, so tell the user (see {@link PosTerminal#startTransaction})
      */
-    public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
-        terminal.acceptCard(type, amountMinor, referenceNumber);
+    public boolean acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
+        boolean started = terminal.acceptCard(type, amountMinor, referenceNumber);
+        startedTransaction |= started;
+        return started;
     }
 
     public void cancel() {
@@ -98,8 +105,11 @@ public class MainViewModel extends ViewModel {
     @Override
     protected void onCleared() {
         // The screen that started the transaction is gone (Cancel, Done, or Back): don't leave its
-        // search holding the reader, or its EMV running, for the next transaction.
-        terminal.cancelTransaction();
+        // search holding the reader, or its EMV running, for the next transaction. A screen whose
+        // start was refused (terminal busy) never had one, and leaves the other alone.
+        if (startedTransaction) {
+            terminal.cancelTransaction();
+        }
         disposables.clear();
         super.onCleared();
     }

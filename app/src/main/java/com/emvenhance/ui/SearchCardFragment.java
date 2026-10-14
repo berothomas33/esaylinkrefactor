@@ -114,7 +114,9 @@ public class SearchCardFragment extends Fragment {
         view.findViewById(R.id.btnOutcomeDone).setOnClickListener(v -> requireActivity().finish());
         view.findViewById(R.id.btnOutcomeRetry).setOnClickListener(v -> {
             outcomeGroup.setVisibility(View.GONE);
-            viewModel.acceptCard(type, amountMinor, referenceNumber);
+            if (!viewModel.acceptCard(type, amountMinor, referenceNumber)) {
+                showBusy(view);
+            }
         });
 
         bindKvRow(view, R.id.rowPan, getString(R.string.label_pan_result));
@@ -220,8 +222,12 @@ public class SearchCardFragment extends Fragment {
 
         // Fire the search the moment this screen is up, so the reader is live as soon as the
         // cardholder sees "present card" — matches AmountFragment's old behavior, just moved
-        // here now that there's a dedicated screen for it.
-        viewModel.acceptCard(type, amountMinor, referenceNumber);
+        // here now that there's a dedicated screen for it. Only the first time: a rotation
+        // recreates this view while its transaction carries on.
+        if (savedInstanceState == null
+                && !viewModel.acceptCard(type, amountMinor, referenceNumber)) {
+            showBusy(view);
+        }
     }
 
     /**
@@ -282,6 +288,19 @@ public class SearchCardFragment extends Fragment {
 
         TextView banner = view.findViewById(R.id.emvStepBanner);
         banner.setText(approved ? R.string.outcome_approved : R.string.outcome_declined);
+    }
+
+    /**
+     * This screen's start was refused: the previous transaction hasn't finished with the reader
+     * yet (usually a cancelled search still stopping). Nothing of this screen's runs, so nothing to
+     * cancel — Try again, or Done.
+     */
+    private static void showBusy(View view) {
+        showOutcome(view, false, view.getContext().getString(R.string.terminal_busy_reason));
+        ((TextView) view.findViewById(R.id.outcomeTitle)).setText(R.string.outcome_terminal_busy);
+        ((TextView) view.findViewById(R.id.emvStepBanner)).setText(R.string.outcome_terminal_busy);
+        view.findViewById(R.id.methodSelectionGroup).setVisibility(View.GONE);
+        view.findViewById(R.id.btnCancelSearch).setVisibility(View.GONE);
     }
 
     private static void bindMethodRow(View parent, int rowId, String badge, String title,

@@ -28,9 +28,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * A search that outlives its transaction — cancelled, but the reader hasn't stopped yet — must not
- * fail, or start EMV for, the next transaction, and must not share the reader with it: every
- * transaction runs on the terminal's one transaction thread, in turn.
+ * One transaction at a time: a start while the previous one hasn't finished — even cancelled, with
+ * its search still stopping — is refused as "terminal busy", never queued. And a search that
+ * outlives its transaction can't fail, or start EMV for, the next one.
  */
 public class PosTerminalTransactionLifecycleTest {
 
@@ -76,43 +76,31 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
-    public void theNextSearchWaitsForTheEarlierOneToStop() throws Exception {
+    public void aStartWhileTheCancelledSearchIsStillStoppingIsRefusedAsBusy() throws Exception {
         terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
         terminal.cancelTransaction();
+        events.clear();
 
-        terminal.acceptCard(TransactionType.SALE, 2000);
-        assertNull("reader opened twice", terminal.searches.poll(300, TimeUnit.MILLISECONDS));
+        assertFalse("busy", terminal.acceptCard(TransactionType.SALE, 2000));
+        assertTrue("busy is not reported on the old transaction's steps: " + events,
+                events.isEmpty());
 
-        first.release.countDown();
-        Search second = terminal.nextSearch();
-        assertEquals(2000L, second.config.getAmountMinor());
-        assertTrue("old search kept searching", first.cancelledWhenReleased);
+        first.release.countDown(); // the old search finally stops
+        assertTrue("old search kept searching", awaitTrue(() -> first.cancelledWhenReleased));
+        Search second = startWhenFree(3000);
+        assertEquals(3000L, second.config.getAmountMinor());
         assertSame("one transaction thread", first.thread, second.thread);
+        assertNull("the refused start never ran", terminal.searches.poll(300, TimeUnit.MILLISECONDS));
     }
 
     @Test
-    public void aStartCancelledWhileWaitingItsTurnNeverOpensTheReader() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000);
-        Search first = terminal.nextSearch();
-        terminal.cancelTransaction();
-        terminal.acceptCard(TransactionType.SALE, 2000); // waits for the first to stop
-        terminal.cancelTransaction();                    // cancelled while still waiting
-        terminal.acceptCard(TransactionType.SALE, 3000);
-
-        first.release.countDown();
-
-        assertEquals(3000L, terminal.nextSearch().config.getAmountMinor());
-        assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS));
-    }
-
-    @Test
-    public void aSecondStartWhileSearchingIsIgnoredAndTheFirstCarriesOn() throws Exception {
+    public void aStartWhileSearchingIsRefusedAndTheFirstCarriesOn() throws Exception {
         terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
         events.clear();
 
-        terminal.acceptCard(TransactionType.SALE, 2000);
+        assertFalse("busy", terminal.acceptCard(TransactionType.SALE, 2000));
 
         assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS));
         assertTrue("first transaction got " + events, events.isEmpty());
@@ -133,19 +121,37 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     /**
-     * A transaction for 1000 whose search is cancelled but only returns afterwards (its listener
-     * still held, like a vendor reporting late), then the next transaction for 2000, searching.
+     * A transaction for 1000, cancelled, whose listener is still held (like a vendor reporting
+     * late, from its own thread), then the next transaction for 2000, searching.
      */
     private Search cancelledSearchThenNextTransaction() throws InterruptedException {
         terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
         terminal.cancelTransaction();
-        terminal.acceptCard(TransactionType.SALE, 2000);
         first.release.countDown();
-        Search second = terminal.nextSearch();
+        Search second = startWhenFree(2000);
         terminal.searches.add(second); // hand it back for tests that need it
         events.clear();
         return first;
+    }
+
+    /** Starts a sale as soon as the terminal stops being busy, and returns its search. */
+    private Search startWhenFree(long amount) throws InterruptedException {
+        assertTrue("terminal stayed busy",
+                awaitTrue(() -> terminal.acceptCard(TransactionType.SALE, amount)));
+        return terminal.nextSearch();
+    }
+
+    private static boolean awaitTrue(java.util.function.BooleanSupplier condition)
+            throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return false;
     }
 
     private boolean hasStep(TransactionStep step) {
