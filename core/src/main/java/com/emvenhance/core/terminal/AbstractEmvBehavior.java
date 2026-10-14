@@ -6,10 +6,12 @@ import com.emvenhance.core.card.Field55;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
+import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -26,6 +28,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>{@link #prepare} only starts {@link EmvStep#TERMINAL_INITIALIZATION} (does not
  * chain further — PosTerminal searches next). {@link #start} kicks the first post-search
  * step; the vendor chain continues via {@link #goToStep}.
+ *
+ * <p>{@link #goToStep} never calls the {@code onXxx} method itself: it publishes the step, and
+ * this class's own {@link EmvEngine#emvSteps()} observer ({@link #initEmvObserver}) runs it —
+ * notify → onNext → observer → {@code dispatchStepMethod}, the same shape as
+ * {@code EmvEngine}'s transaction steps. Steps published any other way
+ * ({@link #announceStep}, PosTerminal's card-search prompt) reach the UI only.
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
@@ -38,9 +46,20 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Nullable
     protected CardPresence activeCard;
 
+    /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
+    private final CompositeDisposable disposables = new CompositeDisposable();
+
+    /**
+     * The step {@link #enterStep} is publishing right now: the one {@link EmvStepEvent} whose
+     * {@code onXxx} method the observer runs. {@code null} outside that publish.
+     */
+    @Nullable
+    private volatile EmvStep enteringStep;
+
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
         this.engine = engine;
+        initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = null;
         cancelled.set(false);
@@ -54,6 +73,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Override
     public void start(EmvEngine engine, TransactionConfig config, CardPresence card) {
         this.engine = engine;
+        initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = card;
         cancelled.set(false);
@@ -65,6 +85,27 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Override
     public void cancel() {
         cancelled.set(true);
+    }
+
+    @Override
+    public void dispose() {
+        disposables.clear();
+    }
+
+    /**
+     * Subscribes this behavior to {@code engine}'s EmvStep observable, replacing any earlier
+     * subscription, so that a step {@link #goToStep} publishes runs its {@code onXxx} method.
+     *
+     * <p>Called at the start of every {@link #prepare} and {@link #start}, not once: the observer
+     * must be the engine's <em>last</em> subscriber. A step method runs inside the observer and
+     * publishes the next step from there, so every subscriber after it would see that next step
+     * before the current one — the UI would end on the first step instead of the last.
+     * Re-subscribing moves it behind every subscriber that came first, such as a
+     * {@code MainViewModel} created after an earlier transaction.
+     */
+    protected final void initEmvObserver(EmvEngine engine) {
+        disposables.clear();
+        disposables.add(engine.emvSteps().subscribe(this::onEmvStep, this::onEmvStepError));
     }
 
     /**
@@ -212,7 +253,22 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     private void enterStep(EmvStep step, @Nullable String detail) {
-        engine.notifyEmvStep(step, detail); // EmvStep observable → UI
+        enteringStep = step;
+        try {
+            // EmvStep observable → UI, then this behavior's observer → onEmvStep → onXxx.
+            engine.notifyEmvStep(step, detail);
+        } finally {
+            enteringStep = null;
+        }
+    }
+
+    /** The {@link #initEmvObserver} observer: runs the step {@link #enterStep} is publishing. */
+    private void onEmvStep(EmvStepEvent event) {
+        EmvStep step = event.getStep();
+        if (step != enteringStep) {
+            return; // announced, not entered: the observable only
+        }
+        enteringStep = null;
         if (cancelled.get()) {
             return;
         }
@@ -221,6 +277,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         } catch (Exception e) {
             finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
         }
+    }
+
+    /**
+     * An {@link Error} out of a step method: Rx has already ended the subscription, so end the
+     * transaction too. The next {@link #prepare} or {@link #start} subscribes again.
+     */
+    private void onEmvStepError(Throwable error) {
+        finishError(error.getMessage() != null ? error.getMessage() : "EMV step failed");
     }
 
     private void dispatchStepMethod(EmvStep step) {
