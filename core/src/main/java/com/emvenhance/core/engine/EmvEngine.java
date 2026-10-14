@@ -14,6 +14,7 @@ import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
+import io.reactivex.rxjava3.subjects.Subject;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -38,6 +39,18 @@ public final class EmvEngine {
 
     private final BehaviorSubject<TransactionStepEvent> transactionSteps =
             BehaviorSubject.createDefault(TransactionStepEvent.idle());
+
+    /**
+     * Every transaction step is published through here, never on {@link #transactionSteps}
+     * directly: a cancel reports from the UI thread while the transaction thread is reporting
+     * too, and Rx subscribers must never get two {@code onNext} calls at once. One that arrives
+     * mid-delivery is queued and delivered right after, by the thread already delivering.
+     *
+     * <p>{@code emvSteps} deliberately is not serialized: a step method publishes the next step
+     * from inside delivery, and it has to run right there, not after the current one returns.
+     */
+    private final Subject<TransactionStepEvent> transactionStepsSerialized =
+            transactionSteps.toSerialized();
 
     private final PublishSubject<EmvStepEvent> emvSteps = PublishSubject.create();
 
@@ -134,7 +147,7 @@ public final class EmvEngine {
     public void notifyTransactionStep(TransactionStepEvent event) {
         EmvLog.d("TransactionStep: " + event);
         traceTransactionStep(event);
-        transactionSteps.onNext(event);
+        transactionStepsSerialized.onNext(event);
     }
 
     /** Flags each transaction step in the APDU trace. */
