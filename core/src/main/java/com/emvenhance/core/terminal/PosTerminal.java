@@ -23,6 +23,8 @@ import io.reactivex.rxjava3.observers.DisposableCompletableObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * The only public hardware API for the app.
@@ -110,16 +112,32 @@ public abstract class PosTerminal {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
         AuthResult result;
         try {
-            result = communication.authorize(config).blockingGet();
+            // Cancel doesn't cut this short: once sent, the sale may be approved at the host, and
+            // with no reversal yet the terminal waits for that answer — or the timeout.
+            result = communication.authorize(config)
+                    .timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
+                    .blockingGet();
         } catch (Exception e) {
             // No usable host answer (network, timeout, envelope error): online failed, not a
             // host decline.
-            result = AuthResult.failed(e.getMessage() != null ? e.getMessage() : "Online failed");
+            result = AuthResult.failed(e.getCause() instanceof TimeoutException
+                    ? "Online failed: the host didn't answer in time"
+                    : e.getMessage() != null ? e.getMessage() : "Online failed");
         }
         engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
                 .build());
         return result;
+    }
+
+    /**
+     * The longest one online authorization may take, end to end — token refresh, exchange and
+     * sale/refund together. Each HTTP call alone may take 75 s to connect and 75 s to read, which
+     * chained came to minutes with the terminal busy throughout. Past this the request is
+     * cancelled and the transaction is online failed, like any host that doesn't answer.
+     */
+    protected long onlineTimeoutMs() {
+        return 90_000;
     }
 
     /**

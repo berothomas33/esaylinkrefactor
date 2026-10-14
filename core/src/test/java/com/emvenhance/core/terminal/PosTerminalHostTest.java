@@ -69,6 +69,26 @@ public class PosTerminalHostTest {
         assertEquals("timeout", result.getMessage());
     }
 
+    @Test(timeout = 5_000)
+    public void aHostThatNeverAnswersIsOnlineFailedAfterTheTimeoutAndTheRequestIsCancelled() {
+        AtomicInteger requestsCancelled = new AtomicInteger();
+        TestTerminal terminal = new TestTerminal(
+                config -> Single.<AuthResult>never().doOnDispose(requestsCancelled::incrementAndGet));
+        terminal.onlineTimeoutMs = 200;
+        List<TransactionStep> steps = new ArrayList<>();
+        terminal.transactionSteps().subscribe(event -> steps.add(event.getStep()));
+
+        long started = System.currentTimeMillis();
+        AuthResult result = terminal.engine.authorize(CONFIG);
+
+        assertTrue(result.isFailed());
+        assertEquals("Online failed: the host didn't answer in time", result.getMessage());
+        assertTrue("waited " + (System.currentTimeMillis() - started) + " ms",
+                System.currentTimeMillis() - started < 2_000);
+        assertEquals(1, requestsCancelled.get());
+        assertEquals(TransactionStep.ONLINE_COMPLETED, steps.get(steps.size() - 1));
+    }
+
     @Test
     public void receiptsGoToTheTerminalsPrinter() throws InterruptedException {
         TestTerminal terminal = new TestTerminal(config -> Single.never());
@@ -106,6 +126,8 @@ public class PosTerminalHostTest {
 
     private final class TestTerminal extends PosTerminal {
 
+        long onlineTimeoutMs = 90_000;
+
         TestTerminal(CommunicationBehavior host) {
             this(host, lines -> Completable.fromAction(() -> {
                 printed.add(lines);
@@ -124,6 +146,11 @@ public class PosTerminalHostTest {
 
         @Override
         protected void cancelCardSearch() {
+        }
+
+        @Override
+        protected long onlineTimeoutMs() {
+            return onlineTimeoutMs;
         }
     }
 
