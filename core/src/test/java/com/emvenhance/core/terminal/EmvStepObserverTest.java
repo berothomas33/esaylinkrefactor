@@ -19,10 +19,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * {@link AbstractEmvBehavior#goToStep} publishes a step on {@link EmvEngine#emvSteps()}, then runs
- * its {@code onXxx} method; {@link AbstractEmvBehavior#announceStep} only publishes it.
+ * {@link AbstractEmvBehavior#goToStep} runs a step's {@code onXxx} method through the behavior's
+ * own {@link EmvEngine#emvSteps()} observer, not by calling it directly;
+ * {@link AbstractEmvBehavior#announceStep} only publishes the step.
  */
-public class EmvStepDispatchTest {
+public class EmvStepObserverTest {
 
     private static final TransactionConfig CONFIG =
             new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP);
@@ -61,7 +62,7 @@ public class EmvStepDispatchTest {
     }
 
     @Test
-    public void subscribersSeeNestedStepsInOrder() {
+    public void subscribersSeeNestedStepsInOrderWhenTheyCameFirst() {
         List<EmvStep> seen = record(engine);
 
         engine.start(CONFIG, CardPresence.chip());
@@ -72,8 +73,8 @@ public class EmvStepDispatchTest {
 
     @Test
     public void subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
-        engine.start(CONFIG, CardPresence.chip());
-        List<EmvStep> seen = record(engine); // e.g. a new MainViewModel
+        engine.start(CONFIG, CardPresence.chip()); // behavior subscribed first
+        List<EmvStep> seen = record(engine);       // e.g. a new MainViewModel
 
         engine.start(CONFIG, CardPresence.chip());
 
@@ -82,7 +83,7 @@ public class EmvStepDispatchTest {
     }
 
     @Test
-    public void aThrowingStepEndsTheTransactionAndLaterStepsStillRun() {
+    public void aThrowingStepEndsTheTransactionAndKeepsTheObserver() {
         List<TransactionStep> transaction = new ArrayList<>();
         engine.transactionSteps().subscribe(event -> transaction.add(event.getStep()));
         engine.begin();
@@ -111,6 +112,26 @@ public class EmvStepDispatchTest {
         assertTrue(vendor.ran.isEmpty());
     }
 
+    @Test
+    public void disposeStopsTheObserver() {
+        engine.start(CONFIG, CardPresence.chip());
+        vendor.ran.clear();
+
+        engine.dispose();
+        vendor.go(EmvStep.TRANSACTION_COMPLETION);
+
+        assertTrue(vendor.ran.isEmpty());
+    }
+
+    @Test
+    public void stepsRunOnTheCallersThreadBeforeStartReturns() {
+        Thread caller = Thread.currentThread();
+        engine.start(CONFIG, CardPresence.chip());
+
+        assertEquals(3, vendor.ran.size());
+        assertEquals(Arrays.asList(caller, caller, caller), vendor.threads);
+    }
+
     private static List<EmvStep> record(EmvEngine engine) {
         List<EmvStep> seen = new ArrayList<>();
         engine.emvSteps().map(EmvStepEvent::getStep).subscribe(seen::add);
@@ -121,6 +142,7 @@ public class EmvStepDispatchTest {
     private static final class VendorBehavior extends AbstractEmvBehavior {
 
         final List<EmvStep> ran = new ArrayList<>();
+        final List<Thread> threads = new ArrayList<>();
         EmvStep failOn;
 
         void go(EmvStep step) {
@@ -133,6 +155,7 @@ public class EmvStepDispatchTest {
 
         private void ran(EmvStep step) {
             ran.add(step);
+            threads.add(Thread.currentThread());
             if (step == failOn) {
                 throw new IllegalStateException("kernel error");
             }
