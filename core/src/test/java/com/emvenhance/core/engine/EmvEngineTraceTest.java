@@ -15,7 +15,10 @@ import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.terminal.EmvBehavior;
 import com.emvenhance.core.util.ApduTrace;
+import java.lang.reflect.Proxy;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -27,7 +30,7 @@ public class EmvEngineTraceTest {
 
     @Before
     public void setUp() {
-        engine = new EmvEngine();
+        engine = newEngine();
         trace = engine.apduTrace();
     }
 
@@ -35,7 +38,7 @@ public class EmvEngineTraceTest {
     public void ownsOneTracePerEngine() {
         assertNotNull(trace);
         assertSame(trace, engine.apduTrace());
-        assertNotSame(trace, new EmvEngine().apduTrace());
+        assertNotSame(trace, newEngine().apduTrace());
     }
 
     @Test
@@ -113,5 +116,13 @@ public class EmvEngineTraceTest {
 
     private static TransactionConfig config() {
         return new TransactionConfig(TransactionType.SALE, 100, EntryMethod.ANY);
+    }
+
+    /** An engine whose behavior does nothing and that never reaches a host. */
+    private static EmvEngine newEngine() {
+        EmvBehavior behavior = (EmvBehavior) Proxy.newProxyInstance(
+                EmvBehavior.class.getClassLoader(), new Class<?>[] {EmvBehavior.class},
+                (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null);
+        return new EmvEngine(behavior, config -> AuthResult.failed("no host"));
     }
 }

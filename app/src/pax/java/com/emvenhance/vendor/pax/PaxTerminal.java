@@ -5,7 +5,6 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
@@ -79,7 +78,7 @@ public class PaxTerminal extends PosTerminal {
     private PaxTerminal(PaxKernel kernel,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
-        super(new EmvEngine(), new PaxEmvBehavior(kernel), communication, printer);
+        super(new PaxEmvBehavior(kernel), communication, printer);
         this.kernel = kernel;
     }
 

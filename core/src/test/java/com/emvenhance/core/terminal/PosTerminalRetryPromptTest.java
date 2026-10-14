@@ -36,8 +36,8 @@ public class PosTerminalRetryPromptTest {
 
     @Before
     public void setUp() throws Exception {
-        engine = new EmvEngine();
-        terminal = new CapturingTerminal(engine);
+        terminal = new CapturingTerminal();
+        engine = terminal.engine;
         engine.transactionSteps().subscribe(events::add);
         terminal.acceptCard(TransactionType.SALE, 1000);
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS));
@@ -101,8 +101,8 @@ public class PosTerminalRetryPromptTest {
         final CountDownLatch release = new CountDownLatch(1);
         volatile CardSearchListener listener;
 
-        CapturingTerminal(EmvEngine engine) {
-            super(engine, behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
+        CapturingTerminal() {
+            super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
         }
 
         @Override

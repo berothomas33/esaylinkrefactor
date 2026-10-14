@@ -136,7 +136,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * the vendor's {@link #readIccTag} ({@link #buildField55}) and attaches it to
      * {@link #activeConfig}, so no request reaches the host without it; with no tag at all the
      * request is online failed instead. Then {@link #addOnlineRequestData} lets the vendor
-     * attach anything else it read, and {@link EmvEngine#authorize} sends it.
+     * attach anything else it read, and {@link EmvEngine#authorize} hands it to
+     * {@link PosTerminal#authorize}, which sends it to the host.
      *
      * <p>Call it right after the 1st GENERATE AC returned the ARQC, when the kernel asks to go
      * online (the PAX kernel's {@code startOnlineProcess} callback, or {@code onStartOnlineProcess}).

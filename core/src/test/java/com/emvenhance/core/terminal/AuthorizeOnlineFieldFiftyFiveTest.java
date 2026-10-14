@@ -11,10 +11,8 @@ import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.AuthResult;
-import io.reactivex.rxjava3.core.Single;
 import java.util.ArrayList;
 import java.util.List;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -26,23 +24,13 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
     private static final byte[] ARQC = {(byte) 0xF4, 0x3D, 0x16, 0x6E, (byte) 0xC3, 0x61, (byte) 0xA9, (byte) 0xB2};
     private static final String FIELD_55 = "9F2608F43D166EC361A9B29F270180";
 
-    private EmvEngine engine;
     private final List<TransactionConfig> sentToHost = new ArrayList<>();
-
-    @Before
-    public void setUp() {
-        engine = new EmvEngine();
-        engine.attachCommunication(config -> {
-            sentToHost.add(config);
-            return Single.just(AuthResult.approved("123456", "00", null, null));
-        });
-    }
 
     @Test
     public void chipRequestCarriesTheVendorsFieldFiftyFive() {
         VendorBehavior vendor = new VendorBehavior(true);
 
-        AuthResult result = vendor.goOnline(engine, CardPresence.chip());
+        AuthResult result = vendor.goOnline(engineFor(vendor), CardPresence.chip());
 
         assertTrue(result.isApproved());
         assertTrue(vendor.tagsRead > 0);
@@ -55,7 +43,7 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
     public void contactlessWithoutFieldFiftyFiveIsOnlineFailedAndNeverSent() {
         VendorBehavior vendor = new VendorBehavior(false);
 
-        AuthResult result = vendor.goOnline(engine, CardPresence.contactless(null));
+        AuthResult result = vendor.goOnline(engineFor(vendor), CardPresence.contactless(null));
 
         assertFalse(result.isApproved());
         assertTrue(result.isFailed());
@@ -67,11 +55,20 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
     public void magstripeNeverAsksForFieldFiftyFive() {
         VendorBehavior vendor = new VendorBehavior(true);
 
-        vendor.goOnline(engine, CardPresence.magstripe(null, "4111111111111111=2812", null));
+        vendor.goOnline(engineFor(vendor),
+                CardPresence.magstripe(null, "4111111111111111=2812", null));
 
         assertEquals(0, vendor.tagsRead);
         assertEquals(1, sentToHost.size());
         assertNull(sentToHost.get(0).getIccData());
+    }
+
+    /** An engine for {@code vendor} whose host records each request and approves it. */
+    private EmvEngine engineFor(VendorBehavior vendor) {
+        return new EmvEngine(vendor, config -> {
+            sentToHost.add(config);
+            return AuthResult.approved("123456", "00", null, null);
+        });
     }
 
     /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */

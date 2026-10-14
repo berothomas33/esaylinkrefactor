@@ -4,7 +4,6 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.core.host.PrinterBehavior;
@@ -24,7 +23,7 @@ public class FakeTerminal extends PosTerminal {
     }
 
     private FakeTerminal(CommunicationBehavior communication, PrinterBehavior printer) {
-        super(new EmvEngine(), new FakeEmvBehavior(), communication, printer);
+        super(new FakeEmvBehavior(), communication, printer);
     }
 
     @Nullable

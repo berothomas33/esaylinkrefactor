@@ -23,35 +23,34 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * The only public hardware API for the app.
  *
  * <p>Owns card search, host communication, and printer. EMV after entry selection is
- * delegated to {@link EmvBehavior}.
+ * delegated to its {@link EmvEngine}, which owns the vendor's {@link EmvBehavior}.
  *
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [fires, returns immediately]
- *          └── EmvBehavior.prepare + searchCard(config, listener)   ← vendor SDK
+ *          └── engine.prepare + searchCard(config, listener)        ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
- *                        └── EmvBehavior.start(card)                ← vendor EMV, from inside the callback
+ *                        └── engine.start(card)                     ← vendor EMV, from inside the callback
+ *                               └── behavior → engine.authorize → PosTerminal.authorize → host
  * </pre>
  */
 public abstract class PosTerminal {
 
     protected final EmvEngine engine;
-    protected final EmvBehavior behavior;
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
 
     private final AtomicBoolean searchCancelled = new AtomicBoolean(false);
 
-    protected PosTerminal(EmvEngine engine,
-            EmvBehavior behavior,
+    /**
+     * @param behavior the vendor's EMV — handed to this terminal's {@link EmvEngine}, which owns
+     *                 it; the terminal itself only ever talks to the engine
+     */
+    protected PosTerminal(EmvBehavior behavior,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
-        this.engine = engine;
-        this.behavior = behavior;
         this.communication = communication;
         this.printer = printer;
-        this.engine.attachBehavior(behavior);
-        this.engine.attachCommunication(communication);
-        this.engine.attachPrinter(printer);
+        this.engine = new EmvEngine(behavior, this::authorize);
         initializeVendor();
     }
 
@@ -64,25 +63,41 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Host authorize via the terminal-owned {@link CommunicationBehavior}, through
-     * {@link EmvEngine#authorize}. Same call {@link EmvBehavior} implementations use — one
-     * implementation, whether it's the terminal or a vendor asking.
+     * Host authorize via the terminal-owned {@link CommunicationBehavior}. This is also where a
+     * vendor's {@link EmvBehavior} goes online — {@link EmvEngine#authorize} hands its request
+     * here — so it's one implementation, whether it's the terminal or a vendor asking.
+     *
+     * <p>Publishes {@code ONLINE_REQUIRED} / {@code ONLINE_PROCESSING} / {@code ONLINE_COMPLETED}
+     * around the call, so a vendor gets the notify sequence for free instead of repeating it.
      */
     public AuthResult authorize(TransactionConfig config) {
-        return engine.authorize(config);
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        AuthResult result;
+        try {
+            result = communication.authorize(config).blockingGet();
+        } catch (Exception e) {
+            // No usable host answer (network, timeout, envelope error): online failed, not a
+            // host decline.
+            result = AuthResult.failed(e.getMessage() != null ? e.getMessage() : "Online failed");
+        }
+        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+                .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
+                .build());
+        return result;
     }
 
     /**
-     * Print receipt lines via the terminal-owned {@link PrinterBehavior}, through
-     * {@link EmvEngine#print}. Runs off the calling (UI) thread — {@code print()} blocks until
-     * the job finishes, and a real printer is slow enough that blocking the UI thread would ANR.
-     * A failure (no paper, DAL not ready, printer busy) is logged, not thrown — the caller asked
-     * to print and walked away; it has no exception handler waiting.
+     * Print receipt lines via the terminal-owned {@link PrinterBehavior}. Runs off the calling
+     * (UI) thread — {@code print()} blocks until the job finishes, and a real printer is slow
+     * enough that blocking the UI thread would ANR. A failure (no paper, DAL not ready, printer
+     * busy) is logged, not thrown — the caller asked to print and walked away; it has no
+     * exception handler waiting.
      */
     public void printReceipt(List<String> lines) {
         new Thread(() -> {
             try {
-                engine.print(lines);
+                printer.print(lines).blockingAwait();
             } catch (Throwable t) {
                 //noinspection CallToPrintStackTrace
                 t.printStackTrace();
@@ -215,7 +230,7 @@ public abstract class PosTerminal {
      * still on this one thread, so it never races the attempt that requested it.
      */
     private void triggerSearch(TransactionConfig config) {
-        if (!behavior.prepare(engine, config)) {
+        if (!engine.prepare(config)) {
             engine.notifyError("Terminal initialization failed");
             return;
         }
@@ -306,7 +321,7 @@ public abstract class PosTerminal {
                 return;
             }
 
-            behavior.start(engine, config, card);
+            engine.start(config, card);
 
             TransactionConfig retryConfig = engine.consumePendingRetry();
             if (retryConfig != null) {

@@ -5,7 +5,6 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.core.host.PrinterBehavior;
@@ -27,7 +26,7 @@ public class IngenicoTerminal extends PosTerminal {
     }
 
     private IngenicoTerminal(CommunicationBehavior communication, PrinterBehavior printer) {
-        super(new EmvEngine(), new IngenicoEmvBehavior(), communication, printer);
+        super(new IngenicoEmvBehavior(), communication, printer);
     }
 
     @Override

@@ -11,6 +11,7 @@ import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
+import com.emvenhance.core.host.AuthResult;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -31,15 +32,15 @@ public class EmvStepDispatchTest {
 
     @Before
     public void setUp() {
-        engine = new EmvEngine();
         vendor = new VendorBehavior();
+        engine = new EmvEngine(vendor, config -> AuthResult.failed("no host"));
     }
 
     @Test
     public void enteredStepsRunTheirMethodOnce() {
         engine.begin();
-        vendor.prepare(engine, CONFIG);
-        vendor.start(engine, CONFIG, CardPresence.chip());
+        engine.prepare(CONFIG);
+        engine.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
                 EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION), vendor.ran);
@@ -48,7 +49,7 @@ public class EmvStepDispatchTest {
     @Test
     public void announcedStepsReachTheObservableOnly() {
         List<EmvStep> seen = record(engine);
-        vendor.start(engine, CONFIG, CardPresence.chip());
+        engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
         vendor.announce(EmvStep.READ_APPLICATION_DATA);
@@ -63,7 +64,7 @@ public class EmvStepDispatchTest {
     public void subscribersSeeNestedStepsInOrder() {
         List<EmvStep> seen = record(engine);
 
-        vendor.start(engine, CONFIG, CardPresence.chip());
+        engine.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
                 EmvStep.TRANSACTION_COMPLETION), seen);
@@ -71,10 +72,10 @@ public class EmvStepDispatchTest {
 
     @Test
     public void subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
-        vendor.start(engine, CONFIG, CardPresence.chip());
+        engine.start(CONFIG, CardPresence.chip());
         List<EmvStep> seen = record(engine); // e.g. a new MainViewModel
 
-        vendor.start(engine, CONFIG, CardPresence.chip());
+        engine.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
                 EmvStep.TRANSACTION_COMPLETION), seen);
@@ -87,7 +88,7 @@ public class EmvStepDispatchTest {
         engine.begin();
         vendor.failOn = EmvStep.READ_APPLICATION_DATA;
 
-        vendor.start(engine, CONFIG, CardPresence.chip());
+        engine.start(CONFIG, CardPresence.chip());
 
         assertTrue(transaction.contains(TransactionStep.ERROR));
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA),
@@ -101,7 +102,7 @@ public class EmvStepDispatchTest {
 
     @Test
     public void cancelledStepsAreNotRun() {
-        vendor.start(engine, CONFIG, CardPresence.chip());
+        engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
         vendor.cancel();
