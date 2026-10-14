@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.emvenhance.core.card.CardPresence;
@@ -16,7 +17,6 @@ import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import java.lang.reflect.Proxy;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -29,7 +29,8 @@ import org.junit.Test;
 
 /**
  * A search that outlives its transaction — cancelled, but the reader hasn't stopped yet — must not
- * fail, or start EMV for, the next transaction, and must not share the reader with it.
+ * fail, or start EMV for, the next transaction, and must not share the reader with it: every
+ * transaction runs on the terminal's one transaction thread, in turn.
  */
 public class PosTerminalTransactionLifecycleTest {
 
@@ -39,7 +40,7 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Before
     public void setUp() {
-        terminal = new TestTerminal(5_000);
+        terminal = new TestTerminal();
         terminal.transactionSteps().subscribe(events::add);
     }
 
@@ -87,26 +88,22 @@ public class PosTerminalTransactionLifecycleTest {
         Search second = terminal.nextSearch();
         assertEquals(2000L, second.config.getAmountMinor());
         assertTrue("old search kept searching", first.cancelledWhenReleased);
+        assertSame("one transaction thread", first.thread, second.thread);
     }
 
     @Test
-    public void aReaderThatNeverStopsFailsTheNextStartInsteadOfSharingIt() throws Exception {
-        terminal = new TestTerminal(200);
-        terminal.transactionSteps().subscribe(events::add);
+    public void aStartCancelledWhileWaitingItsTurnNeverOpensTheReader() throws Exception {
         terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
         terminal.cancelTransaction();
-        events.clear();
-
-        terminal.acceptCard(TransactionType.SALE, 2000);
-
-        TransactionStepEvent error = awaitStep(TransactionStep.ERROR);
-        assertEquals("Card reader still busy — try again", error.getMessage());
-        assertNull("reader opened twice", terminal.searches.poll(100, TimeUnit.MILLISECONDS));
+        terminal.acceptCard(TransactionType.SALE, 2000); // waits for the first to stop
+        terminal.cancelTransaction();                    // cancelled while still waiting
+        terminal.acceptCard(TransactionType.SALE, 3000);
 
         first.release.countDown();
-        terminal.acceptCard(TransactionType.SALE, 3000);
+
         assertEquals(3000L, terminal.nextSearch().config.getAmountMinor());
+        assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS));
     }
 
     @Test
@@ -160,24 +157,12 @@ public class PosTerminalTransactionLifecycleTest {
         return false;
     }
 
-    private TransactionStepEvent awaitStep(TransactionStep step) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5_000;
-        while (System.currentTimeMillis() < deadline) {
-            for (TransactionStepEvent e : events) {
-                if (e.getStep() == step) {
-                    return e;
-                }
-            }
-            Thread.sleep(20);
-        }
-        throw new AssertionError("no " + step + " in " + events);
-    }
-
     /** One {@code searchCard} call, held open until the test releases it. */
     private static final class Search {
         final TransactionConfig config;
         final CardSearchListener listener;
         final CountDownLatch release = new CountDownLatch(1);
+        final Thread thread = Thread.currentThread();
         volatile boolean cancelledWhenReleased;
 
         Search(TransactionConfig config, CardSearchListener listener) {
@@ -190,11 +175,9 @@ public class PosTerminalTransactionLifecycleTest {
 
         final LinkedBlockingQueue<Search> searches = new LinkedBlockingQueue<>();
         private final List<Search> all = new CopyOnWriteArrayList<>();
-        private final long readerReleaseTimeoutMs;
 
-        TestTerminal(long readerReleaseTimeoutMs) {
+        TestTerminal() {
             super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
-            this.readerReleaseTimeoutMs = readerReleaseTimeoutMs;
         }
 
         Search nextSearch() throws InterruptedException {
@@ -207,11 +190,6 @@ public class PosTerminalTransactionLifecycleTest {
             for (Search search : all) {
                 search.release.countDown();
             }
-        }
-
-        @Override
-        protected long readerReleaseTimeoutMs() {
-            return readerReleaseTimeoutMs;
         }
 
         /** Like a vendor poll that stops only when released, and reports nothing on its own. */

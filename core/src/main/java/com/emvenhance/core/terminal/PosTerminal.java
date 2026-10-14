@@ -16,9 +16,13 @@ import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.observers.DisposableCompletableObserver;
+import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Executors;
 
 /**
  * The only public hardware API for the app.
@@ -40,18 +44,27 @@ public abstract class PosTerminal {
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
 
+    /**
+     * The one thread every transaction runs on, in the order they were started: one reader, one
+     * search. A start right after a cancel queues here until the cancelled transaction has let go
+     * of the reader, instead of opening it a second time.
+     */
+    private final Scheduler transactionScheduler = Schedulers.from(
+            Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "PosTerminal-transaction");
+                thread.setDaemon(true);
+                return thread;
+            }));
+
     private final Object transactionLock = new Object();
 
     /** The latest accepted start: the only transaction whose search may report to the engine. */
     @Nullable
     private volatile Transaction current;
 
-    /** Thread of the last transaction that opened the reader; the next one waits for it to end. */
+    /** The transaction running on the transaction thread right now. */
     @Nullable
-    private Thread readerOwner; // guarded by transactionLock
-
-    /** The transaction each transaction thread runs — see {@link #isSearchCancelled()}. */
-    private final ThreadLocal<Transaction> threadTransaction = new ThreadLocal<>();
+    private volatile Transaction running;
 
     /**
      * @param behavior the vendor's EMV — handed to this terminal's {@link EmvEngine}, which owns
@@ -165,8 +178,8 @@ public abstract class PosTerminal {
      * {@link EngineReportingListener#handleCardFound}).
      *
      * <p>Ignored while another transaction is still in progress (searching or running EMV), so
-     * that one carries on untouched; cancel it first. A start right after a cancel waits for the
-     * cancelled one to let go of the reader — see {@link #readerReleaseTimeoutMs()}.
+     * that one carries on untouched; cancel it first. A start right after a cancel waits its turn
+     * on {@link #transactionScheduler} until the cancelled one has let go of the reader.
      */
     public void startTransaction(TransactionConfig config) {
         synchronized (transactionLock) {
@@ -177,15 +190,17 @@ public abstract class PosTerminal {
             }
             Transaction transaction = new Transaction(config);
             current = transaction;
-            // Under the lock: isInProgress() reads the thread as alive from here on.
-            transaction.thread.start();
+            Completable.fromAction(transaction::run)
+                    .subscribeOn(transactionScheduler)
+                    .subscribe(transaction.observer);
         }
     }
 
+    /** Disposes the current transaction: skipped if still queued, wound down if running. */
     public void cancelTransaction() {
         Transaction transaction = current;
         if (transaction != null) {
-            transaction.cancelled.set(true);
+            transaction.observer.dispose();
         }
         cancelCardSearch();
         engine.cancel();
@@ -197,23 +212,13 @@ public abstract class PosTerminal {
 
     /**
      * Whether the search calling this should stop: its transaction was cancelled, or a newer one
-     * replaced it. Answers for the calling thread's own transaction, so a search that outlives its
-     * transaction stops instead of reading the next one's state.
+     * replaced it. Answers for the transaction running on the transaction thread — never for one
+     * still queued — so a search that outlives its transaction stops instead of reading the next
+     * one's state.
      */
     public final boolean isSearchCancelled() {
-        Transaction own = threadTransaction.get();
-        Transaction transaction = own != null ? own : current;
+        Transaction transaction = running != null ? running : current;
         return transaction != null && transaction.isOver();
-    }
-
-    /**
-     * How long a new transaction waits for the previous one's thread to let go of the reader — a
-     * cancelled search takes a moment to stop (PAX {@code stopPolling}), and a cancelled EMV
-     * finishes its current kernel call. Past this, the new start fails as "reader busy" instead of
-     * opening the reader a second time.
-     */
-    protected long readerReleaseTimeoutMs() {
-        return 5_000;
     }
 
     /**
@@ -246,42 +251,53 @@ public abstract class PosTerminal {
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted {@link #startTransaction}: its config, its cancel flag, and the thread that runs
-     * it from search to the end of EMV. The terminal outlives every transaction, so what belongs to
-     * one transaction lives here — a search still running for an earlier transaction can then tell
-     * it is over, instead of acting on the next one.
+     * One accepted {@link #startTransaction}: its config, and the observer whose disposal cancels
+     * it. The terminal outlives every transaction, so what belongs to one transaction lives here —
+     * a search still running for an earlier transaction can then tell it is over, instead of
+     * acting on the next one.
      */
     private final class Transaction {
 
         final TransactionConfig config;
-        final AtomicBoolean cancelled = new AtomicBoolean(false);
-        final Thread thread;
+        final DisposableCompletableObserver observer = new DisposableCompletableObserver() {
+            @Override
+            public void onComplete() {
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                // run() reports its own failures; reaching here means it couldn't.
+                EmvLog.d("Transaction failed outside run(): " + error);
+            }
+        };
         volatile boolean begun;
+        volatile boolean done;
 
         Transaction(TransactionConfig config) {
             this.config = config;
-            this.thread = new Thread(this::run, "PosTerminal-search");
         }
 
         /** Cancelled, or replaced by a newer start: nothing it reports reaches the engine. */
         boolean isOver() {
-            return cancelled.get() || current != this;
+            return observer.isDisposed() || current != this;
         }
 
-        /** Waiting for the reader, searching, or running EMV — a new start would collide. */
+        /** Queued, searching, or running EMV — a new start would collide. */
         boolean isInProgress() {
-            return !cancelled.get() && thread.isAlive() && (!begun || engine.isRunning());
+            return !observer.isDisposed() && !done && (!begun || engine.isRunning());
         }
 
         /**
-         * One {@link EmvEngine#begin()} guards the whole transaction, including any retries a
-         * behavior requests via {@link EmvEngine#requestRetry} (PAX fallback / try-another-
-         * interface / try-again).
+         * Runs on {@link #transactionScheduler}, so only after every earlier transaction is done
+         * with the reader. One {@link EmvEngine#begin()} guards the whole transaction, including
+         * any retries a behavior requests via {@link EmvEngine#requestRetry} (PAX fallback /
+         * try-another-interface / try-again). Never throws: an error escaping a disposed
+         * Completable would crash the app as undeliverable.
          */
         private void run() {
-            threadTransaction.set(this);
+            running = this;
             try {
-                if (!awaitReader(this) || isOver() || !engine.begin()) {
+                if (isOver() || !engine.begin()) {
                     return;
                 }
                 begun = true;
@@ -292,35 +308,11 @@ public abstract class PosTerminal {
                 if (!isOver()) {
                     engine.notifyError(t.getMessage() != null ? t.getMessage() : "Transaction failed");
                 }
+            } finally {
+                done = true;
+                running = null;
             }
         }
-    }
-
-    /**
-     * Waits for the thread of the last transaction that opened the reader to finish: one reader,
-     * one search. Fails {@code transaction} as "reader busy" if it doesn't within
-     * {@link #readerReleaseTimeoutMs()} — that thread stays the reader's owner.
-     */
-    private boolean awaitReader(Transaction transaction) throws InterruptedException {
-        Thread owner;
-        synchronized (transactionLock) {
-            owner = readerOwner;
-        }
-        if (owner != null) {
-            owner.join(readerReleaseTimeoutMs());
-            if (owner.isAlive()) {
-                if (!transaction.isOver() && engine.begin()) {
-                    engine.notifyTransactionStep(
-                            TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
-                    engine.notifyError("Card reader still busy — try again");
-                }
-                return false;
-            }
-        }
-        synchronized (transactionLock) {
-            readerOwner = Thread.currentThread();
-        }
-        return true;
     }
 
     /**
