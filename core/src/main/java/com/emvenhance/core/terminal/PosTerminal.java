@@ -55,6 +55,18 @@ public abstract class PosTerminal {
                 return thread;
             }));
 
+    /**
+     * The one thread receipts print on: one printer, one job at a time, in the order they were
+     * asked for — two quick taps on Print queue the second receipt instead of driving the printer
+     * from two threads at once.
+     */
+    private final Scheduler printScheduler = Schedulers.from(
+            Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "PosTerminal-print");
+                thread.setDaemon(true);
+                return thread;
+            }));
+
     private final Object transactionLock = new Object();
 
     /**
@@ -111,21 +123,16 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Print receipt lines via the terminal-owned {@link PrinterBehavior}. Runs off the calling
-     * (UI) thread — {@code print()} blocks until the job finishes, and a real printer is slow
-     * enough that blocking the UI thread would ANR. A failure (no paper, DAL not ready, printer
-     * busy) is logged, not thrown — the caller asked to print and walked away; it has no
-     * exception handler waiting.
+     * Print receipt lines via the terminal-owned {@link PrinterBehavior}, on
+     * {@link #printScheduler} and returns at once — a real printer is slow enough that printing on
+     * the calling (UI) thread would ANR. A failure (no paper, DAL not ready, printer busy) is
+     * logged, not thrown — the caller asked to print and walked away; it has no exception handler
+     * waiting.
      */
     public void printReceipt(List<String> lines) {
-        new Thread(() -> {
-            try {
-                printer.print(lines).blockingAwait();
-            } catch (Throwable t) {
-                //noinspection CallToPrintStackTrace
-                t.printStackTrace();
-            }
-        }, "PosTerminal-print").start();
+        printer.print(lines)
+                .subscribeOn(printScheduler)
+                .subscribe(() -> { }, Throwable::printStackTrace);
     }
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────

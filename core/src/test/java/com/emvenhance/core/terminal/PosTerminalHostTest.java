@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 /**
@@ -78,13 +79,42 @@ public class PosTerminalHostTest {
         assertEquals(Collections.singletonList(Collections.singletonList("APPROVED")), printed);
     }
 
+    @Test
+    public void receiptsPrintOneAtATimeInTheOrderAsked() throws InterruptedException {
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger maxInFlight = new AtomicInteger();
+        List<String> order = new CopyOnWriteArrayList<>();
+        CountDownLatch allPrinted = new CountDownLatch(3);
+        TestTerminal terminal = new TestTerminal(config -> Single.never(),
+                lines -> Completable.fromAction(() -> {
+                    maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+                    Thread.sleep(50); // a real printer is slow
+                    order.add(lines.get(0) + " on " + Thread.currentThread().getName());
+                    inFlight.decrementAndGet();
+                    allPrinted.countDown();
+                }));
+
+        terminal.printReceipt(Collections.singletonList("first"));
+        terminal.printReceipt(Collections.singletonList("second"));
+        terminal.printReceipt(Collections.singletonList("third"));
+
+        assertTrue("not all printed", allPrinted.await(5, TimeUnit.SECONDS));
+        assertEquals("printer driven from two threads at once", 1, maxInFlight.get());
+        assertEquals(Arrays.asList("first on PosTerminal-print", "second on PosTerminal-print",
+                "third on PosTerminal-print"), order);
+    }
+
     private final class TestTerminal extends PosTerminal {
 
         TestTerminal(CommunicationBehavior host) {
-            super(stub(EmvBehavior.class), host, lines -> Completable.fromAction(() -> {
+            this(host, lines -> Completable.fromAction(() -> {
                 printed.add(lines);
                 printDone.countDown();
             }));
+        }
+
+        TestTerminal(CommunicationBehavior host, PrinterBehavior printer) {
+            super(stub(EmvBehavior.class), host, printer);
         }
 
         @Override
