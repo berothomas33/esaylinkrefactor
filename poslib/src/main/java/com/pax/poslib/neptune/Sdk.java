@@ -25,8 +25,7 @@ import com.pax.neptunelite.api.NeptuneLiteUser;
  */
 public class Sdk {
     private static final String TAG = "SDK";
-    private static Sdk instance = null;
-    private IDAL dal;
+    private IDAL dal; // guarded by this
 
     public static class TouchEvent extends NativeTouchEvent{
 
@@ -36,13 +35,16 @@ public class Sdk {
     }
 
     public static Sdk getInstance() {
-        if (instance == null) {
-            instance = new Sdk();
-        }
-        return instance;
+        return LazyHolder.INSTANCE;
     }
 
-    public IDAL getDal(Context context) {
+    /** Built once, on the first getInstance(), even when two threads ask at the same time. */
+    private static class LazyHolder {
+        static final Sdk INSTANCE = new Sdk();
+    }
+
+    /** Synchronized: two threads asking first would otherwise both build a DAL. */
+    public synchronized IDAL getDal(Context context) {
         if (dal != null) {
             return dal;
         }

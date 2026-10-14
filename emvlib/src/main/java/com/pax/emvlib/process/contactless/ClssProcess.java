@@ -45,7 +45,6 @@ public class ClssProcess extends EmvBase {
     private KernType kernType;
     private ClssKernelProcess clssKernelProcess = null;
     private ClssEntryAddAid clssEntryAddAid;
-    private static ClssProcess instance;
     private long startMs;
     private long finishMs;
 
@@ -55,10 +54,12 @@ public class ClssProcess extends EmvBase {
     }
 
     public static ClssProcess getInstance() {
-        if (instance == null) {
-            instance = new ClssProcess();
-        }
-        return instance;
+        return LazyHolder.INSTANCE;
+    }
+
+    /** Built once, on the first getInstance(), even when two threads ask at the same time. */
+    private static class LazyHolder {
+        static final ClssProcess INSTANCE = new ClssProcess();
     }
 
     /**

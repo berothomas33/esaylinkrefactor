@@ -159,17 +159,17 @@ public class ActivityStack {
         activities.remove(activity);
     }
 
-    private static ActivityStack instance = null;
-
     /**
      * Gets instance.
      *
      * @return the instance
      */
     public static ActivityStack getInstance() {
-        if (instance == null) {
-            instance = new ActivityStack();
-        }
-        return instance;
+        return LazyHolder.INSTANCE;
+    }
+
+    /** Built once, on the first getInstance(), even when two threads ask at the same time. */
+    private static class LazyHolder {
+        static final ActivityStack INSTANCE = new ActivityStack();
     }
 }
