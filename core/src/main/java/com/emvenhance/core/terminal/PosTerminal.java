@@ -15,6 +15,7 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.util.ApduTrace;
+import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Observable;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,7 +40,18 @@ public abstract class PosTerminal {
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
 
-    private final AtomicBoolean searchCancelled = new AtomicBoolean(false);
+    private final Object transactionLock = new Object();
+
+    /** The latest accepted start: the only transaction whose search may report to the engine. */
+    @Nullable
+    private volatile Transaction current;
+
+    /** Thread of the last transaction that opened the reader; the next one waits for it to end. */
+    @Nullable
+    private Thread readerOwner; // guarded by transactionLock
+
+    /** The transaction each transaction thread runs — see {@link #isSearchCancelled()}. */
+    private final ThreadLocal<Transaction> threadTransaction = new ThreadLocal<>();
 
     /**
      * @param behavior the vendor's EMV — handed to this terminal's {@link EmvEngine}, which owns
@@ -151,22 +163,30 @@ public abstract class PosTerminal {
      * search cancelled, timed out, or errored) arrives as a {@link CardSearchListener} callback,
      * which is also what starts EMV once a card is actually found (see
      * {@link EngineReportingListener#handleCardFound}).
+     *
+     * <p>Ignored while another transaction is still in progress (searching or running EMV), so
+     * that one carries on untouched; cancel it first. A start right after a cancel waits for the
+     * cancelled one to let go of the reader — see {@link #readerReleaseTimeoutMs()}.
      */
     public void startTransaction(TransactionConfig config) {
-        searchCancelled.set(false);
-        new Thread(() -> {
-            try {
-                beginTransaction(config);
-            } catch (Throwable t) {
-                //noinspection CallToPrintStackTrace
-                t.printStackTrace();
-                engine.notifyError(t.getMessage() != null ? t.getMessage() : "Transaction failed");
+        synchronized (transactionLock) {
+            Transaction previous = current;
+            if (previous != null && previous.isInProgress()) {
+                EmvLog.d("startTransaction ignored: a transaction is already in progress");
+                return;
             }
-        }, "PosTerminal-search").start();
+            Transaction transaction = new Transaction(config);
+            current = transaction;
+            // Under the lock: isInProgress() reads the thread as alive from here on.
+            transaction.thread.start();
+        }
     }
 
     public void cancelTransaction() {
-        searchCancelled.set(true);
+        Transaction transaction = current;
+        if (transaction != null) {
+            transaction.cancelled.set(true);
+        }
         cancelCardSearch();
         engine.cancel();
     }
@@ -175,8 +195,25 @@ public abstract class PosTerminal {
         cancelTransaction();
     }
 
+    /**
+     * Whether the search calling this should stop: its transaction was cancelled, or a newer one
+     * replaced it. Answers for the calling thread's own transaction, so a search that outlives its
+     * transaction stops instead of reading the next one's state.
+     */
     public final boolean isSearchCancelled() {
-        return searchCancelled.get();
+        Transaction own = threadTransaction.get();
+        Transaction transaction = own != null ? own : current;
+        return transaction != null && transaction.isOver();
+    }
+
+    /**
+     * How long a new transaction waits for the previous one's thread to let go of the reader — a
+     * cancelled search takes a moment to stop (PAX {@code stopPolling}), and a cancelled EMV
+     * finishes its current kernel call. Past this, the new start fails as "reader busy" instead of
+     * opening the reader a second time.
+     */
+    protected long readerReleaseTimeoutMs() {
+        return 5_000;
     }
 
     /**
@@ -209,15 +246,81 @@ public abstract class PosTerminal {
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One {@link EmvEngine#begin()} guards the whole transaction, including any retries a
-     * behavior requests via {@link EmvEngine#requestRetry} (PAX fallback / try-another-
-     * interface / try-again).
+     * One accepted {@link #startTransaction}: its config, its cancel flag, and the thread that runs
+     * it from search to the end of EMV. The terminal outlives every transaction, so what belongs to
+     * one transaction lives here — a search still running for an earlier transaction can then tell
+     * it is over, instead of acting on the next one.
      */
-    private void beginTransaction(TransactionConfig config) {
-        if (!engine.begin()) {
-            return;
+    private final class Transaction {
+
+        final TransactionConfig config;
+        final AtomicBoolean cancelled = new AtomicBoolean(false);
+        final Thread thread;
+        volatile boolean begun;
+
+        Transaction(TransactionConfig config) {
+            this.config = config;
+            this.thread = new Thread(this::run, "PosTerminal-search");
         }
-        triggerSearch(config);
+
+        /** Cancelled, or replaced by a newer start: nothing it reports reaches the engine. */
+        boolean isOver() {
+            return cancelled.get() || current != this;
+        }
+
+        /** Waiting for the reader, searching, or running EMV — a new start would collide. */
+        boolean isInProgress() {
+            return !cancelled.get() && thread.isAlive() && (!begun || engine.isRunning());
+        }
+
+        /**
+         * One {@link EmvEngine#begin()} guards the whole transaction, including any retries a
+         * behavior requests via {@link EmvEngine#requestRetry} (PAX fallback / try-another-
+         * interface / try-again).
+         */
+        private void run() {
+            threadTransaction.set(this);
+            try {
+                if (!awaitReader(this) || isOver() || !engine.begin()) {
+                    return;
+                }
+                begun = true;
+                triggerSearch(this, config);
+            } catch (Throwable t) {
+                //noinspection CallToPrintStackTrace
+                t.printStackTrace();
+                if (!isOver()) {
+                    engine.notifyError(t.getMessage() != null ? t.getMessage() : "Transaction failed");
+                }
+            }
+        }
+    }
+
+    /**
+     * Waits for the thread of the last transaction that opened the reader to finish: one reader,
+     * one search. Fails {@code transaction} as "reader busy" if it doesn't within
+     * {@link #readerReleaseTimeoutMs()} — that thread stays the reader's owner.
+     */
+    private boolean awaitReader(Transaction transaction) throws InterruptedException {
+        Thread owner;
+        synchronized (transactionLock) {
+            owner = readerOwner;
+        }
+        if (owner != null) {
+            owner.join(readerReleaseTimeoutMs());
+            if (owner.isAlive()) {
+                if (!transaction.isOver() && engine.begin()) {
+                    engine.notifyTransactionStep(
+                            TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+                    engine.notifyError("Card reader still busy — try again");
+                }
+                return false;
+            }
+        }
+        synchronized (transactionLock) {
+            readerOwner = Thread.currentThread();
+        }
+        return true;
     }
 
     /**
@@ -229,25 +332,44 @@ public abstract class PosTerminal {
      * and a behavior-requested retry re-enters this same method with the adjusted config —
      * still on this one thread, so it never races the attempt that requested it.
      */
-    private void triggerSearch(TransactionConfig config) {
+    private void triggerSearch(Transaction transaction, TransactionConfig config) {
         if (!engine.prepare(config)) {
-            engine.notifyError("Terminal initialization failed");
+            if (!transaction.isOver()) {
+                engine.notifyError("Terminal initialization failed");
+            }
             return;
         }
-        searchCard(config, new EngineReportingListener(config));
+        searchCard(config, new EngineReportingListener(transaction, config));
     }
 
-    /** Maps reader events → engine subjects for the UI, and starts EMV once a card is found. */
+    /**
+     * Maps reader events → engine subjects for the UI, and starts EMV once a card is found. Belongs
+     * to one {@link Transaction}: once that is over, its callbacks are dropped, so a search that
+     * outlived it can't fail, or start EMV for, the next one.
+     */
     private final class EngineReportingListener implements CardSearchListener {
 
+        private final Transaction transaction;
         private final TransactionConfig config;
 
-        EngineReportingListener(TransactionConfig config) {
+        EngineReportingListener(Transaction transaction, TransactionConfig config) {
+            this.transaction = transaction;
             this.config = config;
+        }
+
+        private boolean isStale(String callback) {
+            if (transaction.isOver()) {
+                EmvLog.d("Ignored " + callback + " from a search whose transaction is over");
+                return true;
+            }
+            return false;
         }
 
         @Override
         public void onSearchStarted(TransactionConfig config) {
+            if (isStale("onSearchStarted")) {
+                return;
+            }
             String prompt = engine.consumeRetryPrompt();
             String msg = prompt != null ? prompt : waitingMessage(config);
             TransactionStepEvent.Builder waiting = TransactionStepEvent
@@ -281,17 +403,26 @@ public abstract class PosTerminal {
 
         @Override
         public void onCardRemoved() {
+            if (isStale("onCardRemoved")) {
+                return;
+            }
             engine.notifyTransactionStep(TransactionStepEvent.of(
                     TransactionStep.WAITING_FOR_CARD, "Card removed"));
         }
 
         @Override
         public void onSearchTimeout() {
+            if (isStale("onSearchTimeout")) {
+                return;
+            }
             engine.notifyError("No card presented — card search timed out");
         }
 
         @Override
         public void onSearchCancelled() {
+            if (isStale("onSearchCancelled")) {
+                return;
+            }
             if (engine.isRunning()) {
                 engine.notifyError("Card search cancelled");
             }
@@ -299,11 +430,17 @@ public abstract class PosTerminal {
 
         @Override
         public void onReaderError(String message) {
+            if (isStale("onReaderError")) {
+                return;
+            }
             engine.notifyError(message != null ? message : "Reader error");
         }
 
         @Override
         public void onSearchRetry(String message) {
+            if (isStale("onSearchRetry")) {
+                return;
+            }
             engine.notifyTransactionStep(TransactionStepEvent.builder(
                     TransactionStep.WAITING_FOR_CARD).message(message)
                     .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build());
@@ -312,20 +449,20 @@ public abstract class PosTerminal {
 
         /** Runs EMV right here, then re-triggers search if the behavior asked for a retry. */
         private void handleCardFound(CardPresence card) {
+            if (isStale("card detected")) {
+                return;
+            }
             engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
                     .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
                     .put("entryMethod", card.getEntryMethod().name())
                     .build());
 
-            if (searchCancelled.get()) {
-                return;
-            }
-
             engine.start(config, card);
 
+            // Consumed either way: a retry requested by a cancelled transaction never searches.
             TransactionConfig retryConfig = engine.consumePendingRetry();
-            if (retryConfig != null) {
-                triggerSearch(retryConfig);
+            if (retryConfig != null && !transaction.isOver()) {
+                triggerSearch(transaction, retryConfig);
             }
         }
     }

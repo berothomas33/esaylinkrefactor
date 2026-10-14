@@ -97,6 +97,9 @@ public class MainViewModel extends ViewModel {
 
     @Override
     protected void onCleared() {
+        // The screen that started the transaction is gone (Cancel, Done, or Back): don't leave its
+        // search holding the reader, or its EMV running, for the next transaction.
+        terminal.cancelTransaction();
         disposables.clear();
         super.onCleared();
     }

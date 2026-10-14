@@ -77,13 +77,19 @@ public final class EmvEngine {
         return running.get();
     }
 
+    /**
+     * Claims the engine for a new transaction; {@code false} if one is already running. That one
+     * is left alone — reporting the refusal as an ERROR would end it too, since ERROR clears the
+     * running flag ({@link #dispatchTransactionStepMethod}).
+     */
     public boolean begin() {
         if (!running.compareAndSet(false, true)) {
-            notifyError("A transaction is already running");
+            EmvLog.d("begin() refused: a transaction is already running");
             return false;
         }
         retryCount.set(0);
         retryPrompt = null;
+        pendingRetryConfig = null;
         apduTrace.beginTransaction();
         return true;
     }
