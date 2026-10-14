@@ -53,7 +53,7 @@ public final class EmvEngine {
     private PrinterBehavior printer;
 
     public EmvEngine() {
-        // Mirrors emvSteps' shape: notify → onNext → Observer → single dispatch point.
+        // notify → onNext → this observer: the single dispatch point for engine-side bookkeeping.
         // Subscribing here, first, means this runs before any external subscriber
         // (PosTerminal/MainViewModel) sees the same event.
         transactionSteps.subscribe(event -> dispatchTransactionStepMethod(event.getStep()));

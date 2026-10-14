@@ -7,8 +7,7 @@ import com.emvenhance.core.engine.EmvEngine;
 /**
  * Vendor EMV contract.
  *
- * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel};
- * {@link #dispose} once, when the terminal itself goes away.
+ * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel}.
  *
  * <p>Each EMV phase is a method ({@code onApplicationSelection}, …), and — with the single
  * exception of {@link #onSearchCard} — <b>every one of them is mandatory</b>: a vendor class
@@ -31,12 +30,6 @@ public interface EmvBehavior {
     void start(EmvEngine engine, TransactionConfig config, CardPresence card);
 
     void cancel();
-
-    /**
-     * Releases what the behavior holds beyond one transaction — {@link AbstractEmvBehavior}'s
-     * EmvStep observer. Called by {@link PosTerminal#dispose()}.
-     */
-    default void dispose() { }
 
     // ─── EMV step hooks — mandatory. Vendor writes action, then goToStep(next) ────
 

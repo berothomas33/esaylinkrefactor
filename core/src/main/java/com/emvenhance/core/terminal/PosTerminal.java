@@ -158,7 +158,6 @@ public abstract class PosTerminal {
 
     public void dispose() {
         cancelTransaction();
-        behavior.dispose();
     }
 
     public final boolean isSearchCancelled() {

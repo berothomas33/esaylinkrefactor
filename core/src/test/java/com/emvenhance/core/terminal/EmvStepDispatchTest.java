@@ -18,10 +18,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * {@link AbstractEmvBehavior#goToStep} runs a step's {@code onXxx} method through the behavior's
- * own {@link EmvEngine#emvSteps()} observer, not by calling it directly.
+ * {@link AbstractEmvBehavior#goToStep} publishes a step on {@link EmvEngine#emvSteps()}, then runs
+ * its {@code onXxx} method; {@link AbstractEmvBehavior#announceStep} only publishes it.
  */
-public class EmvStepObserverTest {
+public class EmvStepDispatchTest {
 
     private static final TransactionConfig CONFIG =
             new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP);
@@ -60,7 +60,7 @@ public class EmvStepObserverTest {
     }
 
     @Test
-    public void subscribersSeeNestedStepsInOrderWhenTheyCameFirst() {
+    public void subscribersSeeNestedStepsInOrder() {
         List<EmvStep> seen = record(engine);
 
         vendor.start(engine, CONFIG, CardPresence.chip());
@@ -71,8 +71,8 @@ public class EmvStepObserverTest {
 
     @Test
     public void subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
-        vendor.start(engine, CONFIG, CardPresence.chip()); // behavior subscribed first
-        List<EmvStep> seen = record(engine);              // e.g. a new MainViewModel
+        vendor.start(engine, CONFIG, CardPresence.chip());
+        List<EmvStep> seen = record(engine); // e.g. a new MainViewModel
 
         vendor.start(engine, CONFIG, CardPresence.chip());
 
@@ -81,7 +81,7 @@ public class EmvStepObserverTest {
     }
 
     @Test
-    public void aThrowingStepEndsTheTransactionAndKeepsTheObserver() {
+    public void aThrowingStepEndsTheTransactionAndLaterStepsStillRun() {
         List<TransactionStep> transaction = new ArrayList<>();
         engine.transactionSteps().subscribe(event -> transaction.add(event.getStep()));
         engine.begin();
@@ -105,17 +105,6 @@ public class EmvStepObserverTest {
         vendor.ran.clear();
 
         vendor.cancel();
-        vendor.go(EmvStep.TRANSACTION_COMPLETION);
-
-        assertTrue(vendor.ran.isEmpty());
-    }
-
-    @Test
-    public void disposeStopsTheObserver() {
-        vendor.start(engine, CONFIG, CardPresence.chip());
-        vendor.ran.clear();
-
-        vendor.dispose();
         vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
         assertTrue(vendor.ran.isEmpty());
