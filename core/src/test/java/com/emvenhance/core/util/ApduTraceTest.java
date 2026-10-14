@@ -69,8 +69,8 @@ public class ApduTraceTest {
 
         trace.command("ICC", hex("80A80000"), 2, buffer, 256);
 
-        assertTrue(trace.text().contains("C-APDU: 80A80000 02 8300 00"));
-        assertFalse(trace.text().contains("55"));
+        // Only the APDU line: the header's clock and the elapsed times can contain "55" too.
+        assertEquals("C-APDU: 80A80000 02 8300 00", lineWith(trace.text(), "C-APDU:"));
     }
 
     @Test
@@ -201,5 +201,14 @@ public class ApduTraceTest {
             n++;
         }
         return n;
+    }
+
+    private static String lineWith(String text, String marker) {
+        for (String line : text.split("\n")) {
+            if (line.contains(marker)) {
+                return line.trim();
+            }
+        }
+        throw new AssertionError("no line with " + marker + " in:\n" + text);
     }
 }
