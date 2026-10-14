@@ -92,12 +92,12 @@ import java.util.Locale;
  *
  * <p><b>Experiment branch:</b> talks to {@link ContactProcess} (emvlib:dpas) directly — no
  * {@code EmvContactService} service layer. Everything that used to live there — per-transaction
- * state ({@link #transResult}, {@link #cachedTrack2Data}), the online-processing decision inside
+ * state ({@link TransactionState#transResult}, {@link TransactionState#cachedTrack2Data}), the online-processing decision inside
  * {@link #startContactTransProcess}, PAN/track2 derivation ({@link #getContactPan}), and the
  * result-to-callback mapping in {@link #checkContactResult()} — now lives here instead. The
  * contactless path got the same treatment: talks to {@link ClssProcess} (emvlib) directly — no
  * {@code ContactlessService} layer — with its own mirrored state
- * ({@link #clsTransResult}/{@link #clsCachedTrack2Data}/{@link #clsLastNeedSeePhone}), online
+ * ({@link TransactionState#clsTransResult}/{@link TransactionState#clsCachedTrack2Data}/{@link #clsLastNeedSeePhone}), online
  * decision ({@link #startContactlessTransProcess}), PAN derivation
  * ({@link #getContactlessPan}), and result mapping ({@link #checkContactlessResult()}). See the
  * structure diagram (panel 10/11) for why this was tried and what it cost.
@@ -137,55 +137,71 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private final PaxKernel kernel;
 
-    private boolean initOk = true;
-
-    @Nullable
-    private AuthResult lastAuth;
-
-    @Nullable
-    private TransResult transResult;
-    @Nullable
-    private String cachedTrack2Data;
-
-    @Nullable
-    private TransResult clsTransResult;
-    @Nullable
-    private String clsCachedTrack2Data;
+    /**
+     * See Phone on a tap: the kernel asks for it ({@link #needSeePhone}) on the next tap, which is
+     * a retry — a new attempt — so unlike {@link TransactionState} it carries over.
+     */
     private boolean clsLastNeedSeePhone;
 
     /**
-     * Encrypted online PIN block from the most recent {@link #onCardHolderPwd}, attached to
-     * {@code activeConfig} in {@link #startOnlineProcess()} for the authorization message.
+     * What this behavior learns during one attempt (a retry is a new attempt), replaced by a fresh
+     * one in {@link #prepare}. The behavior outlives transactions: kept in plain fields, each had
+     * to be reset by hand, and the kernel results never were — so a stage that failed before
+     * recording its own result had the previous sale's result read as this one's.
      */
-    @Nullable
-    private byte[] lastOnlinePinBlock;
+    private volatile TransactionState tx = new TransactionState();
 
-    /**
-     * The online PIN key (PEK) that encrypted {@link #lastOnlinePinBlock}, RSA-wrapped with the
-     * host's public key — see {@link #provisionOnlinePinKey()}.
-     */
-    @Nullable
-    private String lastOnlinePinKeyEncrypted;
+    private static final class TransactionState {
 
-    /** The dialog raised by the most recent {@link #onCardHolderPwd}, for a defensive dismiss
-     * in {@link #finishContactStage()} if none of {@link PaxPinPad}'s own terminal callbacks fire. */
-    @Nullable
-    private PaxPinPad activePinPad;
+        boolean initOk = true;
 
-    // ─── Transaction result summary — PAN/TVR/TAC/IAC/Field 55, captured by
-    // captureTransactionSummary() while the kernel session is still open, attached to the
-    // APPROVED/DECLINED event by completeApproved()/completeDeclined(). null for mag/manual
-    // (no ICC session) or before a chip/contactless transaction reaches that point.
-    @Nullable
-    private String lastPan;
-    @Nullable
-    private String lastTvr;
-    @Nullable
-    private String lastTacDenial;
-    @Nullable
-    private String lastIacDenial;
-    @Nullable
-    private String lastIccData;
+        @Nullable
+        AuthResult lastAuth;
+
+        @Nullable
+        TransResult transResult;
+        @Nullable
+        String cachedTrack2Data;
+
+        @Nullable
+        TransResult clsTransResult;
+        @Nullable
+        String clsCachedTrack2Data;
+
+        /**
+         * Encrypted online PIN block from the most recent {@link PaxEmvBehavior#onCardHolderPwd}, attached to
+         * {@code activeConfig} in {@link PaxEmvBehavior#startOnlineProcess()} for the authorization message.
+         */
+        @Nullable
+        byte[] lastOnlinePinBlock;
+
+        /**
+         * The online PIN key (PEK) that encrypted {@link #lastOnlinePinBlock}, RSA-wrapped with the
+         * host's public key — see {@link PaxEmvBehavior#provisionOnlinePinKey()}.
+         */
+        @Nullable
+        String lastOnlinePinKeyEncrypted;
+
+        /** The dialog raised by the most recent {@link PaxEmvBehavior#onCardHolderPwd}, for a defensive dismiss
+         * in {@link PaxEmvBehavior#finishContactStage()} if none of {@link PaxPinPad}'s own terminal callbacks fire. */
+        @Nullable
+        PaxPinPad activePinPad;
+
+        // ─── Transaction result summary — PAN/TVR/TAC/IAC/Field 55, captured by
+        // captureTransactionSummary() while the kernel session is still open, attached to the
+        // APPROVED/DECLINED event by completeApproved()/completeDeclined(). null for mag/manual
+        // (no ICC session) or before a chip/contactless transaction reaches that point.
+        @Nullable
+        String lastPan;
+        @Nullable
+        String lastTvr;
+        @Nullable
+        String lastTacDenial;
+        @Nullable
+        String lastIacDenial;
+        @Nullable
+        String lastIccData;
+    }
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
@@ -195,14 +211,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
-        initOk = true;
-        lastAuth = null;
-        // This behavior outlives transactions: without this, an online PIN block (and its
-        // RSA-wrapped key) from an earlier sale would be sent again with the next sale's
-        // exchange/sale requests — even an offline-PIN or no-CVM one, flagged as online PIN.
-        clearOnlinePin();
+        // A fresh state per attempt: nothing from an earlier sale carries over — its online PIN
+        // block (and RSA-wrapped key) sent again with this sale, flagged as online PIN; or its
+        // kernel result read as this one's.
+        tx = new TransactionState();
         super.prepare(engine, config);
-        return initOk && !isCancelled() && engine.isRunning();
+        return tx.initOk && !isCancelled() && engine.isRunning();
     }
 
     @Override
@@ -210,7 +224,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // The kernel calls EmvDeviceImpl directly, so hand it this transaction's APDU trace.
         EmvDeviceImpl.getInstance().setApduTrace(engine.apduTrace());
         if (!prepareKernel(config)) {
-            initOk = false;
+            tx.initOk = false;
             finishError("Terminal initialization failed");
         }
         // Do not goToStep — PosTerminal.searchCard runs next.
@@ -290,7 +304,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishError("Cancelled");
                 return;
             }
-            lastAuth = authorizeOnline();
+            tx.lastAuth = authorizeOnline();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
@@ -302,12 +316,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             CardPresence card) {
         // Mag / manual sync path
         if (isSynchronousEntry(card)) {
-            if (lastAuth != null && lastAuth.isApproved()) {
+            if (tx.lastAuth != null && tx.lastAuth.isApproved()) {
                 String msg = card.isManual() ? "MANUAL ONLINE APPROVED" : "MAG ONLINE APPROVED";
                 finishApproved(msg);
             } else {
-                finishDeclined(lastAuth != null && lastAuth.getMessage() != null
-                        ? lastAuth.getMessage() : "DECLINED");
+                finishDeclined(tx.lastAuth != null && tx.lastAuth.getMessage() != null
+                        ? tx.lastAuth.getMessage() : "DECLINED");
             }
             return;
         }
@@ -431,11 +445,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             LogUtils.d(TAG, "============ Contactless EMV: App Select ============");
             // reset every transaction
-            clsCachedTrack2Data = null;
+            tx.clsCachedTrack2Data = null;
             resetTransactionSummary();
             kernel.contactless.registerClssProcessListener(this);
-            clsTransResult = kernel.contactless.selectApplication();
-            int ret = clsTransResult.getResultCode();
+            tx.clsTransResult = kernel.contactless.selectApplication();
+            int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
@@ -469,8 +483,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contactless EMV: Read App Data ============");
-            clsTransResult = kernel.contactless.readApplicationData();
-            int ret = clsTransResult.getResultCode();
+            tx.clsTransResult = kernel.contactless.readApplicationData();
+            int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
@@ -502,8 +516,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contactless EMV: Offline Data Authentication ============");
-            clsTransResult = kernel.contactless.offlineDataAuthentication();
-            int ret = clsTransResult.getResultCode();
+            tx.clsTransResult = kernel.contactless.offlineDataAuthentication();
+            int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "offlineDataAuthentication ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
@@ -544,8 +558,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contactless EMV: Processing Restrictions ============");
-            clsTransResult = kernel.contactless.processRestrictions();
-            int ret = clsTransResult.getResultCode();
+            tx.clsTransResult = kernel.contactless.processRestrictions();
+            int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "processRestrictions ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
@@ -608,10 +622,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * shouldn't be touched to add one.
      */
     private int startContactlessTransProcess() {
-        clsTransResult = kernel.contactless.startTransProcess();
-        CvmResultEnum cvmResult = clsTransResult.getCvmResult();
-        int resultCode = clsTransResult.getResultCode();
-        TransResultEnum transResultEnum = clsTransResult.getTransResult();
+        tx.clsTransResult = kernel.contactless.startTransProcess();
+        CvmResultEnum cvmResult = tx.clsTransResult.getCvmResult();
+        int resultCode = tx.clsTransResult.getResultCode();
+        TransResultEnum transResultEnum = tx.clsTransResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
             // PayPass/PayWave (and the other bundled kernels) read the card inside this call: a
             // card pulled away mid-exchange lands here as ICC_CMD_ERR. Nothing has gone online
@@ -623,11 +637,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         LogUtils.d(TAG, "confirm card: " + ret);
         if (ret != RetCode.EMV_OK) {
             // for example, timeout/data_error
-            clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+            tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
             return ret;
         }
         if (CONTACTLESS_FLOW_TYPE == EmvTransParam.FLOWTYPE_SIMPLE) {
-            clsTransResult = new TransResult(0, TransResultEnum.RESULT_SIMPLE_FLOW_END, CvmResultEnum.CVM_NO_CVM);
+            tx.clsTransResult = new TransResult(0, TransResultEnum.RESULT_SIMPLE_FLOW_END, CvmResultEnum.CVM_NO_CVM);
             return 0;
         }
         if (cvmResult == CvmResultEnum.CVM_ONLINE_PIN || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
@@ -635,7 +649,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // NO_PASSWORD is a PIN bypass (only possible when it's enabled): go online without
             // a PIN block and let the issuer decide.
             if (ret != RetCode.EMV_OK && ret != EmvConstant.ContactCallbackStatus.NO_PASSWORD) {
-                clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
+                tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
                 return ret;
             }
         }
@@ -645,8 +659,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // complete in those cases, so the host's answer is the outcome.
         if (needsHostWithoutArqc(transResultEnum, resultCode)) {
             noteOnlineWithoutArqc(transResultEnum);
-            clsTransResult = hostOutcome(startOnlineProcess(), cvmResult);
-            return clsTransResult.getResultCode();
+            tx.clsTransResult = hostOutcome(startOnlineProcess(), cvmResult);
+            return tx.clsTransResult.getResultCode();
         }
         // check whether need goes online
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
@@ -655,23 +669,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             TransResultEnum onlineTransResultEnum = onlineResultWrapper.getTransResultEnum();
             // handle online result after second GAC
             if (TransResultEnum.RESULT_ONLINE_APPROVED != onlineTransResultEnum) {
-                clsTransResult.setTransResult(onlineTransResultEnum);
-                clsTransResult.setResultCode(onlineTransResultEnum.ordinal());
+                tx.clsTransResult.setTransResult(onlineTransResultEnum);
+                tx.clsTransResult.setResultCode(onlineTransResultEnum.ordinal());
                 return onlineTransResultEnum.ordinal();
             }
             boolean needSecondTap = kernel.contactless.isNeedSecondTap(issuerRspData);
             if (needSecondTap) {
                 onDetect2ndTap();
-                clsTransResult = kernel.contactless.completeTransProcess(issuerRspData);
+                tx.clsTransResult = kernel.contactless.completeTransProcess(issuerRspData);
             } else {
-                clsTransResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
+                tx.clsTransResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
             }
             // restore signature
             if (cvmResult == CvmResultEnum.CVM_SIG || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
-                clsTransResult.setCvmResult(CvmResultEnum.CVM_SIG);
+                tx.clsTransResult.setCvmResult(CvmResultEnum.CVM_SIG);
             }
         }
-        return clsTransResult.getResultCode();
+        return tx.clsTransResult.getResultCode();
     }
 
     /**
@@ -733,13 +747,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         LogUtils.w(TAG, "Contactless communication error ret=" + ret + " — asking to tap again");
         requireEngine().apduTrace().note("PICC",
                 "card communication error " + ret + " — tap again");
-        clsTransResult = new TransResult(ret, TransResultEnum.RESULT_TRY_AGAIN,
+        tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_TRY_AGAIN,
                 CvmResultEnum.CVM_NO_CVM);
     }
 
     /** True once a stage has recorded a terminal outcome — no further stage should run. */
     private boolean isContactlessTransactionFinished() {
-        return clsTransResult != null && clsTransResult.getTransResult() != null;
+        return tx.clsTransResult != null && tx.clsTransResult.getTransResult() != null;
     }
 
     /** Common tail once a contactless stage chain has reached a terminal outcome. */
@@ -769,18 +783,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link #clsTransResult} to the matching result method on {@code this} —
+     * Maps the recorded {@link TransactionState#clsTransResult} to the matching result method on {@code this} —
      * ported from {@code ContactlessService#checkClsResult}.
      */
     private void checkContactlessResult() {
-        if (clsTransResult == null) {
+        if (tx.clsTransResult == null) {
             LogUtils.e(TAG, "check result: no clsTransResult recorded — treating as offline denied");
             offlineDenied(-1);
             return;
         }
-        int resultCode = clsTransResult.getResultCode();
-        TransResultEnum transResultEnum = clsTransResult.getTransResult();
-        CvmResultEnum cvmResult = clsTransResult.getCvmResult();
+        int resultCode = tx.clsTransResult.getResultCode();
+        TransResultEnum transResultEnum = tx.clsTransResult.getTransResult();
+        CvmResultEnum cvmResult = tx.clsTransResult.getCvmResult();
         LogUtils.d(TAG, "result code: " + resultCode
                 + ", trans result: " + transResultEnum.name()
                 + ", cvm result: " + cvmResult.name());
@@ -833,8 +847,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Ported from {@code ContactlessService#getPan}. */
     private String getContactlessPan() {
-        if (clsCachedTrack2Data != null && !clsCachedTrack2Data.isEmpty()) {
-            return TrackUtils.getPan(clsCachedTrack2Data);
+        if (tx.clsCachedTrack2Data != null && !tx.clsCachedTrack2Data.isEmpty()) {
+            return TrackUtils.getPan(tx.clsCachedTrack2Data);
         }
         String track2Data = getContactlessTrack2Data();
         if (track2Data != null && !track2Data.isEmpty()) {
@@ -849,8 +863,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Ported from {@code ContactlessService#getTrack2Data}. */
     private String getContactlessTrack2Data() {
-        clsCachedTrack2Data = TrackUtils.getTrack2FromTag57(kernel.contactless.getTlv(TagsTable.TRACK2));
-        return clsCachedTrack2Data;
+        tx.clsCachedTrack2Data = TrackUtils.getTrack2FromTag57(kernel.contactless.getTlv(TagsTable.TRACK2));
+        return tx.clsCachedTrack2Data;
     }
 
     /** Cardholder name (5F20) as text, e.g. "MTIP06 MCD 25A", as the old app sent it. */
@@ -897,11 +911,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             LogUtils.d(TAG, "============ Contact EMV: App Select ============");
             // reset every transaction — mirrors EmvContactService#selectApplication
-            cachedTrack2Data = null;
+            tx.cachedTrack2Data = null;
             resetTransactionSummary();
             kernel.contact.registerEmvProcessListener(this);
-            transResult = selectApplicationWithRetry();
-            int ret = transResult.getResultCode();
+            tx.transResult = selectApplicationWithRetry();
+            int ret = tx.transResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
             if (!proceed) {
@@ -966,8 +980,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
-            transResult = kernel.contact.readApplicationData();
-            int ret = transResult.getResultCode();
+            tx.transResult = kernel.contact.readApplicationData();
+            int ret = tx.transResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
             if (!proceed) {
@@ -998,8 +1012,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
-            transResult = kernel.contact.cardAuthentication();
-            int ret = transResult.getResultCode();
+            tx.transResult = kernel.contact.cardAuthentication();
+            int ret = tx.transResult.getResultCode();
             LogUtils.d(TAG, "cardAuthentication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
             if (!proceed) {
@@ -1071,9 +1085,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private int startContactTransProcess() {
         kernel.contact.registerEmvProcessListener(this);
-        transResult = kernel.contact.startTransProcess();
-        int resultCode = transResult.getResultCode();
-        TransResultEnum transResultEnum = transResult.getTransResult();
+        tx.transResult = kernel.contact.startTransProcess();
+        int resultCode = tx.transResult.getResultCode();
+        TransResultEnum transResultEnum = tx.transResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
             return resultCode;
         }
@@ -1081,15 +1095,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // whatever the card answered at 1st GAC — no 2nd GAC, the host's answer is the outcome.
         if (needsHostWithoutArqc(transResultEnum, resultCode)) {
             noteOnlineWithoutArqc(transResultEnum);
-            transResult = hostOutcome(startOnlineProcess(), transResult.getCvmResult());
-            return transResult.getResultCode();
+            tx.transResult = hostOutcome(startOnlineProcess(), tx.transResult.getCvmResult());
+            return tx.transResult.getResultCode();
         }
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
             OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
             IssuerRspData issuerRspData = onlineResultWrapper.getIssuerRspData();
             int onlineResultCode = onlineResultWrapper.getResultCode();
-            transResult.setResultCode(onlineResultWrapper.getResultCode());
-            transResult.setTransResult(onlineResultWrapper.getTransResultEnum());
+            tx.transResult.setResultCode(onlineResultWrapper.getResultCode());
+            tx.transResult.setTransResult(onlineResultWrapper.getTransResultEnum());
             /*
              * //AET-146
              * Whatever value it returns from startOnlineProcess(), 2nd GAC should be performed as per EMV Book 3
@@ -1106,15 +1120,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             Log.d(TAG, "startContactTransProcess: "+issuerRspData);
             TransResult secondTransResult = kernel.contact.completeTransProcess(issuerRspData);
 
-            transResult.setResultCode(secondTransResult.getResultCode());
+            tx.transResult.setResultCode(secondTransResult.getResultCode());
             if (onlineResultCode == EOnlineResult.APPROVE.getResultCode()) {
-                transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
+                tx.transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
                         ? TransResultEnum.RESULT_ONLINE_CARD_DENIED : TransResultEnum.RESULT_ONLINE_APPROVED);
             } else if (onlineResultCode == EOnlineResult.FAILED.getResultCode()) {
-                transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
+                tx.transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
                         ? TransResultEnum.RESULT_ONLINE_FAILED : TransResultEnum.RESULT_ONLINE_FAILED_CARD_APPROVED);
             } else {
-                transResult.setTransResult(TransResultEnum.RESULT_ONLINE_DENIED);
+                tx.transResult.setTransResult(TransResultEnum.RESULT_ONLINE_DENIED);
             }
             return secondTransResult.getResultCode();
         }
@@ -1123,15 +1137,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** True once a stage has recorded a terminal outcome — no further stage should run. */
     private boolean isContactTransactionFinished() {
-        return transResult != null && transResult.getTransResult() != null;
+        return tx.transResult != null && tx.transResult.getTransResult() != null;
     }
 
     /** Common tail once a contact stage chain has reached a terminal outcome. */
     private void finishContactStage() {
         closeReaders(false);
-        if (activePinPad != null) {
-            activePinPad.dismiss();
-            activePinPad = null;
+        if (tx.activePinPad != null) {
+            tx.activePinPad.dismiss();
+            tx.activePinPad = null;
         }
         if (!isCancelled()) {
             try {
@@ -1144,17 +1158,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link #transResult} to the matching result method on {@code this} —
+     * Maps the recorded {@link TransactionState#transResult} to the matching result method on {@code this} —
      * ported from {@code EmvContactService#checkContactResult}.
      */
     private void checkContactResult() {
-        if (transResult == null) {
+        if (tx.transResult == null) {
             LogUtils.e(TAG, "check result: no transResult recorded — treating as offline denied");
             offlineDenied(-1);
             return;
         }
-        int resultCode = transResult.getResultCode();
-        TransResultEnum transResultEnum = transResult.getTransResult();
+        int resultCode = tx.transResult.getResultCode();
+        TransResultEnum transResultEnum = tx.transResult.getTransResult();
         if (transResultEnum == null) {
             // No stage ever reached a terminal result — e.g. an exception aborted the chain
             // before that stage's own transResult assignment ran, leaving the "continue"
@@ -1165,7 +1179,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             offlineDenied(resultCode);
             return;
         }
-        CvmResultEnum cvmResult = transResult.getCvmResult();
+        CvmResultEnum cvmResult = tx.transResult.getCvmResult();
         if (cvmResult == null) {
             cvmResult = CvmResultEnum.CVM_NO_CVM;
         }
@@ -1211,8 +1225,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Ported from {@code EmvContactService#getPan}. */
     private String getContactPan() {
-        if (cachedTrack2Data != null && !cachedTrack2Data.isEmpty()) {
-            return TrackUtils.getPan(cachedTrack2Data);
+        if (tx.cachedTrack2Data != null && !tx.cachedTrack2Data.isEmpty()) {
+            return TrackUtils.getPan(tx.cachedTrack2Data);
         }
         String track2Data = getContactTrack2Data();
         if (track2Data != null && !track2Data.isEmpty()) {
@@ -1227,8 +1241,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Ported from {@code EmvContactService#getTrack2Data}. */
     private String getContactTrack2Data() {
-        cachedTrack2Data = TrackUtils.getTrack2FromTag57(kernel.contact.getTlv(TagsTable.TRACK2));
-        return cachedTrack2Data;
+        tx.cachedTrack2Data = TrackUtils.getTrack2FromTag57(kernel.contact.getTlv(TagsTable.TRACK2));
+        return tx.cachedTrack2Data;
     }
 
     /** Cardholder name (5F20) as text, e.g. "MTIP06 MCD 25A", as the old app sent it. */
@@ -1518,10 +1532,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // the dialog is dismissed by whichever of PinCallback's terminal callbacks
             // EmvDeviceImpl invokes (onCancel/onTimeout/onError), or defensively in
             // finishContactStage() if none of those fire.
-            activePinPad = new PaxPinPad("Enter Offline PIN (" + leftTimes + " left)");
-            activePinPad.showForOfflinePin();
-            pinService.setInputPinListener(activePinPad);
-            EmvDeviceImpl.getInstance().setPinCallback(activePinPad);
+            tx.activePinPad = new PaxPinPad("Enter Offline PIN (" + leftTimes + " left)");
+            tx.activePinPad.showForOfflinePin();
+            pinService.setInputPinListener(tx.activePinPad);
+            EmvDeviceImpl.getInstance().setPinCallback(tx.activePinPad);
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
         }
 
@@ -1535,12 +1549,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Bypass needs the terminal setting, and for contact the selected AID too
         // (supportPINByPass); contactless passes the setting itself.
         boolean bypassAllowed = supportPINByPass && pinBypass.isOnlinePinBypassEnabled();
-        lastOnlinePinBlock = null;
+        tx.lastOnlinePinBlock = null;
         provisionOnlinePinKey();
 
         PaxPinPad pad = new PaxPinPad(bypassAllowed
                 ? "Enter Online PIN (Enter to skip)" : "Enter Online PIN");
-        activePinPad = pad;
+        tx.activePinPad = pad;
         pad.showForOnlinePin();
         pinService.setInputPinListener(pad);
         try {
@@ -1555,7 +1569,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return bypassAllowed ? EmvConstant.ContactCallbackStatus.NO_PASSWORD
                         : EmvConstant.ContactCallbackStatus.USER_CANCEL;
             }
-            lastOnlinePinBlock = pinBlock;
+            tx.lastOnlinePinBlock = pinBlock;
             return EmvConstant.ContactCallbackStatus.CONTACT_OK;
         } catch (PinException e) {
             // No PIN block, so no PIN key either — the host must not expect one.
@@ -1591,8 +1605,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Forgets this transaction's online PIN block and PIN key (none collected / not online). */
     private void clearOnlinePin() {
-        lastOnlinePinBlock = null;
-        lastOnlinePinKeyEncrypted = null;
+        tx.lastOnlinePinBlock = null;
+        tx.lastOnlinePinKeyEncrypted = null;
     }
 
     /**
@@ -1620,11 +1634,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * cycle, currently dormant — {@code OnboardingClient#runOnlineCycle} — which would need an AES
      * counterpart if it's ever turned on for this key hierarchy too). If the write fails (no TLK)
      * or no public key has been onboarded yet, this logs and leaves
-     * {@link #lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
+     * {@link TransactionState#lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
      * this method's predecessor's behavior), it just won't have a key the host can decrypt with.
      */
     private void provisionOnlinePinKey() {
-        lastOnlinePinKeyEncrypted = null;
+        tx.lastOnlinePinKeyEncrypted = null;
 
         byte[] pinKey = new byte[ONLINE_PIN_KEY_LENGTH_BYTES];
         new SecureRandom().nextBytes(pinKey);
@@ -1651,7 +1665,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         try {
-            lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, pinKey);
+            tx.lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, pinKey);
         } catch (GeneralSecurityException e) {
             LogUtils.e(TAG, "Failed to RSA-encrypt the online PIN key for the host", e);
         }
@@ -1674,7 +1688,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Right after the 1st GENERATE AC returned the ARQC: field 55 (read through readIccTag)
         // and the card data (addOnlineRequestData) are attached here, then sent.
         AuthResult auth = authorizeOnline();
-        lastAuth = auth;
+        tx.lastAuth = auth;
         announceStep(EmvStep.ISSUER_AUTHENTICATION, auth.isApproved() ? "host approved"
                 : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined");
         return toOnlineResultWrapper(auth);
@@ -1700,12 +1714,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         String pan = contactless ? getContactlessPan() : getContactPan();
         String track2 = contactless ? getContactlessTrack2Data() : getContactTrack2Data();
         String cardHolderName = contactless ? getContactlessCardholderName() : getContactCardholderName();
-        String onlinePinBlockHex = lastOnlinePinBlock != null
-                ? ConvertUtils.bcd2Str(lastOnlinePinBlock, lastOnlinePinBlock.length)
+        String onlinePinBlockHex = tx.lastOnlinePinBlock != null
+                ? ConvertUtils.bcd2Str(tx.lastOnlinePinBlock, tx.lastOnlinePinBlock.length)
                 : null;
         return config.withPan(pan)
                 .withOnlinePinBlock(onlinePinBlockHex)
-                .withOnlinePinKeyEncrypted(lastOnlinePinKeyEncrypted)
+                .withOnlinePinKeyEncrypted(tx.lastOnlinePinKeyEncrypted)
                 .withEmvResult(buildEmvTransactionResult(pan, track2, cardHolderName,
                         config.getIccData(), onlinePinBlockHex, contactless));
     }
@@ -1729,8 +1743,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             @Nullable String cardHolderName, @Nullable String chipData,
             @Nullable String onlinePinBlockHex, boolean contactless) {
         CvmResultEnum cvmResult = contactless
-                ? (clsTransResult != null ? clsTransResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM)
-                : (transResult != null ? transResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM);
+                ? (tx.clsTransResult != null ? tx.clsTransResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM)
+                : (tx.transResult != null ? tx.transResult.getCvmResult() : CvmResultEnum.CVM_NO_CVM);
         // An online PIN CVM with no PIN block was bypassed: no PIN.
         boolean hasPin = onlinePinBlockHex != null
                 || cvmResult == CvmResultEnum.CVM_OFFLINE_PIN;
@@ -1878,8 +1892,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     // [SHARED]
     public void onlineFailed() {
-        String reason = lastAuth != null && lastAuth.isFailed() && lastAuth.getMessage() != null
-                ? "Online Failed: " + lastAuth.getMessage()
+        String reason = tx.lastAuth != null && tx.lastAuth.isFailed() && tx.lastAuth.getMessage() != null
+                ? "Online Failed: " + tx.lastAuth.getMessage()
                 : "Online Failed: no host response";
         announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
         finishError(reason);
@@ -1984,20 +1998,20 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             String message) {
         return TransactionStepEvent.builder(step)
                 .put(messageKey, message)
-                .put(TransactionStepEvent.KEY_PAN, safe(lastPan))
-                .put(TransactionStepEvent.KEY_TVR, safe(lastTvr))
-                .put(TransactionStepEvent.KEY_TAC_DENIAL, safe(lastTacDenial))
-                .put(TransactionStepEvent.KEY_IAC_DENIAL, safe(lastIacDenial))
-                .put(TransactionStepEvent.KEY_ICC_DATA, safe(lastIccData))
+                .put(TransactionStepEvent.KEY_PAN, safe(tx.lastPan))
+                .put(TransactionStepEvent.KEY_TVR, safe(tx.lastTvr))
+                .put(TransactionStepEvent.KEY_TAC_DENIAL, safe(tx.lastTacDenial))
+                .put(TransactionStepEvent.KEY_IAC_DENIAL, safe(tx.lastIacDenial))
+                .put(TransactionStepEvent.KEY_ICC_DATA, safe(tx.lastIccData))
                 .build();
     }
 
     private void resetTransactionSummary() {
-        lastPan = null;
-        lastTvr = null;
-        lastTacDenial = null;
-        lastIacDenial = null;
-        lastIccData = null;
+        tx.lastPan = null;
+        tx.lastTvr = null;
+        tx.lastTacDenial = null;
+        tx.lastIacDenial = null;
+        tx.lastIccData = null;
     }
 
     /**
@@ -2010,14 +2024,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void captureTransactionSummary() {
         boolean contactless = activeCard != null && activeCard.isContactless();
-        lastPan = safe(contactless ? getContactlessPan() : getContactPan());
-        lastTvr = readKernelTlvHex(TagsTable.TVR);
-        lastTacDenial = readKernelTlvHex(TagsTable.TAC_DENIAL);
-        lastIacDenial = readKernelTlvHex(TagsTable.IAC_DENIAL);
+        tx.lastPan = safe(contactless ? getContactlessPan() : getContactPan());
+        tx.lastTvr = readKernelTlvHex(TagsTable.TVR);
+        tx.lastTacDenial = readKernelTlvHex(TagsTable.TAC_DENIAL);
+        tx.lastIacDenial = readKernelTlvHex(TagsTable.IAC_DENIAL);
         // startOnlineProcess() (called from inside startXxxTransProcess for an online outcome)
         // already built and attached this to activeConfig — reuse it instead of re-reading the
         // same kernel tags a second time. Offline outcomes never call it, so build fresh here.
-        lastIccData = activeConfig != null && activeConfig.getIccData() != null
+        tx.lastIccData = activeConfig != null && activeConfig.getIccData() != null
                 ? activeConfig.getIccData() : buildField55();
     }
 
