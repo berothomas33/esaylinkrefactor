@@ -6,22 +6,32 @@ import com.emvenhance.core.card.Field55;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
+import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import io.reactivex.rxjava3.observers.DisposableObserver;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Vendor base: each step method does vendor work, then calls {@link #goToStep} to
- * publish on the EmvStep observable and run the next step method.
+ * publish the next step on the EmvStep observable.
  *
  * <pre>
  *   onApplicationSelection(...) {
  *       // vendor work…
- *       goToStep(EmvStep.WAIT_APPLICATION_SELECTION);  // → observable + next method
+ *       goToStep(EmvStep.WAIT_APPLICATION_SELECTION);  // → observable → its onXxx
  *   }
  * </pre>
+ *
+ * <p>{@link #dispatchStepMethod} is the consumer of {@link EmvEngine#emvSteps()}: this class's
+ * own observer ({@link EmvStepObserver}) hands it every step published there — by
+ * {@link #goToStep}, from a kernel callback, or by PosTerminal's card search — and it runs that
+ * step's {@code onXxx} method. Nothing calls a step method directly. A phase the kernel runs
+ * internally is still published with {@link #goToStep}; its {@code onXxx} is then the place that
+ * says so, with nothing to run.
  *
  * <p>{@link #prepare} only starts {@link EmvStep#TERMINAL_INITIALIZATION} (does not
  * chain further — PosTerminal searches next). {@link #start} kicks the first post-search
@@ -38,9 +48,13 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Nullable
     protected CardPresence activeCard;
 
+    /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
+    private final CompositeDisposable disposables = new CompositeDisposable();
+
     @Override
     public boolean prepare(EmvEngine engine, TransactionConfig config) {
         this.engine = engine;
+        initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = null;
         cancelled.set(false);
@@ -54,6 +68,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Override
     public void start(EmvEngine engine, TransactionConfig config, CardPresence card) {
         this.engine = engine;
+        initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = card;
         cancelled.set(false);
@@ -67,9 +82,31 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         cancelled.set(true);
     }
 
+    @Override
+    public void dispose() {
+        disposables.clear();
+    }
+
     /**
-     * Vendor finished the current step → publish {@code step} on the EmvStep observable
-     * and execute that step's {@code onXxx} method.
+     * Subscribes {@link EmvStepObserver} to {@code engine}'s EmvStep observable, replacing any
+     * earlier subscription.
+     *
+     * <p>Called at the start of every {@link #prepare} and {@link #start}, not once: the observer
+     * must be the engine's <em>last</em> subscriber. A step method runs inside the observer and
+     * publishes the next step from there, so every subscriber after it would see that next step
+     * before the current one — the UI would end on the first step instead of the last.
+     * Re-subscribing moves it behind every subscriber that came first, such as a
+     * {@code MainViewModel} created after an earlier transaction.
+     */
+    protected final void initEmvObserver(EmvEngine engine) {
+        disposables.clear();
+        // No subscribeOn / observeOn: see EmvStepObserver.
+        disposables.add(engine.emvSteps().subscribeWith(new EmvStepObserver()));
+    }
+
+    /**
+     * Vendor finished the current step → publish {@code step} on the EmvStep observable, whose
+     * observer runs that step's {@code onXxx} method before this returns.
      */
     protected final void goToStep(EmvStep step) {
         goToStep(step, null);
@@ -86,22 +123,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return;
         }
         enterStep(step, detail);
-    }
-
-    /**
-     * Publish {@code step} on the EmvStep observable <em>without</em> invoking the vendor
-     * {@code onXxx} method. Use from kernel callbacks (PAX) where the L2 process already
-     * owns the phase — only the UI/observable needs to advance.
-     */
-    protected final void announceStep(EmvStep step) {
-        announceStep(step, null);
-    }
-
-    protected final void announceStep(EmvStep step, @Nullable String detail) {
-        if (engine == null) {
-            return;
-        }
-        engine.notifyEmvStep(step, detail);
     }
 
     protected final void finishApproved(String message) {
@@ -213,17 +234,52 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     private void enterStep(EmvStep step, @Nullable String detail) {
-        engine.notifyEmvStep(step, detail); // EmvStep observable → UI
-        if (cancelled.get()) {
-            return;
+        // EmvStep observable → UI, then EmvStepObserver → dispatchStepMethod → onXxx.
+        engine.notifyEmvStep(step, detail);
+    }
+
+    /**
+     * The {@link #initEmvObserver} observer: hands every step published on
+     * {@link EmvEngine#emvSteps()} to {@link #dispatchStepMethod}.
+     *
+     * <p>Runs on the thread that published the step, before {@code goToStep} returns — there is
+     * deliberately no {@code subscribeOn} / {@code observeOn} (and {@code emvSteps} is never
+     * serialized). Vendor kernels call {@code goToStep} from inside their own callbacks and expect
+     * the step to have run when it returns; {@code PosTerminal} reads {@link #prepare}'s result
+     * and any requested retry the moment {@link #prepare} / {@link #start} return; and a step
+     * method blocks (APDUs, PIN entry, the host), which a {@code computation} thread must never do.
+     */
+    private final class EmvStepObserver extends DisposableObserver<EmvStepEvent> {
+
+        @Override
+        public void onNext(EmvStepEvent event) {
+            if (cancelled.get()) {
+                return;
+            }
+            EmvStep step = event.getStep();
+            try {
+                dispatchStepMethod(step);
+            } catch (Exception e) {
+                finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
+            }
         }
-        try {
-            dispatchStepMethod(step);
-        } catch (Exception e) {
-            finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
+
+        @Override
+        public void onError(Throwable error) {
+            // emvSteps never errors: nothing calls onError on it.
+            finishError(error.getMessage() != null ? error.getMessage() : "EMV step failed");
+        }
+
+        @Override
+        public void onComplete() {
+            // emvSteps never completes.
         }
     }
 
+    /**
+     * The consumer of {@link EmvEngine#emvSteps()}: runs the {@code onXxx} method of every step
+     * published there, through {@link EmvStepObserver}.
+     */
     private void dispatchStepMethod(EmvStep step) {
         if (engine == null || activeConfig == null) {
             return;

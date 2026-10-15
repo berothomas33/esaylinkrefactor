@@ -234,6 +234,7 @@ public abstract class PosTerminal {
 
     public void dispose() {
         cancelTransaction();
+        engine.dispose();
     }
 
     /** Whether the search calling this should stop: its transaction was cancelled. */

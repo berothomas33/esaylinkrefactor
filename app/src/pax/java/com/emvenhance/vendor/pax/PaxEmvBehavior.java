@@ -83,11 +83,11 @@ import java.util.Locale;
  *       {@link #onApplicationSelection} in the first place. Sub-phases with no kernel callback
  *       and no dedicated stage of their own (terminal risk management, terminal action analysis
  *       — both folded into {@link #runContactStartTransaction}'s EMVStartTrans call) still can't
- *       be announced individually; CVM only gets announced when the kernel actually asks for it,
+ *       be published individually; CVM is only published when the kernel actually asks for it,
  *       via {@code onCardHolderPwd} below. Contactless: {@link #onApplicationSelection} starts
  *       the PAX kernel directly — its native API has no equivalent per-stage entry points, so it
- *       isn't split out, and its steps are still announced purely from kernel callbacks, never
- *       through goToStep.</li>
+ *       isn't split out, and its steps are published from kernel callbacks (with goToStep, like
+ *       every step), their onXxx having nothing left to run.</li>
  * </ul>
  *
  * <p><b>Experiment branch:</b> talks to {@link ContactProcess} (emvlib:dpas) directly — no
@@ -287,10 +287,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // dispatchStepMethod runs at all.
             runContactReadAppData();
         }
-        if (card.isContactless()) {
-            // Reached via runContactlessAppSelect's goToStep(READ_APPLICATION_DATA) — only for a
-            // kernel whose SDK actually exposes this as its own call (see
-            // ClssKernelProcess#supportsGranularSteps()).
+        if (card.isContactless() && kernel.contactless.supportsGranularSteps()) {
+            // Reached via runContactlessAppSelect's goToStep(READ_APPLICATION_DATA) — only a
+            // kernel whose SDK exposes this as its own call (see
+            // ClssKernelProcess#supportsGranularSteps()). An atomic kernel publishes this step
+            // from onReadCardOk() after reading the data itself: nothing to run then.
             runContactlessReadAppData();
         }
     }
@@ -361,12 +362,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    // ─── Not reached via onXxx dispatch — required overrides, not stubs ──
+    // ─── Nothing to run for chip/CLSS — required overrides, not stubs ──
     //
     // Chip/CLSS: PAX's own kernel (startContactTransProcess/startContactlessTransProcess)
-    // runs these phases internally and reports them through announceStep(), called from
-    // the IContactCallback methods further below — never through goToStep, so
-    // dispatchStepMethod never invokes the onXxx form for this path.
+    // runs these phases internally and reports them from the IContactCallback methods further
+    // below, which publish each one with goToStep so the UI and the APDU trace follow it.
+    // dispatchStepMethod then runs the onXxx here — and by then the kernel has already done
+    // the work, so there is nothing left to do.
     //
     // Mag/manual: these EMV data phases don't apply. onApplicationSelection and
     // onReadApplicationData above jump straight past them with explicit goToStep targets.
@@ -407,13 +409,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — no callback exists; not individually announced.
+        // Kernel-internal — no callback exists, so it is never published on its own.
     }
 
     @Override
     public void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — no callback exists; not individually announced.
+        // Kernel-internal — no callback exists, so it is never published on its own.
     }
 
     @Override
@@ -425,7 +427,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onScriptProcessing(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — applied inside completeApproved()'s script-processing announce.
+        // Kernel-internal — published from completeApproved(); the kernel already applied them.
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1062,9 +1064,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return;
             }
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
-            // CVM is separately announced from onCardHolderPwd below when the kernel actually
+            // CVM is published separately from onCardHolderPwd below when the kernel actually
             // asks for it; terminal risk management and terminal action analysis have no
-            // callback and stay unannounced (see class doc).
+            // callback and are never published (see class doc).
             int ret = startContactTransProcess();
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
             captureTransactionSummary();
@@ -1434,11 +1436,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onReadCardOk() {
         if (!kernel.contactless.supportsGranularSteps()) {
-            // Atomic kernels never pass through READ_APPLICATION_DATA via goToStep — this
-            // announce is the only place it reaches the EmvStep observable. A granular kernel
-            // (EFT, PayPass) already visited it for real via runContactlessReadAppData(), so
-            // announcing it again here would be a duplicate EmvStepEvent.
-            announceStep(EmvStep.READ_APPLICATION_DATA, null);
+            // An atomic kernel read the application data itself, inside its one bundled call:
+            // publish the step for the UI and the trace — onReadApplicationData knows not to read
+            // again. A granular kernel (EFT, PayPass) already went through it via
+            // runContactlessReadAppData(), so publishing it here would be a duplicate.
+            goToStep(EmvStep.READ_APPLICATION_DATA, null);
         }
         requireEngine().notifyTransactionStep(
                 TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
@@ -1447,7 +1449,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACTLESS]
     @Override
     public int confirmCard() {
-        announceStep(EmvStep.SET_TRANSACTION_DATA, null);
+        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
         kernel.contactless.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
         // The contactless kernels don't take the TID from the trans param; set it for field 55.
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
@@ -1470,7 +1472,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // exercised on any test card instead of needing a real dual-AID one — never in release,
         // where a lone application should keep auto-selecting with no extra tap.
         boolean showDialog = candidates >= 2 || (BuildConfig.DEBUG && candidates >= 1);
-        announceStep(isFirstSelect
+        goToStep(isFirstSelect
                         ? EmvStep.WAIT_APPLICATION_SELECTION
                         : EmvStep.FINAL_APPLICATION_SELECTION,
                 candidates + " candidate AID(s)" + (showDialog ? "" : ", selecting first"));
@@ -1488,7 +1490,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACT]
     @Override
     public int showConfirmCard() {
-        announceStep(EmvStep.SET_TRANSACTION_DATA, null);
+        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
         kernel.contact.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
@@ -1504,9 +1506,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
             byte[] pinData) {
-        announceStep(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
+        goToStep(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
         if (!isOnlinePin) {
-            announceStep(EmvStep.OFFLINE_PIN_VERIFICATION, null);
+            goToStep(EmvStep.OFFLINE_PIN_VERIFICATION, null);
         }
         requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
                 TransactionStep.CARDHOLDER_VERIFIED)
@@ -1684,12 +1686,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @NonNull
     @Override
     public OnlineResultWrapper startOnlineProcess() {
-        announceStep(EmvStep.START_ONLINE_PROCESS, null);
+        goToStep(EmvStep.START_ONLINE_PROCESS, null);
         // Right after the 1st GENERATE AC returned the ARQC: field 55 (read through readIccTag)
         // and the card data (addOnlineRequestData) are attached here, then sent.
         AuthResult auth = authorizeOnline();
         tx.lastAuth = auth;
-        announceStep(EmvStep.ISSUER_AUTHENTICATION, auth.isApproved() ? "host approved"
+        goToStep(EmvStep.ISSUER_AUTHENTICATION, auth.isApproved() ? "host approved"
                 : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined");
         return toOnlineResultWrapper(auth);
     }
@@ -1840,7 +1842,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
                 TransactionStep.WAITING_FOR_CARD).message(prompt)
                 .put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt).build());
-        announceStep(EmvStep.SEARCH_CARD, prompt);
+        goToStep(EmvStep.SEARCH_CARD, prompt);
     }
 
     // [CONTACTLESS]
@@ -1864,7 +1866,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void offlineApproved(boolean needSignature) {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
         requireEngine().apduTrace().note("EMV", "offline approval without the host — online failed");
-        announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
+        goToStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
         finishError("Online Failed: not sent to the host");
     }
 
@@ -1880,13 +1882,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     // [SHARED]
     public void onlineDenied() {
-        announceStep(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
+        goToStep(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
         completeDeclined("Online Denied");
     }
 
     // [SHARED]
     public void onlineCardDenied(int resultCode) {
-        announceStep(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
+        goToStep(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
         completeDeclined("Online Card Denied code=" + resultCode);
     }
 
@@ -1895,7 +1897,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         String reason = tx.lastAuth != null && tx.lastAuth.isFailed() && tx.lastAuth.getMessage() != null
                 ? "Online Failed: " + tx.lastAuth.getMessage()
                 : "Online Failed: no host response";
-        announceStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
+        goToStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
         finishError(reason);
     }
 
@@ -1969,16 +1971,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void completeApproved(String result, boolean scripts) {
         if (scripts) {
-            announceStep(EmvStep.SCRIPT_PROCESSING, null);
+            goToStep(EmvStep.SCRIPT_PROCESSING, null);
         }
-        announceStep(EmvStep.TRANSACTION_COMPLETION, result);
+        goToStep(EmvStep.TRANSACTION_COMPLETION, result);
         requireEngine().notifyTransactionStep(
                 buildOutcomeEvent(TransactionStep.APPROVED, TransactionStepEvent.KEY_RESULT, result));
         requireEngine().notifyCompleted();
     }
 
     private void completeDeclined(String reason) {
-        announceStep(EmvStep.TRANSACTION_COMPLETION, reason);
+        goToStep(EmvStep.TRANSACTION_COMPLETION, reason);
         requireEngine().notifyTransactionStep(
                 buildOutcomeEvent(TransactionStep.DECLINED, TransactionStepEvent.KEY_ERROR, reason));
         requireEngine().notifyCompleted();

@@ -68,7 +68,8 @@ public final class EmvEngine {
     public EmvEngine(EmvBehavior behavior, Authorizer authorizer) {
         this.behavior = behavior;
         this.authorizer = authorizer;
-        // notify → onNext → this observer: the single dispatch point for engine-side bookkeeping.
+        // Same shape as the behavior's emvSteps dispatch: notify → onNext → observer → one
+        // dispatch point, here for engine-side bookkeeping.
         // Subscribing here, first, means this runs before any external subscriber
         // (PosTerminal/MainViewModel) sees the same event.
         transactionSteps.subscribe(event -> dispatchTransactionStepMethod(event.getStep()));
@@ -124,6 +125,11 @@ public final class EmvEngine {
     /** Runs EMV on the card search found, from the behavior's first post-search step. */
     public void start(TransactionConfig config, CardPresence card) {
         behavior.start(this, config, card);
+    }
+
+    /** Releases the behavior's own subscriptions; the terminal is going away. */
+    public void dispose() {
+        behavior.dispose();
     }
 
     public void cancel() {

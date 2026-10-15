@@ -19,10 +19,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * {@link AbstractEmvBehavior#goToStep} publishes a step on {@link EmvEngine#emvSteps()}, then runs
- * its {@code onXxx} method; {@link AbstractEmvBehavior#announceStep} only publishes it.
+ * {@code dispatchStepMethod} consumes {@link EmvEngine#emvSteps()}: every step published there —
+ * by {@link AbstractEmvBehavior#goToStep} or by anyone else — runs its {@code onXxx} method,
+ * through the behavior's own observer, on the publishing thread, before the publish returns.
  */
-public class EmvStepDispatchTest {
+public class EmvStepObserverTest {
 
     private static final TransactionConfig CONFIG =
             new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP);
@@ -37,7 +38,7 @@ public class EmvStepDispatchTest {
     }
 
     @Test
-    public void enteredStepsRunTheirMethodOnce() {
+    public void everyStepRunsItsMethodOnce() {
         engine.begin();
         engine.prepare(CONFIG);
         engine.start(CONFIG, CardPresence.chip());
@@ -47,17 +48,47 @@ public class EmvStepDispatchTest {
     }
 
     @Test
-    public void announcedStepsReachTheObservableOnly() {
+    public void aStepPublishedByAnyoneRunsItsMethod() {
         List<EmvStep> seen = record(engine);
+        engine.prepare(CONFIG);
+        vendor.ran.clear();
+
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // PosTerminal's prompt
+
+        assertEquals(Arrays.asList(EmvStep.SEARCH_CARD), vendor.ran);
+        assertTrue(seen.contains(EmvStep.SEARCH_CARD));
+    }
+
+    @Test
+    public void stepsRunOnThePublishingThreadBeforeStartReturns() {
+        Thread caller = Thread.currentThread();
+
+        engine.start(CONFIG, CardPresence.chip());
+
+        assertEquals(3, vendor.ran.size());
+        assertEquals(Arrays.asList(caller, caller, caller), vendor.threads);
+    }
+
+    @Test
+    public void aStepPublishedAfterCancelDoesNotRun() {
+        engine.prepare(CONFIG);
+        vendor.ran.clear();
+
+        vendor.cancel();
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
+
+        assertTrue(vendor.ran.isEmpty());
+    }
+
+    @Test
+    public void disposeStopsTheObserver() {
         engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
-        vendor.announce(EmvStep.READ_APPLICATION_DATA);
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // PosTerminal's prompt
+        engine.dispose();
+        vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
         assertTrue(vendor.ran.isEmpty());
-        assertTrue(seen.contains(EmvStep.READ_APPLICATION_DATA));
-        assertTrue(seen.contains(EmvStep.SEARCH_CARD));
     }
 
     @Test
@@ -82,7 +113,7 @@ public class EmvStepDispatchTest {
     }
 
     @Test
-    public void aThrowingStepEndsTheTransactionAndLaterStepsStillRun() {
+    public void aThrowingStepEndsTheTransactionAndKeepsTheObserver() {
         List<TransactionStep> transaction = new ArrayList<>();
         engine.transactionSteps().subscribe(event -> transaction.add(event.getStep()));
         engine.begin();
@@ -121,18 +152,16 @@ public class EmvStepDispatchTest {
     private static final class VendorBehavior extends AbstractEmvBehavior {
 
         final List<EmvStep> ran = new ArrayList<>();
+        final List<Thread> threads = new ArrayList<>();
         EmvStep failOn;
 
         void go(EmvStep step) {
             goToStep(step);
         }
 
-        void announce(EmvStep step) {
-            announceStep(step);
-        }
-
         private void ran(EmvStep step) {
             ran.add(step);
+            threads.add(Thread.currentThread());
             if (step == failOn) {
                 throw new IllegalStateException("kernel error");
             }
@@ -143,6 +172,9 @@ public class EmvStepDispatchTest {
             return null;
         }
 
+        @Override public void onSearchCard(EmvEngine e, TransactionConfig c, CardPresence p) {
+            ran(EmvStep.SEARCH_CARD);
+        }
         @Override public void onTerminalInitialization(EmvEngine e, TransactionConfig c) {
             ran(EmvStep.TERMINAL_INITIALIZATION);
         }

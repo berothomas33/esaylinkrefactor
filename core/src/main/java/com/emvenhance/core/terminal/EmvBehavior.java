@@ -7,19 +7,21 @@ import com.emvenhance.core.engine.EmvEngine;
 /**
  * Vendor EMV contract.
  *
- * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel}.
+ * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel};
+ * {@link #dispose} once, when the terminal itself goes away.
  *
  * <p>Each EMV phase is a method ({@code onApplicationSelection}, …), and — with the single
  * exception of {@link #onSearchCard} — <b>every one of them is mandatory</b>: a vendor class
  * that doesn't override all of them fails to compile. This is deliberate. A silently
  * inherited no-op is indistinguishable from "the developer forgot this phase"; a compile
- * error is not. For a phase your kernel drives internally with no callback, the correct body
- * is a one-line comment saying so and, if the base class exposes it,
- * {@link AbstractEmvBehavior#announceStep} — that is a real, considered answer, not a stub.
+ * error is not. For a phase your kernel drives internally, the kernel callback still publishes
+ * it with {@link AbstractEmvBehavior#goToStep} (so the UI and the APDU trace see it), and the
+ * correct body is a one-line comment saying the kernel already did it — a real, considered
+ * answer, not a stub.
  *
  * <p>The vendor does its work inside the method, then advances by calling
- * {@link AbstractEmvBehavior#goToStep} (publishes on the EmvStep observable and runs the
- * next method). No central {@code if (!run) return} chain.
+ * {@link AbstractEmvBehavior#goToStep}: it publishes on the EmvStep observable, whose observer
+ * runs the next method. No central {@code if (!run) return} chain.
  *
  * <p>EMV only — no host / printer logic here.
  */
@@ -30,6 +32,13 @@ public interface EmvBehavior {
     void start(EmvEngine engine, TransactionConfig config, CardPresence card);
 
     void cancel();
+
+    /**
+     * Releases what the behavior holds beyond one transaction — {@link AbstractEmvBehavior}'s
+     * EmvStep observer. Called by {@link EmvEngine#dispose()} when its {@link PosTerminal} is
+     * disposed.
+     */
+    default void dispose() { }
 
     // ─── EMV step hooks — mandatory. Vendor writes action, then goToStep(next) ────
 
