@@ -71,6 +71,17 @@ public abstract class ClssKernelProcess<T extends BaseParam<? extends BaseAid>> 
     }
 
     /**
+     * EMV "Set Transaction Data": kernel init and everything the terminal gives the kernel for
+     * this transaction (amount, type, date, currency, limits, TACs, terminal data). Only called
+     * when {@link #supportsGranularSteps()} is true, before {@link #readApplicationData()}: the
+     * GPO that starts it fills the card's PDOL from this data.
+     */
+    public TransResult setTransactionData() {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support granular steps");
+    }
+
+    /**
      * EMV "Read Application Data" (Initiate Application Processing + Read Application Data).
      * Only called when {@link #supportsGranularSteps()} is true — see its doc for kernels that
      * can't separate this from {@link #startTransProcess()}.

@@ -391,7 +391,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // See IContactCallback#confirmCard / #showConfirmCard below.
+        // Granular contactless kernels (EFT, PayPass): this stage gives the kernel the
+        // transaction data, before READ_APPLICATION_DATA's GPO needs it for the PDOL.
+        if (card.isContactless() && kernel.contactless.supportsGranularSteps()) {
+            runContactlessSetTransactionData();
+        }
+        // Contact and atomic contactless kernels take the data inside their own calls; the step
+        // is published from IContactCallback#showConfirmCard / #confirmCard below.
     }
 
     @Override
@@ -471,12 +477,43 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // eight brands' SDKs bundle the whole transaction into one call instead — see
             // ClssKernelProcess#supportsGranularSteps().
             advanceContactlessStage(kernel.contactless.supportsGranularSteps()
-                    ? EmvStep.READ_APPLICATION_DATA
+                    ? EmvStep.SET_TRANSACTION_DATA
                     : EmvStep.PROCESS_RESTRICTIONS);
         }
     }
 
     /** Read App Data stage — reached via {@link #onReadApplicationData}'s contactless branch. */
+    /** Granular kernels only: kernel init and the transaction data, then READ_APPLICATION_DATA. */
+    private void runContactlessSetTransactionData() {
+        boolean proceed = false;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contactless EMV: Set Transaction Data ============");
+            tx.clsTransResult = kernel.contactless.setTransactionData();
+            int ret = tx.clsTransResult.getResultCode();
+            LogUtils.d(TAG, "setTransactionData ret=" + ret);
+            markTryAgainOnCommunicationError(ret);
+            proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
+            if (!proceed) {
+                kernel.contactless.unregisterClssProcessListener();
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contactless set transaction data failed", e);
+            finishError(e.getMessage() != null ? e.getMessage()
+                    : "Contactless EMV set transaction data failed");
+        } finally {
+            if (!proceed) {
+                finishContactlessStage();
+            }
+        }
+        if (proceed) {
+            advanceContactlessStage(EmvStep.READ_APPLICATION_DATA);
+        }
+    }
+
     private void runContactlessReadAppData() {
         boolean proceed = false;
         try {
@@ -1452,7 +1489,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACTLESS]
     @Override
     public int confirmCard() {
-        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
+        if (!kernel.contactless.supportsGranularSteps()) {
+            // An atomic kernel took the data inside its one call; a granular one already went
+            // through SET_TRANSACTION_DATA (runContactlessSetTransactionData).
+            goToStep(EmvStep.SET_TRANSACTION_DATA, null);
+        }
         // The contactless kernels don't take the TID from the trans param; set it for field 55.
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
                 kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());

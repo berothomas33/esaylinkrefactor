@@ -51,9 +51,9 @@ public class ClssEFTProcess extends ClssKernelProcess<EFTParam> {
         return true;
     }
 
-    /** EMV "Read Application Data" (kernel init/config + Initiate + Read Application Data). */
+    /** EMV "Set Transaction Data" (kernel init/config + AID, terminal and transaction data). */
     @Override
-    public TransResult readApplicationData() {
+    public TransResult setTransactionData() {
         // Kernel Initialization
         int ret = ClssEFTPOSApi.Clss_CoreInit_EFT();
         if (ret != RetCode.EMV_OK) {
@@ -75,9 +75,14 @@ public class ClssEFTProcess extends ClssKernelProcess<EFTParam> {
 
         // Set related parameters for EFTPOS transaction
         ClssEFTPOSApi.Clss_SetTransData_EFT(transParam,preProcInterInfo);
+        return new TransResult(RetCode.EMV_OK);
+    }
 
+    /** EMV "Read Application Data" (Initiate + Read Application Data), after setTransactionData. */
+    @Override
+    public TransResult readApplicationData() {
         // Initiate transaction processing
-        ret = ClssEFTPOSApi.Clss_InitApp_EFT();
+        int ret = ClssEFTPOSApi.Clss_InitApp_EFT();
         if (ret != RetCode.EMV_OK){
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED,
                     CvmResultEnum.CVM_NO_CVM);
