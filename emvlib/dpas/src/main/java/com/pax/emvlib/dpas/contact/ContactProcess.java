@@ -137,9 +137,7 @@ public class ContactProcess extends BaseContactProcess {
         emvParam.terminalType = emvAid.getTerminalType();
         emvParam.transCurrCode = transParam.getTransCurrencyCode();
         emvParam.transCurrExp = transParam.getTransCurrencyExponent();
-        // TEST ONLY (hard-coded): EMV_GOODS (0x02) instead of the 9C value, to check whether the
-        // kernel reads transType as a service-type flag for the AUC check (TVR byte 2 b5).
-        emvParam.transType = 0x02;
+        emvParam.transType = transParam.getTransType();
         emvParam.termId = transParam.getTerminalID();
         emvParam.merchId = terminalCfg.getMerchantId();
         emvParam.merchName = terminalCfg.getMerchantNameAndLocationBytes();
@@ -270,7 +268,7 @@ public class ContactProcess extends BaseContactProcess {
     }
 
     private void changeTAG9CValue() {
-        setTlv(0x9C, new byte[]{transParam.getTransType()}); // TEST: 9C stays the real type
+        setTlv(0x9C, new byte[]{emvParam.transType});
     }
 
     private CvmResultEnum getCvm() {
