@@ -97,11 +97,26 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * before the current one — the UI would end on the first step instead of the last.
      * Re-subscribing moves it behind every subscriber that came first, such as a
      * {@code MainViewModel} created after an earlier transaction.
+     *
+     * <p>It observes one transaction: when that one ends — ERROR or COMPLETED, so approved,
+     * declined, failed or cancelled — it is disposed, and a step still published by code
+     * unwinding never runs a step method. The next {@link #prepare} subscribes again.
      */
     protected final void initEmvObserver(EmvEngine engine) {
         disposables.clear();
         // No subscribeOn / observeOn: see EmvStepObserver.
         disposables.add(engine.emvSteps().subscribeWith(new EmvStepObserver()));
+        // skip(1): transactionSteps replays the step it is on, maybe the last transaction's end.
+        // Not emvSteps().takeUntil(…): it drops a step published from inside onNext — every
+        // goToStep a step method makes.
+        disposables.add(engine.transactionSteps()
+                .skip(1)
+                .filter(event -> isEnd(event.getStep()))
+                .subscribe(end -> disposables.clear()));
+    }
+
+    private static boolean isEnd(TransactionStep step) {
+        return step == TransactionStep.ERROR || step == TransactionStep.COMPLETED;
     }
 
     /**
@@ -112,7 +127,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         goToStep(step, null);
     }
 
-    protected final void goToStep(EmvStep step, @Nullable String detail) {
+    protected final void goToStep(@Nullable EmvStep step, @Nullable String detail) {
+        if (step == null) {
+            unknownStep(null);
+            return;
+        }
         if (cancelled.get()) {
             if (engine != null && engine.isRunning()) {
                 engine.notifyError("Transaction cancelled");
@@ -272,7 +291,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
         @Override
         public void onComplete() {
-            // emvSteps never completes.
+            // emvSteps never completes: it lives as long as the engine, and the UI keeps
+            // observing it from one transaction to the next. The end of a transaction disposes
+            // this observer instead (initEmvObserver).
         }
     }
 
@@ -338,8 +359,20 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 onTransactionCompletion(engine, activeConfig, activeCard);
                 break;
             default:
-                finishError("Unknown EMV step: " + step);
+                unknownStep(step);
                 break;
         }
+    }
+
+    /**
+     * A step with no method to run ends the transaction: its ERROR stops the engine publishing
+     * steps ({@link EmvEngine#notifyEmvStep}) and disposes this behavior's observer
+     * ({@link #initEmvObserver}).
+     */
+    private void unknownStep(@Nullable EmvStep step) {
+        if (engine == null || !engine.isRunning()) {
+            return; // already ended: no second ERROR
+        }
+        finishError("Unknown EMV step: " + step);
     }
 }
