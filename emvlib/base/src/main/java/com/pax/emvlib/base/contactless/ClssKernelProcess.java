@@ -70,6 +70,13 @@ public abstract class ClssKernelProcess<T extends BaseParam<? extends BaseAid>> 
         return false;
     }
 
+    /** Call right after this kernel has been given the transaction data, however it takes it. */
+    protected void onTransDataSet() {
+        if (clssStatusListener != null) {
+            clssStatusListener.onTransactionDataSet();
+        }
+    }
+
     /**
      * EMV "Read Application Data" (Initiate Application Processing + Read Application Data).
      * Only called when {@link #supportsGranularSteps()} is true — see its doc for kernels that

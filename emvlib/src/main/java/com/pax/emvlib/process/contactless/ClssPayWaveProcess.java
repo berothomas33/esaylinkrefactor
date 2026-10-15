@@ -198,6 +198,7 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
             LogUtils.e(TAG, "setTransParam ret = " + ret);
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
+        onTransDataSet();
 
         ACType acType = new ACType();
         ret = ClssWaveApi.Clss_Proctrans_Wave(transactionPath, acType);

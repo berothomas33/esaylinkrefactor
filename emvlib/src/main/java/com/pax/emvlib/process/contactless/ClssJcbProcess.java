@@ -74,6 +74,7 @@ public class ClssJcbProcess extends ClssKernelProcess<JcbParam> {
         LogUtils.i(TAG, "Clss_SetFinalSelectData_JCB = " + ret);
 
         setTransParamJcb();
+        onTransDataSet();
 
         ret = ClssJCBApi.Clss_InitiateApp_JCB(transactionPath);
         if (ret != RetCode.EMV_OK) {

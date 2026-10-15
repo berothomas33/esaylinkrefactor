@@ -98,6 +98,7 @@ public class ClssPureProcess extends ClssKernelProcess<PureParam> {
             return ret;
         }
         setParam();
+        onTransDataSet();
         ret = ClssPUREApi.Clss_InitiateApp_PURE(preProcInterInfo);
         if (ret != RetCode.EMV_OK){
             return ret;

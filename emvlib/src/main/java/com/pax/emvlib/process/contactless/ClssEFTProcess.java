@@ -75,6 +75,7 @@ public class ClssEFTProcess extends ClssKernelProcess<EFTParam> {
 
         // Set related parameters for EFTPOS transaction
         ClssEFTPOSApi.Clss_SetTransData_EFT(transParam,preProcInterInfo);
+        onTransDataSet();
 
         // Initiate transaction processing
         ret = ClssEFTPOSApi.Clss_InitApp_EFT();
