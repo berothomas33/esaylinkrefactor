@@ -194,13 +194,8 @@ public final class EmvEngine {
      * per-{@link EmvStep} handling instead of scattering it across call sites.
      */
     private void dispatchTransactionStepMethod(TransactionStep step) {
-        switch (step) {
-            case ERROR:
-            case COMPLETED:
-                running.set(false);
-                break;
-            default:
-                break;
+        if (step.isEnd()) {
+            running.set(false);
         }
     }
 

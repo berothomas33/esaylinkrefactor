@@ -98,9 +98,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * Re-subscribing moves it behind every subscriber that came first, such as a
      * {@code MainViewModel} created after an earlier transaction.
      *
-     * <p>It observes one transaction: when that one ends — ERROR or COMPLETED, so approved,
-     * declined, failed or cancelled — it is disposed, and a step still published by code
-     * unwinding never runs a step method. The next {@link #prepare} subscribes again.
+     * <p>It observes one transaction: when that one ends ({@link TransactionStep#isEnd()}) it is
+     * disposed, and a step still published by code unwinding never runs a step method. The next
+     * {@link #prepare} subscribes again.
      */
     protected final void initEmvObserver(EmvEngine engine) {
         disposables.clear();
@@ -111,12 +111,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         // goToStep a step method makes.
         disposables.add(engine.transactionSteps()
                 .skip(1)
-                .filter(event -> isEnd(event.getStep()))
+                .filter(event -> event.getStep().isEnd())
                 .subscribe(end -> disposables.clear()));
-    }
-
-    private static boolean isEnd(TransactionStep step) {
-        return step == TransactionStep.ERROR || step == TransactionStep.COMPLETED;
     }
 
     /**

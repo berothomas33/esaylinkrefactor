@@ -63,4 +63,13 @@ public enum TransactionStep {
     public String getLabel() {
         return label;
     }
+
+    /**
+     * Whether this step ends the transaction — ERROR or COMPLETED, however it got there
+     * (approved, declined, failed, cancelled). The one definition of the end: on it the engine
+     * stops running and publishing EMV steps, and the behavior stops observing them.
+     */
+    public boolean isEnd() {
+        return this == COMPLETED || this == ERROR;
+    }
 }
