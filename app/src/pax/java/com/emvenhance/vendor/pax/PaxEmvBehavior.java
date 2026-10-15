@@ -1491,7 +1491,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int showConfirmCard() {
         goToStep(EmvStep.SET_TRANSACTION_DATA, null);
-        kernel.contact.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
+        // TEST ONLY: 9F03 (Amount, Other) is no longer written here, to check whether the kernel
+        // reads its presence as cashback (TVR byte 2 b5, AUC FF00 forbids cashback).
+        // kernel.contact.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
