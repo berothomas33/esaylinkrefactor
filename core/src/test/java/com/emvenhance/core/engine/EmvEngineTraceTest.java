@@ -72,6 +72,20 @@ public class EmvEngineTraceTest {
     }
 
     @Test
+    public void aStepAfterTheEndIsNotedAsDroppedNotAsAKernelStep() {
+        assumeTrue("trace records in debug builds only", trace.isEnabled());
+        engine.begin();
+        engine.notifyCompleted();
+
+        engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION, "late");
+
+        String text = trace.text();
+        assertFalse(text.contains("### KERNEL STEP 16."));
+        assertTrue(text.contains(
+                "!!! EMV step dropped, the transaction has ended: 16. Transaction completion (late)"));
+    }
+
+    @Test
     public void retryKeepsTheFailedAttemptAndMarksIt() {
         assumeTrue("trace records in debug builds only", trace.isEnabled());
         engine.begin();

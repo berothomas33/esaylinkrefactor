@@ -133,8 +133,18 @@ public final class EmvEngine {
         }
     }
 
+    /**
+     * Publishes {@code step} — only while a transaction is running. Once it has ended (ERROR or
+     * COMPLETED, however it got there) a step from code still unwinding is dropped: it never
+     * reaches the UI. The next {@link #begin()} publishes again.
+     */
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);
+        if (!running.get()) {
+            EmvLog.d("EmvStep dropped, no transaction running: " + event);
+            apduTrace.note("EMV", "step dropped, the transaction has ended: " + event);
+            return;
+        }
         EmvLog.d("EmvStep: " + event);
         apduTrace.kernelStep(event.toString());
         emvSteps.onNext(event);
@@ -178,13 +188,8 @@ public final class EmvEngine {
      * per-{@link EmvStep} handling instead of scattering it across call sites.
      */
     private void dispatchTransactionStepMethod(TransactionStep step) {
-        switch (step) {
-            case ERROR:
-            case COMPLETED:
-                running.set(false);
-                break;
-            default:
-                break;
+        if (step.isEnd()) {
+            running.set(false);
         }
     }
 

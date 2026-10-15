@@ -75,7 +75,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         goToStep(step, null);
     }
 
-    protected final void goToStep(EmvStep step, @Nullable String detail) {
+    protected final void goToStep(@Nullable EmvStep step, @Nullable String detail) {
+        if (step == null) {
+            unknownStep(null);
+            return;
+        }
         if (cancelled.get()) {
             if (engine != null && engine.isRunning()) {
                 engine.notifyError("Transaction cancelled");
@@ -97,7 +101,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         announceStep(step, null);
     }
 
-    protected final void announceStep(EmvStep step, @Nullable String detail) {
+    protected final void announceStep(@Nullable EmvStep step, @Nullable String detail) {
+        if (step == null) {
+            unknownStep(null);
+            return;
+        }
         if (engine == null) {
             return;
         }
@@ -214,7 +222,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     private void enterStep(EmvStep step, @Nullable String detail) {
         engine.notifyEmvStep(step, detail); // EmvStep observable → UI
-        if (cancelled.get()) {
+        // Ended (TransactionStep#isEnd): the engine dropped the step, and its method doesn't run.
+        if (cancelled.get() || !engine.isRunning()) {
             return;
         }
         try {
@@ -282,8 +291,20 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 onTransactionCompletion(engine, activeConfig, activeCard);
                 break;
             default:
-                finishError("Unknown EMV step: " + step);
+                unknownStep(step);
                 break;
         }
+    }
+
+    /**
+     * A step with no method to run ends the transaction: its ERROR stops the engine publishing
+     * steps ({@link EmvEngine#notifyEmvStep}) and this behavior running their methods
+     * ({@link #enterStep}).
+     */
+    private void unknownStep(@Nullable EmvStep step) {
+        if (engine == null || !engine.isRunning()) {
+            return; // already ended: no second ERROR
+        }
+        finishError("Unknown EMV step: " + step);
     }
 }
