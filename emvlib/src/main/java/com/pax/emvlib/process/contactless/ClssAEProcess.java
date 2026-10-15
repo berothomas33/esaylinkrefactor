@@ -194,7 +194,6 @@ public class ClssAEProcess extends ClssKernelProcess<AmexParam> {
         if (ret != EMV_OK) {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
-        onTransDataSet();
 
         //GPO process
         transMode = new TransactionMode();

@@ -63,7 +63,6 @@ public class ClssRuPayProcess extends ClssKernelProcess<RuPayParam> {
 
         //set basic parameters.
         clssBaseParameterSet();
-        onTransDataSet();
 
         ret = processRuPay();
         if (ret != RetCode.EMV_OK) {

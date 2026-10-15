@@ -62,11 +62,4 @@ public interface IContactlessCallback  {
      * show second detect card
      */
     void onDetect2ndTap();
-
-    /**
-     * The kernel has just been given the transaction data (amount, type, date, currency, limits,
-     * terminal data), each kernel its own way: Clss_SetTransData_*, setTransParam, setParam...
-     */
-    default void onTransactionDataSet() {
-    }
 }

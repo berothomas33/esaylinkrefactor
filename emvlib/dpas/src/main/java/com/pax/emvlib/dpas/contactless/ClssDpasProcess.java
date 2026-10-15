@@ -54,7 +54,6 @@ public class ClssDpasProcess extends ClssKernelProcess<DpasParam> {
         }
 
         setParam();
-        onTransDataSet();
 
         LogUtils.d(TAG, "PDOL: " + getTlv(0x9F38, new ByteArray()));
 

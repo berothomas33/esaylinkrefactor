@@ -67,7 +67,6 @@ public class ClssPbocProcess extends ClssKernelProcess<PbocParam> {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED,
                     CvmResultEnum.CVM_NO_CVM);
         }
-        onTransDataSet();
 
         // TODO TornProcess
         ACType acType = new ACType();

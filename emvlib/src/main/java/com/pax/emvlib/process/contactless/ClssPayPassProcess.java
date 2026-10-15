@@ -104,7 +104,6 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
         }
 
         setPayPassParam();
-        onTransDataSet();
 
         ret = ClssPassApi.Clss_InitiateApp_MC();
         if(ret != RetCode.EMV_OK){

@@ -1435,13 +1435,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // EMV Transaction Backbone artifact for why).
     // ═══════════════════════════════════════════════════════════════════
 
-    // [CONTACTLESS] Every ClssKernelProcess calls this right after it has been given the
-    // transaction data, its own way (Clss_SetTransData_*, setTransParam, setParam...).
-    @Override
-    public void onTransactionDataSet() {
-        goToStep(EmvStep.SET_TRANSACTION_DATA, "contactless kernel");
-    }
-
     // [CONTACTLESS]
     @Override
     public void onReadCardOk() {
@@ -1459,6 +1452,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACTLESS]
     @Override
     public int confirmCard() {
+        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
         // The contactless kernels don't take the TID from the trans param; set it for field 55.
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
                 kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());

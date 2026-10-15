@@ -64,7 +64,6 @@ public class ClssMirProcess extends ClssKernelProcess<MirParam> {
 
         //set terminal parameters into kernel which will send to backend later in field55
         setParam();
-        onTransDataSet();
 
         if (transactionPath.path == MIR_PROTOCOL_01){
             ret = processProtocol1();
