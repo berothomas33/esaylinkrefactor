@@ -1336,10 +1336,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Amount, Other (9F03): no cashback, so always zero. The kernels get it in the trans param,
-     * and it's also set as a tag at SET_TRANSACTION_DATA: the contact kernel computes the ARQC
-     * over it (CDOL1) but doesn't return it when read back unless it's set, and the host needs
-     * it in field 55 to check the ARQC.
+     * Amount, Other (9F03): no cashback, so always zero. The kernels get it in the trans param
+     * only. It is never written into a kernel as a tag: the contact kernel then took the sale for
+     * cashback in its Application Usage Control check (TVR byte 2 b5, "requested service not
+     * allowed") and declined offline any card whose IAC-Denial has that bit (a 650.00 EGP Visa
+     * sale, AUC FF00). The kernel still puts zeros in GENERATE AC when CDOL1 asks for 9F03 but
+     * doesn't return it when read back, so {@link #readIccTag} answers zeros for field 55,
+     * which the host needs to check the ARQC.
      */
     private static final long AMOUNT_OTHER_MINOR = 0L;
 
@@ -1450,7 +1453,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int confirmCard() {
         goToStep(EmvStep.SET_TRANSACTION_DATA, null);
-        kernel.contactless.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
         // The contactless kernels don't take the TID from the trans param; set it for field 55.
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
                 kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());
@@ -1491,9 +1493,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int showConfirmCard() {
         goToStep(EmvStep.SET_TRANSACTION_DATA, null);
-        // TEST ONLY: 9F03 (Amount, Other) is no longer written here, to check whether the kernel
-        // reads its presence as cashback (TVR byte 2 b5, AUC FF00 forbids cashback).
-        // kernel.contact.setTlv(TagsTable.AMOUNT_OTHER, amountOtherBcd());
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
@@ -1701,7 +1700,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** Field 55 tags come from whichever PAX kernel ran this card — see {@link #readKernelTlv}. */
     @Override
     public byte[] readIccTag(int tag) {
-        return readKernelTlv(tag);
+        byte[] value = readKernelTlv(tag);
+        if (tag == TagsTable.AMOUNT_OTHER && (value == null || value.length == 0)) {
+            // The kernel filled 9F03 with zeros in GENERATE AC (CDOL1) but doesn't return it.
+            return amountOtherBcd();
+        }
+        return value;
     }
 
     /**
