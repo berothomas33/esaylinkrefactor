@@ -244,6 +244,88 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return EmvStep.APPLICATION_SELECTION;
     }
 
+    // ─── EMV step methods — every vendor writes these ─────────────────────
+
+    // Each EMV phase is a method, and — with the single exception of onSearchCard — every one of
+    // them is abstract: a vendor class that doesn't write all of them fails to compile. This is
+    // deliberate. A silently inherited no-op is indistinguishable from "the developer forgot
+    // this phase"; a compile error is not. For a phase your kernel drives internally, the kernel
+    // callback still publishes it with goToStep (so the UI and the APDU trace see it), and the
+    // correct body is a one-line comment saying the kernel already did it — a real, considered
+    // answer, not a stub.
+    //
+    // They are protected, not on EmvBehavior: only dispatchStepMethod runs them, for a step
+    // published on the EmvStep observable. Nothing holding the engine's EmvBehavior can run one.
+
+    protected abstract void onTerminalInitialization(EmvEngine engine, TransactionConfig config);
+
+    /**
+     * The one step method that stays optional. {@link PosTerminal#searchCard} is the real,
+     * mandatory search for every vendor; this runs when {@code SEARCH_CARD} is published — by
+     * PosTerminal, with its prompt — and has nothing left to do. Requiring a body here would
+     * force an empty one in every vendor for no benefit.
+     */
+    protected void onSearchCard(EmvEngine engine, TransactionConfig config, CardPresence card) {
+    }
+
+    protected abstract void onApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onReadApplicationData(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onSetTransactionData(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onCardholderVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onScriptProcessing(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    protected abstract void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
+            CardPresence card);
+
+    // ─── Field 55 — every vendor writes this ──────────────────────────────
+
+    /**
+     * One tag's value bytes, read from this vendor's own kernel in whatever way its SDK offers;
+     * empty (or {@code null}) when the kernel has no value for it. That's all a vendor does for
+     * field 55: {@link #authorizeOnline} picks the tags
+     * ({@link com.emvenhance.core.card.Field55}), encodes them and logs them.
+     *
+     * <p>Called right after the 1st GENERATE AC returned the ARQC, so the card's cryptogram
+     * data (9F26, 9F27, 9F10, 9F36) is there to read. Never called for magstripe or manual.
+     */
+    protected abstract byte[] readIccTag(int tag);
+
     private void enterStep(EmvStep step) {
         enterStep(step, null);
     }

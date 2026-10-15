@@ -8,7 +8,7 @@ import java.util.function.IntFunction;
 /**
  * Field 55 (ICC System Related Data) for the host: the tag list, the BER-TLV encoding and the
  * present/missing summary, the same for every vendor. A vendor only reads one tag's value from
- * its kernel ({@code EmvBehavior#readIccTag}); {@link #read} does the rest.
+ * its kernel ({@code AbstractEmvBehavior#readIccTag}); {@link #read} does the rest.
  */
 public final class Field55 {
 
