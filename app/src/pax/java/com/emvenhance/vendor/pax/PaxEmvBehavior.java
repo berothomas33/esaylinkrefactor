@@ -155,6 +155,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         boolean initOk = true;
 
+        /** What runPreTransProcess gave the kernels — traced at SET_TRANSACTION_DATA. */
+        @Nullable
+        EmvTransParam transParam;
+
         @Nullable
         AuthResult lastAuth;
 
@@ -502,6 +506,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
+            publishTransactionData();
             advanceContactlessStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
         }
     }
@@ -1360,6 +1365,74 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
+     * Publishes SET_TRANSACTION_DATA once the card's application data has been read — the EMV
+     * order, on every path — whichever way the kernel took the data: the contact kernel from the
+     * trans param at pre-processing, a contactless kernel through its own setTransParam /
+     * Clss_SetTransData_* call. With the APDU trace on, it also writes what we gave the kernel
+     * next to what the kernel holds, tag by tag, so a value the kernel didn't take shows there.
+     */
+    private void publishTransactionData() {
+        EmvTransParam given = tx.transParam;
+        goToStep(EmvStep.SET_TRANSACTION_DATA, given == null ? null : String.format(Locale.US,
+                "9F02=%012d, 9C=%02X", given.getAmount(), given.getTransType() & 0xFF));
+        if (!isCancelled() && requireEngine().apduTrace().isEnabled()) {
+            requireEngine().apduTrace().note("EMV", describeTransactionData(given));
+        }
+    }
+
+    /** Transaction and terminal data every kernel holds. */
+    private static final int[] TRANSACTION_DATA_TAGS = {
+            0x9C, 0x9F02, 0x9F03, 0x5F2A, 0x5F36, 0x9A, 0x9F21, 0x9F41,
+            0x9F1A, 0x9F33, 0x9F40, 0x9F35, 0x9F1C, 0x9F15, 0x9F16};
+
+    /**
+     * Contactless kernels' own data, shown only when the kernel has it: Visa TTQ (9F66), PayPass
+     * limits and action codes (DF8120–DF8126), EFT limits (DF51–DF54).
+     */
+    private static final int[] CONTACTLESS_DATA_TAGS = {
+            0x9F66, 0xDF8123, 0xDF8124, 0xDF8125, 0xDF8126, 0xDF8120, 0xDF8121, 0xDF8122,
+            0xDF51, 0xDF52, 0xDF53, 0xDF54};
+
+    private String describeTransactionData(@Nullable EmvTransParam given) {
+        boolean contactless = activeCard != null && activeCard.isContactless();
+        StringBuilder sb = new StringBuilder("SET TRANSACTION DATA (")
+                .append(contactless ? "contactless" : "contact").append(')');
+        if (given != null) {
+            sb.append("\ngiven to the kernel:")
+                    .append(String.format(Locale.US, " 9C=%02X", given.getTransType() & 0xFF))
+                    .append(String.format(Locale.US, " 9F02=%012d", given.getAmount()))
+                    .append(String.format(Locale.US, " 9F03=%012d", given.getAmountOther()))
+                    .append(" 5F2A=").append(hex(given.getTransCurrencyCode()))
+                    .append(String.format(Locale.US, " 5F36=%02X", given.getTransCurrencyExponent()))
+                    .append(" 9A=").append(hex(given.getTransDate()))
+                    .append(" 9F21=").append(hex(given.getTransTime()))
+                    .append(" 9F41=").append(given.getTransTraceNo())
+                    .append(" TID=").append(hex(given.getTerminalID()));
+        }
+        sb.append("\nheld by the kernel:");
+        appendKernelTags(sb, TRANSACTION_DATA_TAGS, true);
+        if (contactless) {
+            appendKernelTags(sb, CONTACTLESS_DATA_TAGS, false);
+        }
+        return sb.toString();
+    }
+
+    private void appendKernelTags(StringBuilder sb, int[] tags, boolean showMissing) {
+        for (int tag : tags) {
+            byte[] value = readKernelTlv(tag);
+            boolean present = value != null && value.length > 0;
+            if (present || showMissing) {
+                sb.append('\n').append(Integer.toHexString(tag).toUpperCase(Locale.US))
+                        .append(" = ").append(present ? hex(value) : "not returned");
+            }
+        }
+    }
+
+    private static String hex(@Nullable byte[] value) {
+        return value == null || value.length == 0 ? "-" : ConvertUtils.bcd2Str(value, value.length);
+    }
+
+    /**
      * Builds {@link EmvTransParam}/{@link EmvProcessParam} from {@code config} and the cached
      * EMV parameters, then runs contact / contactless {@code preTransProcess}, clearing the
      * corresponding {@link SearchMode} bit for whichever one fails. Ported from
@@ -1393,6 +1466,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .setPinLenSet(offlinePinLengths().getBytes(StandardCharsets.US_ASCII))
                 .setPciTimeout(60 * 1000)
                 .create();
+        tx.transParam = transParam;
         EmvProcessParam.Builder processParamBuilder = new EmvProcessParam.Builder()
                 .setTermConfig(cachedEmvParam.getTermConfig())
                 .setCapkParam(cachedEmvParam.getCapkParam())
@@ -1444,6 +1518,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // again. A granular kernel (EFT, PayPass) already went through it via
             // runContactlessReadAppData(), so publishing it here would be a duplicate.
             goToStep(EmvStep.READ_APPLICATION_DATA, null);
+            publishTransactionData();
         }
         requireEngine().notifyTransactionStep(
                 TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
@@ -1452,7 +1527,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACTLESS]
     @Override
     public int confirmCard() {
-        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
+        // SET_TRANSACTION_DATA is published right after read app data (publishTransactionData).
         // The contactless kernels don't take the TID from the trans param; set it for field 55.
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
                 kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());
@@ -1492,7 +1567,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACT]
     @Override
     public int showConfirmCard() {
-        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
+        publishTransactionData();
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
