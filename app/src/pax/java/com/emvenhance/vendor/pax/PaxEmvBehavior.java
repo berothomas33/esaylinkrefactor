@@ -187,6 +187,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         @Nullable
         PaxPinPad activePinPad;
 
+        /** The kernel's candidate list from {@link PaxEmvBehavior#onWaitAppSelect}, for its step. */
+        @Nullable
+        List<CandidateAID> candidates;
+
         // ─── Transaction result summary — PAN/TVR/TAC/IAC/Field 55, captured by
         // captureTransactionSummary() while the kernel session is still open, attached to the
         // APPROVED/DECLINED event by completeApproved()/completeDeclined(). null for mag/manual
@@ -364,13 +368,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    // ─── Nothing to run for chip/CLSS — required overrides, not stubs ──
+    // ─── Kernel-driven phases — required overrides, not stubs ──
     //
     // Chip/CLSS: PAX's own kernel (startContactTransProcess/startContactlessTransProcess)
     // runs these phases internally and reports them from the IContactCallback methods further
-    // below, which publish each one with goToStep so the UI and the APDU trace follow it.
-    // dispatchStepMethod then runs the onXxx here — and by then the kernel has already done
-    // the work, so there is nothing left to do.
+    // below, which publish each one so the UI and the APDU trace follow it.
+    // dispatchStepMethod then runs the onXxx here. Where the kernel waits on the cardholder
+    // (application selection, PIN), the callback asks with askStep and the onXxx here does the
+    // UI work and answers; elsewhere the kernel has already done the work, so there is nothing
+    // left to do.
     //
     // Mag/manual: these EMV data phases don't apply. onApplicationSelection and
     // onReadApplicationData above jump straight past them with explicit goToStep targets.
@@ -381,13 +387,43 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // See IContactCallback#onWaitAppSelect below for the chip/CLSS path.
+        // Asked by IContactCallback#onWaitAppSelect below: the kernel waits on this answer.
+        answerApplicationSelection();
     }
 
     @Override
     public void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // See IContactCallback#onWaitAppSelect below.
+        // Same as onWaitApplicationSelection: the kernel's retry after a failed final select.
+        answerApplicationSelection();
+    }
+
+    /**
+     * The cardholder's choice among the kernel's candidates ({@link TransactionState#candidates}),
+     * answered to {@link #onWaitAppSelect}'s {@code askStep}: index 0 with nothing to choose
+     * between, else the dialog's choice.
+     */
+    private void answerApplicationSelection() {
+        List<CandidateAID> candList = tx.candidates;
+        requireEngine().notifyTransactionStep(
+                TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
+        if (!showsAppSelectDialog(candList)) {
+            // Nothing for the cardholder to choose between — index 0 either selects the card's
+            // only application, or (candList empty/null) is the safe default the kernel expects.
+            answerStep(EmvConstant.ContactCallbackStatus.CONTACT_OK);
+            return;
+        }
+        answerStep(new AppSelectDialog(candList).selectBlocking());
+    }
+
+    /**
+     * Debug builds always show the dialog, even for a single candidate, so it can be exercised on
+     * any test card instead of needing a real dual-AID one — never in release, where a lone
+     * application should keep auto-selecting with no extra tap.
+     */
+    private static boolean showsAppSelectDialog(@Nullable List<CandidateAID> candList) {
+        int candidates = candList == null ? 0 : candList.size();
+        return candidates >= 2 || (BuildConfig.DEBUG && candidates >= 1);
     }
 
     @Override
@@ -1592,24 +1628,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [SHARED — same method satisfies both IContactCallback and IContactlessCallback]
     @Override
     public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
+        // The kernel waits on the choice: the step method makes it (answerApplicationSelection).
+        // Fail closed: a cancelled or ended transaction answers USER_CANCEL, never a hang.
+        tx.candidates = candList;
         int candidates = candList == null ? 0 : candList.size();
-        // Debug builds always show the dialog, even for a single candidate, so it can be
-        // exercised on any test card instead of needing a real dual-AID one — never in release,
-        // where a lone application should keep auto-selecting with no extra tap.
-        boolean showDialog = candidates >= 2 || (BuildConfig.DEBUG && candidates >= 1);
-        goToStep(isFirstSelect
+        return askStep(isFirstSelect
                         ? EmvStep.WAIT_APPLICATION_SELECTION
                         : EmvStep.FINAL_APPLICATION_SELECTION,
-                candidates + " candidate AID(s)" + (showDialog ? "" : ", selecting first"));
-        requireEngine().notifyTransactionStep(
-                TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
-
-        if (!showDialog) {
-            // Nothing for the cardholder to choose between — index 0 either selects the card's
-            // only application, or (candList empty/null) is the safe default the kernel expects.
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        }
-        return new AppSelectDialog(candList).selectBlocking();
+                candidates + " candidate AID(s)"
+                        + (showsAppSelectDialog(candList) ? "" : ", selecting first"),
+                EmvConstant.ContactCallbackStatus.USER_CANCEL);
     }
 
     // [CONTACT]
