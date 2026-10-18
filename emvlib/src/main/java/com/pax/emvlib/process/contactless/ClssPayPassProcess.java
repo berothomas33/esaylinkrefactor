@@ -126,12 +126,18 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
     }
 
     /**
-     * Vendor SDK limitation: PayPass's native API doesn't expose offline data authentication as
-     * its own call — it's bundled inside {@link #startTransProcess()}'s
-     * {@code Clss_TransProc_MC_MChip}/{@code Clss_TransProc_MC_Mag} call. Nothing to do here.
+     * EMV "Offline Data Authentication", the part PayPass's SDK lets the terminal do: load the
+     * card's CA public key and revocation list (M/Chip only, as before). The authentication
+     * itself runs inside {@link #startTransProcess()}'s {@code Clss_TransProc_MC_MChip} — PayPass
+     * has no call of its own for it — right after this, with nothing in between.
      */
     @Override
     public TransResult offlineDataAuthentication() {
+        if (transactionPath.path == TransactionPath.CLSS_MC_MCHIP) {
+            ClssPassApi.Clss_DelAllRevocList_MC_MChip();
+            ClssPassApi.Clss_DelAllCAPK_MC_MChip();
+            addCapkRevList();
+        }
         return new TransResult(RetCode.EMV_OK);
     }
 
@@ -274,12 +280,8 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
         return transResult;
     }
 
+    /** CAPK and revocation list were loaded by {@link #offlineDataAuthentication()}. */
     private int processMChip(ACType acType) {
-        ClssPassApi.Clss_DelAllRevocList_MC_MChip();
-        ClssPassApi.Clss_DelAllCAPK_MC_MChip();
-        addCapkRevList();
-
-
         int ret = ClssPassApi.Clss_TransProc_MC_MChip(acType);
         LogUtils.d(TAG, "Clss_TransProc_MC_MChip = " + ret + "  ACType = " + acType.type);
         if (enableDebugLog) {
