@@ -187,6 +187,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         @Nullable
         PaxPinPad activePinPad;
 
+        /** What {@link PaxEmvBehavior#onCardHolderPwd} is asking, while it waits for the PIN step. */
+        @Nullable
+        PinRequest pinRequest;
+
         /** The kernel's candidate list from {@link PaxEmvBehavior#onWaitAppSelect}, for its step. */
         @Nullable
         List<CandidateAID> candidates;
@@ -441,13 +445,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onCardholderVerification(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // See IContactCallback#onCardHolderPwd below.
+        // Asked by onCardHolderPwd below for an online PIN; for an offline PIN this step only
+        // announces CVM and OFFLINE_PIN_VERIFICATION is the one asked.
+        PinRequest request = tx.pinRequest;
+        if (request != null && request.online) {
+            answerStep(enterPin(request));
+        }
     }
 
     @Override
     public void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // See IContactCallback#onCardHolderPwd below.
+        // Asked by onCardHolderPwd below for an offline PIN: show the pad, answer CONTACT_OK —
+        // the kernel then verifies the PIN with the card itself.
+        PinRequest request = tx.pinRequest;
+        if (request != null && !request.online) {
+            answerStep(enterPin(request));
+        }
     }
 
     @Override
@@ -1658,10 +1672,44 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
             byte[] pinData) {
-        goToStep(EmvStep.CARDHOLDER_VERIFICATION, isOnlinePin ? "online PIN" : "PIN");
-        if (!isOnlinePin) {
-            goToStep(EmvStep.OFFLINE_PIN_VERIFICATION, null);
+        // The kernel (contact) or startContactlessTransProcess waits on the PIN: the step method
+        // collects it (enterPin) and answers. Fail closed: a cancelled or ended transaction
+        // answers USER_CANCEL, never a hang.
+        tx.pinRequest = new PinRequest(isOnlinePin, supportPINByPass, leftTimes);
+        try {
+            if (isOnlinePin) {
+                return askStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN",
+                        EmvConstant.ContactCallbackStatus.USER_CANCEL);
+            }
+            goToStep(EmvStep.CARDHOLDER_VERIFICATION, "PIN");
+            return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
+                    EmvConstant.ContactCallbackStatus.USER_CANCEL);
+        } finally {
+            tx.pinRequest = null;
         }
+    }
+
+    /** What {@link #onCardHolderPwd} was asked, for the step method that collects the PIN. */
+    private static final class PinRequest {
+        final boolean online;
+        final boolean supportPinBypass;
+        final int leftTimes;
+
+        PinRequest(boolean online, boolean supportPinBypass, int leftTimes) {
+            this.online = online;
+            this.supportPinBypass = supportPinBypass;
+            this.leftTimes = leftTimes;
+        }
+    }
+
+    /**
+     * The PIN step's work, answered to {@link #onCardHolderPwd}'s {@code askStep}: online PIN
+     * from {@link #onCardholderVerification}, offline PIN from {@link #onOfflinePinVerification}.
+     */
+    private int enterPin(PinRequest request) {
+        boolean isOnlinePin = request.online;
+        boolean supportPINByPass = request.supportPinBypass;
+        int leftTimes = request.leftTimes;
         requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
                 TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
