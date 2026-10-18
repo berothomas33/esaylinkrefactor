@@ -135,6 +135,15 @@ public abstract class ClssKernelProcess<T extends BaseParam<? extends BaseAid>> 
     //if need second tap, call this
     public abstract TransResult completeTransProcess(IssuerRspData issuerRspData);
 
+    /**
+     * EMV "Issuer Script Processing", after a successful {@link #completeTransProcess}, for a
+     * kernel whose SDK runs the scripts as their own call (PayWave). The default does nothing:
+     * the other kernels run them inside {@link #completeTransProcess}.
+     */
+    public TransResult issuerScriptProcessing(IssuerRspData issuerRspData) {
+        return new TransResult(RetCode.EMV_OK);
+    }
+
     public abstract int getTlv(int tag, ByteArray value);
 
     public abstract int setTlv(int tag, byte[] value);

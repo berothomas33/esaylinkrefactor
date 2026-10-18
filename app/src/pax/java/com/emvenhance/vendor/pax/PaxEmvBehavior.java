@@ -205,6 +205,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         @Nullable
         OnlineResultWrapper issuerResponse;
 
+        /** The issuer's scripts waiting for {@link PaxEmvBehavior#onScriptProcessing} (contactless). */
+        @Nullable
+        IssuerRspData pendingScripts;
+
+        /** SCRIPT_PROCESSING already ran in its own step: completeApproved doesn't announce it. */
+        boolean scriptsProcessed;
+
         /** What {@link PaxEmvBehavior#onCardHolderPwd} is asking, while it waits for the PIN step. */
         @Nullable
         PinRequest pinRequest;
@@ -523,7 +530,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onScriptProcessing(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Kernel-internal — published from completeApproved(); the kernel already applied them.
+        // Contactless 2nd tap: asked by runIssuerScriptProcessing — the kernel's script call
+        // (PayWave's Clss_IssScriptProc_Wave). Contact: EMVCompleteTrans already applied them,
+        // and completeApproved() announces the step with nothing to run.
+        if (tx.pendingScripts != null) {
+            processIssuerScripts();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -903,9 +915,35 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (needSecondTap) {
             onDetect2ndTap();
             tx.clsTransResult = kernel.contactless.completeTransProcess(issuerRspData);
+            if (tx.clsTransResult.getResultCode() == RetCode.EMV_OK) {
+                runIssuerScriptProcessing(issuerRspData);
+            }
         } else {
             tx.clsTransResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
         }
+    }
+
+    /**
+     * SCRIPT_PROCESSING after a contactless 2nd tap's issuer authentication:
+     * {@link #onScriptProcessing} runs the kernel's script call. If the step doesn't run (the
+     * transaction was cancelled meanwhile), the scripts still run here, as they did when they
+     * were part of the completion call.
+     */
+    private void runIssuerScriptProcessing(IssuerRspData issuerRspData) {
+        tx.pendingScripts = issuerRspData;
+        tx.scriptsProcessed = true;
+        goToStep(EmvStep.SCRIPT_PROCESSING, null);
+        if (tx.pendingScripts != null) {
+            requireEngine().apduTrace().note("EMV",
+                    "script processing step did not run — running the scripts anyway");
+            processIssuerScripts();
+        }
+    }
+
+    private void processIssuerScripts() {
+        IssuerRspData issuerRspData = tx.pendingScripts;
+        tx.pendingScripts = null;
+        tx.clsTransResult = kernel.contactless.issuerScriptProcessing(issuerRspData);
     }
 
     /**
@@ -2315,7 +2353,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Helpers ─────────────────────────────────────────────────────────
 
     private void completeApproved(String result, boolean scripts) {
-        if (scripts) {
+        if (scripts && !tx.scriptsProcessed) {
             goToStep(EmvStep.SCRIPT_PROCESSING, null);
         }
         finishWithOutcome(TransactionStep.APPROVED, result, result);

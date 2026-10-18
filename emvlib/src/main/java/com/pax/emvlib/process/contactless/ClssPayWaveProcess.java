@@ -470,7 +470,17 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
                 return new TransResult(ret, TransResultEnum.RESULT_ONLINE_CARD_DENIED, CvmResultEnum.CVM_NO_CVM);
             }
         }
+        return new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
+    }
 
+    /**
+     * EMV "Issuer Script Processing" (Clss_IssScriptProc_Wave), right after
+     * {@link #completeTransProcess}'s issuer authentication, then the remove-card prompt — the
+     * same calls, in the same order, as when both ran in one method.
+     */
+    @Override
+    public TransResult issuerScriptProcessing(IssuerRspData issuerRspData) {
+        int ret;
         if(issuerRspData.getScript() != null && issuerRspData.getScript().length != 0) {
             ret = ClssWaveApi.Clss_IssScriptProc_Wave(issuerRspData.getScript(), issuerRspData.getScript().length);
             LogUtils.d(TAG, "Clss_IssScriptProc_Wave = " + ret);

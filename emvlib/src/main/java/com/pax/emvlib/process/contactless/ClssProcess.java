@@ -278,6 +278,14 @@ public class ClssProcess extends EmvBase {
         return clssKernelProcess.completeTransProcess(issuerRspData);
     }
 
+    /** Issuer script processing, after {@link #completeTransProcess} — see the kernel's doc. */
+    public TransResult issuerScriptProcessing(IssuerRspData issuerRspData) {
+        if (clssKernelProcess == null) {
+            return noKernelSelectedResult("issuerScriptProcessing");
+        }
+        return clssKernelProcess.issuerScriptProcessing(issuerRspData);
+    }
+
     @Override
     public byte[] getTlv(int tag) {
         ByteArray value = new ByteArray();
