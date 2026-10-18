@@ -140,6 +140,56 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         enterStep(step, detail);
     }
 
+    /**
+     * For a kernel callback that waits on an answer from the cardholder (application selection,
+     * PIN entry): publishes {@code step} like {@link #goToStep}, and returns what that step's
+     * {@code onXxx} method gave to {@link #answerStep} — the step method does the UI work, the
+     * callback only hands its answer back to the kernel.
+     *
+     * <p>Works because the step method runs before {@code goToStep} returns (see
+     * {@link EmvStepObserver}). If it doesn't answer — the transaction ended or was cancelled so
+     * nothing ran, the method threw, or it simply never called {@link #answerStep} — this returns
+     * {@code failClosed} and notes it in the APDU trace: the kernel always gets an answer and
+     * never waits forever.
+     */
+    protected final int askStep(EmvStep step, @Nullable String detail, int failClosed) {
+        StepAnswer outer = stepAnswer;
+        StepAnswer answer = new StepAnswer();
+        stepAnswer = answer;
+        try {
+            goToStep(step, detail);
+        } finally {
+            stepAnswer = outer;
+        }
+        if (!answer.answered) {
+            if (engine != null) {
+                engine.apduTrace().note("EMV", "no answer for " + step.getTitle()
+                        + " — answering " + failClosed);
+            }
+            return failClosed;
+        }
+        return answer.value;
+    }
+
+    /** The answer to the {@link #askStep} running this step method. */
+    protected final void answerStep(int value) {
+        if (stepAnswer == null) {
+            // Not asked: a plain goToStep (or no step at all) has no one waiting on an answer.
+            return;
+        }
+        stepAnswer.value = value;
+        stepAnswer.answered = true;
+    }
+
+    /** The answer the innermost {@link #askStep} is waiting for; null when nobody is asking. */
+    @Nullable
+    private StepAnswer stepAnswer;
+
+    private static final class StepAnswer {
+        int value;
+        boolean answered;
+    }
+
     protected final void finishApproved(String message) {
         if (engine == null) {
             return;
