@@ -1,6 +1,7 @@
 package com.emvenhance.core.terminal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -104,12 +105,14 @@ public class PosTerminalHostTest {
         AtomicInteger inFlight = new AtomicInteger();
         AtomicInteger maxInFlight = new AtomicInteger();
         List<String> order = new CopyOnWriteArrayList<>();
+        List<Thread> threads = new CopyOnWriteArrayList<>();
         CountDownLatch allPrinted = new CountDownLatch(3);
         TestTerminal terminal = new TestTerminal(config -> Single.never(),
                 lines -> Completable.fromAction(() -> {
                     maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
                     Thread.sleep(50); // a real printer is slow
-                    order.add(lines.get(0) + " on " + Thread.currentThread().getName());
+                    order.add(lines.get(0));
+                    threads.add(Thread.currentThread());
                     inFlight.decrementAndGet();
                     allPrinted.countDown();
                 }));
@@ -120,8 +123,10 @@ public class PosTerminalHostTest {
 
         assertTrue("not all printed", allPrinted.await(5, TimeUnit.SECONDS));
         assertEquals("printer driven from two threads at once", 1, maxInFlight.get());
-        assertEquals(Arrays.asList("first on PosTerminal-print", "second on PosTerminal-print",
-                "third on PosTerminal-print"), order);
+        assertEquals(Arrays.asList("first", "second", "third"), order);
+        assertSame("one print thread", threads.get(0), threads.get(1));
+        assertSame("one print thread", threads.get(1), threads.get(2));
+        assertNotSame("not the caller's thread", Thread.currentThread(), threads.get(0));
     }
 
     private final class TestTerminal extends PosTerminal {

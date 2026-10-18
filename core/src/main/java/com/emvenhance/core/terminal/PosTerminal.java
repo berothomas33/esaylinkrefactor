@@ -59,12 +59,8 @@ public abstract class PosTerminal {
      * asked for — two quick taps on Print queue the second receipt instead of driving the printer
      * from two threads at once.
      */
-    private final Scheduler printScheduler = Schedulers.from(
-            Executors.newSingleThreadExecutor(runnable -> {
-                Thread thread = new Thread(runnable, "PosTerminal-print");
-                thread.setDaemon(true);
-                return thread;
-            }));
+    private final Scheduler printScheduler =
+            Schedulers.from(Executors.newSingleThreadExecutor());
 
     /**
      * The transaction on {@link #transactionScheduler}, from its accepted start until it is done
