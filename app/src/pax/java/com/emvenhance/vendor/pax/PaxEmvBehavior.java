@@ -188,6 +188,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         @Nullable
         PaxPinPad activePinPad;
 
+        /**
+         * How a chip/contactless transaction ends, decided by checkContactResult /
+         * checkContactlessResult and reported by {@link PaxEmvBehavior#onTransactionCompletion}.
+         */
+        @Nullable
+        Outcome outcome;
+
         /** What {@link PaxEmvBehavior#onCardHolderPwd} is asking, while it waits for the PIN step. */
         @Nullable
         PinRequest pinRequest;
@@ -335,7 +342,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             return;
         }
-        // Chip/CLSS: result listeners call completeApproved / completeDeclined.
+        // Chip/CLSS: the outcome checkContactResult / checkContactlessResult decided
+        // (finishWithOutcome) — reported here, in its own step.
+        Outcome outcome = tx.outcome;
+        tx.outcome = null;
+        if (outcome != null) {
+            reportOutcome(outcome);
+        }
     }
 
     // Chip: reached via goToStep from the previous run* stage — dispatchStepMethod invokes
@@ -2111,8 +2124,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void offlineApproved(boolean needSignature) {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
         requireEngine().apduTrace().note("EMV", "offline approval without the host — online failed");
-        goToStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
-        finishError("Online Failed: not sent to the host");
+        finishWithOutcome(TransactionStep.ERROR, "Online Failed",
+                "Online Failed: not sent to the host");
     }
 
     // [SHARED — 2-arg overload; contact's checkContactResult() calls this one specifically]
@@ -2142,8 +2155,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         String reason = tx.lastAuth != null && tx.lastAuth.isFailed() && tx.lastAuth.getMessage() != null
                 ? "Online Failed: " + tx.lastAuth.getMessage()
                 : "Online Failed: no host response";
-        goToStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed");
-        finishError(reason);
+        finishWithOutcome(TransactionStep.ERROR, "Online Failed", reason);
     }
 
     // [SHARED]
@@ -2218,17 +2230,52 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (scripts) {
             goToStep(EmvStep.SCRIPT_PROCESSING, null);
         }
-        goToStep(EmvStep.TRANSACTION_COMPLETION, result);
-        requireEngine().notifyTransactionStep(
-                buildOutcomeEvent(TransactionStep.APPROVED, TransactionStepEvent.KEY_RESULT, result));
-        requireEngine().notifyCompleted();
+        finishWithOutcome(TransactionStep.APPROVED, result, result);
     }
 
     private void completeDeclined(String reason) {
-        goToStep(EmvStep.TRANSACTION_COMPLETION, reason);
-        requireEngine().notifyTransactionStep(
-                buildOutcomeEvent(TransactionStep.DECLINED, TransactionStepEvent.KEY_ERROR, reason));
-        requireEngine().notifyCompleted();
+        finishWithOutcome(TransactionStep.DECLINED, reason, reason);
+    }
+
+    /** A chip/contactless transaction's end: APPROVED, DECLINED or ERROR, and its message. */
+    private static final class Outcome {
+        final TransactionStep step;
+        final String message;
+
+        Outcome(TransactionStep step, String message) {
+            this.step = step;
+            this.message = message;
+        }
+    }
+
+    /**
+     * Ends a chip/contactless transaction through its TRANSACTION_COMPLETION step:
+     * {@link #onTransactionCompletion} reports the outcome. A transaction that has already ended
+     * (an error earlier in the chain) drops the step, so it never reports a second outcome.
+     */
+    private void finishWithOutcome(TransactionStep step, String stepDetail, String message) {
+        tx.outcome = new Outcome(step, message);
+        goToStep(EmvStep.TRANSACTION_COMPLETION, stepDetail);
+        tx.outcome = null;
+    }
+
+    private void reportOutcome(Outcome outcome) {
+        EmvEngine eng = requireEngine();
+        switch (outcome.step) {
+            case APPROVED:
+                eng.notifyTransactionStep(buildOutcomeEvent(TransactionStep.APPROVED,
+                        TransactionStepEvent.KEY_RESULT, outcome.message));
+                eng.notifyCompleted();
+                break;
+            case DECLINED:
+                eng.notifyTransactionStep(buildOutcomeEvent(TransactionStep.DECLINED,
+                        TransactionStepEvent.KEY_ERROR, outcome.message));
+                eng.notifyCompleted();
+                break;
+            default:
+                finishError(outcome.message);
+                break;
+        }
     }
 
     /**
