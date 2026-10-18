@@ -341,7 +341,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             runContactCardAuth();
         }
         if (card.isContactless()) {
-            // Reached via runContactlessReadAppData's goToStep(OFFLINE_DATA_AUTHENTICATION).
+            // Reached via runContactlessReadAppData's goToStep(OFFLINE_DATA_AUTHENTICATION), or
+            // for PayWave via runContactlessProcessRestrictions' (its kernel's order).
             runContactlessCardAuth();
         }
     }
@@ -356,8 +357,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         if (card.isContactless()) {
             // Reached via runContactlessCardAuth's goToStep(PROCESS_RESTRICTIONS) for a granular
-            // kernel, or directly from runContactlessAppSelect for an atomic one — either way
-            // this is the entry point into runContactlessStartTransaction's bundled call.
+            // kernel (via runContactlessReadAppData's for PayWave, whose restrictions come
+            // before offline data auth), or directly from runContactlessAppSelect for an atomic
+            // one, which goes straight to runContactlessStartTransaction's bundled call.
             runContactlessProcessRestrictions();
         }
     }
@@ -391,7 +393,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // Granular contactless kernels (EFT, PayPass): this stage gives the kernel the
+        // Granular contactless kernels (EFT, PayPass, PayWave): this stage gives the kernel the
         // transaction data, before READ_APPLICATION_DATA's GPO needs it for the PDOL.
         if (card.isContactless() && kernel.contactless.supportsGranularSteps()) {
             runContactlessSetTransactionData();
@@ -473,10 +475,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            // EFT/PayPass expose read/offline-auth/restrictions as their own calls; the other
-            // eight brands' SDKs bundle the whole transaction into one call instead — see
-            // ClssKernelProcess#supportsGranularSteps().
+            // EFT/PayPass/PayWave expose set data/read/offline-auth/restrictions as their own
+            // calls; the other seven brands' SDKs bundle the whole transaction into one call
+            // instead — see ClssKernelProcess#supportsGranularSteps().
             advanceContactlessStage(firstStageAfterAppSelect());
+        }
+    }
+
+    /**
+     * A granular stage that ends the transaction after the card was read (a decline, See Phone,
+     * an error) keeps the same summary — PAN, TVR, TACs/IACs, field 55 — that
+     * {@link #runContactlessStartTransaction} records when the kernel's one call ends it.
+     */
+    private void captureSummaryAfterCardRead() {
+        try {
+            captureTransactionSummary();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "transaction summary failed", e);
         }
     }
 
@@ -569,6 +584,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV read app data failed");
         } finally {
             if (!proceed) {
+                captureSummaryAfterCardRead();
                 finishContactlessStage();
             }
         }
@@ -576,7 +592,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             if (reselected) {
                 advanceContactlessStage(firstStageAfterAppSelect());
             } else {
-                advanceContactlessStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
+                advanceContactlessStage(kernel.contactless.restrictionsBeforeOfflineDataAuth()
+                        ? EmvStep.PROCESS_RESTRICTIONS
+                        : EmvStep.OFFLINE_DATA_AUTHENTICATION);
             }
         }
     }
@@ -612,12 +630,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     ? e.getMessage() : "Contactless EMV offline data authentication failed");
         } finally {
             if (!proceed) {
+                captureSummaryAfterCardRead();
                 finishContactlessStage();
             }
         }
         if (proceed) {
             if (reselected) {
                 advanceContactlessStage(firstStageAfterAppSelect());
+            } else if (kernel.contactless.restrictionsBeforeOfflineDataAuth()) {
+                // PayWave: restrictions already ran — on to the kernel's remaining call.
+                runContactlessStartTransaction();
             } else {
                 advanceContactlessStage(EmvStep.PROCESS_RESTRICTIONS);
             }
@@ -626,8 +648,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /**
      * Processing Restrictions stage — reached via {@link #onProcessRestrictions}'s contactless
-     * branch. A granular kernel (EFT, PayPass) runs {@code process.processRestrictions()} here;
-     * an atomic kernel arrives here directly from {@link #runContactlessAppSelect} — its SDK has
+     * branch. A granular kernel (EFT, PayPass, PayWave) runs
+     * {@code process.processRestrictions()} here; an atomic kernel arrives here directly from {@link #runContactlessAppSelect} — its SDK has
      * no call for this phase — and skips straight to {@link #runContactlessStartTransaction},
      * the same way mag/manual skip straight to {@link EmvStep#START_ONLINE_PROCESS} on the
      * contact side.
@@ -663,12 +685,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     ? e.getMessage() : "Contactless EMV processing restrictions failed");
         } finally {
             if (!proceed) {
+                captureSummaryAfterCardRead();
                 finishContactlessStage();
             }
         }
         if (proceed) {
             if (reselected) {
                 advanceContactlessStage(firstStageAfterAppSelect());
+            } else if (kernel.contactless.restrictionsBeforeOfflineDataAuth()) {
+                // PayWave: offline data authentication comes after restrictions.
+                advanceContactlessStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
             } else {
                 runContactlessStartTransaction();
             }
@@ -722,7 +748,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         int resultCode = tx.clsTransResult.getResultCode();
         TransResultEnum transResultEnum = tx.clsTransResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
-            // PayPass/PayWave (and the other bundled kernels) read the card inside this call: a
+            // PayPass and the bundled kernels exchange with the card inside this call: a
             // card pulled away mid-exchange lands here as ICC_CMD_ERR. Nothing has gone online
             // yet, so it's a tap-again, not a decline.
             markTryAgainOnCommunicationError(resultCode);
@@ -823,8 +849,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * mid-exchange (a tap too short) — is recorded as "try again" rather than the offline decline
      * {@code ClssProcess} reports for it, as EMV contactless (Book A) requires: the cardholder is
      * asked to tap again: every contactless stage up to and including the kernel's own
-     * transaction call ({@code startTransProcess} — where PayPass/PayWave read the card), all
-     * before anything is sent to the host. At most {@link #MAX_TAP_RETRIES} times per
+     * transaction call ({@code startTransProcess} — where PayPass and the bundled kernels talk
+     * to the card), all before anything is sent to the host. At most {@link #MAX_TAP_RETRIES} times per
      * transaction, so a card that always fails still ends in a decline.
      */
     private void markTryAgainOnCommunicationError(int ret) {
@@ -1534,7 +1560,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (!kernel.contactless.supportsGranularSteps()) {
             // An atomic kernel read the application data itself, inside its one bundled call:
             // publish the step for the UI and the trace — onReadApplicationData knows not to read
-            // again. A granular kernel (EFT, PayPass) already went through it via
+            // again. A granular kernel (EFT, PayPass, PayWave) already went through it via
             // runContactlessReadAppData(), so publishing it here would be a duplicate.
             goToStep(EmvStep.READ_APPLICATION_DATA, null);
         }
