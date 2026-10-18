@@ -195,6 +195,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         @Nullable
         Outcome outcome;
 
+        /** True while {@link PaxEmvBehavior#startOnlineProcess} waits for the host step. */
+        boolean onlineRequested;
+
+        /**
+         * The host's answer waiting for the card's 2nd GENERATE AC (contact) or the 2nd-tap
+         * check (contactless), run by {@link PaxEmvBehavior#onIssuerAuthentication}.
+         */
+        @Nullable
+        OnlineResultWrapper issuerResponse;
+
         /** What {@link PaxEmvBehavior#onCardHolderPwd} is asking, while it waits for the PIN step. */
         @Nullable
         PinRequest pinRequest;
@@ -325,7 +335,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
-        // Chip/CLSS: startOnlineProcess() kernel callback handles host authorize.
+        // Chip/CLSS: asked by startOnlineProcess() after the 1st GENERATE AC — the host round
+        // trip runs here, in its own step.
+        if (tx.onlineRequested) {
+            tx.lastAuth = authorizeOnline();
+        }
     }
 
     @Override
@@ -498,7 +512,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        // See IContactCallback#startOnlineProcess below.
+        // Asked by runIssuerAuthentication with the host's answer: the card's 2nd GENERATE AC
+        // (contact) or the 2nd-tap check (contactless). Announced with nothing to run when
+        // there is no ARQC to complete, or the host did not approve a contactless sale.
+        if (tx.issuerResponse != null) {
+            completeIssuerAuthentication();
+        }
     }
 
     @Override
@@ -849,33 +868,44 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // complete in those cases, so the host's answer is the outcome.
         if (needsHostWithoutArqc(transResultEnum, resultCode)) {
             noteOnlineWithoutArqc(transResultEnum);
-            tx.clsTransResult = hostOutcome(startOnlineProcess(), cvmResult);
+            OnlineResultWrapper online = startOnlineProcess();
+            announceIssuerAuthentication();
+            tx.clsTransResult = hostOutcome(online, cvmResult);
             return tx.clsTransResult.getResultCode();
         }
         // check whether need goes online
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
             OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
-            IssuerRspData issuerRspData = onlineResultWrapper.getIssuerRspData();
             TransResultEnum onlineTransResultEnum = onlineResultWrapper.getTransResultEnum();
             // handle online result after second GAC
             if (TransResultEnum.RESULT_ONLINE_APPROVED != onlineTransResultEnum) {
+                announceIssuerAuthentication();
                 tx.clsTransResult.setTransResult(onlineTransResultEnum);
                 tx.clsTransResult.setResultCode(onlineTransResultEnum.ordinal());
                 return onlineTransResultEnum.ordinal();
             }
-            boolean needSecondTap = kernel.contactless.isNeedSecondTap(issuerRspData);
-            if (needSecondTap) {
-                onDetect2ndTap();
-                tx.clsTransResult = kernel.contactless.completeTransProcess(issuerRspData);
-            } else {
-                tx.clsTransResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
-            }
+            runIssuerAuthentication(onlineResultWrapper);
             // restore signature
             if (cvmResult == CvmResultEnum.CVM_SIG || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
                 tx.clsTransResult.setCvmResult(CvmResultEnum.CVM_SIG);
             }
         }
         return tx.clsTransResult.getResultCode();
+    }
+
+    /**
+     * Contactless ISSUER_AUTHENTICATION, host approved: when the issuer sent data for the card
+     * (Visa issuer update), the 2nd tap and the kernel's completion; otherwise approved as is.
+     */
+    private void completeContactlessIssuerAuthentication(OnlineResultWrapper onlineResultWrapper) {
+        IssuerRspData issuerRspData = onlineResultWrapper.getIssuerRspData();
+        boolean needSecondTap = kernel.contactless.isNeedSecondTap(issuerRspData);
+        if (needSecondTap) {
+            onDetect2ndTap();
+            tx.clsTransResult = kernel.contactless.completeTransProcess(issuerRspData);
+        } else {
+            tx.clsTransResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_ONLINE_APPROVED, CvmResultEnum.CVM_NO_CVM);
+        }
     }
 
     /**
@@ -1319,44 +1349,54 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // whatever the card answered at 1st GAC — no 2nd GAC, the host's answer is the outcome.
         if (needsHostWithoutArqc(transResultEnum, resultCode)) {
             noteOnlineWithoutArqc(transResultEnum);
-            tx.transResult = hostOutcome(startOnlineProcess(), tx.transResult.getCvmResult());
+            OnlineResultWrapper online = startOnlineProcess();
+            announceIssuerAuthentication();
+            tx.transResult = hostOutcome(online, tx.transResult.getCvmResult());
             return tx.transResult.getResultCode();
         }
         if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
             OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
-            IssuerRspData issuerRspData = onlineResultWrapper.getIssuerRspData();
-            int onlineResultCode = onlineResultWrapper.getResultCode();
             tx.transResult.setResultCode(onlineResultWrapper.getResultCode());
             tx.transResult.setTransResult(onlineResultWrapper.getTransResultEnum());
-            /*
-             * //AET-146
-             * Whatever value it returns from startOnlineProcess(), 2nd GAC should be performed as per EMV Book 3
-             * The right way to fix AET-146 is to map ABORT_TERMINATED to ONLINE_FAILED so that
-             * EMVApi#EMVCompleteTrans will not return -30: emv param error
-             *
-             * should ensure script.length will not throw Null Pointer Exception
-             * If Field 39 responsed from host is not 00, EMVCallback.EMVCompleteTrans will return -11(EMV DENIAL)
-             *
-             * 1st param of EMVApi#EMVCompleteTrans only accept 3 values:
-             * ONLINE_APPROVE, ONLINE_DENIAL, and ONLINE_FAILED,
-             * reference to the API doc of JNI_EMV_LIB_v102
-             */
-            Log.d(TAG, "startContactTransProcess: "+issuerRspData);
-            TransResult secondTransResult = kernel.contact.completeTransProcess(issuerRspData);
-
-            tx.transResult.setResultCode(secondTransResult.getResultCode());
-            if (onlineResultCode == EOnlineResult.APPROVE.getResultCode()) {
-                tx.transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
-                        ? TransResultEnum.RESULT_ONLINE_CARD_DENIED : TransResultEnum.RESULT_ONLINE_APPROVED);
-            } else if (onlineResultCode == EOnlineResult.FAILED.getResultCode()) {
-                tx.transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
-                        ? TransResultEnum.RESULT_ONLINE_FAILED : TransResultEnum.RESULT_ONLINE_FAILED_CARD_APPROVED);
-            } else {
-                tx.transResult.setTransResult(TransResultEnum.RESULT_ONLINE_DENIED);
-            }
-            return secondTransResult.getResultCode();
+            runIssuerAuthentication(onlineResultWrapper);
+            return tx.transResult.getResultCode();
         }
         return 0;
+    }
+
+    /**
+     * Contact ISSUER_AUTHENTICATION: the card's 2nd GENERATE AC (EMVCompleteTrans) with the
+     * host's answer, and the outcome it gives.
+     */
+    private void completeContactIssuerAuthentication(OnlineResultWrapper onlineResultWrapper) {
+        IssuerRspData issuerRspData = onlineResultWrapper.getIssuerRspData();
+        int onlineResultCode = onlineResultWrapper.getResultCode();
+        /*
+         * //AET-146
+         * Whatever value it returns from startOnlineProcess(), 2nd GAC should be performed as per EMV Book 3
+         * The right way to fix AET-146 is to map ABORT_TERMINATED to ONLINE_FAILED so that
+         * EMVApi#EMVCompleteTrans will not return -30: emv param error
+         *
+         * should ensure script.length will not throw Null Pointer Exception
+         * If Field 39 responsed from host is not 00, EMVCallback.EMVCompleteTrans will return -11(EMV DENIAL)
+         *
+         * 1st param of EMVApi#EMVCompleteTrans only accept 3 values:
+         * ONLINE_APPROVE, ONLINE_DENIAL, and ONLINE_FAILED,
+         * reference to the API doc of JNI_EMV_LIB_v102
+         */
+        Log.d(TAG, "startContactTransProcess: "+issuerRspData);
+        TransResult secondTransResult = kernel.contact.completeTransProcess(issuerRspData);
+
+        tx.transResult.setResultCode(secondTransResult.getResultCode());
+        if (onlineResultCode == EOnlineResult.APPROVE.getResultCode()) {
+            tx.transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
+                    ? TransResultEnum.RESULT_ONLINE_CARD_DENIED : TransResultEnum.RESULT_ONLINE_APPROVED);
+        } else if (onlineResultCode == EOnlineResult.FAILED.getResultCode()) {
+            tx.transResult.setTransResult(secondTransResult.getTransResult() != TransResultEnum.RESULT_ONLINE_APPROVED
+                    ? TransResultEnum.RESULT_ONLINE_FAILED : TransResultEnum.RESULT_ONLINE_FAILED_CARD_APPROVED);
+        } else {
+            tx.transResult.setTransResult(TransResultEnum.RESULT_ONLINE_DENIED);
+        }
     }
 
     /** True once a stage has recorded a terminal outcome — no further stage should run. */
@@ -1939,14 +1979,62 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @NonNull
     @Override
     public OnlineResultWrapper startOnlineProcess() {
-        goToStep(EmvStep.START_ONLINE_PROCESS, null);
-        // Right after the 1st GENERATE AC returned the ARQC: field 55 (read through readIccTag)
-        // and the card data (addOnlineRequestData) are attached here, then sent.
-        AuthResult auth = authorizeOnline();
-        tx.lastAuth = auth;
-        goToStep(EmvStep.ISSUER_AUTHENTICATION, auth.isApproved() ? "host approved"
-                : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined");
-        return toOnlineResultWrapper(auth);
+        // Right after the 1st GENERATE AC returned the ARQC: onStartOnlineProcess sends it —
+        // field 55 (read through readIccTag) and the card data (addOnlineRequestData) attached.
+        // Fail closed: if that step doesn't run (the transaction was cancelled), nothing goes
+        // to the host and the answer is online failed.
+        tx.lastAuth = null;
+        tx.onlineRequested = true;
+        try {
+            goToStep(EmvStep.START_ONLINE_PROCESS, null);
+        } finally {
+            tx.onlineRequested = false;
+        }
+        if (tx.lastAuth == null) {
+            requireEngine().apduTrace().note("EMV", "online step did not run — online failed");
+        }
+        return toOnlineResultWrapper(tx.lastAuth);
+    }
+
+    /** How the host answered, for the ISSUER_AUTHENTICATION banner. */
+    private String issuerAuthenticationDetail() {
+        AuthResult auth = tx.lastAuth;
+        if (auth == null) {
+            return "online failed: no host response";
+        }
+        return auth.isApproved() ? "host approved"
+                : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined";
+    }
+
+    /** ISSUER_AUTHENTICATION with nothing for the card to complete (no ARQC, or not approved). */
+    private void announceIssuerAuthentication() {
+        goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail());
+    }
+
+    /**
+     * ISSUER_AUTHENTICATION with the host's answer for the card: {@link #onIssuerAuthentication}
+     * runs the 2nd GENERATE AC (contact) or the 2nd-tap check (contactless). If the step doesn't
+     * run (the transaction was cancelled meanwhile), the card still gets its 2nd GENERATE AC
+     * here, as EMV Book 3 requires whatever the host said (see AET-146 below).
+     */
+    private void runIssuerAuthentication(OnlineResultWrapper online) {
+        tx.issuerResponse = online;
+        goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail());
+        if (tx.issuerResponse != null) {
+            requireEngine().apduTrace().note("EMV",
+                    "issuer authentication step did not run — completing with the card anyway");
+            completeIssuerAuthentication();
+        }
+    }
+
+    private void completeIssuerAuthentication() {
+        OnlineResultWrapper online = tx.issuerResponse;
+        tx.issuerResponse = null;
+        if (activeCard != null && activeCard.isContactless()) {
+            completeContactlessIssuerAuthentication(online);
+        } else {
+            completeContactIssuerAuthentication(online);
+        }
     }
 
     /** Field 55 tags come from whichever PAX kernel ran this card — see {@link #readKernelTlv}. */
