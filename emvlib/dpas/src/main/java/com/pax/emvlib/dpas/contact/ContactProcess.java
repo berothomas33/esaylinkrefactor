@@ -204,8 +204,14 @@ public class ContactProcess extends BaseContactProcess {
         if (ret != RetCode.EMV_OK) {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    @Override
+    public TransResult setTransactionData() {
+        LogUtils.i(TAG, "setTransactionData");
         if (emvProcessListener != null){
-            ret = emvProcessListener.showConfirmCard();
+            int ret = emvProcessListener.showConfirmCard();
             if (ret != RetCode.EMV_OK){//for example,timeout/data_error
                 return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
             }

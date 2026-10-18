@@ -36,10 +36,18 @@ public abstract class BaseContactProcess extends EmvBase {
     public abstract TransResult selectApplication();
 
     /**
-     * Read application data (+ confirm-card callback). Must be called, and must succeed, after
-     * {@link #selectApplication()} and before {@link #cardAuthentication()}.
+     * Read application data (EMVReadAppData). Must be called, and must succeed, after
+     * {@link #selectApplication()} and before {@link #setTransactionData()}.
      */
     public abstract TransResult readApplicationData();
+
+    /**
+     * EMV "Set Transaction Data" for the contact kernel: the confirm-card callback and the
+     * transaction-type tag. Must be called, and must succeed, after
+     * {@link #readApplicationData()} and before {@link #cardAuthentication()} — the contact
+     * kernel takes the transaction data after reading the card.
+     */
+    public abstract TransResult setTransactionData();
 
     /**
      * CAPK lookup + card authentication (EMVCardAuth). Must be called, and must succeed with

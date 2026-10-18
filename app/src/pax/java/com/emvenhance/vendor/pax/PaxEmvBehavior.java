@@ -73,7 +73,8 @@ import java.util.Locale;
  *   <li>Chip: {@link #onApplicationSelection} drives the PAX kernel one native call at a time,
  *       through the very same {@link #goToStep} engine that drives mag/manual — each stage's
  *       run* method ({@link #runContactAppSelect} → {@link #runContactReadAppData} →
- *       {@link #runContactCardAuth} → {@link #runContactStartTransaction}) advances by calling
+ *       {@link #runContactSetTransactionData} → {@link #runContactCardAuth} →
+ *       {@link #runContactStartTransaction}) advances by calling
  *       {@code goToStep(EmvStep.NEXT)} rather than the next run* method directly, so
  *       {@code goToStep} both publishes that step on the observable and dispatches to its onXxx
  *       method (e.g. {@link #onReadApplicationData}), which hands straight back to the matching
@@ -84,10 +85,10 @@ import java.util.Locale;
  *       and no dedicated stage of their own (terminal risk management, terminal action analysis
  *       — both folded into {@link #runContactStartTransaction}'s EMVStartTrans call) still can't
  *       be published individually; CVM is only published when the kernel actually asks for it,
- *       via {@code onCardHolderPwd} below. Contactless: {@link #onApplicationSelection} starts
- *       the PAX kernel directly — its native API has no equivalent per-stage entry points, so it
- *       isn't split out, and its steps are published from kernel callbacks (with goToStep, like
- *       every step), their onXxx having nothing left to run.</li>
+ *       via {@code onCardHolderPwd} below. Contactless: a granular kernel (EFT, PayPass,
+ *       PayWave — see {@code ClssKernelProcess#supportsGranularSteps()}) runs the same way, one
+ *       stage per step, in its own kernel's order; an atomic kernel runs in one call and its
+ *       steps are published from kernel callbacks, their onXxx having nothing left to run.</li>
  * </ul>
  *
  * <p><b>Experiment branch:</b> talks to {@link ContactProcess} (emvlib:dpas) directly — no
@@ -345,7 +346,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (card.isChip()) {
-            // Reached via runContactReadAppData's goToStep(OFFLINE_DATA_AUTHENTICATION).
+            // Reached via runContactSetTransactionData's goToStep(OFFLINE_DATA_AUTHENTICATION).
             runContactCardAuth();
         }
         if (card.isContactless()) {
@@ -433,13 +434,18 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
+        if (card.isChip()) {
+            // Reached via runContactReadAppData's goToStep(SET_TRANSACTION_DATA): the contact
+            // kernel takes the data after reading the card.
+            runContactSetTransactionData();
+        }
         // Granular contactless kernels (EFT, PayPass, PayWave): this stage gives the kernel the
         // transaction data, before READ_APPLICATION_DATA's GPO needs it for the PDOL.
         if (card.isContactless() && kernel.contactless.supportsGranularSteps()) {
             runContactlessSetTransactionData();
         }
-        // Contact and atomic contactless kernels take the data inside their own calls; the step
-        // is published from IContactCallback#showConfirmCard / #confirmCard below.
+        // Atomic contactless kernels take the data inside their own call; the step is
+        // published from IContactlessCallback#confirmCard below.
     }
 
     @Override
@@ -1167,6 +1173,40 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
+            advanceContactStage(EmvStep.SET_TRANSACTION_DATA);
+        }
+    }
+
+    /**
+     * Set Transaction Data stage — reached via {@link #onSetTransactionData}'s chip branch,
+     * after READ_APPLICATION_DATA: the contact kernel takes the transaction data after reading
+     * the card (confirm card, 9C).
+     */
+    private void runContactSetTransactionData() {
+        boolean proceed = false;
+        try {
+            if (isCancelled()) {
+                finishError("Transaction cancelled");
+                return;
+            }
+            LogUtils.d(TAG, "============ Contact EMV: Set Transaction Data ============");
+            tx.transResult = kernel.contact.setTransactionData();
+            int ret = tx.transResult.getResultCode();
+            LogUtils.d(TAG, "setTransactionData ret=" + ret);
+            proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
+            if (!proceed) {
+                kernel.contact.registerEmvProcessListener(null);
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contact set transaction data failed", e);
+            finishError(e.getMessage() != null ? e.getMessage()
+                    : "Contact EMV set transaction data failed");
+        } finally {
+            if (!proceed) {
+                finishContactStage();
+            }
+        }
+        if (proceed) {
             advanceContactStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
         }
     }
@@ -1657,7 +1697,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // [CONTACT]
     @Override
     public int showConfirmCard() {
-        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
+        // Called by ContactProcess.setTransactionData(), inside SET_TRANSACTION_DATA's own step.
         EmvEngine eng = requireEngine();
         eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
