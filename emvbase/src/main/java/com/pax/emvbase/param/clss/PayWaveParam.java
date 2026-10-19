@@ -17,6 +17,7 @@
 package com.pax.emvbase.param.clss;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import com.pax.emvbase.param.EmvTransParam;
 import com.pax.emvbase.param.common.Config;
 import java.util.List;
@@ -29,6 +30,8 @@ public class PayWaveParam extends BaseParam<PayWaveAid> {
     // From AID
     private byte[] TTQ;
     private byte securityCapability;
+    @Nullable
+    private byte[] terminalCapability;
     private List<PayWaveInterFloorLimit> interFloorLimitList;
 
     // From Config
@@ -54,6 +57,7 @@ public class PayWaveParam extends BaseParam<PayWaveAid> {
         termType = aid.getTermType();
         TTQ = aid.getTTQ();
         securityCapability = aid.getSecurityCapability();
+        terminalCapability = aid.getTerminalCapability();
         interFloorLimitList = aid.getPayWaveInterFloorLimitList();
         domesticOnly = aid.getDomesticOnly();
         enDDAVerNo = aid.getEnDDAVerNo();
@@ -101,6 +105,12 @@ public class PayWaveParam extends BaseParam<PayWaveAid> {
 
     public byte[] getTTQ() {
         return TTQ;
+    }
+
+    /** Terminal Capabilities (9F33, 3 bytes) from the selected AID; null when not configured. */
+    @Nullable
+    public byte[] getTerminalCapability() {
+        return terminalCapability;
     }
 
     public byte getSecurityCapability() {

@@ -610,6 +610,7 @@ public class EmvParamService {
                 byte[] securityCapability = item.getSecurityCapabilityBytes();
                 payWaveAid.setSecurityCapability(securityCapability != null
                         && securityCapability.length > 0 ? securityCapability[0] : 0);
+                payWaveAid.setTerminalCapability(item.getTerminalCapabilityBytes());
                 payWaveAid.setDomesticOnly(item.getDomesticOnly());
                 payWaveAid.setEnDDAVerNo(item.getEnDDAVerNo());
                 payWaveAid.setPayWaveInterFloorLimitList(convertPaywaveFloorLimit(item.getInterWareFloorLimit()));
