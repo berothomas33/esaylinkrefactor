@@ -58,6 +58,10 @@ public final class EmvParamUpdater {
 
     private static final String TAG = "EmvParamUpdater";
 
+    /** The contact and contactless files of the last download, as kept by saveForDiagnosis. */
+    public static final String CONTACT_FILE = "emv_param.emv";
+    public static final String CONTACTLESS_FILE = "clss_param.clss";
+
     private EmvParamUpdater() {
     }
 
@@ -82,8 +86,8 @@ public final class EmvParamUpdater {
             return result;
         }
 
-        saveForDiagnosis("emv_param.emv", emvXml);
-        saveForDiagnosis("clss_param.clss", clssXml);
+        saveForDiagnosis(CONTACT_FILE, emvXml);
+        saveForDiagnosis(CONTACTLESS_FILE, clssXml);
 
         List<EmvAid> contactAids = null;
         if (emvXml != null) {
@@ -239,7 +243,7 @@ public final class EmvParamUpdater {
             return;
         }
         try {
-            File dir = BaseApplication.getAppContext().getExternalFilesDir("emv_param");
+            File dir = diagnosisDir();
             if (dir == null || (!dir.exists() && !dir.mkdirs())) {
                 return;
             }
@@ -251,6 +255,12 @@ public final class EmvParamUpdater {
         } catch (Exception e) {
             LogUtils.w(TAG, "Couldn't save " + name + " for diagnosis: " + e.getMessage());
         }
+    }
+
+    /** Where saveForDiagnosis keeps the last downloaded files; null when storage is unavailable. */
+    @Nullable
+    public static File diagnosisDir() {
+        return BaseApplication.getAppContext().getExternalFilesDir("emv_param");
     }
 
     private static boolean notEmpty(List<?> list) {
