@@ -69,6 +69,8 @@
     <string name="emv_param_sync_credentials_required">Complete onboarding first</string>
     <string name="emv_param_sync_failed">Download failed: %1$s</string>
     <string name="action_show_downloaded_xml">Downloaded XML</string>
+    <string name="emv_param_cached">In the kernel\'s cache — what the next transaction uses:</string>
+    <string name="emv_param_not_cached">Not in the kernel\'s cache yet (it reloads at the next transaction after a download). Database values:</string>
     <string name="downloaded_xml_missing">No %1$s kept yet: download EMV params first (debug builds keep the last download).</string>
 
     <string name="label_onboarding">Onboarding</string>
