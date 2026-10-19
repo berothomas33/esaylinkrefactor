@@ -4,10 +4,18 @@ import androidx.annotation.Nullable;
 import com.pax.bizentity.BuildConfig;
 import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.AmexDrlDbHelper;
+import com.pax.bizentity.db.helper.BaseDaoHelper;
 import com.pax.bizentity.db.helper.CapkRevokeDbHelper;
+import com.pax.bizentity.db.helper.DpasAidDbHelper;
+import com.pax.bizentity.db.helper.EFTAidDbHelper;
 import com.pax.bizentity.db.helper.GreendaoHelper;
+import com.pax.bizentity.db.helper.JcbAidDbHelper;
+import com.pax.bizentity.db.helper.MirAidDbHelper;
+import com.pax.bizentity.db.helper.PBOCAidDbHelper;
 import com.pax.bizentity.db.helper.PaypassAidDbHelper;
 import com.pax.bizentity.db.helper.PaywaveAidDbHelper;
+import com.pax.bizentity.db.helper.PureAidDbHelper;
+import com.pax.bizentity.db.helper.RupayAidDbHelper;
 import com.pax.bizentity.entity.EmvAid;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
@@ -102,6 +110,7 @@ public final class EmvParamUpdater {
     private static List<EmvAid> applyEmvXml(byte[] xml, EmvParamUpdateResult result) {
         try {
             EmvXmlParamParser.Result parsed = EmvXmlParamParser.parse(new ByteArrayInputStream(xml));
+            result.sectionsIn("emv_param.emv", parsed.sections);
             EmvParamService service = new EmvParamService();
 
             if (!parsed.aids.isEmpty()) {
@@ -136,6 +145,7 @@ public final class EmvParamUpdater {
         try {
             ClssXmlParamParser.Result parsed =
                     ClssXmlParamParser.parse(new ByteArrayInputStream(xml), terminalWide);
+            result.sectionsIn("clss_param.clss", parsed.sections);
             EmvParamService service = new EmvParamService();
 
             if (parsed.payPass != null && notEmpty(parsed.payPass.getAid())) {
@@ -163,10 +173,59 @@ public final class EmvParamUpdater {
                     result.failed("Amex insert failed");
                 }
             }
+            removeKernelsNotInPackage(parsed, result);
         } catch (Exception e) {
             LogUtils.e(TAG, "Failed to parse/apply clss_param.clss", e);
             result.failed("clss_param.clss: " + e.getMessage());
         }
+    }
+
+    /**
+     * The contactless package is the whole truth: a kernel it doesn't bring is deleted, never
+     * left on the bundled JSON seed or an older download. That includes every kernel this
+     * parser has no mapping for yet (DPAS, EFT, JCB, Mir, PBOC, Pure, RuPay) — the result
+     * lists the file's own sections, so a section the host sent but nothing parsed shows up.
+     * A deleted kernel registers no AID with the entry point (ClssEntryAddAid skips an empty
+     * list), so its cards aren't selected contactless.
+     */
+    private static void removeKernelsNotInPackage(ClssXmlParamParser.Result parsed,
+            EmvParamUpdateResult result) {
+        if (parsed.payPass == null || !notEmpty(parsed.payPass.getAid())) {
+            remove("PayPass", result, PaypassAidDbHelper.getInstance());
+        }
+        if (parsed.payWave == null || !notEmpty(parsed.payWave.getAid())) {
+            remove("PayWave", result, PaywaveAidDbHelper.getInstance());
+        }
+        if (parsed.amex == null || !notEmpty(parsed.amex.getAid())) {
+            remove("Amex", result, AmexAidDbHelper.getInstance(), AmexDrlDbHelper.getInstance());
+        }
+        remove("DPAS (no parser)", result, DpasAidDbHelper.getInstance());
+        remove("EFT (no parser)", result, EFTAidDbHelper.getInstance());
+        remove("JCB (no parser)", result, JcbAidDbHelper.getInstance());
+        remove("Mir (no parser)", result, MirAidDbHelper.getInstance());
+        remove("PBOC (no parser)", result, PBOCAidDbHelper.getInstance());
+        remove("Pure (no parser)", result, PureAidDbHelper.getInstance());
+        remove("RuPay (no parser)", result, RupayAidDbHelper.getInstance());
+    }
+
+    /** Deletes the kernel's tables; reported only when there were rows to delete. */
+    private static void remove(String kernel, EmvParamUpdateResult result,
+            BaseDaoHelper<?>... tables) {
+        int rows = 0;
+        for (BaseDaoHelper<?> table : tables) {
+            rows += table.loadAll().size();
+        }
+        if (rows == 0) {
+            return;
+        }
+        for (BaseDaoHelper<?> table : tables) {
+            if (!table.deleteAll()) {
+                result.failed(kernel + ": delete failed");
+                return;
+            }
+        }
+        LogUtils.i(TAG, kernel + ": not in the package — deleted " + rows + " rows");
+        result.removed(kernel, rows);
     }
 
     /**

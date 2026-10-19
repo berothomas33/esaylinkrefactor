@@ -62,12 +62,15 @@ public final class ClssXmlParamParser {
         public final PayWaveParamBean payWave;
         @Nullable
         public final AmexParamBean amex;
+        /** The file's top-level sections as the host sent them, parsed or not. */
+        public final List<String> sections;
 
         Result(@Nullable PayPassParamBean payPass, @Nullable PayWaveParamBean payWave,
-                @Nullable AmexParamBean amex) {
+                @Nullable AmexParamBean amex, List<String> sections) {
             this.payPass = payPass;
             this.payWave = payWave;
             this.amex = amex;
+            this.sections = sections;
         }
     }
 
@@ -93,7 +96,8 @@ public final class ClssXmlParamParser {
         Result result = new Result(
                 payPassEl == null ? null : parsePayPass(payPassEl),
                 payWaveEl == null ? null : parsePayWave(payWaveEl),
-                expressPayEl == null ? null : parseAmex(expressPayEl));
+                expressPayEl == null ? null : parseAmex(expressPayEl),
+                XmlDomUtils.childNames(root));
         if (terminalWide != null) {
             applyTerminalWide(result, terminalWide);
         }

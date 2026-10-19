@@ -67,10 +67,13 @@ public final class EmvXmlParamParser {
     public static final class Result {
         public final List<EmvAid> aids;
         public final CapkParamBean capk;
+        /** The file's top-level sections as the host sent them, parsed or not. */
+        public final List<String> sections;
 
-        Result(List<EmvAid> aids, CapkParamBean capk) {
+        Result(List<EmvAid> aids, CapkParamBean capk, List<String> sections) {
             this.aids = aids;
             this.capk = capk;
+            this.sections = sections;
         }
     }
 
@@ -106,7 +109,7 @@ public final class EmvXmlParamParser {
         }
 
         CapkParamBean capk = parseCapk(root);
-        return new Result(aids, capk);
+        return new Result(aids, capk, XmlDomUtils.childNames(root));
     }
 
     private static EmvAid parseAid(Element aidEl, @Nullable Element ics) {

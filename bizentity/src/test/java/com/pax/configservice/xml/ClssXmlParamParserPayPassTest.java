@@ -19,15 +19,25 @@ import org.junit.Test;
 public class ClssXmlParamParserPayPassTest {
 
     private List<PayPassAidBean> aids;
+    private ClssXmlParamParser.Result result;
 
     @Before
     public void setUp() throws Exception {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("clss_param_paypass.xml")) {
             assertNotNull("test resource missing", in);
-            ClssXmlParamParser.Result result = ClssXmlParamParser.parse(in);
+            result = ClssXmlParamParser.parse(in);
             assertNotNull(result.payPass);
             aids = result.payPass.getAid();
         }
+    }
+
+    @Test
+    public void reportsTheSectionsTheFileHas() {
+        // Only PayPass in this file: every other contactless kernel is one the package didn't
+        // bring, and EmvParamUpdater deletes it.
+        assertEquals(java.util.Collections.singletonList("PAYPASSPARAM"), result.sections);
+        assertNull(result.payWave);
+        assertNull(result.amex);
     }
 
     @Test

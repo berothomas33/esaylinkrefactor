@@ -68,7 +68,8 @@ public class TerminalWideValuesTest {
         visa.setAid("A0000000031010");
         PayWaveParamBean payWave = new PayWaveParamBean();
         payWave.setAid(Collections.singletonList(visa));
-        ClssXmlParamParser.Result result = new ClssXmlParamParser.Result(null, payWave, null);
+        ClssXmlParamParser.Result result = new ClssXmlParamParser.Result(null, payWave, null,
+                java.util.Collections.emptyList());
 
         ClssXmlParamParser.applyTerminalWide(result, new TerminalWideValues(Collections.singletonList(
                 contact("A0000000031010", "22", "E0F8C8", "FF80F0A001"))));

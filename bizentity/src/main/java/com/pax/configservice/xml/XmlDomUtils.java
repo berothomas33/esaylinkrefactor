@@ -109,6 +109,22 @@ final class XmlDomUtils {
         return result;
     }
 
+    /** Every direct child element's tag name, in document order. */
+    static List<String> childNames(@Nullable Element parent) {
+        List<String> names = new ArrayList<>();
+        if (parent == null) {
+            return names;
+        }
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (node.getNodeType() == Node.ELEMENT_NODE) {
+                names.add(node.getNodeName());
+            }
+        }
+        return names;
+    }
+
     /** Trimmed text content of the first direct child element named {@code tag}, or {@code null}. */
     @Nullable
     static String text(@Nullable Element parent, String tag) {
