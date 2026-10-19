@@ -116,8 +116,9 @@ public class EmvParamActivity extends AppCompatActivity {
                         result -> {
                             setSyncBusy(false);
                             paramSyncStatusText.setText(result.summarize());
-                            if (result.isSuccess() && !result.getAppliedSections().isEmpty()) {
-                                // New parameters in the database: the next transaction loads them.
+                            if (result.changedDatabase()) {
+                                // The database changed (rows applied or removed, even if a later
+                                // section failed): the next transaction loads it again.
                                 state.requireTerminalInitialization();
                                 // Refresh whichever category is on screen so an applied download
                                 // shows up immediately instead of waiting for the next tab switch.
