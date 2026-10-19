@@ -1,12 +1,15 @@
 package com.emvenhance.ui;
 
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.emvenhance.BuildConfig;
 import com.emvenhance.R;
 import com.emvenhance.network.HostHeaders;
 import com.emvenhance.network.onboarding.OnboardingClient;
@@ -14,14 +17,22 @@ import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.vendor.pax.PaxEmvParamUpdateService;
 import com.google.android.material.button.MaterialButton;
 import com.pax.configservice.impl.EmvParamUpdateResult;
+import com.pax.configservice.impl.EmvParamUpdater;
 import com.pax.poslib.model.ModelInfo;
 
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /**
  * One category at a time: tap a category button to replace the fragment container with a
@@ -61,6 +72,10 @@ public class EmvParamActivity extends AppCompatActivity {
         paramSyncProgress = findViewById(R.id.paramSyncProgress);
         paramSyncStatusText = findViewById(R.id.paramSyncStatusText);
         btnDownloadEmvParams.setOnClickListener(v -> downloadEmvParams());
+        // Debug builds keep the last downloaded files (EmvParamUpdater.saveForDiagnosis).
+        View btnShowDownloadedXml = findViewById(R.id.btnShowDownloadedXml);
+        btnShowDownloadedXml.setVisibility(BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
+        btnShowDownloadedXml.setOnClickListener(v -> chooseDownloadedXml());
 
         LinearLayout categoryRow = findViewById(R.id.categoryRow);
         for (EmvParamListFragment.Category category : EmvParamListFragment.Category.values()) {
@@ -145,6 +160,56 @@ public class EmvParamActivity extends AppCompatActivity {
         getSupportFragmentManager().beginTransaction()
                 .replace(R.id.fragmentContainer, EmvParamListFragment.newInstance(category))
                 .commit();
+    }
+
+    /** Which of the last download's two files to show. */
+    private void chooseDownloadedXml() {
+        String[] files = {EmvParamUpdater.CONTACT_FILE, EmvParamUpdater.CONTACTLESS_FILE};
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.action_show_downloaded_xml)
+                .setItems(files, (dialog, which) -> showDownloadedXml(files[which]))
+                .show();
+    }
+
+    /** The file as the host sent it, selectable, with where it is on the device. */
+    private void showDownloadedXml(String name) {
+        File dir = EmvParamUpdater.diagnosisDir();
+        File file = dir == null ? null : new File(dir, name);
+        String text;
+        if (file == null || !file.isFile()) {
+            text = getString(R.string.downloaded_xml_missing, name);
+        } else {
+            try {
+                text = file.getAbsolutePath() + "\n\n" + readText(file);
+            } catch (IOException e) {
+                text = file.getAbsolutePath() + "\n\n" + message(e);
+            }
+        }
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextIsSelectable(true);
+        view.setTypeface(Typeface.MONOSPACE);
+        view.setTextSize(11);
+        view.setPadding(dp(16), dp(12), dp(16), dp(12));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(view);
+        new AlertDialog.Builder(this)
+                .setTitle(name)
+                .setView(scroll)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    private static String readText(File file) throws IOException {
+        try (InputStream in = new FileInputStream(file)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        }
     }
 
     private int dp(int value) {

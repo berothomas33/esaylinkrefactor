@@ -39,6 +39,15 @@
                 android:layout_weight="1"
                 android:text="@string/action_download_emv_param" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnShowDownloadedXml"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/action_show_downloaded_xml"
+                android:visibility="gone" />
+
             <ProgressBar
                 android:id="@+id/paramSyncProgress"
                 android:layout_width="wrap_content"
