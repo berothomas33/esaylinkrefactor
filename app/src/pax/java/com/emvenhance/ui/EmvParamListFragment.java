@@ -1,5 +1,6 @@
 package com.emvenhance.ui;
 
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -7,11 +8,15 @@ import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
+import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
+import com.emvenhance.vendor.pax.PaxTerminal;
 import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.DpasAidDbHelper;
 import com.pax.bizentity.db.helper.EFTAidDbHelper;
@@ -35,6 +40,10 @@ import com.pax.bizentity.entity.clss.paywave.PaywaveAidBean;
 import com.pax.bizentity.entity.clss.pboc.PBOCAidBean;
 import com.pax.bizentity.entity.clss.pure.PureAidBean;
 import com.pax.bizentity.entity.clss.rupay.RupayAidBean;
+import com.pax.commonlib.utils.ConvertUtils;
+import com.pax.emvbase.param.EmvProcessParam;
+import com.pax.emvbase.param.clss.BaseAid;
+import com.pax.emvbase.param.clss.BaseParam;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,11 +83,16 @@ public class EmvParamListFragment extends Fragment {
         ListView list = view.findViewById(R.id.list);
         TextView emptyText = view.findViewById(R.id.emptyText);
 
+        List<Object> items = new ArrayList<>();
+        list.setOnItemClickListener((parent, row, position, id) ->
+                showCached(category, items.get(position)));
+
         new Thread(() -> {
             List<String> rows;
             try {
                 rows = new ArrayList<>();
                 for (Object item : category.loader.load()) {
+                    items.add(item);
                     rows.add(category.renderer.render(item));
                 }
             } catch (Exception e) {
@@ -109,6 +123,51 @@ public class EmvParamListFragment extends Fragment {
         }, "EmvParamList-" + category.name()).start();
     }
 
+    /**
+     * What the kernel will use for this row: its entry in the terminal's parameter cache
+     * (PaxTerminal#kernelParams), every field. A row that isn't cached yet — the database
+     * changed since — shows its database values and says so.
+     */
+    private void showCached(Category category, Object item) {
+        PaxTerminal terminal = (PaxTerminal) ((EmvEnhanceApp) requireActivity().getApplication())
+                .getTerminal();
+        new Thread(() -> {
+            String title = category.renderer.render(item);
+            String text;
+            try {
+                Object cached = category.cache.find(terminal.kernelParams(), item);
+                text = cached != null
+                        ? getString(R.string.emv_param_cached) + "\n\n" + ParamDump.describe(cached)
+                        : getString(R.string.emv_param_not_cached) + "\n\n" + ParamDump.describe(item);
+            } catch (Exception e) {
+                text = String.valueOf(e);
+            }
+            String finalText = text;
+            if (!isAdded()) {
+                return;
+            }
+            requireActivity().runOnUiThread(() -> {
+                if (!isAdded()) {
+                    return;
+                }
+                TextView view = new TextView(requireContext());
+                view.setText(finalText);
+                view.setTextIsSelectable(true);
+                view.setTypeface(Typeface.MONOSPACE);
+                view.setTextSize(11);
+                int pad = (int) (12 * getResources().getDisplayMetrics().density);
+                view.setPadding(pad, pad, pad, pad);
+                ScrollView scroll = new ScrollView(requireContext());
+                scroll.addView(view);
+                new AlertDialog.Builder(requireContext())
+                        .setTitle(title)
+                        .setView(scroll)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+            });
+        }, "EmvParamCached-" + category.name()).start();
+    }
+
     private interface Loader {
         List<?> load();
     }
@@ -117,54 +176,107 @@ public class EmvParamListFragment extends Fragment {
         String render(Object item);
     }
 
-    /** One EMV param category: how to load it, and how to render each row. */
+    private interface CacheLookup {
+        @Nullable
+        Object find(EmvProcessParam cache, Object item);
+    }
+
+    /**
+     * One EMV param category: how to load it from the database, how to render each row, and
+     * how to find that row's entry in the kernel's parameter cache (what a transaction uses).
+     */
     public enum Category {
         AID("AID",
                 () -> GreendaoHelper.getEmvAidHelper().loadAll(),
-                item -> row(((EmvAid) item).getAppName(), ((EmvAid) item).getAid())),
+                item -> row(((EmvAid) item).getAppName(), ((EmvAid) item).getAid()),
+                (cache, item) -> find(cache.getEmvAidList(),
+                        aid -> hex(aid.getApplicationID()), ((EmvAid) item).getAid())),
         CAPK("CAPK",
                 () -> GreendaoHelper.getEmvCapkHelper().loadAll(),
-                item -> "RID " + ((EmvCapk) item).getRID() + "   Key " + ((EmvCapk) item).getKeyID()),
+                item -> "RID " + ((EmvCapk) item).getRID() + "   Key " + ((EmvCapk) item).getKeyID(),
+                (cache, item) -> cache.getCapkParam() == null ? null : find(cache.getCapkParam().getCapkList(),
+                        capk -> hex(capk.getRid()) + "/" + (capk.getKeyId() & 0xFF),
+                        ((EmvCapk) item).getRID() + "/" + ((EmvCapk) item).getKeyID())),
         AMEX("Amex",
                 () -> AmexAidDbHelper.getInstance().loadAll(),
-                item -> row(((AmexAidBean) item).getAppName(), ((AmexAidBean) item).getAid())),
+                item -> row(((AmexAidBean) item).getAppName(), ((AmexAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getAmexParam(), ((AmexAidBean) item).getAid())),
         PAYPASS("PayPass",
                 () -> PaypassAidDbHelper.getInstance().loadAll(),
-                item -> row(((PayPassAidBean) item).getAppName(), ((PayPassAidBean) item).getAid())),
+                item -> row(((PayPassAidBean) item).getAppName(), ((PayPassAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getPayPassParam(), ((PayPassAidBean) item).getAid())),
         PAYWAVE("PayWave",
                 () -> PaywaveAidDbHelper.getInstance().loadAll(),
-                item -> row(((PaywaveAidBean) item).getAppName(), ((PaywaveAidBean) item).getAid())),
+                item -> row(((PaywaveAidBean) item).getAppName(), ((PaywaveAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getPayWaveParam(), ((PaywaveAidBean) item).getAid())),
         DPAS("Dpas",
                 () -> DpasAidDbHelper.getInstance().loadAll(),
-                item -> row(((DpasAidBean) item).getAppName(), ((DpasAidBean) item).getAid())),
+                item -> row(((DpasAidBean) item).getAppName(), ((DpasAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getDpasParam(), ((DpasAidBean) item).getAid())),
         EFT("EFT",
                 () -> EFTAidDbHelper.getInstance().loadAll(),
-                item -> row(((EFTAidBean) item).getAppName(), ((EFTAidBean) item).getAid())),
+                item -> row(((EFTAidBean) item).getAppName(), ((EFTAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getEftParam(), ((EFTAidBean) item).getAid())),
         JCB("Jcb",
                 () -> JcbAidDbHelper.getInstance().loadAll(),
-                item -> row(((JcbAidBean) item).getAppName(), ((JcbAidBean) item).getAid())),
+                item -> row(((JcbAidBean) item).getAppName(), ((JcbAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getJcbParam(), ((JcbAidBean) item).getAid())),
         MIR("Mir",
                 () -> MirAidDbHelper.getInstance().loadAll(),
-                item -> row(((MirAidBean) item).getAppName(), ((MirAidBean) item).getAid())),
+                item -> row(((MirAidBean) item).getAppName(), ((MirAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getMirParam(), ((MirAidBean) item).getAid())),
         PBOC("Pboc",
                 () -> PBOCAidDbHelper.getInstance().loadAll(),
-                item -> row(((PBOCAidBean) item).getAppName(), ((PBOCAidBean) item).getAid())),
+                item -> row(((PBOCAidBean) item).getAppName(), ((PBOCAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getPbocParam(), ((PBOCAidBean) item).getAid())),
         PURE("Pure",
                 () -> PureAidDbHelper.getInstance().loadAll(),
-                item -> row(((PureAidBean) item).getAppName(), ((PureAidBean) item).getAid())),
+                item -> row(((PureAidBean) item).getAppName(), ((PureAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getPureParam(), ((PureAidBean) item).getAid())),
         RUPAY("RuPay",
                 () -> RupayAidDbHelper.getInstance().loadAll(),
-                item -> row(((RupayAidBean) item).getAppName(), ((RupayAidBean) item).getAid()));
+                item -> row(((RupayAidBean) item).getAppName(), ((RupayAidBean) item).getAid()),
+                (cache, item) -> clss(cache.getRuPayParam(), ((RupayAidBean) item).getAid()));
 
         public final String label;
         private final Loader loader;
         private final Renderer renderer;
+        private final CacheLookup cache;
 
-        Category(String label, Loader loader, Renderer renderer) {
+        Category(String label, Loader loader, Renderer renderer, CacheLookup cache) {
             this.label = label;
             this.loader = loader;
             this.renderer = renderer;
+            this.cache = cache;
         }
+    }
+
+    /** The cached entry whose key matches {@code key}; null when the cache doesn't have it. */
+    @Nullable
+    private static <T> T find(@Nullable List<T> cached, Key<T> keyOf, @Nullable String key) {
+        if (cached == null || key == null) {
+            return null;
+        }
+        for (T entry : cached) {
+            if (key.equalsIgnoreCase(keyOf.of(entry))) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    /** A contactless kernel's cached AID entry, by AID. */
+    @Nullable
+    private static Object clss(@Nullable BaseParam<? extends BaseAid> param, @Nullable String aid) {
+        return param == null ? null : find(param.getAidList(), entry -> hex(entry.getAid()), aid);
+    }
+
+    private static String hex(@Nullable byte[] bytes) {
+        return bytes == null ? "" : ConvertUtils.bcd2Str(bytes);
+    }
+
+    private interface Key<T> {
+        String of(T entry);
     }
 
     private static String row(String appName, String aid) {

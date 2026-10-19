@@ -24,6 +24,7 @@ import com.pax.dal.exceptions.EPiccDevException;
 import com.pax.dal.exceptions.IccDevException;
 import com.pax.dal.exceptions.MagDevException;
 import com.pax.dal.exceptions.PiccDevException;
+import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.poslib.model.ModelInfo;
 
 /**
@@ -80,6 +81,15 @@ public class PaxTerminal extends PosTerminal {
             PrinterBehavior printer) {
         super(new PaxEmvBehavior(kernel), communication, printer);
         this.kernel = kernel;
+    }
+
+    /**
+     * The EMV parameters the kernel uses — its in-memory cache, loaded from the database once
+     * (see EmvParamService#getCachedEmvParam). For the EMV params screen; call it off the main
+     * thread, since an empty cache loads from the database here.
+     */
+    public EmvProcessParam kernelParams() {
+        return kernel.params.getCachedEmvParam();
     }
 
     @Override
