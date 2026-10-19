@@ -41,6 +41,7 @@ public class PaywaveAidBeanDao extends AbstractDao<PaywaveAidBean, Long> {
         public final static Property DomesticOnly = new Property(11, byte.class, "domesticOnly", false, "DOMESTIC_ONLY");
         public final static Property EnDDAVerNo = new Property(12, byte.class, "enDDAVerNo", false, "EN_DDAVER_NO");
         public final static Property InterWareFloorLimit = new Property(13, String.class, "interWareFloorLimit", false, "FLOOR_LIMITS");
+        public final static Property TerminalCapability = new Property(14, String.class, "terminalCapability", false, "TERMINAL_CAPABILITY");
     }
 
     private final FloorLimitsConverter interWareFloorLimitConverter = new FloorLimitsConverter();
@@ -70,7 +71,8 @@ public class PaywaveAidBeanDao extends AbstractDao<PaywaveAidBean, Long> {
                 "\"SECURITY_CAPABILITY\" TEXT," + // 10: securityCapability
                 "\"DOMESTIC_ONLY\" INTEGER NOT NULL ," + // 11: domesticOnly
                 "\"EN_DDAVER_NO\" INTEGER NOT NULL ," + // 12: enDDAVerNo
-                "\"FLOOR_LIMITS\" TEXT);"); // 13: interWareFloorLimit
+                "\"FLOOR_LIMITS\" TEXT," + // 13: interWareFloorLimit
+                "\"TERMINAL_CAPABILITY\" TEXT);"); // 14: terminalCapability
     }
 
     /** Drops the underlying database table. */
@@ -128,6 +130,11 @@ public class PaywaveAidBeanDao extends AbstractDao<PaywaveAidBean, Long> {
         if (interWareFloorLimit != null) {
             stmt.bindString(14, interWareFloorLimitConverter.convertToDatabaseValue(interWareFloorLimit));
         }
+
+        String terminalCapability = entity.getTerminalCapability();
+        if (terminalCapability != null) {
+            stmt.bindString(15, terminalCapability);
+        }
     }
 
     @Override
@@ -179,6 +186,11 @@ public class PaywaveAidBeanDao extends AbstractDao<PaywaveAidBean, Long> {
         if (interWareFloorLimit != null) {
             stmt.bindString(14, interWareFloorLimitConverter.convertToDatabaseValue(interWareFloorLimit));
         }
+
+        String terminalCapability = entity.getTerminalCapability();
+        if (terminalCapability != null) {
+            stmt.bindString(15, terminalCapability);
+        }
     }
 
     @Override
@@ -202,7 +214,8 @@ public class PaywaveAidBeanDao extends AbstractDao<PaywaveAidBean, Long> {
             cursor.isNull(offset + 10) ? null : cursor.getString(offset + 10), // securityCapability
             (byte) cursor.getShort(offset + 11), // domesticOnly
             (byte) cursor.getShort(offset + 12), // enDDAVerNo
-            cursor.isNull(offset + 13) ? null : interWareFloorLimitConverter.convertToEntityProperty(cursor.getString(offset + 13)) // interWareFloorLimit
+            cursor.isNull(offset + 13) ? null : interWareFloorLimitConverter.convertToEntityProperty(cursor.getString(offset + 13)), // interWareFloorLimit
+            cursor.isNull(offset + 14) ? null : cursor.getString(offset + 14) // terminalCapability
         );
         return entity;
     }
@@ -223,6 +236,7 @@ public class PaywaveAidBeanDao extends AbstractDao<PaywaveAidBean, Long> {
         entity.setDomesticOnly((byte) cursor.getShort(offset + 11));
         entity.setEnDDAVerNo((byte) cursor.getShort(offset + 12));
         entity.setInterWareFloorLimit(cursor.isNull(offset + 13) ? null : interWareFloorLimitConverter.convertToEntityProperty(cursor.getString(offset + 13)));
+        entity.setTerminalCapability(cursor.isNull(offset + 14) ? null : cursor.getString(offset + 14));
      }
     
     @Override

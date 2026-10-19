@@ -66,6 +66,13 @@ public class PaywaveAidBean implements Serializable {
     private byte[] securityCapabilityBytes;
     private byte domesticOnly;
     private byte enDDAVerNo;
+    /**
+     * Terminal Capabilities (9F33, 3 bytes hex) from PAYWAVEPARAM/TERMINALCAPABILITIES:
+     * CardDataInput + CVMSupport + OffDataAuth. Null when the parameters didn't carry it — the
+     * kernel then gets {@link #securityCapability} as byte 3 only, as before.
+     */
+    @Property(nameInDb = "TERMINAL_CAPABILITY")
+    private String terminalCapability;
     // Limits per transaction type (sale, cash, cashback, refund), kept in this row as JSON.
     @Property(nameInDb = "FLOOR_LIMITS")
     @Convert(converter = FloorLimitsConverter.class, columnType = String.class)
@@ -75,7 +82,7 @@ public class PaywaveAidBean implements Serializable {
     public PaywaveAidBean(Long id, String appName, String aid, byte selFlag, String version,
             String terminalType, String ttq, byte crypto17Flag, byte statusCheckFlag,
             byte amountZeroNoAllowed, String securityCapability, byte domesticOnly, byte enDDAVerNo,
-            List<PayWaveInterFloorLimitBean> interWareFloorLimit) {
+            List<PayWaveInterFloorLimitBean> interWareFloorLimit, String terminalCapability) {
         this.id = id;
         this.appName = appName;
         this.aid = aid;
@@ -90,6 +97,7 @@ public class PaywaveAidBean implements Serializable {
         this.domesticOnly = domesticOnly;
         this.enDDAVerNo = enDDAVerNo;
         this.interWareFloorLimit = interWareFloorLimit;
+        this.terminalCapability = terminalCapability;
     }
 
     @Generated(hash = 1155075677)
@@ -249,6 +257,20 @@ public class PaywaveAidBean implements Serializable {
 
     public void setEnDDAVerNo(byte enDDAVerNo) {
         this.enDDAVerNo = enDDAVerNo;
+    }
+
+    public String getTerminalCapability() {
+        return terminalCapability;
+    }
+
+    public void setTerminalCapability(String terminalCapability) {
+        this.terminalCapability = terminalCapability;
+    }
+
+    /** {@link #terminalCapability} as bytes; null when it isn't set. */
+    public byte[] getTerminalCapabilityBytes() {
+        return TextUtils.isEmpty(terminalCapability) ? null
+                : ConvertUtils.strToBcdPaddingLeft(terminalCapability);
     }
 
     public void setInterWareFloorLimit(List<PayWaveInterFloorLimitBean> interWareFloorLimit) {

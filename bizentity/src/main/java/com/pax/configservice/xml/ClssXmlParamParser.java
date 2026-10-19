@@ -240,10 +240,19 @@ public final class ClssXmlParamParser {
     // ─── PayWave (Visa) ────────────────────────────────────────────────────
 
     private static PayWaveParamBean parsePayWave(Element payWaveEl) {
+        // Shared by every Visa AID, like PAYPASSCONFIGURATION for PayPass: Terminal Type (9F35)
+        // and Terminal Capabilities (9F33 = CardDataInput + CVMSupport + OffDataAuth).
+        Element capabilities = XmlDomUtils.firstChild(payWaveEl, "TERMINALCAPABILITIES");
+        String terminalType = XmlDomUtils.text(capabilities, "TermType");
+        String securityCapability = XmlDomUtils.text(capabilities, "OffDataAuth");
+        String terminalCapability = terminalCapability(capabilities);
         Element aidList = XmlDomUtils.firstChild(payWaveEl, "AIDLIST");
         List<PaywaveAidBean> aids = new ArrayList<>();
         for (Element aidEl : XmlDomUtils.children(aidList, "AID")) {
             PaywaveAidBean aid = parsePayWaveAid(aidEl);
+            aid.setTerminalType(terminalType);
+            aid.setSecurityCapability(securityCapability);
+            aid.setTerminalCapability(terminalCapability);
             List<PayWaveInterFloorLimitBean> floorLimits = new ArrayList<>();
             Element interWareList = XmlDomUtils.firstChild(aidEl, "INTERWARELIST");
             for (Element entry : XmlDomUtils.children(interWareList, "Inter_WareFloorlimitByTransactionType")) {
@@ -258,6 +267,21 @@ public final class ClssXmlParamParser {
         return bean;
     }
 
+    /**
+     * Terminal Capabilities (9F33): CardDataInput, CVMSupport and OffDataAuth, one byte each in
+     * that order; null unless all three are there.
+     */
+    @Nullable
+    static String terminalCapability(@Nullable Element capabilities) {
+        String cardDataInput = XmlDomUtils.text(capabilities, "CardDataInput");
+        String cvmSupport = XmlDomUtils.text(capabilities, "CVMSupport");
+        String offDataAuth = XmlDomUtils.text(capabilities, "OffDataAuth");
+        if (blank(cardDataInput) || blank(cvmSupport) || blank(offDataAuth)) {
+            return null;
+        }
+        return hexByte(cardDataInput, 1) + hexByte(cvmSupport, 1) + hexByte(offDataAuth, 1);
+    }
+
     private static PaywaveAidBean parsePayWaveAid(Element aidEl) {
         return new PaywaveAidBean(
                 null,
@@ -265,26 +289,35 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.text(aidEl, "ApplicationID", ""),
                 XmlDomUtils.byteOf(aidEl, "PartialAIDSelection", 0),
                 XmlDomUtils.text(aidEl, "TerminalAIDVersion"),
-                null, // terminalType — no source tag per-AID for PayWave
+                null, // terminalType — from TERMINALCAPABILITIES (parsePayWave)
                 XmlDomUtils.text(aidEl, "ReaderTTQ"),
                 XmlDomUtils.byteOf(aidEl, "CryptogramVersion17Supported", 0),
                 XmlDomUtils.byteOf(aidEl, "StatusCheckSupported", 0),
                 XmlDomUtils.byteOf(aidEl, "ZeroAmountNoAllowed", 0),
-                null, // securityCapability — no source tag
+                null, // securityCapability — from TERMINALCAPABILITIES (parsePayWave)
                 (byte) 0, // domesticOnly
                 (byte) 0, // enDDAVerNo
-                null); // interWareFloorLimit — set by parsePayWave from INTERWARELIST
+                null, // interWareFloorLimit — set by parsePayWave from INTERWARELIST
+                null); // terminalCapability — from TERMINALCAPABILITIES (parsePayWave)
     }
 
+    /**
+     * The reader's limits for one transaction type. The floor limit is the contactless one
+     * (ContactlessFloorLimit / ContactlessFloorLimitSupported); a file without those tags falls
+     * back to TerminalFloorLimit / TerminalFloorLimitSupported, which this used before.
+     */
     private static PayWaveInterFloorLimitBean parsePayWaveFloorLimit(Element entry) {
+        boolean contactlessFloor = XmlDomUtils.text(entry, "ContactlessFloorLimit") != null;
         return new PayWaveInterFloorLimitBean(
                 (byte) hexToInt(XmlDomUtils.text(entry, "TransactionType", "00")),
-                XmlDomUtils.longOf(entry, "TerminalFloorLimit", 0),
+                XmlDomUtils.longOf(entry,
+                        contactlessFloor ? "ContactlessFloorLimit" : "TerminalFloorLimit", 0),
                 XmlDomUtils.longOf(entry, "ContactlessTransactionLimit", 0),
                 XmlDomUtils.longOf(entry, "ContactlessCVMLimit", 0),
                 XmlDomUtils.byteOf(entry, "ContactlessTransactionLimitSupported", 0),
                 XmlDomUtils.byteOf(entry, "CVMLimitSupported", 0),
-                XmlDomUtils.byteOf(entry, "TerminalFloorLimitSupported", 0));
+                XmlDomUtils.byteOf(entry, contactlessFloor
+                        ? "ContactlessFloorLimitSupported" : "TerminalFloorLimitSupported", 0));
     }
 
     // ─── Amex ExpressPay ───────────────────────────────────────────────────

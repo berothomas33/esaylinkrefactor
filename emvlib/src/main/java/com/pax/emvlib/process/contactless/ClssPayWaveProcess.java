@@ -93,7 +93,13 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
         readerParam.aucTmTransCur = clssParam.getTransCurrCode();
         readerParam.ucTmTransCurExp = clssParam.getTransCurrExp();
         readerParam.ucTmType = clssParam.getTermType();
-        readerParam.aucTmCap[2] = clssParam.getSecurityCapability();
+        byte[] terminalCapability = clssParam.getTerminalCapability();
+        if (terminalCapability != null && terminalCapability.length == 3) {
+            // 9F33 from PAYWAVEPARAM/TERMINALCAPABILITIES: card data input, CVM, security.
+            System.arraycopy(terminalCapability, 0, readerParam.aucTmCap, 0, 3);
+        } else {
+            readerParam.aucTmCap[2] = clssParam.getSecurityCapability();
+        }
 
         return readerParam;
     }

@@ -34,6 +34,7 @@ public class PayWaveAid extends BaseAid {
 
     //tag 9F33 byte 3, Security Capability
     private byte securityCapability;
+    private byte[] terminalCapability;
     private byte domesticOnly;
     private byte enDDAVerNo;
 
@@ -77,6 +78,15 @@ public class PayWaveAid extends BaseAid {
 
     public void setZeroAmountNoAllowed(byte zeroAmountNoAllowed) {
         this.zeroAmountNoAllowed = zeroAmountNoAllowed;
+    }
+
+    /** Terminal Capabilities (9F33, 3 bytes) for the reader; null when not configured. */
+    public byte[] getTerminalCapability() {
+        return terminalCapability;
+    }
+
+    public void setTerminalCapability(byte[] terminalCapability) {
+        this.terminalCapability = terminalCapability;
     }
 
     public byte getSecurityCapability() {
