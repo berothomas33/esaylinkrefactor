@@ -126,6 +126,11 @@ android {
     lint {
         abortOnError false
     }
+
+    testOptions {
+        // android.util.Log (EmvLog, HostDefaults.logPrinter) returns defaults instead of throwing.
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -150,4 +155,8 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$rootProject.lifecycle"
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:$rootProject.lifecycle"
     implementation "androidx.fragment:fragment-ktx:$rootProject.fragmentKtx"
+
+    // src/testFake: the fake vendor driven end to end through the converted core contract.
+    testImplementation "junit:junit:$rootProject.junit"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:$rootProject.coroutines"
 }
