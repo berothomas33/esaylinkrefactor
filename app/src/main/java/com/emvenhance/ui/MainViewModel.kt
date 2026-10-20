@@ -10,6 +10,7 @@ import com.emvenhance.core.terminal.PosTerminal
 import com.emvenhance.core.terminal.TerminalBusyException
 import com.emvenhance.core.util.ApduTrace
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -19,7 +20,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -36,8 +36,9 @@ import kotlinx.coroutines.launch
 class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
 
     /**
-     * The steps of the transaction this screen started ([acceptCard]), and only those. Replays the
-     * latest one to a screen re-attaching after rotation (as LiveData did). Not a `StateFlow`:
+     * The engine's one transaction-steps stream, from this ViewModel's start on (nothing from
+     * before: the engine replays no step), reset to IDLE by each [acceptCard]. Replays the latest
+     * one to a screen re-attaching after rotation (as LiveData did). Not a `StateFlow`:
      * `APPROVED` and `COMPLETED` arrive back to back and a `StateFlow` could skip `APPROVED`,
      * whose data the result panel shows.
      */
@@ -46,12 +47,6 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
         extraBufferCapacity = 64,
     ).apply { tryEmit(TransactionStepEvent.idle()) }
     val transactionStep: SharedFlow<TransactionStepEvent> = _transactionStep.asSharedFlow()
-
-    /**
-     * Whichever transaction the terminal is on (or ended last), for a status screen that starts
-     * none of its own (`MainActivity`). Replays the latest step.
-     */
-    val terminalStatus: SharedFlow<TransactionStepEvent> = terminal.transactionSteps()
 
     /**
      * EMV steps as they happen; not replayed, so a screen re-attaching after rotation doesn't see
@@ -83,8 +78,16 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
             .stateIn(viewModelScope, SharingStarted.Eagerly, trace.text())
     }
 
+    init {
+        // Unconfined: each step is copied the moment the engine publishes it, on its thread (the
+        // buffer above never waits); the screens read it on the main thread.
+        viewModelScope.launch(Dispatchers.Unconfined) {
+            terminal.transactionSteps().collect { _transactionStep.emit(it) }
+        }
+    }
+
     /**
-     * The transactions this screen collects. Cancelling them cancels this screen's own, never
+     * The transactions this screen started. Cancelling them cancels this screen's own, never
      * another's: a refused (busy) or finished one is already over and a cancel does nothing.
      */
     private val transactions = mutableListOf<Job>()
@@ -94,11 +97,11 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
 
     /**
      * Preferred: accept chip / tap / swipe — vendor terminal decides. Its steps arrive on
-     * [transactionStep]; a refused start (the POS terminal is busy with the previous transaction,
-     * see [PosTerminal.startTransaction]) on [terminalBusy].
+     * [transactionStep] (the engine's one stream); a refused start (the POS terminal is busy
+     * with the previous transaction, see [PosTerminal.startTransaction]) on [terminalBusy].
      *
      * Called on the main thread; the transaction's busy check runs right here, before this
-     * returns (`Main.immediate`, no `flowOn`).
+     * returns (`Main.immediate`, no `withContext`).
      *
      * @param referenceNumber the original sale's reference number, for a refund; else `null`
      */
@@ -106,9 +109,13 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
         // A screen observing from here on sees this transaction only, not the last one's outcome.
         _transactionStep.tryEmit(TransactionStepEvent.idle())
         transactions += viewModelScope.launch {
-            terminal.acceptCard(type, amountMinor, referenceNumber)
-                .catch { error -> onTransactionError(error) }
-                .collect { _transactionStep.emit(it) }
+            try {
+                terminal.acceptCard(type, amountMinor, referenceNumber)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (error: Throwable) {
+                onTransactionError(error)
+            }
         }
     }
 

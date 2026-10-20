@@ -188,8 +188,8 @@ class SearchCardFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch { viewModel.emvStep.collect { emvStepBanner.text = it.toString() } }
-                // Only this screen's own transaction's steps arrive here
-                // (PosTerminal#startTransaction): nothing replayed from the previous one.
+                // Nothing replayed from the previous transaction: the engine replays no step, and
+                // MainViewModel resets to IDLE on each start.
                 launch { viewModel.transactionStep.collect { render(it) } }
                 launch { viewModel.terminalBusy.collect { showBusy(view) } }
                 if (traceText != null) {

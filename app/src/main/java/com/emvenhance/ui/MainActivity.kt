@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch { viewModel.terminalStatus.collect { renderTransactionStep(it) } }
+                launch { viewModel.transactionStep.collect { renderTransactionStep(it) } }
                 launch { viewModel.emvStep.collect { binding.stepText.text = it.toString() } }
             }
         }

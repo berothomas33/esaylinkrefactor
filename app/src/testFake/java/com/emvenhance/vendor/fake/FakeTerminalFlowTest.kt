@@ -7,8 +7,7 @@ import com.emvenhance.core.terminal.TerminalBusyException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -19,22 +18,26 @@ import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * The converted core contract driven end to end by a second vendor: a fake chip sale is one flow
- * of its own steps, from TRANSACTION_STARTED to COMPLETED, that completes once the terminal is
- * free; a second sale while it runs is refused as busy.
+ * The converted core contract driven end to end by a second vendor: a fake chip sale publishes
+ * its steps on the engine's one stream, from TRANSACTION_STARTED to COMPLETED, and returns once
+ * the terminal is free; a second sale while it runs is refused as busy.
  */
 class FakeTerminalFlowTest {
 
     @Test
-    fun aChipSaleRunsEveryStepAndCompletesTheFlow() = runBlocking {
+    fun aChipSaleRunsEveryStepAndReturnsOnceFree() = runBlocking {
         val terminal = FakeTerminal()
+        val steps = CopyOnWriteArrayList<TransactionStep>()
         val emvSteps = CopyOnWriteArrayList<EmvStep>()
-        val handle = terminalEngineSteps(terminal, emvSteps)
+        val handles = listOf(
+            record(terminal.transactionSteps()) { steps.add(it.step) },
+            record(terminal.emvSteps()) { emvSteps.add(it.step) },
+        )
 
-        val steps = withTimeout(10_000) {
-            terminal.acceptCard(TransactionType.SALE, 1000).map { it.step }.toList()
+        withTimeout(10_000) {
+            terminal.acceptCard(TransactionType.SALE, 1000)
         }
-        handle.close()
+        handles.forEach { it.close() }
 
         assertEquals(TransactionStep.TRANSACTION_STARTED, steps.first())
         assertEquals(TransactionStep.COMPLETED, steps.last())
@@ -50,30 +53,36 @@ class FakeTerminalFlowTest {
     @Test
     fun aSecondSaleWhileTheFirstRunsIsRefusedAsBusy() = runBlocking {
         val terminal = FakeTerminal()
-        val first = terminal.acceptCard(TransactionType.SALE, 1000)
-        val firstSteps = CopyOnWriteArrayList<TransactionStep>()
-
-        withTimeout(10_000) {
-            first.collect { event ->
-                firstSteps.add(event.step)
-                if (event.step == TransactionStep.TRANSACTION_STARTED) {
+        val steps = CopyOnWriteArrayList<TransactionStep>()
+        var refused: Throwable? = null
+        // Started from inside a step, so the first sale is certainly still running.
+        val handle = record(terminal.transactionSteps()) { event ->
+            steps.add(event.step)
+            if (event.step == TransactionStep.TRANSACTION_STARTED) {
+                runBlocking {
                     try {
-                        terminal.acceptCard(TransactionType.SALE, 2000).collect { }
+                        terminal.acceptCard(TransactionType.SALE, 2000)
                         fail("the second sale started")
                     } catch (e: TerminalBusyException) {
-                        // expected: refused at once, nothing queued
+                        refused = e // expected: refused at once, nothing queued
                     }
                 }
             }
         }
 
-        assertEquals(TransactionStep.COMPLETED, firstSteps.last())
+        withTimeout(10_000) {
+            terminal.acceptCard(TransactionType.SALE, 1000)
+        }
+        handle.close()
+
+        assertTrue("the second sale was not refused", refused is TerminalBusyException)
+        assertEquals(TransactionStep.COMPLETED, steps.last())
     }
 
-    /** Records every EMV step the engine publishes, through the flow the UI collects. */
-    private fun terminalEngineSteps(terminal: FakeTerminal, into: MutableList<EmvStep>): AutoCloseable {
+    /** Collects `flow` on the publishing thread, from now on. */
+    private fun <T> record(flow: Flow<T>, into: (T) -> Unit): AutoCloseable {
         val job = CoroutineScope(Dispatchers.Unconfined).launch(start = CoroutineStart.UNDISPATCHED) {
-            terminal.emvSteps().collect { into.add(it.step) }
+            flow.collect { into(it) }
         }
         return AutoCloseable { job.cancel() }
     }
