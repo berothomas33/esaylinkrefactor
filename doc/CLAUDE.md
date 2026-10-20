@@ -112,8 +112,8 @@ All start from `4a74277`. Keep shared fixes in sync where they apply.
 | `Finalvision` | 8 | direct | end-of-transaction, contracts, 9F03 fix. Safest. Device-tested (form) |
 | `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
 | `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
-| `rxTransactionDesign` | rxSet + 2 | Rx | rxSet + the transaction as an `Observable` (`ae25378`, **[rxTx]** below), then as a `Completable` (`13e2b02`, pushed later the same day). **Not device-tested** |
-| `coroutineDesign` | rxTx `ae25378` + 5 | direct + Flow | **Kotlin + coroutines**, every phase of `claudekotlin.md` (**[co]** below). Not built with Gradle, **not device-tested** |
+| `rxTransactionDesign` | rxSet + 3 | Rx | rxSet + the transaction as an `Observable` (`ae25378`, **[rxTx]** below), then as a `Completable` (`13e2b02`) with one cancel flag / one steps subject / one end guard (`0bee281`). **Not device-tested** |
+| `coroutineDesign` | rxTx `ae25378` + 9 | direct + Flow | **Kotlin + coroutines**, every phase of `claudekotlin.md`, then `13e2b02` + `0bee281` ported (**[co]** below). Not built with Gradle, **not device-tested** |
 
 Details, commits and the recommended order: `doc/BRANCHES.md`. Mainline not chosen; the
 plan is `rxSetTransactionData` once it passes the form. Old:
@@ -137,7 +137,7 @@ plan is `rxSetTransactionData` once it passes the form. Old:
 - **Cloud container: no Android SDK → no Gradle.** Tests run with javac + JUnit + stub jars;
   vendor code is checked by comparing the javac error set to a baseline (emvlib ≈ 2558 known
   errors) plus a mutation check that the harness sees the file. [co] Kotlin: kotlinc 1.9.22 +
-  JUnit (core 74, network 14 incl. MockWebServer, fake vendor flow 2); app flavors type-checked
+  JUnit (core 75, network 14 incl. MockWebServer, fake vendor flow 2); app flavors type-checked
   against robolectric `android-all` 14 + the PAX module sources/jars + hand-written androidx
   stubs (Google Maven is blocked there) — 0 errors, mutation-checked.
 - Logcat: `EmvLog` (steps), `DeviceImplNeptune` (APDU, debug), `HostComm`, `SaleComm`,
@@ -163,20 +163,25 @@ plan is `rxSetTransactionData` once it passes the form. Old:
   `current == this`). `run()` is not tied to the subscription (always runs, always frees).
   `cancelTransaction()` is gone. `MainViewModel`: `getTransactionStep()` (own sale),
   `getTerminalStatus()` (terminal-wide, `MainActivity`), `getTerminalBusy()`.
-- **[co] coroutineDesign**: `startTransaction(): Flow<TransactionStepEvent>` (callbackFlow +
-  `buffer(UNLIMITED)`): collect = start (busy check on the collector's thread, never `flowOn`),
-  values = this transaction's steps (a synchronous engine listener → `trySend`), completion =
-  terminal free, cancelling the collector = `awaitClose { cancel() }` (guarded). `run()` on a
-  plain single-thread executor (not a coroutine: one cancelled before it starts would never
-  free `current`). `EmvEngine`: synchronous `addTransactionStepListener` /
-  `addEmvStepListener` / `setEmvStepHandler` (the behavior's dispatch, always last) for
-  everything the transaction depends on; `SharedFlow`s (`transactionSteps` replay 1,
-  `emvSteps`) for observers only — never a `StateFlow` (APPROVED + COMPLETED would conflate).
-  `notifyTransactionStep` serializes with a drain loop (Rx `toSerialized` semantics).
+- **[co] coroutineDesign** (= rxTransactionDesign `0bee281` in Kotlin; the branch wins over
+  `claudekotlin.md`): `suspend fun startTransaction` / `acceptCard` — the busy CAS on
+  `current` runs on the caller's thread before the first suspension (`TerminalBusyException`,
+  never queued; never `withContext` / `flowOn`), return = terminal free, cancelling the caller
+  = `Transaction.cancel()`. `Transaction.state` PENDING → RUNNING | CANCELLED: cancel while
+  PENDING frees `current` itself; while RUNNING a CAS, once, only while `current == this`. The
+  cancel is that state only — never `CancellationException` / `runInterruptible` in kernel
+  calls, never interrupt the transaction thread. `process()` on a plain single-thread executor
+  ends what it began in its `finally` and frees `current`. `EmvEngine(behavior, authorizer,
+  cancelled)`: `transactionSteps` = `MutableSharedFlow(extraBufferCapacity = 64)`, no replay,
+  `tryEmit` — never a `StateFlow`; the end bookkeeping is a direct CAS in
+  `notifyTransactionStep` (an end publishes only if it wins `running`), never a collector;
+  `emvSteps` dispatch = a direct call to the behavior's handler after `tryEmit`. No drain
+  loop, no listeners. The behavior has no cancel of its own: `isCancelled()` asks the engine.
   `CommunicationBehavior.authorize` / `PrinterBehavior.print` are `suspend`;
   `PosTerminal.authorize` = `runBlocking { withTimeout(90 s) }` on the transaction thread (the
   only `runBlocking`). Print: single-thread scope + `Mutex`. `MainViewModel`: `viewModelScope`,
-  `transactionStep` SharedFlow(replay 1), `terminalBusy` Channel, screens collect with
+  collects `transactionSteps()` from `init` into `transactionStep` (SharedFlow replay 1, reset
+  to IDLE per sale), `terminalBusy` Channel, screens collect with
   `repeatOnLifecycle(STARTED)`. Kernel callbacks, `askStep`, PIN pad, app-select dialog stay
   plain blocking functions.
 - **`EmvEngine`**: `transactionSteps` (BehaviorSubject → `skip(1)`), `emvSteps`
@@ -184,6 +189,8 @@ plan is `rxSetTransactionData` once it passes the form. Old:
 - **Contracts**: `EmvBehavior` = `prepare/start/cancel` (+ `dispose`). `AbstractEmvBehavior`:
   16 `protected abstract onXxx`, optional `onSearchCard`, `readIccTag`, `goToStep`, [rxSet]
   `askStep(step, detail, failClosed)` / `answerStep`. `TransactionStep.isEnd()` = "ended".
+  [co] `EmvBehavior` = `prepare/start/dispose` (no `cancel`: the terminal's transaction state is
+  the one cancel flag).
 - **Threading**: kernel + callbacks on the transaction thread only. `askStep` works because
   the hook runs before `goToStep` returns — keep dispatch synchronous.
 - **Rx facts (proven)**: PublishSubject is synchronous and re-entrant; `takeUntil` drops
@@ -312,8 +319,8 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
   secret logging before live, Ingenico, manual PAN, `ConfigInit` place, pick the mainline.
 - Kotlin + coroutines migration: done on `coroutineDesign` (all phases, one commit each); needs
   an Android Studio build, `./gradlew test`, and the whole device form in its own column.
-  Not ported there: `rxTransactionDesign`'s later Completable design (`13e2b02`) — decide one
-  transaction API.
+  `rxTransactionDesign`'s `13e2b02` + `0bee281` are ported there (suspend start, one steps
+  stream), so both branches now share one transaction design.
 
 ## 12. Never again
 

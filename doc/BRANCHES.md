@@ -11,8 +11,8 @@ Gradle there).
 | 1 | `Finalvision` | 8 | Java | direct call | `startTransaction()` + `cancelTransaction()` | **Yes** (8 Pass, 2 Fail, 14 Not run) | the safe fallback |
 | 2 | `rxDispatchEmvSteps` | 12 | Java + Rx | Rx observer on `emvSteps` | same as 1 | **Yes** (same result as 1) | proof that Rx dispatch works on the device |
 | 3 | `rxSetTransactionData` | 33 | Java + Rx | Rx observer | same as 1 | **No** | the planned mainline (all EMV/param work) |
-| 4 | `rxTransactionDesign` | 35 | Java + Rx | Rx observer | **Completable** (subscribe = start, dispose = cancel) | **No** | the Rx transaction-lifecycle experiment |
-| 5 | `coroutineDesign` | 39 | **Kotlin + coroutines** | direct call + `SharedFlow` for observers | **`Flow<TransactionStepEvent>`** (collect = start, cancel = cancel) | **No** (not even built with Gradle) | the Kotlin migration, all phases |
+| 4 | `rxTransactionDesign` | 36 | Java + Rx | Rx observer | **Completable** (subscribe = start, dispose = cancel) | **No** | the Rx transaction-lifecycle experiment |
+| 5 | `coroutineDesign` | 43 | **Kotlin + coroutines** | direct call + `SharedFlow` for observers | **`suspend fun`** (call = start, cancel the caller = cancel, return = free) — the same design as 4 | **No** (not even built with Gradle) | the Kotlin migration, all phases |
 
 Also on the remote: `rxFinalvision` (1 commit, 2026-10-14, "Dispatch EMV step methods from an
 emvSteps observer") — the first Rx-dispatch experiment, superseded by `rxDispatchEmvSteps`.
@@ -56,14 +56,17 @@ Older `claude/*`, `cursor/*` and feature branches are stale; don't merge them bl
     **`Completable`** — the steps stay on the engine's single `transactionSteps` stream; the
     `Completable` only starts / cancels / completes. `MainViewModel` subscribes to
     `transactionSteps().skip(1)`.
-- Tests: core 69 (at `ae25378`).
+  - `0bee281` (2026-10-20): one cancel flag (`Transaction.state` PENDING → RUNNING |
+    CANCELLED; a cancel before it ran frees the terminal itself), one transaction-steps subject
+    with no replay, one end guard (a CAS in `notifyTransactionStep`).
+- Tests: core 73.
 - Status: **not device-tested**; design still moving (two different designs the same day).
   Form rows to add: 13, 14, 15, 18, Retry after a decline, BUSY while a cancelled search stops.
 
 ## 5. `coroutineDesign` — Kotlin + coroutines (new)
 
 Branched from `rxTransactionDesign` at `ae25378` (the Observable design). Five commits after it,
-one per phase of `doc/claudekotlin.md`:
+one per phase of `doc/claudekotlin.md`, then the docs, then the port of `13e2b02` + `0bee281`:
 
 | Commit | Phase | What |
 |---|---|---|
@@ -72,6 +75,8 @@ one per phase of `doc/claudekotlin.md`:
 | `9ed2fe7` | 1 | network: Retrofit `suspend` functions, `SaleCommunicationBehavior` / `OnboardingClient` straight-line suspend code, models with the same Gson wire order |
 | `d88fa72` | 3 + 4 | app main: `MainViewModel` on `viewModelScope` + flows, screens collect with `repeatOnLifecycle`; fake / ingenico vendors |
 | `8b49693` | 5 | app pax: `PaxEmvBehavior` line for line (native call order diffed: identical), `PaxTerminal`, PIN pad / app-select stay blocking, screens on `lifecycleScope` + `Dispatchers.IO` |
+| `8e6208b` | port | core: `13e2b02` + `0bee281` — `suspend fun startTransaction`, `Transaction.state`, `transactionSteps` = `MutableSharedFlow(extraBufferCapacity = 64)` no replay, end CAS in `notifyTransactionStep`, no drain loop / listeners, the behavior's cancel removed |
+| `61a36d2` | port | app: `MainViewModel` collects the engine's stream from `init`, `acceptCard` launches the suspend call; `terminalStatus` gone; fake flow test rewritten |
 
 - What is Kotlin: `core`, `network`, all of `app` (main, pax, fake, ingenico). What stays Java on
   purpose (claudekotlin.md §4): the PAX SDK modules (`emvbase`, `emvlib*`, `poslib`,
@@ -80,17 +85,18 @@ one per phase of `doc/claudekotlin.md`:
   `Dispatchers.Default/IO`), synchronous re-entrant dispatch (a direct call, not a Flow),
   never interrupt, busy = the transaction hasn't returned, drop-after-end, fail closed. The host
   call is the only `runBlocking`, on the transaction thread, with `withTimeout(90 s)`.
-- Tests (cloud, kotlinc 1.9.22 + JUnit): core **74** green (69 ported + 5 new), network **14**
+- Tests (cloud, kotlinc 1.9.22 + JUnit): core **75** green (the branch's lifecycle and busy
+  tests, `EmvEngineEndTest` and `EmvEngineConcurrentStepsTest` ported one to one), network **14**
   (3 ported + MockWebServer suspend tests), fake vendor end-to-end **2**. Guards
   mutation-checked. main+fake, main+ingenico and main+pax **type-check** against android-all 14,
   the PAX module sources/jars and androidx stubs (0 errors).
 - Status: **not built with Gradle, not device-tested.** First step on the PC: Android Studio →
   sync → build `paxEnvtestDevDebug` and the fake flavor → `./gradlew test`. Then the whole form,
   in its own column.
-- Not ported: `13e2b02` (rxTransactionDesign's Completable design). The coroutine branch keeps
-  the Flow-of-own-steps design from `ae25378` (doc/kotlin-rx-transaction.md). Porting the
-  Completable shape would mean `startTransaction` returns a `Job`/`suspend fun` and the UI reads
-  the engine's `transactionSteps` — a design decision, not a translation.
+- Ported: `13e2b02` + `0bee281` (the branch wins over `claudekotlin.md`;
+  `doc/kotlin-rx-transaction.md` §1–3 are stale). Mutation-checked: each guard fails a test,
+  except the `current == this` cancel guard (only a race window; no test for it on the branch
+  either).
 - Known carried-over item: `HostAppKeys.MTOKEN` still holds a captured JWT literal, as on every
   branch (CLAUDE.md §11).
 
@@ -100,5 +106,5 @@ one per phase of `doc/claudekotlin.md`:
 2. Build `coroutineDesign` in Android Studio; fix whatever Gradle finds that the cloud stubs
    couldn't (androidx/material APIs are stubbed there).
 3. Device-test `coroutineDesign` with the whole form; compare against `rxSetTransactionData`.
-4. Decide the transaction API (Flow of own steps vs Completable + engine stream) once, and
-   keep only one of `rxTransactionDesign` / `coroutineDesign` going forward.
+4. Branches 4 and 5 now have the same transaction design (Rx `Completable` / `suspend fun` +
+   the engine's one steps stream); keep only one of them going forward.

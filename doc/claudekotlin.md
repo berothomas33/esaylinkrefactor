@@ -85,7 +85,7 @@ These are proven facts from this project; breaking any of them breaks transactio
 
 | Today | Kotlin | Notes |
 |---|---|---|
-| `BehaviorSubject<TransactionStepEvent>` (`transactionSteps`) | `MutableStateFlow` | replays the current state like before; drop the `skip(1)` workarounds where a collector starts fresh |
+| `BehaviorSubject<TransactionStepEvent>` (`transactionSteps`) | `MutableStateFlow` | replays the current state like before; drop the `skip(1)` workarounds where a collector starts fresh. **Superseded on `coroutineDesign`**: `MutableSharedFlow(extraBufferCapacity = 64)`, no replay (rxTransactionDesign `0bee281`) |
 | `PublishSubject<EmvStepEvent>` (`emvSteps`) — **dispatch** | direct call `dispatchStepMethod(step)` | §2.2 — must stay synchronous |
 | `PublishSubject<EmvStepEvent>` — **UI / trace observers** | `MutableSharedFlow(extraBufferCapacity = 64)` + `tryEmit` | observers never block the kernel thread |
 | `EmvStepObserver` + `CompositeDisposable` + end watcher | gone | the "stop observing at the end" logic becomes `if (!running) return` |
@@ -144,6 +144,9 @@ tests green, device test, merge.
 - Order: `event/*` (enums, events) → `card/*` (`Field55`, `TransactionConfig`) →
   `util/ApduTrace` → `engine/EmvEngine` → `terminal/AbstractEmvBehavior` → `PosTerminal`.
 - `EmvEngine`: `transactionSteps` → `StateFlow`; `emvSteps` for observers → `SharedFlow`;
+  **superseded on `coroutineDesign`** by rxTransactionDesign `13e2b02` + `0bee281` (the branch
+  wins): `transactionSteps` is a `MutableSharedFlow(extraBufferCapacity = 64)`, no replay,
+  `tryEmit`; `startTransaction` is a `suspend fun` (see `doc/CLAUDE.md` §6 [co]);
   dispatch to the behavior is a direct call (§2.2). Keep `isEnd()` / drop-after-end.
 - `AbstractEmvBehavior`: keep `goToStep` / `askStep` / `answerStep` synchronous; the 16
   `protected abstract` step methods stay (Java vendors still extend it during the migration).
