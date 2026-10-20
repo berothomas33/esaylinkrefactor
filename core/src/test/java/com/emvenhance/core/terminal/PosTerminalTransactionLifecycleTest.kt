@@ -1,337 +1,297 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.terminal
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
-
-import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.CardSearchListener;
-import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
-import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.PrinterBehavior;
-import io.reactivex.rxjava3.core.Scheduler;
-import io.reactivex.rxjava3.observers.TestObserver;
-import java.lang.reflect.Field;
-import java.lang.reflect.Proxy;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import com.emvenhance.core.card.CardPresence
+import com.emvenhance.core.card.CardSearchListener
+import com.emvenhance.core.card.TransactionConfig
+import com.emvenhance.core.card.TransactionType
+import com.emvenhance.core.engine.EmvEngine
+import com.emvenhance.core.event.TransactionStep
+import com.emvenhance.core.event.TransactionStepEvent
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * One transaction at a time: a start while the previous one hasn't finished — even cancelled, with
- * its search still stopping — is refused as "terminal busy", never queued. And a search that
+ * One transaction at a time: a start while the previous one hasn't finished — even cancelled,
+ * with its search still stopping — is refused as "terminal busy", never queued. And a search that
  * outlives its transaction can't fail, or start EMV for, the next one.
  *
- * <p>Each transaction is its own stream: subscribe starts it, dispose cancels that one only, its
- * steps are its own, and {@code onComplete} comes once the terminal is free.
+ * Each transaction is its own flow: collecting starts it, cancelling the collector cancels that
+ * one only, its steps are its own, and it completes once the terminal is free.
  */
-public class PosTerminalTransactionLifecycleTest {
+class PosTerminalTransactionLifecycleTest {
 
-    private TestTerminal terminal;
-    private final List<TransactionStepEvent> events = new CopyOnWriteArrayList<>();
-    private final List<Long> emvStartedWithAmount = new CopyOnWriteArrayList<>();
+    private lateinit var terminal: TestTerminal
+    private val events = CopyOnWriteArrayList<TransactionStepEvent>()
+    private val emvStartedWithAmount = CopyOnWriteArrayList<Long>()
 
     @Before
-    public void setUp() {
-        terminal = new TestTerminal();
-        terminal.transactionSteps().subscribe(events::add);
+    fun setUp() {
+        terminal = TestTerminal()
+        terminal.engine().addTransactionStepListener { events.add(it) }
     }
 
     @After
-    public void tearDown() {
-        terminal.releaseAll();
+    fun tearDown() {
+        terminal.releaseAll()
     }
 
     @Test
-    public void lateCallbacksFromAnEarlierSearchDoNotEndTheNextTransaction() throws Exception {
-        Search first = cancelledSearchThenNextTransaction();
+    fun lateCallbacksFromAnEarlierSearchDoNotEndTheNextTransaction() {
+        val first = cancelledSearchThenNextTransaction()
 
-        first.listener.onSearchCancelled();
-        first.listener.onSearchTimeout();
-        first.listener.onReaderError("PICC: reader error");
-        first.listener.onSearchStarted(first.config);
+        first.listener.onSearchCancelled()
+        first.listener.onSearchTimeout()
+        first.listener.onReaderError("PICC: reader error")
+        first.listener.onSearchStarted(first.config)
 
-        assertTrue("next transaction got " + events, events.isEmpty());
-        assertTrue(terminal.engine.isRunning());
+        assertTrue("next transaction got $events", events.isEmpty())
+        assertTrue(terminal.engine().isRunning())
     }
 
     @Test
-    public void aCardCaughtByAnEarlierSearchNeverStartsEmv() throws Exception {
-        Search first = cancelledSearchThenNextTransaction();
-        Search second = terminal.nextSearch();
+    fun aCardCaughtByAnEarlierSearchNeverStartsEmv() {
+        val first = cancelledSearchThenNextTransaction()
+        val second = terminal.nextSearch()
 
-        first.listener.onChipDetected(CardPresence.chip());
-        assertTrue(emvStartedWithAmount.isEmpty());
-        assertFalse(hasStep(TransactionStep.CARD_DETECTED));
+        first.listener.onChipDetected(CardPresence.chip())
+        assertTrue(emvStartedWithAmount.isEmpty())
+        assertFalse(hasStep(TransactionStep.CARD_DETECTED))
 
-        second.listener.onChipDetected(CardPresence.chip());
-        assertEquals(Collections.singletonList(2000L), emvStartedWithAmount);
+        second.listener.onChipDetected(CardPresence.chip())
+        assertEquals(listOf(2000L), emvStartedWithAmount)
     }
 
     @Test
-    public void aStartWhileTheCancelledSearchIsStillStoppingIsRefusedAsBusy() throws Exception {
-        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
-        Search first = terminal.nextSearch();
-        sale.dispose();
-        events.clear();
+    fun aStartWhileTheCancelledSearchIsStillStoppingIsRefusedAsBusy() {
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000).record()
+        val first = terminal.nextSearch()
+        sale.cancel()
+        events.clear()
 
-        terminal.acceptCard(TransactionType.SALE, 2000).test()
-                .assertError(TerminalBusyException.class);
-        assertTrue("busy is not reported on the old transaction's steps: " + events,
-                events.isEmpty());
+        terminal.acceptCard(TransactionType.SALE, 2000).record()
+            .assertError(TerminalBusyException::class.java)
+        assertTrue("busy is not reported on the old transaction's steps: $events", events.isEmpty())
 
-        first.release.countDown(); // the old search finally stops
-        assertTrue("old search kept searching", awaitTrue(() -> first.cancelledWhenReleased));
-        Search second = startWhenFree(3000);
-        assertEquals(3000L, second.config.getAmountMinor());
-        assertSame("one transaction thread", first.thread, second.thread);
-        assertNull("the refused start never ran", terminal.searches.poll(300, TimeUnit.MILLISECONDS));
+        first.release.countDown() // the old search finally stops
+        assertTrue("old search kept searching", awaitTrue { first.cancelledWhenReleased })
+        val second = startWhenFree(3000)
+        assertEquals(3000L, second.config.amountMinor)
+        assertSame("one transaction thread", first.thread, second.thread)
+        assertNull("the refused start never ran", terminal.searches.poll(300, TimeUnit.MILLISECONDS))
     }
 
     @Test
-    public void aStartWhileSearchingIsRefusedAndTheFirstCarriesOn() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000).test();
-        Search first = terminal.nextSearch();
-        events.clear();
+    fun aStartWhileSearchingIsRefusedAndTheFirstCarriesOn() {
+        terminal.acceptCard(TransactionType.SALE, 1000).record()
+        val first = terminal.nextSearch()
+        events.clear()
 
-        TestObserver<TransactionStepEvent> refused = terminal.acceptCard(TransactionType.SALE, 2000).test();
-        refused.assertError(TerminalBusyException.class);
-        refused.dispose(); // leaving the refused screen cancels nothing
+        val refused = terminal.acceptCard(TransactionType.SALE, 2000).record()
+        refused.assertError(TerminalBusyException::class.java)
+        refused.cancel() // leaving the refused screen cancels nothing
 
-        assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS));
-        assertTrue("first transaction got " + events, events.isEmpty());
-        assertTrue(terminal.engine.isRunning());
-        first.listener.onChipDetected(CardPresence.chip());
-        assertEquals(Collections.singletonList(1000L), emvStartedWithAmount);
+        assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS))
+        assertTrue("first transaction got $events", events.isEmpty())
+        assertTrue(terminal.engine().isRunning())
+        first.listener.onChipDetected(CardPresence.chip())
+        assertEquals(listOf(1000L), emvStartedWithAmount)
     }
 
     @Test
-    public void disposeCancelsItsOwnTransactionAndEndsItsStream() throws Exception {
-        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
-        Search first = terminal.nextSearch();
-        first.listener.onSearchStarted(first.config);
-        assertEquals(1, sale.values().size());
+    fun cancelCancelsItsOwnTransactionAndEndsItsFlow() {
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000).record()
+        val first = terminal.nextSearch()
+        first.listener.onSearchStarted(first.config)
+        assertEquals(1, sale.values.size)
 
-        sale.dispose();
+        sale.cancel()
 
-        assertTrue(terminal.isSearchCancelled());
-        assertTrue("the cancel reached the engine", hasStep(TransactionStep.ERROR));
-        assertEquals("nothing after dispose, the cancel's ERROR included", 1, sale.values().size());
-        first.release.countDown();
-        assertTrue("old search kept searching", awaitTrue(() -> first.cancelledWhenReleased));
+        assertTrue(terminal.isSearchCancelled())
+        assertTrue("the cancel reached the engine", hasStep(TransactionStep.ERROR))
+        assertEquals("nothing after cancel, the cancel's ERROR included", 1, sale.values.size)
+        first.release.countDown()
+        assertTrue("old search kept searching", awaitTrue { first.cancelledWhenReleased })
     }
 
     @Test
-    public void aTransactionDisposedBeforeItRanStillFreesTheTerminal() throws Exception {
-        CountDownLatch hold = new CountDownLatch(1);
-        transactionScheduler().scheduleDirect(() -> {
-            try {
-                hold.await(5, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
-        sale.dispose(); // its run() is still queued behind the held thread
+    fun aTransactionCancelledBeforeItRanStillFreesTheTerminal() {
+        val hold = CountDownLatch(1)
+        terminal.transactionExecutor().execute { hold.await(5, TimeUnit.SECONDS) }
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000).record()
+        sale.cancel() // its run() is still queued behind the held thread
 
-        hold.countDown();
+        hold.countDown()
 
-        Search next = startWhenFree(2000);
-        assertEquals("the disposed one never searched", 2000L, next.config.getAmountMinor());
+        val next = startWhenFree(2000)
+        assertEquals("the cancelled one never searched", 2000L, next.config.amountMinor)
     }
 
     @Test
-    public void completesOnlyOnceTheTerminalIsFree() throws Exception {
-        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
-        Search first = terminal.nextSearch();
-        sale.assertNotComplete();
+    fun completesOnlyOnceTheTerminalIsFree() {
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000).record()
+        val first = terminal.nextSearch()
+        sale.assertNotComplete()
 
-        first.listener.onSearchTimeout(); // like a vendor: one callback, then the search returns
-        first.release.countDown();
+        first.listener.onSearchTimeout() // like a vendor: one callback, then the search returns
+        first.release.countDown()
 
-        sale.await(5, TimeUnit.SECONDS);
-        sale.assertComplete().assertNoErrors();
-        assertEquals("finishing is not a cancel", 0, terminal.searchCancels.get());
-        terminal.acceptCard(TransactionType.SALE, 2000).test().assertNoErrors();
-        assertEquals(2000L, terminal.nextSearch().config.getAmountMinor());
+        assertTrue(sale.await(5))
+        sale.assertComplete().assertNoErrors()
+        assertEquals("finishing is not a cancel", 0, terminal.searchCancels.get())
+        terminal.acceptCard(TransactionType.SALE, 2000).record().assertNoErrors()
+        assertEquals(2000L, terminal.nextSearch().config.amountMinor)
     }
 
     @Test
-    public void aNewTransactionNeverSeesThePreviousOnesSteps() throws Exception {
-        TestObserver<TransactionStepEvent> first = terminal.acceptCard(TransactionType.SALE, 1000).test();
-        Search firstSearch = terminal.nextSearch();
-        firstSearch.listener.onSearchTimeout(); // ERROR: the engine's latest step
-        firstSearch.release.countDown();
-        first.await(5, TimeUnit.SECONDS);
-        assertEquals(TransactionStep.ERROR, terminal.currentState().getStep());
+    fun aNewTransactionNeverSeesThePreviousOnesSteps() {
+        val first = terminal.acceptCard(TransactionType.SALE, 1000).record()
+        val firstSearch = terminal.nextSearch()
+        firstSearch.listener.onSearchTimeout() // ERROR: the engine's latest step
+        firstSearch.release.countDown()
+        assertTrue(first.await(5))
+        assertEquals(TransactionStep.ERROR, terminal.currentState().step)
 
-        TestObserver<TransactionStepEvent> second = terminal.acceptCard(TransactionType.SALE, 2000).test();
-        Search secondSearch = terminal.nextSearch();
-        second.assertNoValues();
+        val second = terminal.acceptCard(TransactionType.SALE, 2000).record()
+        val secondSearch = terminal.nextSearch()
+        second.assertNoValues()
 
-        secondSearch.listener.onSearchStarted(secondSearch.config);
-        second.assertValueCount(1);
-        assertEquals(TransactionStep.WAITING_FOR_CARD, second.values().get(0).getStep());
+        secondSearch.listener.onSearchStarted(secondSearch.config)
+        assertTrue("never delivered", awaitTrue { second.values.size == 1 })
+        second.assertValueCount(1)
+        assertEquals(TransactionStep.WAITING_FOR_CARD, second.values[0].step)
     }
 
     @Test
-    public void engineRefusesASecondBeginWithoutEndingTheFirst() {
-        assertTrue(terminal.engine.begin());
-        events.clear();
+    fun theTerminalWideFlowReplaysTheLatestStep() {
+        val first = terminal.acceptCard(TransactionType.SALE, 1000).record()
+        val firstSearch = terminal.nextSearch()
+        firstSearch.listener.onSearchTimeout()
+        firstSearch.release.countDown()
+        assertTrue(first.await(5))
 
-        assertFalse(terminal.engine.begin());
+        val status = terminal.transactionSteps().record() // e.g. MainActivity, created later
 
-        assertTrue(terminal.engine.isRunning());
-        assertTrue("got " + events, events.isEmpty());
+        assertEquals(listOf(TransactionStep.ERROR), status.values.map { it.step })
+        status.cancel()
+    }
+
+    @Test
+    fun engineRefusesASecondBeginWithoutEndingTheFirst() {
+        assertTrue(terminal.engine().begin())
+        events.clear()
+
+        assertFalse(terminal.engine().begin())
+
+        assertTrue(terminal.engine().isRunning())
+        assertTrue("got $events", events.isEmpty())
     }
 
     /**
      * A transaction for 1000, cancelled, whose listener is still held (like a vendor reporting
      * late, from its own thread), then the next transaction for 2000, searching.
      */
-    private Search cancelledSearchThenNextTransaction() throws InterruptedException {
-        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
-        Search first = terminal.nextSearch();
-        sale.dispose();
-        first.release.countDown();
-        Search second = startWhenFree(2000);
-        terminal.searches.add(second); // hand it back for tests that need it
-        events.clear();
-        return first;
+    private fun cancelledSearchThenNextTransaction(): Search {
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000).record()
+        val first = terminal.nextSearch()
+        sale.cancel()
+        first.release.countDown()
+        val second = startWhenFree(2000)
+        terminal.searches.add(second) // hand it back for tests that need it
+        events.clear()
+        return first
     }
 
     /** Starts a sale as soon as the terminal stops being busy, and returns its search. */
-    private Search startWhenFree(long amount) throws InterruptedException {
-        assertTrue("terminal stayed busy", awaitTrue(() -> started(amount)));
-        return terminal.nextSearch();
+    private fun startWhenFree(amount: Long): Search {
+        assertTrue("terminal stayed busy", awaitTrue { started(amount) })
+        return terminal.nextSearch()
     }
 
-    /** Subscribes a sale; {@code false} if it was refused as busy. */
-    private boolean started(long amount) {
-        try {
-            terminal.acceptCard(TransactionType.SALE, amount).test().assertNoErrors();
-            return true;
-        } catch (AssertionError busy) {
-            return false;
-        }
-    }
+    /** Collects a sale; `false` if it was refused as busy. */
+    private fun started(amount: Long): Boolean =
+        terminal.acceptCard(TransactionType.SALE, amount).record().error == null
 
-    /** The terminal's one transaction thread, to hold it busy from a test. */
-    private Scheduler transactionScheduler() throws ReflectiveOperationException {
-        Field field = PosTerminal.class.getDeclaredField("transactionScheduler");
-        field.setAccessible(true);
-        return (Scheduler) field.get(terminal);
-    }
-
-    private static boolean awaitTrue(java.util.function.BooleanSupplier condition)
-            throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5_000;
+    private fun awaitTrue(condition: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + 5_000
         while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return true;
+            if (condition()) {
+                return true
             }
-            Thread.sleep(10);
+            Thread.sleep(10)
         }
-        return false;
+        return false
     }
 
-    private boolean hasStep(TransactionStep step) {
-        for (TransactionStepEvent e : events) {
-            if (e.getStep() == step) {
-                return true;
-            }
-        }
-        return false;
+    private fun hasStep(step: TransactionStep): Boolean = events.any { it.step == step }
+
+    /** One `searchCard` call, held open until the test releases it. */
+    private class Search(val config: TransactionConfig, val listener: CardSearchListener) {
+        val release = CountDownLatch(1)
+        val thread: Thread = Thread.currentThread()
+
+        @Volatile
+        var cancelledWhenReleased = false
     }
 
-    /** One {@code searchCard} call, held open until the test releases it. */
-    private static final class Search {
-        final TransactionConfig config;
-        final CardSearchListener listener;
-        final CountDownLatch release = new CountDownLatch(1);
-        final Thread thread = Thread.currentThread();
-        volatile boolean cancelledWhenReleased;
+    private inner class TestTerminal : PosTerminal(
+        stubBehavior(prepared = true) { config -> emvStartedWithAmount.add(config.amountMinor) },
+        stub(),
+        stub(),
+    ) {
+        val searches = LinkedBlockingQueue<Search>()
+        val searchCancels = AtomicInteger()
+        private val all = CopyOnWriteArrayList<Search>()
 
-        Search(TransactionConfig config, CardSearchListener listener) {
-            this.config = config;
-            this.listener = listener;
-        }
-    }
+        fun engine(): EmvEngine = engine
 
-    private final class TestTerminal extends PosTerminal {
-
-        final LinkedBlockingQueue<Search> searches = new LinkedBlockingQueue<>();
-        final AtomicInteger searchCancels = new AtomicInteger();
-        private final List<Search> all = new CopyOnWriteArrayList<>();
-
-        TestTerminal() {
-            super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
+        /** The terminal's one transaction thread, to hold it busy from a test. */
+        fun transactionExecutor(): ExecutorService {
+            val field = PosTerminal::class.java.getDeclaredField("transactionExecutor")
+            field.isAccessible = true
+            return field.get(this) as ExecutorService
         }
 
-        Search nextSearch() throws InterruptedException {
-            Search search = searches.poll(5, TimeUnit.SECONDS);
-            assertNotNull("search never started", search);
-            return search;
+        fun nextSearch(): Search {
+            val search = searches.poll(5, TimeUnit.SECONDS)
+            assertNotNull("search never started", search)
+            return search!!
         }
 
-        void releaseAll() {
-            for (Search search : all) {
-                search.release.countDown();
+        fun releaseAll() {
+            for (search in all) {
+                search.release.countDown()
             }
         }
 
         /** Like a vendor poll that stops only when released, and reports nothing on its own. */
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            Search search = new Search(config, listener);
-            all.add(search);
-            searches.add(search);
+        override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? {
+            val search = Search(config, listener)
+            all.add(search)
+            searches.add(search)
             try {
-                search.release.await(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                search.release.await(10, TimeUnit.SECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
             }
-            search.cancelledWhenReleased = isSearchCancelled();
-            return null;
+            search.cancelledWhenReleased = isSearchCancelled()
+            return null
         }
 
-        @Override
-        protected void cancelCardSearch() {
-            searchCancels.incrementAndGet();
+        override fun cancelCardSearch() {
+            searchCancels.incrementAndGet()
         }
-    }
-
-    /** prepare() succeeds; start() records the amount EMV ran for. */
-    private EmvBehavior behavior() {
-        return (EmvBehavior) Proxy.newProxyInstance(EmvBehavior.class.getClassLoader(),
-                new Class<?>[] {EmvBehavior.class}, (proxy, method, args) -> {
-                    if (method.getName().equals("prepare")) {
-                        return Boolean.TRUE;
-                    }
-                    if (method.getName().equals("start")) {
-                        emvStartedWithAmount.add(((TransactionConfig) args[1]).getAmountMinor());
-                    }
-                    return method.getReturnType() == boolean.class ? false : null;
-                });
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> T stub(Class<T> type) {
-        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
-                (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null);
     }
 }

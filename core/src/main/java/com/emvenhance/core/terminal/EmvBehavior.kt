@@ -1,36 +1,37 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.terminal
 
-import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.card.CardPresence
+import com.emvenhance.core.card.TransactionConfig
+import com.emvenhance.core.engine.EmvEngine
 
 /**
- * What {@link EmvEngine} drives on a vendor's EMV kernel — and all it can call.
+ * What [EmvEngine] drives on a vendor's EMV kernel — and all it can call.
  *
- * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel};
- * {@link #dispose} once, when the terminal itself goes away.
+ * Lifecycle: [prepare] → (PosTerminal search) → [start] → [cancel]; [dispose] once, when the
+ * terminal itself goes away.
  *
- * <p>A vendor doesn't implement this directly: it extends {@link AbstractEmvBehavior}, which
- * implements it and declares the EMV step methods ({@code onApplicationSelection}, …) every
- * vendor writes. Those are {@code protected} there, not part of this contract, so nothing
- * holding an {@code EmvBehavior} can run a step: steps run only through
- * {@link AbstractEmvBehavior#goToStep}. Tests stub this interface to drive the engine and the
- * terminal with no EMV behind it.
+ * A vendor doesn't implement this directly: it extends [AbstractEmvBehavior], which implements
+ * it and declares the EMV step methods (`onApplicationSelection`, …) every vendor writes. Those
+ * are `protected` there, not part of this contract, so nothing holding an `EmvBehavior` can run
+ * a step: steps run only through [AbstractEmvBehavior.goToStep]. Tests stub this interface to
+ * drive the engine and the terminal with no EMV behind it.
  *
- * <p>EMV only — no host / printer logic here.
+ * All of it runs on the transaction thread and blocks there — never `suspend`: the native
+ * kernel calls back into it and needs every answer on the same call stack.
+ *
+ * EMV only — no host / printer logic here.
  */
-public interface EmvBehavior {
+interface EmvBehavior {
 
-    boolean prepare(EmvEngine engine, TransactionConfig config);
+    fun prepare(engine: EmvEngine, config: TransactionConfig): Boolean
 
-    void start(EmvEngine engine, TransactionConfig config, CardPresence card);
+    fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
 
-    void cancel();
+    fun cancel()
 
     /**
-     * Releases what the behavior holds beyond one transaction — {@link AbstractEmvBehavior}'s
-     * EmvStep observer. Called by {@link EmvEngine#dispose()} when its {@link PosTerminal} is
-     * disposed.
+     * Releases what the behavior holds beyond one transaction — [AbstractEmvBehavior]'s step
+     * handler. Called by [EmvEngine.dispose] when its [PosTerminal] is disposed.
      */
-    default void dispose() { }
+    fun dispose() {}
 }

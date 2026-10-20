@@ -1,6 +1,6 @@
-package com.emvenhance.core.event;
+package com.emvenhance.core.event
 
-public enum EmvStep {
+enum class EmvStep(val number: Int, val title: String) {
 
     TERMINAL_INITIALIZATION(0, "Terminal initialization (preTransProcess)"),
 
@@ -26,21 +26,5 @@ public enum EmvStep {
 
     ISSUER_AUTHENTICATION(14, "Issuer authentication"),
     SCRIPT_PROCESSING(15, "Issuer script processing"),
-    TRANSACTION_COMPLETION(16, "Transaction completion");
-
-    private final int number;
-    private final String title;
-
-    EmvStep(int number, String title) {
-        this.number = number;
-        this.title = title;
-    }
-
-    public int getNumber() {
-        return number;
-    }
-
-    public String getTitle() {
-        return title;
-    }
+    TRANSACTION_COMPLETION(16, "Transaction completion"),
 }

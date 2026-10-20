@@ -1,31 +1,26 @@
-package com.emvenhance.core.host;
+package com.emvenhance.core.host
 
-import android.util.Log;
-import io.reactivex.rxjava3.core.Completable;
-import io.reactivex.rxjava3.core.Single;
+import android.util.Log
+import kotlinx.coroutines.delay
 
 /** Simple host / printer stubs for demos and unfinished wiring. */
-public final class HostDefaults {
+object HostDefaults {
 
-    private HostDefaults() {
+    @JvmStatic
+    fun approveAlways(): CommunicationBehavior = CommunicationBehavior {
+        delay(400)
+        AuthResult.approved("123456", "00", null, null)
     }
 
-    public static CommunicationBehavior approveAlways() {
-        return config -> Single.fromCallable(() -> {
-            Thread.sleep(400);
-            return AuthResult.approved("123456", "00", null, null);
-        });
+    @JvmStatic
+    fun declineUntilWired(): CommunicationBehavior = CommunicationBehavior {
+        AuthResult.declined("96", "Host not wired")
     }
 
-    public static CommunicationBehavior declineUntilWired() {
-        return config -> Single.just(AuthResult.declined("96", "Host not wired"));
-    }
-
-    public static PrinterBehavior logPrinter(String tag) {
-        return lines -> Completable.fromAction(() -> {
-            for (String line : lines) {
-                Log.i(tag, line);
-            }
-        });
+    @JvmStatic
+    fun logPrinter(tag: String): PrinterBehavior = PrinterBehavior { lines ->
+        for (line in lines) {
+            Log.i(tag, line)
+        }
     }
 }

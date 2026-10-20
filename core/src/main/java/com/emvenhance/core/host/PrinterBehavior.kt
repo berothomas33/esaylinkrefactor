@@ -1,12 +1,10 @@
-package com.emvenhance.core.host;
-
-import io.reactivex.rxjava3.core.Completable;
-import java.util.List;
+package com.emvenhance.core.host
 
 /**
- * Receipt printer port. Owned by {@link com.emvenhance.core.terminal.PosTerminal}.
+ * Receipt printer port. Owned by [com.emvenhance.core.terminal.PosTerminal], which calls it on
+ * its own print thread, one receipt at a time.
  */
-public interface PrinterBehavior {
+fun interface PrinterBehavior {
 
-    Completable print(List<String> lines);
+    suspend fun print(lines: List<String>)
 }

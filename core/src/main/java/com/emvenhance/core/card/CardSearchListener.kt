@@ -1,50 +1,50 @@
-package com.emvenhance.core.card;
-
-import androidx.annotation.Nullable;
+package com.emvenhance.core.card
 
 /**
- * Listener for unified card-reader events owned by {@link PosTerminal}.
+ * Listener for unified card-reader events owned by
+ * [com.emvenhance.core.terminal.PosTerminal].
  *
- * <p>Vendor terminals fire these from their native SDK polling. The selected entry method
- * is delivered via the detection callbacks (and the returned {@link CardPresence}).
+ * Vendor terminals fire these from their native SDK polling, on the transaction thread. The
+ * selected entry method is delivered via the detection callbacks (and the returned
+ * [CardPresence]). Plain functions, not `suspend`: a vendor's polling loop calls them.
  */
-public interface CardSearchListener {
+interface CardSearchListener {
 
     /** Readers opened / polling started. */
-    void onSearchStarted(TransactionConfig config);
+    fun onSearchStarted(config: TransactionConfig)
 
     /** ICC / chip card inserted and powered. */
-    void onChipDetected(CardPresence card);
+    fun onChipDetected(card: CardPresence)
 
     /** Contactless / NFC / PICC card detected. */
-    void onContactlessDetected(CardPresence card);
+    fun onContactlessDetected(card: CardPresence)
 
     /** Magnetic stripe swiped and tracks read. */
-    void onMagstripeDetected(CardPresence card);
+    fun onMagstripeDetected(card: CardPresence)
 
     /** Operator chose manual PAN entry (no physical card). */
-    void onManualEntrySelected(CardPresence card);
+    fun onManualEntrySelected(card: CardPresence)
 
     /** Card was removed during search (when the vendor SDK reports it). */
-    void onCardRemoved();
+    fun onCardRemoved()
 
     /** No card presented before the vendor timeout. */
-    void onSearchTimeout();
+    fun onSearchTimeout()
 
-    /** Search aborted: its transaction was cancelled (see {@link PosTerminal#startTransaction}). */
-    void onSearchCancelled();
+    /**
+     * Search aborted: its transaction was cancelled (see
+     * [com.emvenhance.core.terminal.PosTerminal.startTransaction]).
+     */
+    fun onSearchCancelled()
 
     /** Hardware / reader failure. */
-    void onReaderError(String message);
+    fun onReaderError(message: String?)
 
     /**
      * A read attempt failed in a way the cardholder can fix (a partial tap, two cards on the
-     * reader, a badly seated chip) and the search carries on — {@code message} says what to do.
+     * reader, a badly seated chip) and the search carries on — `message` says what to do.
      */
-    default void onSearchRetry(String message) {
+    fun onSearchRetry(message: String) {
         // default: nothing to show
     }
-
-    /** Optional no-op defaults for adapters that only care about a subset. */
-
 }

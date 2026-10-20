@@ -1,198 +1,104 @@
-package com.emvenhance.core.card;
-
-import androidx.annotation.Nullable;
+package com.emvenhance.core.card
 
 /**
  * Immutable value object holding everything needed to start a transaction.
  */
-public final class TransactionConfig {
-
-    private final TransactionType type;
-    private final long amountMinor;
-    private final EntryMethod mode;
-
+class TransactionConfig private constructor(
+    val type: TransactionType,
+    val amountMinor: Long,
+    val mode: EntryMethod,
     /**
      * Field 55 (ICC System Related Data) as hex-encoded BER-TLV, built once the kernel has read
-     * the card — {@code null} for magstripe/manual (no ICC) or before a chip/contactless
-     * transaction reaches {@code START_ONLINE_PROCESS}. See {@link #withIccData}.
+     * the card — `null` for magstripe/manual (no ICC) or before a chip/contactless transaction
+     * reaches `START_ONLINE_PROCESS`. See [withIccData].
      */
-    @Nullable
-    private final String iccData;
-
-    /** PAN, captured off the kernel once read — see {@link #withPan}. */
-    @Nullable
-    private final String pan;
-
+    val iccData: String?,
+    /** PAN, captured off the kernel once read — see [withPan]. */
+    val pan: String?,
     /**
      * Online PIN block, hex-encoded — captured by the vendor's PIN pad during online PIN entry
-     * and attached before {@code START_ONLINE_PROCESS} calls host authorize; {@code null} for
-     * no-CVM/offline-PIN/CDCVM transactions. See {@link #withOnlinePinBlock}.
+     * and attached before `START_ONLINE_PROCESS` calls host authorize; `null` for
+     * no-CVM/offline-PIN/CDCVM transactions. See [withOnlinePinBlock].
      */
-    @Nullable
-    private final String onlinePinBlock;
-
+    val onlinePinBlock: String?,
     /**
-     * The online PIN key (PEK) that encrypted {@link #onlinePinBlock} in the PIN pad's secure
-     * hardware, RSA-wrapped with the host's public key (base64) so the host can independently
-     * recover the same key value — see {@code RsaPublicKeyEncryptor} /
-     * {@code PaxOnlinePinKeyProvisioner}. {@code null} whenever {@link #onlinePinBlock} is.
+     * The online PIN key (PEK) that encrypted [onlinePinBlock] in the PIN pad's secure hardware,
+     * RSA-wrapped with the host's public key (base64) so the host can independently recover the
+     * same key value — see `RsaPublicKeyEncryptor` / `PaxOnlinePinKeyProvisioner`. `null`
+     * whenever [onlinePinBlock] is.
      */
-    @Nullable
-    private final String onlinePinKeyEncrypted;
-
+    val onlinePinKeyEncrypted: String?,
     /**
      * The full EMV-kernel result (PAN, track2, AID, TVR/TSI/ATC/ARQC-or-TC, ...) assembled right
-     * before {@code START_ONLINE_PROCESS} — see {@link EmvTransactionResult} and
-     * {@link #withEmvResult}. {@code null} until then, and always for mag/manual (no EMV kernel).
+     * before `START_ONLINE_PROCESS` — see [EmvTransactionResult] and [withEmvResult]. `null`
+     * until then, and always for mag/manual (no EMV kernel).
      */
-    @Nullable
-    private final EmvTransactionResult emvResult;
-
+    val emvResult: EmvTransactionResult?,
     /**
      * For a refund: the original sale's reference number, as the host returned it on that sale
-     * (and the receipt shows) — the host's refund request ({@code RefundRequest#referenceNumber})
-     * needs it. {@code null} for other types. See {@link #withReferenceNumber}.
+     * (and the receipt shows) — the host's refund request (`RefundRequest#referenceNumber`)
+     * needs it. `null` for other types. See [withReferenceNumber].
      */
-    @Nullable
-    private final String referenceNumber;
+    val referenceNumber: String?,
+) {
 
-    public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
-        this(type, amountMinor, mode, null, null, null, null, null, null);
-    }
+    constructor(type: TransactionType, amountMinor: Long, mode: EntryMethod) :
+        this(type, amountMinor, mode, null, null, null, null, null, null)
 
-    private TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode,
-            @Nullable String iccData, @Nullable String pan, @Nullable String onlinePinBlock,
-            @Nullable String onlinePinKeyEncrypted, @Nullable EmvTransactionResult emvResult,
-            @Nullable String referenceNumber) {
-        this.type = type;
-        this.amountMinor = amountMinor;
-        this.mode = mode;
-        this.iccData = iccData;
-        this.pan = pan;
-        this.onlinePinBlock = onlinePinBlock;
-        this.onlinePinKeyEncrypted = onlinePinKeyEncrypted;
-        this.emvResult = emvResult;
-        this.referenceNumber = referenceNumber;
-    }
+    /** ISO 8583-style processing code for [type] — see [TransactionType]. */
+    val procCode: String get() = type.procCode
 
-    public TransactionType getType() {
-        return type;
-    }
+    val isContact: Boolean get() = mode == EntryMethod.CHIP
 
-    /** ISO 8583-style processing code for {@link #getType()} — see {@link TransactionType}. */
-    public String getProcCode() {
-        return type.getProcCode();
-    }
+    val isContactless: Boolean get() = mode == EntryMethod.CONTACTLESS
 
-    public long getAmountMinor() {
-        return amountMinor;
-    }
+    val isMagstripe: Boolean get() = mode == EntryMethod.MAGSTRIPE
 
-    public EntryMethod getMode() {
-        return mode;
-    }
+    val isManual: Boolean get() = mode == EntryMethod.MANUAL
 
-    @Nullable
-    public String getIccData() {
-        return iccData;
-    }
+    fun allowsChip(): Boolean = mode == EntryMethod.CHIP || mode == EntryMethod.ANY
 
-    @Nullable
-    public String getPan() {
-        return pan;
-    }
+    fun allowsContactless(): Boolean = mode == EntryMethod.CONTACTLESS || mode == EntryMethod.ANY
 
-    @Nullable
-    public String getOnlinePinBlock() {
-        return onlinePinBlock;
-    }
+    fun allowsMagstripe(): Boolean = mode == EntryMethod.MAGSTRIPE || mode == EntryMethod.ANY
 
-    @Nullable
-    public String getOnlinePinKeyEncrypted() {
-        return onlinePinKeyEncrypted;
-    }
+    fun allowsManual(): Boolean = mode == EntryMethod.MANUAL || mode == EntryMethod.ANY
 
-    @Nullable
-    public EmvTransactionResult getEmvResult() {
-        return emvResult;
-    }
-
-    @Nullable
-    public String getReferenceNumber() {
-        return referenceNumber;
-    }
-
-    public boolean isContact() {
-        return mode == EntryMethod.CHIP;
-    }
-
-    public boolean isContactless() {
-        return mode == EntryMethod.CONTACTLESS;
-    }
-
-    public boolean isMagstripe() {
-        return mode == EntryMethod.MAGSTRIPE;
-    }
-
-    public boolean isManual() {
-        return mode == EntryMethod.MANUAL;
-    }
-
-    public boolean allowsChip() {
-        return mode == EntryMethod.CHIP || mode == EntryMethod.ANY;
-    }
-
-    public boolean allowsContactless() {
-        return mode == EntryMethod.CONTACTLESS || mode == EntryMethod.ANY;
-    }
-
-    public boolean allowsMagstripe() {
-        return mode == EntryMethod.MAGSTRIPE || mode == EntryMethod.ANY;
-    }
-
-    public boolean allowsManual() {
-        return mode == EntryMethod.MANUAL || mode == EntryMethod.ANY;
-    }
+    private fun copy(
+        mode: EntryMethod = this.mode,
+        iccData: String? = this.iccData,
+        pan: String? = this.pan,
+        onlinePinBlock: String? = this.onlinePinBlock,
+        onlinePinKeyEncrypted: String? = this.onlinePinKeyEncrypted,
+        emvResult: EmvTransactionResult? = this.emvResult,
+        referenceNumber: String? = this.referenceNumber,
+    ) = TransactionConfig(
+        type, amountMinor, mode, iccData, pan, onlinePinBlock, onlinePinKeyEncrypted,
+        emvResult, referenceNumber,
+    )
 
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
-    public TransactionConfig withMode(EntryMethod mode) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
-    }
+    fun withMode(mode: EntryMethod): TransactionConfig = copy(mode = mode)
 
-    /** Same everything else, with Field 55 attached — see {@link #getIccData()}. */
-    public TransactionConfig withIccData(@Nullable String iccData) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
-    }
+    /** Same everything else, with Field 55 attached — see [iccData]. */
+    fun withIccData(iccData: String?): TransactionConfig = copy(iccData = iccData)
 
-    /** Same everything else, with the PAN attached — see {@link #getPan()}. */
-    public TransactionConfig withPan(@Nullable String pan) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
-    }
+    /** Same everything else, with the PAN attached — see [pan]. */
+    fun withPan(pan: String?): TransactionConfig = copy(pan = pan)
 
-    /** Same everything else, with the online PIN block attached — see {@link #getOnlinePinBlock()}. */
-    public TransactionConfig withOnlinePinBlock(@Nullable String onlinePinBlock) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
-    }
+    /** Same everything else, with the online PIN block attached — see [onlinePinBlock]. */
+    fun withOnlinePinBlock(onlinePinBlock: String?): TransactionConfig =
+        copy(onlinePinBlock = onlinePinBlock)
 
-    /** Same everything else, with the RSA-wrapped PIN key attached — see {@link #getOnlinePinKeyEncrypted()}. */
-    public TransactionConfig withOnlinePinKeyEncrypted(@Nullable String onlinePinKeyEncrypted) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
-    }
+    /** Same everything else, with the RSA-wrapped PIN key attached — see [onlinePinKeyEncrypted]. */
+    fun withOnlinePinKeyEncrypted(onlinePinKeyEncrypted: String?): TransactionConfig =
+        copy(onlinePinKeyEncrypted = onlinePinKeyEncrypted)
 
-    /** Same everything else, with the full EMV result attached — see {@link #getEmvResult()}. */
-    public TransactionConfig withEmvResult(@Nullable EmvTransactionResult emvResult) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
-    }
+    /** Same everything else, with the full EMV result attached — see [emvResult]. */
+    fun withEmvResult(emvResult: EmvTransactionResult?): TransactionConfig =
+        copy(emvResult = emvResult)
 
-    /** Same everything else, with the original sale's reference number — see {@link #getReferenceNumber()}. */
-    public TransactionConfig withReferenceNumber(@Nullable String referenceNumber) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
-    }
+    /** Same everything else, with the original sale's reference number — see [referenceNumber]. */
+    fun withReferenceNumber(referenceNumber: String?): TransactionConfig =
+        copy(referenceNumber = referenceNumber)
 }

@@ -1,296 +1,101 @@
-package com.emvenhance.core.card;
-
-import androidx.annotation.Nullable;
+package com.emvenhance.core.card
 
 /**
  * Everything read off the card during EMV processing that the host needs for online
- * authorization — assembled once, right before {@code START_ONLINE_PROCESS}, and attached to
- * {@link TransactionConfig#withEmvResult}. Vendor-agnostic mirror of the old project's
- * {@code PosTransactionResult} (itself produced by a vendor SDK's EMV callback), trimmed to the
+ * authorization — assembled once, right before `START_ONLINE_PROCESS`, and attached to
+ * [TransactionConfig.withEmvResult]. Vendor-agnostic mirror of the old project's
+ * `PosTransactionResult` (itself produced by a vendor SDK's EMV callback), trimmed to the
  * fields the exchange/sale request bodies actually read from it.
  *
- * <p>Built via {@link Builder} since it has this many fields — same shape as
- * {@code EmvTransParam.Builder}/{@code EmvProcessParam.Builder} already used elsewhere in this
- * codebase for the same reason.
+ * Built via [Builder] since it has this many fields — same shape as
+ * `EmvTransParam.Builder`/`EmvProcessParam.Builder` already used elsewhere in this codebase for
+ * the same reason.
  */
-public final class EmvTransactionResult {
+class EmvTransactionResult private constructor(b: Builder) {
 
-    @Nullable
-    private final String pan;
-    @Nullable
-    private final String maskedPan;
-    @Nullable
-    private final String track2;
-    /** YYMM, tag 5F24 truncated — see {@link Builder#expDate}. */
-    @Nullable
-    private final String expDate;
-    @Nullable
-    private final String cardHolderName;
-    /** Field 55 (ICC System Related Data), hex BER-TLV — same value as {@code TransactionConfig#getIccData}. */
-    @Nullable
-    private final String chipData;
-    @Nullable
-    private final String pinBlock;
-    @Nullable
-    private final String emvAppLabel;
-    @Nullable
-    private final String emvAppName;
-    @Nullable
-    private final String aid;
-    @Nullable
-    private final String tvr;
-    @Nullable
-    private final String tsi;
-    @Nullable
-    private final String atc;
-    /** Tag 9F26 when CID (9F27) says this cryptogram is an ARQC — {@code null} otherwise. */
-    @Nullable
-    private final String arqc;
-    /** Tag 9F26 when CID (9F27) says this cryptogram is a TC — {@code null} otherwise. */
-    @Nullable
-    private final String tc;
-    @Nullable
-    private final String issuerName;
-    private final boolean hasPin;
-    private final EntryMethod entryMethod;
+    val pan: String? = b.pan
+    val maskedPan: String? = b.maskedPan
+    val track2: String? = b.track2
 
-    private EmvTransactionResult(Builder b) {
-        this.pan = b.pan;
-        this.maskedPan = b.maskedPan;
-        this.track2 = b.track2;
-        this.expDate = b.expDate;
-        this.cardHolderName = b.cardHolderName;
-        this.chipData = b.chipData;
-        this.pinBlock = b.pinBlock;
-        this.emvAppLabel = b.emvAppLabel;
-        this.emvAppName = b.emvAppName;
-        this.aid = b.aid;
-        this.tvr = b.tvr;
-        this.tsi = b.tsi;
-        this.atc = b.atc;
-        this.arqc = b.arqc;
-        this.tc = b.tc;
-        this.issuerName = b.issuerName;
-        this.hasPin = b.hasPin;
-        this.entryMethod = b.entryMethod;
-    }
+    /** YYMM, tag 5F24 truncated — see [Builder.expDate]. */
+    val expDate: String? = b.expDate
+    val cardHolderName: String? = b.cardHolderName
 
-    @Nullable
-    public String getPan() {
-        return pan;
-    }
+    /** Field 55 (ICC System Related Data), hex BER-TLV — same value as [TransactionConfig.iccData]. */
+    val chipData: String? = b.chipData
+    val pinBlock: String? = b.pinBlock
+    val emvAppLabel: String? = b.emvAppLabel
+    val emvAppName: String? = b.emvAppName
+    val aid: String? = b.aid
+    val tvr: String? = b.tvr
+    val tsi: String? = b.tsi
+    val atc: String? = b.atc
 
-    @Nullable
-    public String getMaskedPan() {
-        return maskedPan;
-    }
+    /** Tag 9F26 when CID (9F27) says this cryptogram is an ARQC — `null` otherwise. */
+    val arqc: String? = b.arqc
 
-    @Nullable
-    public String getTrack2() {
-        return track2;
-    }
+    /** Tag 9F26 when CID (9F27) says this cryptogram is a TC — `null` otherwise. */
+    val tc: String? = b.tc
+    val issuerName: String? = b.issuerName
+    val hasPin: Boolean = b.hasPin
+    val entryMethod: EntryMethod = b.entryMethod
 
-    @Nullable
-    public String getExpDate() {
-        return expDate;
-    }
+    class Builder {
+        internal var pan: String? = null
+        internal var maskedPan: String? = null
+        internal var track2: String? = null
+        internal var expDate: String? = null
+        internal var cardHolderName: String? = null
+        internal var chipData: String? = null
+        internal var pinBlock: String? = null
+        internal var emvAppLabel: String? = null
+        internal var emvAppName: String? = null
+        internal var aid: String? = null
+        internal var tvr: String? = null
+        internal var tsi: String? = null
+        internal var atc: String? = null
+        internal var arqc: String? = null
+        internal var tc: String? = null
+        internal var issuerName: String? = null
+        internal var hasPin: Boolean = false
+        internal var entryMethod: EntryMethod = EntryMethod.CHIP
 
-    @Nullable
-    public String getCardHolderName() {
-        return cardHolderName;
-    }
+        fun pan(pan: String?) = apply { this.pan = pan }
 
-    @Nullable
-    public String getChipData() {
-        return chipData;
-    }
+        fun maskedPan(maskedPan: String?) = apply { this.maskedPan = maskedPan }
 
-    @Nullable
-    public String getPinBlock() {
-        return pinBlock;
-    }
+        fun track2(track2: String?) = apply { this.track2 = track2 }
 
-    @Nullable
-    public String getEmvAppLabel() {
-        return emvAppLabel;
-    }
+        fun expDate(expDate: String?) = apply { this.expDate = expDate }
 
-    @Nullable
-    public String getEmvAppName() {
-        return emvAppName;
-    }
+        fun cardHolderName(cardHolderName: String?) = apply { this.cardHolderName = cardHolderName }
 
-    @Nullable
-    public String getAid() {
-        return aid;
-    }
+        fun chipData(chipData: String?) = apply { this.chipData = chipData }
 
-    @Nullable
-    public String getTvr() {
-        return tvr;
-    }
+        fun pinBlock(pinBlock: String?) = apply { this.pinBlock = pinBlock }
 
-    @Nullable
-    public String getTsi() {
-        return tsi;
-    }
+        fun emvAppLabel(emvAppLabel: String?) = apply { this.emvAppLabel = emvAppLabel }
 
-    @Nullable
-    public String getAtc() {
-        return atc;
-    }
+        fun emvAppName(emvAppName: String?) = apply { this.emvAppName = emvAppName }
 
-    @Nullable
-    public String getArqc() {
-        return arqc;
-    }
+        fun aid(aid: String?) = apply { this.aid = aid }
 
-    @Nullable
-    public String getTc() {
-        return tc;
-    }
+        fun tvr(tvr: String?) = apply { this.tvr = tvr }
 
-    @Nullable
-    public String getIssuerName() {
-        return issuerName;
-    }
+        fun tsi(tsi: String?) = apply { this.tsi = tsi }
 
-    public boolean isHasPin() {
-        return hasPin;
-    }
+        fun atc(atc: String?) = apply { this.atc = atc }
 
-    public EntryMethod getEntryMethod() {
-        return entryMethod;
-    }
+        fun arqc(arqc: String?) = apply { this.arqc = arqc }
 
-    public static final class Builder {
-        @Nullable
-        private String pan;
-        @Nullable
-        private String maskedPan;
-        @Nullable
-        private String track2;
-        @Nullable
-        private String expDate;
-        @Nullable
-        private String cardHolderName;
-        @Nullable
-        private String chipData;
-        @Nullable
-        private String pinBlock;
-        @Nullable
-        private String emvAppLabel;
-        @Nullable
-        private String emvAppName;
-        @Nullable
-        private String aid;
-        @Nullable
-        private String tvr;
-        @Nullable
-        private String tsi;
-        @Nullable
-        private String atc;
-        @Nullable
-        private String arqc;
-        @Nullable
-        private String tc;
-        @Nullable
-        private String issuerName;
-        private boolean hasPin;
-        private EntryMethod entryMethod = EntryMethod.CHIP;
+        fun tc(tc: String?) = apply { this.tc = tc }
 
-        public Builder pan(@Nullable String pan) {
-            this.pan = pan;
-            return this;
-        }
+        fun issuerName(issuerName: String?) = apply { this.issuerName = issuerName }
 
-        public Builder maskedPan(@Nullable String maskedPan) {
-            this.maskedPan = maskedPan;
-            return this;
-        }
+        fun hasPin(hasPin: Boolean) = apply { this.hasPin = hasPin }
 
-        public Builder track2(@Nullable String track2) {
-            this.track2 = track2;
-            return this;
-        }
+        fun entryMethod(entryMethod: EntryMethod) = apply { this.entryMethod = entryMethod }
 
-        public Builder expDate(@Nullable String expDate) {
-            this.expDate = expDate;
-            return this;
-        }
-
-        public Builder cardHolderName(@Nullable String cardHolderName) {
-            this.cardHolderName = cardHolderName;
-            return this;
-        }
-
-        public Builder chipData(@Nullable String chipData) {
-            this.chipData = chipData;
-            return this;
-        }
-
-        public Builder pinBlock(@Nullable String pinBlock) {
-            this.pinBlock = pinBlock;
-            return this;
-        }
-
-        public Builder emvAppLabel(@Nullable String emvAppLabel) {
-            this.emvAppLabel = emvAppLabel;
-            return this;
-        }
-
-        public Builder emvAppName(@Nullable String emvAppName) {
-            this.emvAppName = emvAppName;
-            return this;
-        }
-
-        public Builder aid(@Nullable String aid) {
-            this.aid = aid;
-            return this;
-        }
-
-        public Builder tvr(@Nullable String tvr) {
-            this.tvr = tvr;
-            return this;
-        }
-
-        public Builder tsi(@Nullable String tsi) {
-            this.tsi = tsi;
-            return this;
-        }
-
-        public Builder atc(@Nullable String atc) {
-            this.atc = atc;
-            return this;
-        }
-
-        public Builder arqc(@Nullable String arqc) {
-            this.arqc = arqc;
-            return this;
-        }
-
-        public Builder tc(@Nullable String tc) {
-            this.tc = tc;
-            return this;
-        }
-
-        public Builder issuerName(@Nullable String issuerName) {
-            this.issuerName = issuerName;
-            return this;
-        }
-
-        public Builder hasPin(boolean hasPin) {
-            this.hasPin = hasPin;
-            return this;
-        }
-
-        public Builder entryMethod(EntryMethod entryMethod) {
-            this.entryMethod = entryMethod;
-            return this;
-        }
-
-        public EmvTransactionResult build() {
-            return new EmvTransactionResult(this);
-        }
+        fun build(): EmvTransactionResult = EmvTransactionResult(this)
     }
 }

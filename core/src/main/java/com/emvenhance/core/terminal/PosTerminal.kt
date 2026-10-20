@@ -1,129 +1,142 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.terminal
 
-import androidx.annotation.Nullable;
-import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.CardSearchListener;
-import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
-import com.emvenhance.core.engine.EmvEngine;
-import com.emvenhance.core.event.EmvStep;
-import com.emvenhance.core.event.EmvStepEvent;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
-import com.emvenhance.core.host.AuthResult;
-import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.PrinterBehavior;
-import com.emvenhance.core.util.ApduTrace;
-import com.emvenhance.core.util.EmvLog;
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.core.ObservableEmitter;
-import io.reactivex.rxjava3.core.Scheduler;
-import io.reactivex.rxjava3.disposables.Disposable;
-import io.reactivex.rxjava3.schedulers.Schedulers;
-import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import com.emvenhance.core.card.CardPresence
+import com.emvenhance.core.card.CardSearchListener
+import com.emvenhance.core.card.EntryMethod
+import com.emvenhance.core.card.TransactionConfig
+import com.emvenhance.core.card.TransactionType
+import com.emvenhance.core.engine.EmvEngine
+import com.emvenhance.core.event.EmvStep
+import com.emvenhance.core.event.EmvStepEvent
+import com.emvenhance.core.event.TransactionStep
+import com.emvenhance.core.event.TransactionStepEvent
+import com.emvenhance.core.host.AuthResult
+import com.emvenhance.core.host.CommunicationBehavior
+import com.emvenhance.core.host.PrinterBehavior
+import com.emvenhance.core.util.ApduTrace
+import com.emvenhance.core.util.EmvLog
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The only public hardware API for the app.
  *
- * <p>Owns card search, host communication, and printer. EMV after entry selection is
- * delegated to its {@link EmvEngine}, which owns the vendor's {@link EmvBehavior}.
+ * Owns card search, host communication, and printer. EMV after entry selection is delegated to
+ * its [EmvEngine], which owns the vendor's [EmvBehavior].
  *
- * <pre>
- *   UI → PosTerminal.startTransaction(ANY|CHIP|…).subscribe()   [returns immediately]
+ * ```
+ *   UI → PosTerminal.startTransaction(ANY|CHIP|…).collect { }     [collecting starts it]
  *          └── engine.prepare + searchCard(config, listener)        ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
  *                        └── engine.start(card)                     ← vendor EMV, from inside the callback
  *                               └── behavior → engine.authorize → PosTerminal.authorize → host
- * </pre>
+ * ```
  *
- * <p>A transaction is an {@link Observable} of its own {@link TransactionStepEvent}s: subscribing
- * starts it, disposing cancels it (that one only, never another's), and {@code onComplete} means
- * the terminal is free again. The transaction thread stays inside this class.
+ * A transaction is a cold [Flow] of its own [TransactionStepEvent]s: collecting starts it,
+ * cancelling the collector cancels it (that one only, never another's), and the flow completes
+ * once the terminal is free again. The transaction thread stays inside this class.
+ *
+ * Threads: one dedicated transaction thread (card search, kernel, kernel callbacks, the host
+ * call through `runBlocking`), never the main thread and never `Dispatchers.Default`/`IO` — a
+ * blocked kernel call must not starve a shared pool. One print thread. Coroutines decide how
+ * work is started, cancelled and observed; never the order or the thread of kernel calls.
  */
-public abstract class PosTerminal {
+abstract class PosTerminal protected constructor(
+    behavior: EmvBehavior,
+    @JvmField protected val communication: CommunicationBehavior,
+    @JvmField protected val printer: PrinterBehavior,
+) {
 
-    protected final EmvEngine engine;
-    protected final CommunicationBehavior communication;
-    protected final PrinterBehavior printer;
+    @JvmField
+    protected val engine: EmvEngine = EmvEngine(behavior, EmvEngine.Authorizer { authorize(it) })
 
     /**
      * The one thread every transaction runs on, from card search through EMV and the host: one
-     * reader, one kernel. Nothing ever queues on it — a subscribe to {@link #startTransaction}
-     * is refused while the previous transaction is still there.
+     * reader, one kernel. Nothing ever queues on it — a collect of [startTransaction] is refused
+     * while the previous transaction is still there. A plain executor, not a coroutine launched
+     * from the flow: a coroutine cancelled before it starts never runs, and its transaction would
+     * then never free the terminal.
      */
-    private final Scheduler transactionScheduler =
-            Schedulers.from(Executors.newSingleThreadExecutor());
+    private val transactionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     /**
-     * The one thread receipts print on: one printer, one job at a time, in the order they were
-     * asked for — two quick taps on Print queue the second receipt instead of driving the printer
-     * from two threads at once.
+     * Where receipts print: one thread (a blocking printer driver never touches a shared pool)
+     * and one [Mutex] (a suspending one never interleaves two receipts) — one printer, one job at
+     * a time, in the order they were asked for.
      */
-    private final Scheduler printScheduler =
-            Schedulers.from(Executors.newSingleThreadExecutor());
+    private val printScope =
+        CoroutineScope(SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher())
+    private val printMutex = Mutex()
 
     /**
-     * The transaction on {@link #transactionScheduler}, from its accepted start until it is done
-     * with the reader; empty when the terminal is free. Only it may report to the engine.
+     * The transaction on [transactionExecutor], from its accepted start until it is done with the
+     * reader; empty when the terminal is free. Only it may report to the engine.
      */
-    private final AtomicReference<Transaction> current = new AtomicReference<>();
+    private val current = AtomicReference<Transaction?>(null)
 
-    /**
-     * @param behavior the vendor's EMV — handed to this terminal's {@link EmvEngine}, which owns
-     *                 it; the terminal itself only ever talks to the engine
-     */
-    protected PosTerminal(EmvBehavior behavior,
-            CommunicationBehavior communication,
-            PrinterBehavior printer) {
-        this.communication = communication;
-        this.printer = printer;
-        this.engine = new EmvEngine(behavior, this::authorize);
-        initializeVendor();
+    init {
+        initializeVendor()
     }
 
-    public CommunicationBehavior communication() {
-        return communication;
-    }
+    fun communication(): CommunicationBehavior = communication
 
-    public PrinterBehavior printer() {
-        return printer;
-    }
+    fun printer(): PrinterBehavior = printer
 
     /**
-     * Host authorize via the terminal-owned {@link CommunicationBehavior}. This is also where a
-     * vendor's {@link EmvBehavior} goes online — {@link EmvEngine#authorize} hands its request
-     * here — so it's one implementation, whether it's the terminal or a vendor asking.
+     * Host authorize via the terminal-owned [CommunicationBehavior]. This is also where a
+     * vendor's [EmvBehavior] goes online — [EmvEngine.authorize] hands its request here — so
+     * it's one implementation, whether it's the terminal or a vendor asking.
      *
-     * <p>Publishes {@code ONLINE_REQUIRED} / {@code ONLINE_PROCESSING} / {@code ONLINE_COMPLETED}
-     * around the call, so a vendor gets the notify sequence for free instead of repeating it.
+     * Publishes `ONLINE_REQUIRED` / `ONLINE_PROCESSING` / `ONLINE_COMPLETED` around the call, so
+     * a vendor gets the notify sequence for free instead of repeating it.
+     *
+     * Blocking: called on the transaction thread from inside the kernel, which needs the answer
+     * on the same stack, so the suspending host call runs in `runBlocking` here — the only
+     * `runBlocking` in the app, and never on the main thread.
      */
-    public AuthResult authorize(TransactionConfig config) {
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
-        AuthResult result;
-        try {
-            // Cancel doesn't cut this short: once sent, the sale may be approved at the host, and
-            // with no reversal yet the terminal waits for that answer — or the timeout.
-            result = communication.authorize(config)
-                    .timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
-                    .blockingGet();
-        } catch (Exception e) {
-            // No usable host answer (network, timeout, envelope error): online failed, not a
-            // host decline.
-            result = AuthResult.failed(e.getCause() instanceof TimeoutException
-                    ? "Online failed: the host didn't answer in time"
-                    : e.getMessage() != null ? e.getMessage() : "Online failed");
+    fun authorize(config: TransactionConfig): AuthResult {
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED))
+        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING))
+        // Cancel doesn't cut this short: once sent, the sale may be approved at the host, and
+        // with no reversal yet the terminal waits for that answer — or the timeout, which
+        // cancels the request.
+        val result = try {
+            runBlocking {
+                withTimeout(onlineTimeoutMs()) {
+                    communication.authorize(config)
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            AuthResult.failed("Online failed: the host didn't answer in time")
+        } catch (e: Exception) {
+            // No usable host answer (network, envelope error): online failed, not a host decline.
+            AuthResult.failed(e.message ?: "Online failed")
         }
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
-                .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
-                .build());
-        return result;
+        engine.notifyTransactionStep(
+            TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+                .put(TransactionStepEvent.KEY_RESULT, result.message)
+                .build(),
+        )
+        return result
     }
 
     /**
@@ -132,379 +145,338 @@ public abstract class PosTerminal {
      * chained came to minutes with the terminal busy throughout. Past this the request is
      * cancelled and the transaction is online failed, like any host that doesn't answer.
      */
-    protected long onlineTimeoutMs() {
-        return 90_000;
-    }
+    protected open fun onlineTimeoutMs(): Long = 90_000
 
     /**
-     * Print receipt lines via the terminal-owned {@link PrinterBehavior}, on
-     * {@link #printScheduler} and returns at once — a real printer is slow enough that printing on
-     * the calling (UI) thread would ANR. A failure (no paper, DAL not ready, printer busy) is
-     * logged, not thrown — the caller asked to print and walked away; it has no exception handler
-     * waiting.
+     * Print receipt lines via the terminal-owned [PrinterBehavior], on the print thread, and
+     * returns at once — a real printer is slow enough that printing on the calling (UI) thread
+     * would ANR. A failure (no paper, DAL not ready, printer busy) is logged, not thrown — the
+     * caller asked to print and walked away; it has no exception handler waiting.
      */
-    public void printReceipt(List<String> lines) {
-        printer.print(lines)
-                .subscribeOn(printScheduler)
-                .subscribe(() -> { }, Throwable::printStackTrace);
+    fun printReceipt(lines: List<String>) {
+        printScope.launch {
+            printMutex.withLock {
+                try {
+                    printer.print(lines)
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
+            }
+        }
     }
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
     /**
-     * Every transaction's steps, replaying the latest one to a new subscriber — for engine-side
-     * observers and tests. A screen observes the stream {@link #startTransaction} returned
+     * Every transaction's steps, replaying the latest one to a new collector — for terminal-wide
+     * observers (`MainActivity`'s status). A screen collects the flow [startTransaction] returned
      * instead: that one carries its own transaction's steps only.
      */
-    public Observable<TransactionStepEvent> transactionSteps() {
-        return engine.transactionSteps();
-    }
+    fun transactionSteps(): SharedFlow<TransactionStepEvent> = engine.transactionSteps
 
-    public Observable<EmvStepEvent> emvSteps() {
-        return engine.emvSteps();
-    }
+    fun emvSteps(): SharedFlow<EmvStepEvent> = engine.emvSteps
 
     /**
-     * The current transaction's APDU trace — owned by the engine, alongside
-     * {@link #transactionSteps()} and {@link #emvSteps()}: observe
-     * {@link ApduTrace#changes()} and read {@link ApduTrace#text()}.
+     * The current transaction's APDU trace — owned by the engine, alongside [transactionSteps]
+     * and [emvSteps]: collect [ApduTrace.changes] and read [ApduTrace.text].
      */
-    public ApduTrace apduTrace() {
-        return engine.apduTrace();
-    }
+    fun apduTrace(): ApduTrace = engine.apduTrace()
 
-    public TransactionStepEvent currentState() {
-        return engine.currentTransactionState();
-    }
+    fun currentState(): TransactionStepEvent = engine.currentTransactionState()
 
     /**
-     * Accept any presented card (chip / tap / swipe / manual as enabled by the vendor).
-     * Preferred UI entry point — see {@link #startTransaction} for the stream it returns.
+     * Accept any presented card (chip / tap / swipe / manual as enabled by the vendor), with the
+     * original sale's reference number, which a refund needs for the host — see
+     * [TransactionConfig.referenceNumber]. Preferred UI entry point — see [startTransaction] for
+     * the flow it returns.
      */
-    public final Observable<TransactionStepEvent> acceptCard(TransactionType type, long amountMinor) {
-        return acceptCard(type, amountMinor, null);
-    }
+    @JvmOverloads
+    fun acceptCard(
+        type: TransactionType,
+        amountMinor: Long,
+        referenceNumber: String? = null,
+    ): Flow<TransactionStepEvent> = startTransaction(
+        TransactionConfig(type, amountMinor, EntryMethod.ANY).withReferenceNumber(referenceNumber),
+    )
 
     /**
-     * {@link #acceptCard(TransactionType, long)} with the original sale's reference number, which
-     * a refund needs for the host — see {@link TransactionConfig#getReferenceNumber()}.
-     */
-    public final Observable<TransactionStepEvent> acceptCard(TransactionType type, long amountMinor,
-            @Nullable String referenceNumber) {
-        return startTransaction(new TransactionConfig(type, amountMinor, EntryMethod.ANY)
-                .withReferenceNumber(referenceNumber));
-    }
-
-    /**
-     * Start with an explicit reader mode. Nothing happens until the returned stream is subscribed;
-     * each subscribe is one transaction attempt. The subscribe returns at once: card search, EMV
-     * and the host run on the transaction thread, and every outcome (card found, search
-     * cancelled, timed out, or errored) arrives as a {@link CardSearchListener} callback there.
+     * Start with an explicit reader mode. Nothing happens until the returned flow is collected;
+     * each collect is one transaction attempt. Collecting returns control at once: card search,
+     * EMV and the host run on the transaction thread, and every outcome (card found, search
+     * cancelled, timed out, or errored) arrives as a [CardSearchListener] callback there.
      *
-     * <ul>
-     *   <li>{@code onNext}: this transaction's steps, from {@code TRANSACTION_STARTED} to
-     *       {@code COMPLETED} or {@code ERROR} — never the previous transaction's.</li>
-     *   <li>{@code onComplete}: the transaction is done with the reader; the terminal is free.</li>
-     *   <li>{@code onError(}{@link TerminalBusyException}{@code )}: refused on the subscribing
-     *       thread, nothing queued, while the previous transaction hasn't finished — still
-     *       searching or running EMV, or cancelled but not yet done with the reader (a PAX poll
-     *       takes a moment to stop). It is not reported on the previous transaction's steps.</li>
-     *   <li>{@code dispose()}: cancels this transaction — its search stops and its EMV winds
-     *       down, or it never runs if it hadn't begun yet. It never interrupts the transaction
-     *       thread, and the terminal stays busy until that is done with the reader. This
-     *       stream's steps stop at once, the cancel's own ERROR included.</li>
-     * </ul>
+     * - Values: this transaction's steps, from `TRANSACTION_STARTED` to `COMPLETED` or `ERROR` —
+     *   never the previous transaction's, nothing conflated or dropped.
+     * - Completion: the transaction is done with the reader; the terminal is free.
+     * - [TerminalBusyException]: thrown into the collector at once, on the collecting thread,
+     *   nothing queued, while the previous transaction hasn't finished — still searching or
+     *   running EMV, or cancelled but not yet done with the reader (a PAX poll takes a moment to
+     *   stop). It is not reported on the previous transaction's steps.
+     * - Cancelling the collector: cancels this transaction — its search stops and its EMV winds
+     *   down, or it never runs if it hadn't begun yet. It never interrupts the transaction
+     *   thread, and the terminal stays busy until that is done with the reader. This flow's
+     *   steps stop at once, the cancel's own ERROR included.
+     *
+     * Collect it on the caller's dispatcher (`viewModelScope`'s `Main.immediate`); never add a
+     * `flowOn` — that would move the busy check onto another thread, and two quick taps would
+     * queue a second sale.
      */
-    public Observable<TransactionStepEvent> startTransaction(TransactionConfig config) {
-        return Observable.create(source -> {
-            // Steps come from the transaction thread, a cancel's ERROR from the UI thread.
-            ObservableEmitter<TransactionStepEvent> emitter = source.serialize();
-            Transaction transaction = new Transaction(config, emitter);
-            // Here, on the subscribing thread: a refused start is reported at once and never
-            // waits on the transaction thread to run later.
-            if (!current.compareAndSet(null, transaction)) {
-                EmvLog.d("POS terminal is busy: the previous transaction hasn't finished");
-                emitter.tryOnError(new TerminalBusyException());
-                return;
-            }
-            // skip(1): the step the engine replays belongs to the previous transaction — this one
-            // hasn't run yet, so its first step is still to come.
-            transaction.steps = engine.transactionSteps().skip(1).subscribe(emitter::onNext);
-            emitter.setCancellable(transaction::cancel);
-            // Not tied to the subscription: run() always runs — even disposed before it began, it
-            // returns at once — so it always frees the terminal.
-            transactionScheduler.scheduleDirect(transaction::run);
-        });
-    }
+    open fun startTransaction(config: TransactionConfig): Flow<TransactionStepEvent> = callbackFlow {
+        val transaction = Transaction(config, channel)
+        // Here, on the collecting thread: a refused start is reported at once and never waits
+        // on the transaction thread to run later.
+        if (!current.compareAndSet(null, transaction)) {
+            EmvLog.d("POS terminal is busy: the previous transaction hasn't finished")
+            close(TerminalBusyException())
+            return@callbackFlow
+        }
+        // A plain synchronous listener: every step of this transaction, in order, the moment it
+        // is published — nothing replayed from the previous one.
+        transaction.steps = engine.addTransactionStepListener { trySend(it) }
+        // Not tied to this flow: run() always runs — even cancelled before it began, it returns
+        // at once — so it always frees the terminal.
+        transactionExecutor.execute(transaction::run)
+        // The collector was cancelled (Cancel, Back, onCleared) — and also after run() closed
+        // the channel: cancel() is guarded, so a finished transaction cancels nothing.
+        awaitClose { transaction.cancel() }
+    }.buffer(Channel.UNLIMITED) // a transaction's steps are few; trySend must never drop one
 
     /** Cancels the transaction still on this terminal, if any; the terminal is going away. */
-    public void dispose() {
-        Transaction transaction = current.get();
-        if (transaction != null) {
-            transaction.cancel();
-        }
-        engine.dispose();
+    open fun dispose() {
+        current.get()?.cancel()
+        engine.dispose()
+        printScope.cancel()
     }
 
     /** Whether the search calling this should stop: its transaction was cancelled. */
-    public final boolean isSearchCancelled() {
-        Transaction transaction = current.get();
-        return transaction != null && transaction.isOver();
-    }
+    fun isSearchCancelled(): Boolean = current.get()?.isOver() == true
 
     /**
-     * Debug switch for the {@link #apduTrace()}: whether to record every APDU command/response
-     * and step. Always off in a release build (the trace holds card data).
+     * Debug switch for the [apduTrace]: whether to record every APDU command/response and step.
+     * Always off in a release build (the trace holds card data).
      */
-    public final void setApduLoggingEnabled(boolean enabled) {
-        engine.apduTrace().setEnabled(enabled);
+    fun setApduLoggingEnabled(enabled: Boolean) {
+        engine.apduTrace().setEnabled(enabled)
     }
 
-    public final boolean isApduLoggingEnabled() {
-        return engine.apduTrace().isEnabled();
-    }
+    fun isApduLoggingEnabled(): Boolean = engine.apduTrace().isEnabled()
 
     // ─── Vendor must implement ───────────────────────────────────────────
 
     /**
-     * Blocking card search using the vendor's native SDK.
-     * Fire {@link CardSearchListener} events; return the selected card or {@code null}.
+     * Blocking card search using the vendor's native SDK, on the transaction thread.
+     * Fire [CardSearchListener] events; return the selected card or `null`.
      */
-    @Nullable
-    public abstract CardPresence searchCard(TransactionConfig config, CardSearchListener listener);
+    abstract fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence?
 
-    protected abstract void cancelCardSearch();
+    protected abstract fun cancelCardSearch()
 
-    protected void initializeVendor() {
+    protected open fun initializeVendor() {
         // default: no-op
     }
 
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted {@link #startTransaction}: its config, its subscriber, and whether it was
-     * cancelled. The terminal outlives every transaction, so what belongs to one transaction lives
-     * here — a search still running for an earlier transaction can then tell it is over, instead
-     * of acting on the next.
+     * One accepted [startTransaction]: its config, its channel, and whether it was cancelled.
+     * The terminal outlives every transaction, so what belongs to one transaction lives here — a
+     * search still running for an earlier transaction can then tell it is over, instead of
+     * acting on the next.
      */
-    private final class Transaction {
+    private inner class Transaction(
+        val config: TransactionConfig,
+        private val channel: SendChannel<TransactionStepEvent>,
+    ) {
+        val cancelled = AtomicBoolean()
 
-        final TransactionConfig config;
-        final ObservableEmitter<TransactionStepEvent> emitter;
-        final AtomicBoolean cancelled = new AtomicBoolean();
-        /** The engine's steps forwarded to {@link #emitter}; set before {@link #run} is scheduled. */
-        Disposable steps = Disposable.disposed();
-
-        Transaction(TransactionConfig config, ObservableEmitter<TransactionStepEvent> emitter) {
-            this.config = config;
-            this.emitter = emitter;
-        }
+        /** The engine's steps forwarded to [channel]; set before [run] is scheduled. */
+        @Volatile
+        var steps: AutoCloseable = AutoCloseable { }
 
         /**
          * Its search stops and its EMV winds down. Only while it is still the terminal's
-         * transaction: once done — the emitter's own dispose after {@code onComplete} lands here
-         * too — the reader and the engine may belong to the next one.
+         * transaction: once done — `awaitClose` after the channel closed lands here too — the
+         * reader and the engine may belong to the next one.
          */
-        void cancel() {
-            if (current.get() != this) {
-                return;
+        fun cancel() {
+            if (current.get() !== this) {
+                return
             }
-            cancelled.set(true);
-            cancelCardSearch();
-            engine.cancel();
+            cancelled.set(true)
+            cancelCardSearch()
+            engine.cancel()
         }
 
         /** Cancelled, or no longer the terminal's transaction: nothing it reports reaches the engine. */
-        boolean isOver() {
-            return cancelled.get() || current.get() != this;
-        }
+        fun isOver(): Boolean = cancelled.get() || current.get() !== this
 
         /**
-         * Runs on {@link #transactionScheduler}. One {@link EmvEngine#begin()} guards the whole
-         * transaction, including any retries a behavior requests via {@link EmvEngine#requestRetry}
-         * (PAX fallback / try-another-interface / try-again). Never throws: nothing above it would
-         * catch it. Frees the terminal when it returns — done with the reader — and only then
-         * completes its stream, so {@code onComplete} means "free".
+         * Runs on [transactionExecutor]; blocking, never `suspend`. One [EmvEngine.begin] guards
+         * the whole transaction, including any retries a behavior requests via
+         * [EmvEngine.requestRetry] (PAX fallback / try-another-interface / try-again). Never
+         * throws: nothing above it would catch it. Frees the terminal when it returns — done with
+         * the reader — and only then closes its flow, so completion means "free".
          */
-        void run() {
+        fun run() {
             try {
                 if (isOver() || !engine.begin()) {
-                    return;
+                    return
                 }
-                triggerSearch(this, config);
-            } catch (Throwable t) {
-                //noinspection CallToPrintStackTrace
-                t.printStackTrace();
+                triggerSearch(this, config)
+            } catch (t: Throwable) {
+                t.printStackTrace()
                 if (!isOver()) {
-                    engine.notifyError(t.getMessage() != null ? t.getMessage() : "Transaction failed");
+                    engine.notifyError(t.message ?: "Transaction failed")
                 }
             } finally {
                 // Stop forwarding first: once the terminal is free, the next transaction's steps
                 // go through the same engine.
-                steps.dispose();
-                current.compareAndSet(this, null);
-                emitter.onComplete();
+                steps.close()
+                current.compareAndSet(this, null)
+                channel.close()
             }
         }
     }
 
     /**
-     * Fires card search and returns immediately — search and EMV are not sequenced by a
-     * blocking return value here. Every {@link CardSearchListener} implementation (Pax/
-     * Ingenico/Fake) always calls exactly one listener method before it stops searching, so
-     * that callback — not this method's return — is what drives what happens next:
-     * {@link EngineReportingListener#handleCardFound} starts EMV the moment a card is found,
-     * and a behavior-requested retry re-enters this same method with the adjusted config —
-     * still on this one thread, so it never races the attempt that requested it.
+     * Fires card search and returns immediately — search and EMV are not sequenced by a blocking
+     * return value here. Every [CardSearchListener] implementation (Pax/Ingenico/Fake) always
+     * calls exactly one listener method before it stops searching, so that callback — not this
+     * method's return — is what drives what happens next:
+     * [EngineReportingListener.handleCardFound] starts EMV the moment a card is found, and a
+     * behavior-requested retry re-enters this same method with the adjusted config — still on
+     * this one thread, so it never races the attempt that requested it.
      */
-    private void triggerSearch(Transaction transaction, TransactionConfig config) {
+    private fun triggerSearch(transaction: Transaction, config: TransactionConfig) {
         if (!engine.prepare(config)) {
             if (!transaction.isOver()) {
-                engine.notifyError("Terminal initialization failed");
+                engine.notifyError("Terminal initialization failed")
             }
-            return;
+            return
         }
-        searchCard(config, new EngineReportingListener(transaction, config));
+        searchCard(config, EngineReportingListener(transaction, config))
     }
 
     /**
-     * Maps reader events → engine subjects for the UI, and starts EMV once a card is found. Belongs
-     * to one {@link Transaction}: once that is over, its callbacks are dropped, so a search that
+     * Maps reader events → engine steps for the UI, and starts EMV once a card is found. Belongs
+     * to one [Transaction]: once that is over, its callbacks are dropped, so a search that
      * outlived it can't fail, or start EMV for, the next one.
      */
-    private final class EngineReportingListener implements CardSearchListener {
+    private inner class EngineReportingListener(
+        private val transaction: Transaction,
+        private val config: TransactionConfig,
+    ) : CardSearchListener {
 
-        private final Transaction transaction;
-        private final TransactionConfig config;
-
-        EngineReportingListener(Transaction transaction, TransactionConfig config) {
-            this.transaction = transaction;
-            this.config = config;
-        }
-
-        private boolean isStale(String callback) {
+        private fun isStale(callback: String): Boolean {
             if (transaction.isOver()) {
-                EmvLog.d("Ignored " + callback + " from a search whose transaction is over");
-                return true;
+                EmvLog.d("Ignored $callback from a search whose transaction is over")
+                return true
             }
-            return false;
+            return false
         }
 
-        @Override
-        public void onSearchStarted(TransactionConfig config) {
+        override fun onSearchStarted(config: TransactionConfig) {
             if (isStale("onSearchStarted")) {
-                return;
+                return
             }
-            String prompt = engine.consumeRetryPrompt();
-            String msg = prompt != null ? prompt : waitingMessage(config);
-            TransactionStepEvent.Builder waiting = TransactionStepEvent
-                    .builder(TransactionStep.WAITING_FOR_CARD).message(msg);
+            val prompt = engine.consumeRetryPrompt()
+            val msg = prompt ?: waitingMessage(config)
+            val waiting = TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(msg)
             if (prompt != null) {
-                waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt);
+                waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt)
             }
-            engine.notifyTransactionStep(waiting.build());
-            engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg);
+            engine.notifyTransactionStep(waiting.build())
+            engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg)
         }
 
-        @Override
-        public void onChipDetected(CardPresence card) {
-            handleCardFound(card);
+        override fun onChipDetected(card: CardPresence) {
+            handleCardFound(card)
         }
 
-        @Override
-        public void onContactlessDetected(CardPresence card) {
-            handleCardFound(card);
+        override fun onContactlessDetected(card: CardPresence) {
+            handleCardFound(card)
         }
 
-        @Override
-        public void onMagstripeDetected(CardPresence card) {
-            handleCardFound(card);
+        override fun onMagstripeDetected(card: CardPresence) {
+            handleCardFound(card)
         }
 
-        @Override
-        public void onManualEntrySelected(CardPresence card) {
-            handleCardFound(card);
+        override fun onManualEntrySelected(card: CardPresence) {
+            handleCardFound(card)
         }
 
-        @Override
-        public void onCardRemoved() {
+        override fun onCardRemoved() {
             if (isStale("onCardRemoved")) {
-                return;
+                return
             }
-            engine.notifyTransactionStep(TransactionStepEvent.of(
-                    TransactionStep.WAITING_FOR_CARD, "Card removed"));
+            engine.notifyTransactionStep(
+                TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD, "Card removed"),
+            )
         }
 
-        @Override
-        public void onSearchTimeout() {
+        override fun onSearchTimeout() {
             if (isStale("onSearchTimeout")) {
-                return;
+                return
             }
-            engine.notifyError("No card presented — card search timed out");
+            engine.notifyError("No card presented — card search timed out")
         }
 
-        @Override
-        public void onSearchCancelled() {
+        override fun onSearchCancelled() {
             if (isStale("onSearchCancelled")) {
-                return;
+                return
             }
             if (engine.isRunning()) {
-                engine.notifyError("Card search cancelled");
+                engine.notifyError("Card search cancelled")
             }
         }
 
-        @Override
-        public void onReaderError(String message) {
+        override fun onReaderError(message: String?) {
             if (isStale("onReaderError")) {
-                return;
+                return
             }
-            engine.notifyError(message != null ? message : "Reader error");
+            engine.notifyError(message ?: "Reader error")
         }
 
-        @Override
-        public void onSearchRetry(String message) {
+        override fun onSearchRetry(message: String) {
             if (isStale("onSearchRetry")) {
-                return;
+                return
             }
-            engine.notifyTransactionStep(TransactionStepEvent.builder(
-                    TransactionStep.WAITING_FOR_CARD).message(message)
-                    .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build());
-            engine.notifyEmvStep(EmvStep.SEARCH_CARD, message);
+            engine.notifyTransactionStep(
+                TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(message)
+                    .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build(),
+            )
+            engine.notifyEmvStep(EmvStep.SEARCH_CARD, message)
         }
 
         /** Runs EMV right here, then re-triggers search if the behavior asked for a retry. */
-        private void handleCardFound(CardPresence card) {
+        private fun handleCardFound(card: CardPresence) {
             if (isStale("card detected")) {
-                return;
+                return
             }
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                    .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
-                    .put("entryMethod", card.getEntryMethod().name())
-                    .build());
+            engine.notifyTransactionStep(
+                TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+                    .put(TransactionStepEvent.KEY_MODE, card.modeLabel)
+                    .put("entryMethod", card.entryMethod.name)
+                    .build(),
+            )
 
-            engine.start(config, card);
+            engine.start(config, card)
 
             // Consumed either way: a retry requested by a cancelled transaction never searches.
-            TransactionConfig retryConfig = engine.consumePendingRetry();
+            val retryConfig = engine.consumePendingRetry()
             if (retryConfig != null && !transaction.isOver()) {
-                triggerSearch(transaction, retryConfig);
+                triggerSearch(transaction, retryConfig)
             }
         }
     }
 
-    private static String waitingMessage(TransactionConfig config) {
-        if (config.getMode() == EntryMethod.ANY) {
-            return "Insert, tap, or swipe";
+    private companion object {
+        fun waitingMessage(config: TransactionConfig): String = when {
+            config.mode == EntryMethod.ANY -> "Insert, tap, or swipe"
+            config.isContact -> "Insert card"
+            config.isMagstripe -> "Swipe card"
+            config.isManual -> "Enter card number"
+            else -> "Tap card"
         }
-        if (config.isContact()) {
-            return "Insert card";
-        }
-        if (config.isMagstripe()) {
-            return "Swipe card";
-        }
-        if (config.isManual()) {
-            return "Enter card number";
-        }
-        return "Tap card";
     }
 }

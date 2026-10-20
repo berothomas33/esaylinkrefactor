@@ -1,138 +1,93 @@
-package com.emvenhance.core.event;
+package com.emvenhance.core.event
 
-import androidx.annotation.Nullable;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Collections
 
 /**
- * Immutable event emitted on the transaction-steps {@code BehaviorSubject}.
+ * Immutable event published on the engine's transaction steps.
  *
- * <p>Every emission is a new instance carrying the new {@link TransactionStep} plus an
- * optional bag of contextual data — PAN, issuer name, authorization result, error reason,
- * etc.  Using a {@code Map} rather than individual fields keeps this class stable when new
- * data needs arise: the vendor implementation just puts a new key, and only the consumer
- * that cares about that key reads it.
+ * Every emission is a new instance carrying the new [TransactionStep] plus an optional bag of
+ * contextual data — PAN, issuer name, authorization result, error reason, etc. Using a `Map`
+ * rather than individual fields keeps this class stable when new data needs arise: the vendor
+ * implementation just puts a new key, and only the consumer that cares about that key reads it.
  *
- * <p>Because the subject is a {@code BehaviorSubject}, a late subscriber (or one reattaching
- * after rotation) immediately receives the most recent event, which is exactly the behaviour
- * the UI needs.
+ * The engine's `transactionSteps` flow replays the latest one, so a late collector (or one
+ * reattaching after rotation) immediately receives the most recent event, which is exactly the
+ * behaviour the UI needs.
  */
-public final class TransactionStepEvent {
+class TransactionStepEvent private constructor(
+    val step: TransactionStep,
+    val message: String?,
+    data: Map<String, Any?>,
+) {
 
-    // ─── Well-known data keys ────────────────────────────────────────────
-    public static final String KEY_PAN              = "pan";
-    public static final String KEY_ISSUER_NAME      = "issuerName";
-    public static final String KEY_CARDHOLDER_NAME  = "cardHolderName";
-    public static final String KEY_MODE             = "mode";
-    public static final String KEY_AMOUNT           = "amount";
-    public static final String KEY_RESULT           = "result";
-    public static final String KEY_ERROR            = "error";
-    public static final String KEY_ONLINE_PIN       = "onlinePin";
-    public static final String KEY_PIN_BYPASS       = "pinBypassAllowed";
-    public static final String KEY_PIN_TRIES_LEFT   = "pinTriesLeft";
-    public static final String KEY_TVR              = "tvr";
-    public static final String KEY_TAC_DENIAL       = "tacDenial";
-    public static final String KEY_IAC_DENIAL       = "iacDenial";
-    public static final String KEY_ICC_DATA         = "iccData";
-    /**
-     * On {@code WAITING_FOR_CARD}: why the card has to be presented again (tap too short, see
-     * phone, chip not read...) — absent on a first search.
-     */
-    public static final String KEY_RETRY_PROMPT     = "retryPrompt";
+    val data: Map<String, Any?> = Collections.unmodifiableMap(data)
 
-    private final TransactionStep step;
-    private final String message;
-    private final Map<String, Object> data;
+    class Builder internal constructor(private val step: TransactionStep) {
+        private var message: String = step.label
+        private val data = HashMap<String, Any?>()
 
-    private TransactionStepEvent(TransactionStep step, @Nullable String message,
-            Map<String, Object> data) {
-        this.step = step;
-        this.message = message;
-        this.data = Collections.unmodifiableMap(data);
-    }
+        fun message(message: String) = apply { this.message = message }
 
-    // ─── Factory methods ─────────────────────────────────────────────────
+        fun put(key: String, value: Any?) = apply { data[key] = value }
 
-    public static TransactionStepEvent idle() {
-        return new TransactionStepEvent(TransactionStep.IDLE, null, Collections.emptyMap());
-    }
-
-    public static TransactionStepEvent of(TransactionStep step) {
-        return new TransactionStepEvent(step, step.getLabel(), Collections.emptyMap());
-    }
-
-    public static TransactionStepEvent of(TransactionStep step, @Nullable String message) {
-        return new TransactionStepEvent(step, message, Collections.emptyMap());
-    }
-
-    public static TransactionStepEvent of(TransactionStep step, @Nullable String message,
-            Map<String, Object> data) {
-        return new TransactionStepEvent(step, message, new HashMap<>(data));
-    }
-
-    // ─── Builder for multi-field events ──────────────────────────────────
-
-    public static Builder builder(TransactionStep step) {
-        return new Builder(step);
-    }
-
-    public static final class Builder {
-        private final TransactionStep step;
-        private String message;
-        private final Map<String, Object> data = new HashMap<>();
-
-        private Builder(TransactionStep step) {
-            this.step = step;
-            this.message = step.getLabel();
-        }
-
-        public Builder message(String message) {
-            this.message = message;
-            return this;
-        }
-
-        public Builder put(String key, Object value) {
-            data.put(key, value);
-            return this;
-        }
-
-        public TransactionStepEvent build() {
-            return new TransactionStepEvent(step, message, data);
-        }
-    }
-
-    // ─── Accessors ───────────────────────────────────────────────────────
-
-    public TransactionStep getStep() {
-        return step;
-    }
-
-    @Nullable
-    public String getMessage() {
-        return message;
-    }
-
-    public Map<String, Object> getData() {
-        return data;
+        fun build(): TransactionStepEvent = TransactionStepEvent(step, message, data)
     }
 
     /** Type-safe convenience for reading a data entry. */
-    @SuppressWarnings("unchecked")
-    @Nullable
-    public <T> T get(String key) {
-        return (T) data.get(key);
-    }
+    @Suppress("UNCHECKED_CAST")
+    operator fun <T> get(key: String): T? = data[key] as T?
 
     /** String convenience — returns the value or a dash when absent. */
-    public String getString(String key) {
-        Object v = data.get(key);
-        return v != null ? v.toString() : "—";
-    }
+    fun getString(key: String): String = data[key]?.toString() ?: "—"
 
-    @Override
-    public String toString() {
-        return step + (message != null ? ": " + message : "")
-                + (data.isEmpty() ? "" : " " + data);
+    override fun toString(): String =
+        step.toString() + (if (message != null) ": $message" else "") +
+            (if (data.isEmpty()) "" else " $data")
+
+    companion object {
+        // ─── Well-known data keys ────────────────────────────────────────────
+        const val KEY_PAN = "pan"
+        const val KEY_ISSUER_NAME = "issuerName"
+        const val KEY_CARDHOLDER_NAME = "cardHolderName"
+        const val KEY_MODE = "mode"
+        const val KEY_AMOUNT = "amount"
+        const val KEY_RESULT = "result"
+        const val KEY_ERROR = "error"
+        const val KEY_ONLINE_PIN = "onlinePin"
+        const val KEY_PIN_BYPASS = "pinBypassAllowed"
+        const val KEY_PIN_TRIES_LEFT = "pinTriesLeft"
+        const val KEY_TVR = "tvr"
+        const val KEY_TAC_DENIAL = "tacDenial"
+        const val KEY_IAC_DENIAL = "iacDenial"
+        const val KEY_ICC_DATA = "iccData"
+
+        /**
+         * On `WAITING_FOR_CARD`: why the card has to be presented again (tap too short, see
+         * phone, chip not read...) — absent on a first search.
+         */
+        const val KEY_RETRY_PROMPT = "retryPrompt"
+
+        // ─── Factory methods ─────────────────────────────────────────────────
+
+        @JvmStatic
+        fun idle(): TransactionStepEvent =
+            TransactionStepEvent(TransactionStep.IDLE, null, emptyMap())
+
+        @JvmStatic
+        fun of(step: TransactionStep): TransactionStepEvent =
+            TransactionStepEvent(step, step.label, emptyMap())
+
+        @JvmStatic
+        fun of(step: TransactionStep, message: String?): TransactionStepEvent =
+            TransactionStepEvent(step, message, emptyMap())
+
+        @JvmStatic
+        fun of(step: TransactionStep, message: String?, data: Map<String, Any?>): TransactionStepEvent =
+            TransactionStepEvent(step, message, HashMap(data))
+
+        // ─── Builder for multi-field events ──────────────────────────────────
+
+        @JvmStatic
+        fun builder(step: TransactionStep): Builder = Builder(step)
     }
 }

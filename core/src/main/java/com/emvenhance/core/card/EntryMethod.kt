@@ -1,16 +1,17 @@
-package com.emvenhance.core.card;
+package com.emvenhance.core.card
 
 /**
- * Card entry method selected by {@link PosTerminal#searchCard}.
+ * Card entry method selected by [com.emvenhance.core.terminal.PosTerminal.searchCard].
  *
- * <p>After the terminal reports one of these, {@link EmvBehavior#start} runs the matching
- * transaction flow.
+ * After the terminal reports one of these, [com.emvenhance.core.terminal.EmvBehavior.start]
+ * runs the matching transaction flow.
  */
-public enum EntryMethod {
+enum class EntryMethod {
     CHIP,
     CONTACTLESS,
     MAGSTRIPE,
     MANUAL,
+
     /** Chip + contactless + mag — terminal selects the first presented. */
-    ANY
+    ANY,
 }

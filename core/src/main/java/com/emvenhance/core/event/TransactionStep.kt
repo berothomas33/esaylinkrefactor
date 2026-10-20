@@ -1,21 +1,21 @@
-package com.emvenhance.core.event;
+package com.emvenhance.core.event
 
 /**
- * High-level transaction lifecycle states, published on the transaction-steps subject.
+ * High-level transaction lifecycle states, published on the engine's transaction steps.
  *
- * <p>These are the coarse-grained milestones a business analyst would recognize:
- * "transaction started", "card detected", "approved". They move in one direction and
- * each value is emitted at most once per transaction.
+ * These are the coarse-grained milestones a business analyst would recognize: "transaction
+ * started", "card detected", "approved". They move in one direction and each value is emitted
+ * at most once per transaction.
  *
- * <p>Contrast with {@link EmvStep}, which tracks the fine-grained kernel phases
- * (SDA/DDA, processing restrictions, risk management) that only EMV engineers care about.
+ * Contrast with [EmvStep], which tracks the fine-grained kernel phases (SDA/DDA, processing
+ * restrictions, risk management) that only EMV engineers care about.
  */
-public enum TransactionStep {
+enum class TransactionStep(val label: String) {
 
     /** No transaction in progress. */
     IDLE("Idle"),
 
-    /** {@code prepare()} called; terminal is initializing. */
+    /** `prepare()` called; terminal is initializing. */
     TRANSACTION_STARTED("Transaction started"),
 
     /** Terminal initialization complete; waiting for a card tap or insert. */
@@ -52,24 +52,13 @@ public enum TransactionStep {
     COMPLETED("Transaction completed"),
 
     /** Unrecoverable error; transaction aborted. */
-    ERROR("Error");
-
-    private final String label;
-
-    TransactionStep(String label) {
-        this.label = label;
-    }
-
-    public String getLabel() {
-        return label;
-    }
+    ERROR("Error"),
+    ;
 
     /**
      * Whether this step ends the transaction — ERROR or COMPLETED, however it got there
      * (approved, declined, failed, cancelled). The one definition of the end: on it the engine
      * stops running and publishing EMV steps, and the behavior stops observing them.
      */
-    public boolean isEnd() {
-        return this == COMPLETED || this == ERROR;
-    }
+    val isEnd: Boolean get() = this == COMPLETED || this == ERROR
 }

@@ -1,43 +1,36 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.terminal
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.Arrays;
-import java.util.Set;
-import java.util.TreeSet;
-import org.junit.Test;
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.lang.reflect.Modifier
+import java.util.TreeSet
 
 /**
- * {@link EmvBehavior} is what the engine drives — the lifecycle, nothing else. The EMV step
- * methods and {@code readIccTag} belong to {@link AbstractEmvBehavior}, protected, so a step runs
- * only through {@code goToStep}.
+ * [EmvBehavior] is what the engine drives — the lifecycle, nothing else. The EMV step methods
+ * and `readIccTag` belong to [AbstractEmvBehavior], protected, so a step runs only through
+ * `goToStep`.
  */
-public class EmvBehaviorContractTest {
+class EmvBehaviorContractTest {
 
     @Test
-    public void theEngineSeesOnlyTheLifecycle() {
-        Set<String> names = new TreeSet<>();
-        for (Method method : EmvBehavior.class.getMethods()) {
-            names.add(method.getName());
-        }
+    fun theEngineSeesOnlyTheLifecycle() {
+        val names = EmvBehavior::class.java.methods.mapTo(TreeSet()) { it.name }
 
-        assertEquals(new TreeSet<>(Arrays.asList("cancel", "dispose", "prepare", "start")), names);
+        assertEquals(TreeSet(listOf("cancel", "dispose", "prepare", "start")), names)
     }
 
     @Test
-    public void everyStepMethodAndReadIccTagIsProtected() {
-        int found = 0;
-        for (Method method : AbstractEmvBehavior.class.getDeclaredMethods()) {
-            String name = method.getName();
-            if (name.startsWith("on") || name.equals("readIccTag")) {
-                found++;
-                assertTrue(name + " is not protected", Modifier.isProtected(method.getModifiers()));
+    fun everyStepMethodAndReadIccTagIsProtected() {
+        var found = 0
+        for (method in AbstractEmvBehavior::class.java.declaredMethods) {
+            val name = method.name
+            if (name.startsWith("on") || name == "readIccTag") {
+                found++
+                assertTrue("$name is not protected", Modifier.isProtected(method.modifiers))
             }
         }
 
-        assertEquals("17 step methods + readIccTag", 18, found);
+        assertEquals("17 step methods + readIccTag", 18, found)
     }
 }
