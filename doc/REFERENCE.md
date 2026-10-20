@@ -1,6 +1,7 @@
 # EasyLink / EmvEnhance — مرجع المشروع
 
-> مكتوب من الكود على `rxSetTransactionData` (`2a362cf`). كل اسم method هنا موجود فعلاً.
+> مكتوب من الكود على `rxSetTransactionData` (`2a362cf`)، ومتراجع على `rxTransactionDesign` (`0bee281`) — اللي متعلّم [rxTx] على الـ branch ده بس. كل اسم method هنا موجود فعلاً.
+> ⚠ = الكود لسه مش بيعمل اللي المفروض يعمله — الرقم بين قوسين في `doc/BACKLOG.md`.
 > لو الكود اتغير والمرجع لأ — الكود هو الصح، وحدّث المرجع.
 > ملخص المشروع وقواعد الشغل في `CLAUDE.md`؛ هنا التفاصيل: الـ flows والـ steps.
 
@@ -151,7 +152,8 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
 | `tryAgain()` | نفس الـ mode | Card not read — tap again… |
 | `seePhone()` | `CONTACTLESS` | See phone — verify on your phone, then tap again |
 
-`seePhone` و `markTryAgainOnCommunicationError` بيشاركوا `MAX_TAP_RETRIES = 3` — بعدهم decline.
+`seePhone` و `markTryAgainOnCommunicationError` بيشاركوا `MAX_TAP_RETRIES = 3` — بعدهم decline (والعدّاد نفسه بيحسب الـ fallback والـ try another interface).
+⚠ `tryAgain()` نفسها مفيهاش cap: `RESULT_TRY_AGAIN` اللي الـ kernel بيطلّعه لوحده (JCB / RuPay / Mir / PayPass) بيعمل retry على طول (BACKLOG 0.14).
 
 ### 2.6 جدول الـ 17 EmvStep في PAX
 
@@ -322,7 +324,8 @@ proceed  → advanceContactStage(NEXT)  (يعيد check على cancel قبل goT
 ### 4.3 الـ parameters جوه الـ contact kernel
 
 - `preTransProcess` (كل transaction): `EMVCoreInit` → `setEmvAndMCKParam` بـ **أول AID** كـ default (+ `forceOnline = 1` دايماً) → `EMVSetPCIModeParam` → `EMVAddApp` لكل AID.
-- بعد اختيار الـ application: `emvSetParam` → `resetParam(aid)`: يدوّر على الـ AID (full أو partial match) ويحط الـ 9F33/9F40/9F35 بتوعه بـ `EMVSetParameter` **و** `EMVSetTLVData` (لأن `EMVSetParameter` لوحده مكانش بيغيّر 9F33)، وكمان PIN bypass.
+- بعد اختيار الـ application: `emvSetParam` → `resetParam(aid)`: يدوّر على الـ AID (full أو partial match) ويحط الـ 9F33/9F40/9F35 بتوعه بـ `EMVSetParameter` **و** `EMVSetTLVData` (لأن `EMVSetParameter` لوحده مكانش بيغيّر 9F33).
+  ⚠ الـ PIN bypass بتاع الـ AID المختار **مبيوصلش للـ kernel**: `resetParam` بينادي `EMVGetMCKParam` مكان `EMVSetMCKParam`، فالـ kernel بيفضل بالـ MCK بتاع أول AID (BACKLOG 0.7).
 
 ### 4.4 الـ online والـ 2nd GAC (`startContactTransProcess`)
 
@@ -386,7 +389,7 @@ proceed  → advanceContactStage(NEXT)  (يعيد check على cancel قبل goT
 | OFFLINE_DATA_AUTHENTICATION | تحميل CAPK + revocation بس (M/Chip) — الـ ODA نفسه جوه `TransProc` | `Clss_CardAuth_Wave` (لو TC ومش refund، أو TTQ byte1 bit1) | `PreTAAProc` + CAPK + `Clss_CardAuth_EFT` |
 | PROCESS_RESTRICTIONS | ولا حاجة (مفيش call) | `Clss_ProcRestric_Wave` (qVSDC/Wave2) | `Clss_ProcRestrict_EFT` |
 | الـ bundle (`startTransProcess`) | `Clss_TransProc_MC_MChip`/`_Mag` = ODA+PR+CVM+TRM+TAA+GAC، ثم see phone (UIRD 0x20 أو DF4B)، `outcomeParamSet` → `genTransResult` | `genTransResult`: `Clss_GetCvmType_Wave` + الـ AC type (AAC من READ → decline) | `Clss_CVMProc_EFT` + `Clss_PostTAAProc_EFT` |
-| 2nd tap / completion | `completeTransProcess` | FinalSelect + `Clss_IssuerAuth_Wave` | `Clss_CompleteOnlineTrans_EFT` |
+| 2nd tap / completion | `completeTransProcess` | FinalSelect + `Clss_IssuerAuth_Wave` | `Clss_CompleteOnlineTrans_EFT` — ⚠ مبيتناداش: `isNeedSecondTap` بيرجع false لـ EFT (وAmex/JCB/Pure/PBOC)، فالـ approve بيفضل زي ما هو (BACKLOG 2.3) |
 | SCRIPT_PROCESSING | default (OK) | `Clss_IssScriptProc_Wave` + `onRemoveCard` | default |
 
 > **9F33**: Visa/contact = قيمة واحدة 3 bytes. PayPass = tags منفصلة (DF8117 card data input، DF8118 CVM required، DF8119 no CVM، DF811F security) والـ kernel هو اللي بيبني 9F33. متجمعهمش في قيمة واحدة.
@@ -419,6 +422,8 @@ ARQC → startOnlineProcess()
         approved → runIssuerAuthentication → completeContactlessIssuerAuthentication:
              isNeedSecondTap? → onDetect2ndTap (WAITING_FOR_CARD + SEARCH_CARD "Tap the same card again")
                               → completeTransProcess → OK → runIssuerScriptProcessing → SCRIPT_PROCESSING
+                              ⚠ onDetect2ndTap بينشر الـ prompt بس — مفيش polling ولا استنا للكارت قبل
+                                Clss_FinalSelect_Entry (BACKLOG 1.4، form #12)
              مش محتاج → ONLINE_APPROVED زي ما هو
 ```
 
@@ -429,10 +434,10 @@ ARQC → startOnlineProcess()
 | OK + ONLINE_APPROVED | `onlineApproved` | APPROVED |
 | OK + OFFLINE_APPROVED | `offlineApproved` → online failed | ERROR |
 | OK + SIMPLE_FLOW_END | `simpleFlowEnd` | APPROVED |
-| OK + غير كده | `offlineDenied(CLSS_DECLINE)` | DECLINED |
+| OK + غير كده | `offlineDenied(CLSS_DECLINE)` | DECLINED — ⚠ ده بيشمل SEE_PHONE / TRY_AGAIN / TRY_ANOTHER_INTERFACE لما الـ kernel يطلّعهم بـ `ret == EMV_OK` (PayPass، Mir، DPAS): retry بيتحول decline (BACKLOG 0.6، form #10) |
 | CLSS_SEE_PHONE | `seePhone` (+ `clsLastNeedSeePhone` للـ tap الجاي) | retry CONTACTLESS (≤3) |
 | TRY_ANOTHER_INTERFACE / `CLSS_USE_CONTACT` | `tryAnotherInterface` | retry CHIP |
-| TRY_AGAIN | `tryAgain` | retry نفس الـ mode |
+| TRY_AGAIN | `tryAgain` | retry نفس الـ mode (⚠ من غير cap، BACKLOG 0.14) |
 | ONLINE_DENIED / FAILED / CARD_DENIED / OFFLINE_DENIED | زي الـ contact | DECLINED / ERROR |
 
 CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص = CVM ناجح عادي. بس `RESULT_CLSS_SEE_PHONE` هو اللي معناه "اعمل verify على الموبايل وتاب تاني".
@@ -448,7 +453,7 @@ CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص 
 | `startOnlineProcess` | shared | §3.2 |
 | `onRemoveCard` | PayPass/PayWave | log بس |
 | `onDetect2ndTap` | completion | prompt + SEARCH_CARD |
-| `needSeePhone` | الـ kernel في الـ tap الجاي | بيرجع `clsLastNeedSeePhone` ويصفّره |
+| `needSeePhone` | الـ kernel في الـ tap الجاي — ⚠ Amex / Mir / Pure بس؛ PayPass وPayWave مبيقروهوش، والـ flag بيفضل من transaction للي بعدها (BACKLOG 2.1) | بيرجع `clsLastNeedSeePhone` ويصفّره |
 
 > الـ contact والـ contactless **مفصولين عن قصد** (runners منفصلة، state منفصلة: `transResult` / `clsTransResult`). الحاجات الـ shared هي الـ callbacks اللي الـ interfaces الاتنين بيطلبوها بنفس الـ signature بس.
 
@@ -463,13 +468,14 @@ CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص 
 ```text
 EmvEnhanceApp.onCreate → TerminalFactory.create → new PaxTerminal → PosTerminal ctor → initializeVendor
   → ensureEmvConfigInitialized: pref "emv_config_initialized"؟ لأ →
-       new ConfigInit().init()   ← thread منفصل "ConfigInit"
+       new ConfigInit().init()   ← thread منفصل "ConfigInit"، وبيرجع على طول
+       pref = true               ← ⚠ قبل ما الـ seed يخلص؛ لو فشل مبيتعادش، وsale ممكن تبدأ في النص (BACKLOG 3.1)
+       [على الـ thread]
          config.json → ConfigParamService
          acquirer.json / issuer.json / card_range.json → AcquirerIssuerService
          insertTerminalConfig()   (TID/MID/MCC... من الـ config — قيم demo)
          contactAid.json, capk.json, amex/paypass/paywave/dpas/eft/jcb/mir/pboc/pure/rupay.json
-           → EmvParamService.insertXxx → GreenDAO
-       pref = true
+           → EmvParamService.insertXxx → GreenDAO   (الأخطاء بتتكتب في الـ log بس)
 ```
 
 ### 6.2 الـ download من الـ host
@@ -556,6 +562,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 | `ConfigInit` | seed أول boot | — |
 
 الـ transaction thread **بيستنى** الـ main: `AppSelectDialog.selectBlocking()` والـ PIN pad. عشان كده الـ dialog لازم يتقفل في كل نهاية (`finishContactStage` بيعمل `activePinPad.dismiss()`).
+⚠ لسه مش كده في 3 حالات (BACKLOG 1.1–1.3): الـ app-select لما الوقت يخلص بيرجع index 0 (بيختار app بدل `USER_CANCEL`)، والـ cancel مبيقفلوش؛ كل offline PIN بيعمل `PaxPinPad` جديد والقديم بيفضل؛ و`finishContactlessStage` مبيقفلش أي dialog.
 
 ---
 

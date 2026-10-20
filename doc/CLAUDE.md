@@ -4,7 +4,7 @@ Project memory for Claude. Read it before touching code. When a fact here change
 file in the same commit. Never put credentials, tokens, keys, PANs, track data or serial
 numbers in it. Kotlin migration plan: `claudekotlin.md`. Full flow reference (architecture,
 EmvEngine/EmvStep/onXxx, contact, contactless, EMV params, UI → kernel callback):
-`doc/REFERENCE.md`.
+`doc/REFERENCE.md`. Everything missing / broken / risky, ranked: `doc/BACKLOG.md`.
 
 ---
 
@@ -112,7 +112,8 @@ All start from `4a74277`. Keep shared fixes in sync where they apply.
 | `Finalvision` | 8 | direct | end-of-transaction, contracts, 9F03 fix. Safest. Device-tested (form) |
 | `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
 | `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
-| `rxTransactionDesign` | rxSet + 2 | Rx | rxSet + the transaction as a `Completable` (**[rxTx]** below). **Not device-tested**. `doc/kotlin-rx-transaction.md` still describes the earlier `Observable` form (`ae25378`) |
+| `coroutineDesign` | rxSet + 7 | Kotlin | the whole app in Kotlin + coroutines, **built on `ae25378`** (the Observable detour) — lacks rxTx's Completable, one cancel flag, end guard. Not device-tested |
+| `rxTransactionDesign` | rxSet + 3 | Rx | rxSet + the transaction as a `Completable` (**[rxTx]** below). **Not device-tested**. `doc/kotlin-rx-transaction.md` still describes the earlier `Observable` form (`ae25378`) |
 
 Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form. Old:
 `add-rsa-pin-key-injection`, many stale `claude/*` branches — don't merge blindly.
@@ -198,9 +199,11 @@ ISSUER_AUTH (`EMVCompleteTrans`) → COMPLETION (reports the outcome once).
 - **Field 55 = old app byte for byte** (`Field55Test`): `5F2A 5F34 82 84 95 9A 9C 9F02 9F03
   9F09 9F10 9F21 9F1A 9F26 9F27 9F33 9F34 9F35 9F36 9F37 9F41 9F42 9F1E` + `9F09 9F33 9F34
   9F35 9F41` + `9F53 9F63 9F66`. Never add `9F49 97 9F40 9F1B 9F15 9F1C`.
-- Online-only: `forceOnline=1`; kernel TC / offline approval = Online Failed; a refund always
-  goes online. [rxSet] a cancel before the host step sends nothing; the card still gets its
-  2nd GAC.
+- Online-only: `forceOnline=1`; nothing is approved offline. A kernel TC / offline approval
+  after the 1st GAC goes to the host without an ARQC and the host's answer is the result
+  (`needsHostWithoutArqc`, REFERENCE §4.4); an OFFLINE_APPROVED outcome at the end = Online
+  Failed. A refund always goes online. (Decide if TC-to-host is the rule: BACKLOG 1.6.)
+  [rxSet] a cancel before the host step sends nothing; the card still gets its 2nd GAC.
 - **Terminal Capabilities**: Visa/contact take one **9F33** (Visa: `TERMINALCAPABILITIES`
   CardDataInput+CVMSupport+OffDataAuth → `aucTmCap`, e.g. E06848). **PayPass takes separate
   tags** — DF8117 / DF8118 (CVM required) / DF8119 (no CVM) / DF811F — the kernel builds 9F33
@@ -289,14 +292,16 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 - Device test of rxSet (§10).
 - Bugs: #10 See Phone, #11 tap again; PayPass try-again / See Phone OK → offline decline;
   try-again has no cap; TAC Denial read as 8121 (contact); `resetParam` calls
-  `EMVGetMCKParam`; "Terminal initialization failed" twice; UI shows "HTTP 403" not the server
-  text; demo TID/MCC; `emvVerifyPINfailed`/`certVerify` don't call `setCallBackResult`.
+  `EMVGetMCKParam`; "Terminal initialization failed" twice ([rxTx]: fixed by the end guard);
+  UI shows "HTTP 403" not the server text; demo TID/MCC; `emvVerifyPINfailed`/`certVerify` don't call `setCallBackResult`.
 - Parameters: `deleteAll` + `insert` not in one transaction (a failed insert leaves the table
   empty → `runInTx`); a bad number parses as 0 silently; CAPKs not validated (expiry,
   checksum, duplicates); no AID/CAPK check before a transaction; no automatic update.
 - Reversal/ack, refund AAC at host, withdraw/deposit bodies, remove the hardcoded mToken, gate
   secret logging before live, Ingenico, manual PAN, `ConfigInit` place, pick the mainline.
-- Kotlin + coroutines migration: plan in `claudekotlin.md`, not started.
+- Kotlin + coroutines migration: plan in `claudekotlin.md`; in progress on `coroutineDesign`.
+- Everything else found by the 2026-10-20 scan (PCI, fail-open host response, Back, DB
+  encryption, receipt, tests…): `doc/BACKLOG.md`.
 
 ## 12. Never again
 
