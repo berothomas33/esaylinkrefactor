@@ -9,10 +9,13 @@ import static org.junit.Assume.assumeTrue;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.util.ApduTrace;
 import java.lang.reflect.Proxy;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
 /** PosTerminal is the UI's single surface for the trace, and owns its on/off switch. */
@@ -43,6 +46,20 @@ public class PosTerminalApduTraceTest {
         terminal.setApduLoggingEnabled(true);
         trace.note("ICC", "recorded");
         assertTrue(trace.text().contains("recorded"));
+    }
+
+    @Test
+    public void aTransactionsStepsAndItsEndReachTheTrace() throws InterruptedException {
+        PosTerminal terminal = new TestTerminal(); // its prepare() fails: the sale ends at once
+        ApduTrace trace = terminal.apduTrace();
+        assumeTrue("trace records in debug builds only", trace.isEnabled());
+        CountDownLatch ended = new CountDownLatch(1);
+        terminal.transactionSteps().filter(e -> e.getStep().isEnd()).subscribe(e -> ended.countDown());
+
+        terminal.acceptCard(TransactionType.SALE, 1000);
+
+        assertTrue(ended.await(5, TimeUnit.SECONDS));
+        assertTrue(trace.text(), trace.text().contains("--- ERROR: Terminal initialization failed"));
     }
 
     private static final class TestTerminal extends PosTerminal {

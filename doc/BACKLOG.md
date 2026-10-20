@@ -146,7 +146,7 @@ Ask before deleting (`CLAUDE.md` §12).
 
 ## 9. Docs that no longer match the code
 
-- `TransactionStepEvent:8-21` javadoc still says BehaviorSubject + replay; `AbstractEmvBehavior:402-407,477-481` still says the end disposes the observer.
+- ~~`TransactionStepEvent` / `AbstractEmvBehavior` javadoc about BehaviorSubject replay and the end disposing the observer~~ — fixed with the rxTx lifecycle commit.
 - `AppSelectDialog` javadoc: "only for 2+ candidates" (debug shows it for 1) and refers to a non-existent `PaxPinPad#showAndWait`.
 - `CLAUDE.md` §2.3 "the adapter always calls `setCallBackResult`" — not true until 0.4 is fixed; §7 TC rule vs code (1.6).
 - `REFERENCE.md`: fixed in the same commit as this file (see its §4.3, §5.4, §5.5, §5.7, §2.5, §7).

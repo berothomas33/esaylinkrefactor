@@ -6,7 +6,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Immutable event emitted on the transaction-steps {@code BehaviorSubject}.
+ * Immutable event emitted on {@code PosTerminal#transactionSteps()}.
  *
  * <p>Every emission is a new instance carrying the new {@link TransactionStep} plus an
  * optional bag of contextual data — PAN, issuer name, authorization result, error reason,
@@ -14,9 +14,8 @@ import java.util.Map;
  * data needs arise: the vendor implementation just puts a new key, and only the consumer
  * that cares about that key reads it.
  *
- * <p>Because the subject is a {@code BehaviorSubject}, a late subscriber (or one reattaching
- * after rotation) immediately receives the most recent event, which is exactly the behaviour
- * the UI needs.
+ * <p>Nothing is replayed to a new subscriber; a screen that must survive rotation keeps the
+ * latest event itself ({@code MainViewModel}'s LiveData).
  */
 public final class TransactionStepEvent {
 

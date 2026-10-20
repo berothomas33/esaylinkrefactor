@@ -29,10 +29,10 @@ Ingenico) plug in as a Gradle flavor.
    receipt.
 
 **Who does what (one sentence each):**
-- `PosTerminal` (core) — the only API the UI uses: start / cancel a transaction, card search,
-  host, printer; one transaction at a time on one thread.
-- `EmvEngine` (core) — event bus: transaction steps (for the UI) and EMV steps (for the
-  behavior and the APDU trace). No EMV logic.
+- `PosTerminal` (core) — the only API the UI uses: start / cancel a transaction and its steps
+  (for the UI), card search, host, printer; one transaction at a time on one thread.
+- `EmvEngine` (core) — the EMV steps bus (for the behavior and the APDU trace), the trace, the
+  retry request. No EMV logic, no transaction state.
 - `AbstractEmvBehavior` (core) — the 16 EMV step hooks a vendor implements, `goToStep`,
   `askStep`, field 55, `authorizeOnline`.
 - `PaxEmvBehavior` (app/src/pax) — PAX's implementation: drives `ContactProcess` /
@@ -91,13 +91,16 @@ Ingenico) plug in as a Gradle flavor.
    subjects, streams or guards — two of the same kind is a design bug (e.g. cancellation has
    one owner, never two `cancelled` flags; found twice already: two `cancelled` flags; two
    `TransactionStepEvent` streams). Owners today:
-   cancel = `PosTerminal.Transaction.state`; "a transaction has ended" = `EmvEngine.running`
-   (compare-and-set); transaction steps = `EmvEngine.transactionSteps`; EMV steps =
-   `EmvEngine.emvSteps`; busy = `PosTerminal.current`. A class that needs another's state gets a
-   narrow read (e.g. `EmvEngine.isCancelled()`, a `BooleanSupplier`), never its own copy.
+   busy = `PosTerminal.current`; a transaction's whole state (running / ended / cancelled) =
+   `PosTerminal.Transaction.end` (one `AtomicReference`, compare-and-set); transaction steps =
+   `PosTerminal.transactionSteps`; EMV steps = `EmvEngine.emvSteps`. A class that needs another's
+   state gets a narrow read (e.g. `EmvEngine.isRunning()` / `isCancelled()`, a
+   `BooleanSupplier`), never its own copy.
    Prefer removing redundant code over adding abstractions.
-10. **Separation of responsibilities.** `PosTerminal`: thread, busy, cancel, card search, host,
-    printer. `EmvEngine`: running flag, the two step streams, the APDU trace, the retry request.
+10. **Separation of responsibilities.** `PosTerminal`: the transaction's whole life — thread,
+    busy, cancel, its steps and its end — plus card search, host, printer. `EmvEngine`: the EMV
+    steps stream, the APDU trace, the retry request; it reads the transaction's state through
+    narrow hooks and hands its transaction steps to `PosTerminal`.
     `AbstractEmvBehavior` + vendor: EMV steps and kernel work, nothing about threads, busy or
     the host. UI: observes and asks, owns no transaction state. When a change makes a class do
     another's job, move the job, don't bridge it — remove the redundant copy rather than add a
@@ -164,8 +167,8 @@ All start from `4a74277`. Keep shared fixes in sync where they apply.
 | `Finalvision` | 8 | direct | end-of-transaction, contracts, 9F03 fix. Safest. Device-tested (form) |
 | `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
 | `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
-| `coroutineDesign` | rxSet + 7 | Kotlin | the whole app in Kotlin + coroutines, **built on `ae25378`** (the Observable detour) — lacks rxTx's Completable, one cancel flag, end guard. Not device-tested |
-| `rxTransactionDesign` | rxSet + 3 | Rx | rxSet + the transaction as a `Completable` (**[rxTx]** below). **Not device-tested**. `doc/kotlin-rx-transaction.md` still describes the earlier `Observable` form (`ae25378`) |
+| `coroutineDesign` | rxSet + 7 | Kotlin | the whole app in Kotlin + coroutines, **built on `ae25378`** (the Observable detour) — lacks rxTx's lifecycle in `PosTerminal` (one owner, ends once). Not device-tested |
+| `rxTransactionDesign` | rxSet + 7 | Rx (UI only) | rxSet + the transaction owned by `PosTerminal`, no Rx in its lifecycle (**[rxTx]** below). **Not device-tested**. `doc/kotlin-rx-transaction.md` still describes the earlier `Observable` form (`ae25378`) |
 
 Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form. Old:
 `add-rsa-pin-key-injection`, many stale `claude/*` branches — don't merge blindly.
@@ -179,7 +182,7 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:bizentity:…`, or the green arrow in
-  Android Studio. Core (rxSet): 65; rxTx: 73 — `AskStepTest`, `EmvStepObserverTest`,
+  Android Studio. Core (rxSet): 65; rxTx: 75 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `Field55Test`, `OldAppSaleRequestTest`,
   `PosTerminal*Test`. Bizentity: XML parser tests on the host's real sections
   (`clss_param_paypass.xml`, `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`.
@@ -197,28 +200,26 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   (`emvflow emvbase emvlib emvlib:base emvlib:dpas emvservice poslib bizlib bizentity
   commonutils`). Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
   AGP 8 → `new X()`.
-- **`PosTerminal`**: one transaction thread (`Schedulers.from(Executors.newSingleThreadExecutor())`),
-  one `AtomicReference<Transaction> current` (busy = non-empty, freed when `process` returns).
-  Never interrupt the transaction thread. Print: its own single thread, receipts in order.
-  [rxSet] started with `scheduleDirect(transaction::run)` and a `boolean`; **[rxTx]** replaced
-  that: the transaction is a `Completable` — `startTransaction` / `acceptCard` —
-  subscribe = start (`Completable.defer`: busy check on the subscribing thread,
-  `onError(TerminalBusyException)`, never queued; then `fromAction(process)` +
-  `subscribeOn(transactionScheduler)`, no `scheduleDirect`), `onComplete` = `process` freed the
-  terminal, `dispose()` = `doOnDispose(cancel)` for this one only. `Transaction.state`
-  (`AtomicReference<State>` PENDING → RUNNING | CANCELLED) is **the one cancel flag**: a cancel
-  before `process` began frees the terminal itself (the dispose dropped the task); a running
-  one is cancelled once, only while `current == this`. The behavior reads it through
-  `EmvEngine.isCancelled()` (`PosTerminal::isSearchCancelled`); `AbstractEmvBehavior` has no
-  flag and `EmvBehavior` no `cancel()`. `process`'s `finally` ends a transaction it began that
-  is still running (cancelled before its search, or a search with no outcome). Steps: one
-  stream only (`MainViewModel` resets to IDLE on each start). `cancelTransaction()` is gone;
-  `MainViewModel.getTerminalBusy()`.
-- **`EmvEngine`**: `transactionSteps` ([rxTx] `PublishSubject.toSerialized()`, no replay —
-  serialized because a cancel publishes from the UI thread), `emvSteps` (PublishSubject, not
-  serialized, no `observeOn`), `ApduTrace`. [rxTx] The running flag guards **both** streams:
-  nothing published outside `begin()` … first ERROR/COMPLETED (compare-and-set), so a
-  transaction ends exactly once.
+- **`PosTerminal`** owns the transaction's whole life [rxTx]. One transaction thread (a plain
+  single-thread `Executor`, never interrupted), one `AtomicReference<Transaction> current`
+  (busy = non-empty). `startTransaction` / `acceptCard`: `current.compareAndSet` on the caller's
+  thread — busy → `TerminalBusyException` at once, never queued — then
+  `transactionExecutor.execute(process)`; returns the `Transaction` (the handle a screen
+  cancels). `Transaction.end` (`AtomicReference<TransactionStepEvent>`) is its whole state:
+  `null` = running; the first ERROR/COMPLETED, or the cancel's ERROR, = ended; one
+  compare-and-set, so it ends exactly once and a second cancel / a cancel after the end does
+  nothing. `cancel()` = that CAS + `cancelCardSearch()`; the EMV winds down at its next check.
+  `process` always runs (even cancelled before it started) and its `finally` is the one place the
+  end is published — after `current` is freed, so COMPLETED/ERROR means "the terminal is free"; a
+  search with no outcome ends as "Transaction ended without an outcome". Steps:
+  `PosTerminal.transactionSteps` (`PublishSubject.toSerialized()` — a vendor callback may come
+  from its SDK thread; no replay; never completes), published only while the current
+  transaction runs. Print: its own single thread, receipts in order. [rxSet] had
+  `scheduleDirect` + `boolean`; an rxTx detour had a `Completable` (`13e2b02`, `0bee281`) —
+  gone: it was a second "ended" signal next to the steps.
+- **`EmvEngine`**: `emvSteps` (PublishSubject, not serialized, no `observeOn`; dropped once the
+  transaction ended), `ApduTrace`, retry request. No transaction state of its own: it reads
+  `isRunning()` / `isCancelled()` and hands `notifyXxx` to `PosTerminal` (constructor hooks).
 - **Contracts**: `EmvBehavior` = `prepare/start` (+ `dispose`; [rxTx] no `cancel`). `AbstractEmvBehavior`:
   16 `protected abstract onXxx`, optional `onSearchCard`, `readIccTag`, `goToStep`, [rxSet]
   `askStep(step, detail, failClosed)` / `answerStep`. `TransactionStep.isEnd()` = "ended".
@@ -227,14 +228,11 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
 - **Rx facts (proven by tests or the lifecycle tests)**: PublishSubject is synchronous and
   re-entrant; `takeUntil` drops re-entrant `onNext`; a throwing observer sticks a
   `SerializedSubject`; `subscribe(Consumer)` errors crash.
-  - `subscribeOn` + dispose before the task starts: the task **never runs**, so whatever it
-    would have freed stays held. That is why `Transaction.state` has PENDING.
-  - `Completable.defer` runs on the subscribing thread: the right place for the busy check
-    (never queued behind the transaction thread).
-  - `Schedulers.from(executor)` is not interruptible by default: a dispose never interrupts a
-    native call. Keep it that way.
-  - A cancellable/`doOnDispose` can fire after `onComplete`: the cancel must guard itself
-    (`current == this`, compare-and-set), or every finished sale cancels the reader.
+  - Why the transaction lifecycle has no Rx: `subscribeOn` + dispose before the task starts
+    means the task **never runs** (whatever it would have freed stays held); a
+    cancellable/`doOnDispose` can fire after `onComplete`; `Completable.defer` was needed just to
+    keep the busy check on the caller's thread. A plain executor always runs its task and never
+    interrupts it.
   - A `BehaviorSubject` replays to new subscribers; every consumer then needed `skip(1)`.
     A `PublishSubject.toSerialized()` replays nothing (see `EmvEngine` above).
   - In Kotlin (not yet done): `StateFlow` conflates (APPROVED then COMPLETED can arrive as
@@ -360,37 +358,9 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
   checksum, duplicates); no AID/CAPK check before a transaction; no automatic update.
 - Reversal/ack, refund AAC at host, withdraw/deposit bodies, remove the hardcoded mToken, gate
   secret logging before live, Ingenico, manual PAN, `ConfigInit` place, pick the mainline.
-- **Re-evaluate `startTransaction()` and the `Completable` design** (high level; analyze
-  first, no code change as part of this task): does `Completable` provide necessary value, or
-  can the transaction lifecycle be implemented more simply? Any answer must preserve busy
-  rejection, cancellation before and during execution, safe native-call threading (one
-  transaction thread, never interrupted), exactly-once completion, and cleanup.
-  - *Proposed direction (2026-10-20, analysis only — not implemented, not device-tested):*
-    today two signals say "ended" (`Completable.onComplete` and COMPLETED/ERROR on
-    `transactionSteps`) and two owners hold the lifecycle (`PosTerminal.current`,
-    `EmvEngine.running`) — a rule 9 violation. Merge them in `PosTerminal`:
-    - `startTransaction(...)` returns `boolean` / throws `TerminalBusyException`: busy =
-      `current.compareAndSet` on the caller's thread, never queued. Run with
-      `executor.execute(process)` — no Rx on the transaction thread, never interrupted.
-    - `cancelTransaction()` comes back: one `Transaction.state` compare-and-set, only while
-      `current == this`; it publishes a "cancelling" step, not the end.
-    - One long-lived `PublishSubject<TransactionStepEvent>.toSerialized()` in `PosTerminal`
-      (serialized: cancel publishes from the UI thread); the ViewModel subscribes once. It
-      never gets `onComplete` / `onError` — the end is an event, not the end of the stream.
-    - `EmvEngine.running` goes: "ended" = "not busy", owned by `current`. A step from a
-      transaction that isn't `current` is dropped with a log line (rule 15). `EmvEngine` keeps
-      `emvSteps` + the APDU trace and gets a narrow `Consumer<TransactionStepEvent>` publisher
-      for the behavior's steps.
-    - End order in `process`'s `finally`: first `current.compareAndSet(this, null)`, then
-      publish the end event — the reverse lets the UI start a new sale on COMPLETED and get
-      BUSY. One place publishes the end → exactly once.
-    - Gone: PENDING and the "cancel before `process` frees the terminal itself" branch (the
-      executor always runs the task; `process` sees the state, ends, `finally` frees), and the
-      `doOnDispose`-after-`onComplete` guard.
-    - Watch: a cancel during a blocking native call leaves the terminal BUSY until the thread
-      returns (correct); observers run synchronously on the transaction thread → the UI needs
-      `observeOn(main)` and a throwing consumer must be caught (it sticks a
-      `SerializedSubject`); rule 10 (`EmvEngine` owns the streams) must be updated with it.
+- ~~Re-evaluate `startTransaction()` and the `Completable` design~~ — done on
+  `rxTransactionDesign`: the lifecycle and the transaction steps live in `PosTerminal`, no Rx in
+  the lifecycle (§6). Not device-tested.
 - Kotlin + coroutines migration: plan in `claudekotlin.md`; in progress on `coroutineDesign`.
 - Everything else found by the 2026-10-20 scan (PCI, fail-open host response, Back, DB
   encryption, receipt, tests…): `doc/BACKLOG.md`.

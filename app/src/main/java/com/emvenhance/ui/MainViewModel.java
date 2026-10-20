@@ -7,7 +7,6 @@ import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStepEvent;
-import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.terminal.TerminalBusyException;
@@ -32,10 +31,11 @@ public class MainViewModel extends ViewModel {
     private final MutableLiveData<Event<Boolean>> terminalBusy = new MutableLiveData<>();
 
     /**
-     * The transactions this screen subscribed to. Disposing them cancels this screen's own, never
-     * another's: a refused (busy) or finished one is already over and a dispose does nothing.
+     * The transaction this screen started, to cancel it — that one only, never another's. A
+     * finished one ignores the cancel; a refused (busy) start leaves the earlier one here.
      */
-    private final CompositeDisposable transactions = new CompositeDisposable();
+    @Nullable
+    private PosTerminal.Transaction transaction;
 
     public MainViewModel(@NonNull PosTerminal terminal) {
         this.terminal = terminal;
@@ -85,7 +85,7 @@ public class MainViewModel extends ViewModel {
 
     /**
      * Preferred: accept chip / tap / swipe — vendor terminal decides. Its steps arrive on
-     * {@link #getTransactionStep()} (the engine's one stream); a refused start (the POS terminal is busy with the previous
+     * {@link #getTransactionStep()}; a refused start (the POS terminal is busy with the previous
      * transaction, see {@link PosTerminal#startTransaction}) on {@link #getTerminalBusy()}.
      *
      * @param referenceNumber the original sale's reference number, for a refund; else {@code null}
@@ -93,25 +93,18 @@ public class MainViewModel extends ViewModel {
     public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
         // A screen observing from here on sees this transaction only, not the last one's outcome.
         transactionStep.setValue(TransactionStepEvent.idle());
-        transactions.add(terminal.acceptCard(type, amountMinor, referenceNumber)
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(() -> { }, this::onTransactionError));
-    }
-
-    private void onTransactionError(Throwable error) {
-        if (error instanceof TerminalBusyException) {
+        try {
+            transaction = terminal.acceptCard(type, amountMinor, referenceNumber);
+        } catch (TerminalBusyException busy) {
             terminalBusy.setValue(new Event<>(true));
-            return;
         }
-        // Not expected (the terminal reports failures as ERROR steps), but never silent.
-        transactionStep.setValue(TransactionStepEvent.builder(TransactionStep.ERROR)
-                .message(error.getMessage() != null ? error.getMessage() : "Transaction failed")
-                .build());
     }
 
-    /** Cancels this screen's transaction; the screen closes, so it shows nothing more of it. */
+    /** Cancels this screen's transaction; it reports ERROR "Transaction cancelled" once stopped. */
     public void cancel() {
-        transactions.clear();
+        if (transaction != null) {
+            transaction.cancel();
+        }
     }
 
     /** Prints via the terminal-owned {@code PrinterBehavior} — see {@link PosTerminal#printReceipt}. */
@@ -132,7 +125,7 @@ public class MainViewModel extends ViewModel {
     protected void onCleared() {
         // The screen that started the transaction is gone (Cancel, Done, or Back): don't leave its
         // search holding the reader, or its EMV running, for the next transaction.
-        transactions.clear();
+        cancel();
         disposables.clear();
         super.onCleared();
     }

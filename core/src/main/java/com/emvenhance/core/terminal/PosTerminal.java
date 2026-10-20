@@ -16,11 +16,14 @@ import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
-import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import io.reactivex.rxjava3.subjects.PublishSubject;
+import io.reactivex.rxjava3.subjects.Subject;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -33,17 +36,18 @@ import java.util.concurrent.atomic.AtomicReference;
  * delegated to its {@link EmvEngine}, which owns the vendor's {@link EmvBehavior}.
  *
  * <pre>
- *   UI → PosTerminal.startTransaction(ANY|CHIP|…).subscribe()   [returns immediately]
- *          └── subscribeOn(transaction thread): process(transaction)
+ *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [returns its Transaction at once]
+ *          └── transaction thread: process(transaction)
  *          └── engine.prepare + searchCard(config, listener)        ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
  *                        └── engine.start(card)                     ← vendor EMV, from inside the callback
  *                               └── behavior → engine.authorize → PosTerminal.authorize → host
  * </pre>
  *
- * <p>A transaction is a {@link Completable}: subscribing starts it, disposing cancels it (that one
- * only, never another's), and {@code onComplete} means the terminal is free again. Its steps are
- * on the engine's one stream, {@link #transactionSteps()}.
+ * <p>The terminal owns the whole life of a transaction in one place: busy ({@link #current}),
+ * its steps ({@link #transactionSteps()}), its cancel and its end ({@link Transaction}). The end
+ * — COMPLETED or ERROR, exactly once — is published only after the terminal is free again, so
+ * a screen that sees it can start the next sale at once.
  */
 public abstract class PosTerminal {
 
@@ -53,12 +57,20 @@ public abstract class PosTerminal {
 
     /**
      * The one thread every transaction runs on, from card search through EMV and the host: one
-     * reader, one kernel. Nothing ever queues on it — a subscribe to {@link #startTransaction}
-     * is refused while the previous transaction is still there. Not interruptible (RxJava's
-     * default for an executor): a dispose never interrupts a native call.
+     * reader, one kernel. Nothing ever queues on it — {@link #startTransaction} refuses a start
+     * while the previous transaction is still there — and nothing ever interrupts it: a cancel
+     * is a flag the transaction reads, never an interrupt of a native call.
      */
-    private final Scheduler transactionScheduler =
-            Schedulers.from(Executors.newSingleThreadExecutor());
+    private final Executor transactionExecutor = Executors.newSingleThreadExecutor();
+
+    /**
+     * Every transaction's steps. Serialized: a vendor SDK may report a search callback from its
+     * own thread, and Rx subscribers must never get two {@code onNext} calls at once. Nothing is
+     * replayed to a new subscriber, and the stream never completes — a transaction's end is an
+     * event on it (COMPLETED / ERROR), not the end of the stream.
+     */
+    private final Subject<TransactionStepEvent> transactionSteps =
+            PublishSubject.<TransactionStepEvent>create().toSerialized();
 
     /**
      * The one thread receipts print on: one printer, one job at a time, in the order they were
@@ -69,8 +81,8 @@ public abstract class PosTerminal {
             Schedulers.from(Executors.newSingleThreadExecutor());
 
     /**
-     * The transaction on {@link #transactionScheduler}, from its accepted start until it is done
-     * with the reader; empty when the terminal is free. Only it may report to the engine.
+     * The transaction on the transaction thread, from its accepted start until it is done with
+     * the reader; empty when the terminal is free (busy = non-empty). Only it may report steps.
      */
     private final AtomicReference<Transaction> current = new AtomicReference<>();
 
@@ -83,7 +95,8 @@ public abstract class PosTerminal {
             PrinterBehavior printer) {
         this.communication = communication;
         this.printer = printer;
-        this.engine = new EmvEngine(behavior, this::authorize, this::isSearchCancelled);
+        this.engine = new EmvEngine(behavior, this::authorize, this::publish,
+                this::isTransactionRunning, this::isTransactionCancelled);
         initializeVendor();
     }
 
@@ -151,8 +164,9 @@ public abstract class PosTerminal {
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
+    /** Every transaction's steps from now on; see {@link #transactionSteps the field}. */
     public Observable<TransactionStepEvent> transactionSteps() {
-        return engine.transactionSteps();
+        return transactionSteps.hide();
     }
 
     public Observable<EmvStepEvent> emvSteps() {
@@ -172,7 +186,7 @@ public abstract class PosTerminal {
      * Accept any presented card (chip / tap / swipe / manual as enabled by the vendor).
      * Preferred UI entry point — see {@link #startTransaction}.
      */
-    public final Completable acceptCard(TransactionType type, long amountMinor) {
+    public final Transaction acceptCard(TransactionType type, long amountMinor) {
         return acceptCard(type, amountMinor, null);
     }
 
@@ -180,44 +194,34 @@ public abstract class PosTerminal {
      * {@link #acceptCard(TransactionType, long)} with the original sale's reference number, which
      * a refund needs for the host — see {@link TransactionConfig#getReferenceNumber()}.
      */
-    public final Completable acceptCard(TransactionType type, long amountMinor,
+    public final Transaction acceptCard(TransactionType type, long amountMinor,
             @Nullable String referenceNumber) {
         return startTransaction(new TransactionConfig(type, amountMinor, EntryMethod.ANY)
                 .withReferenceNumber(referenceNumber));
     }
 
     /**
-     * Start with an explicit reader mode. Nothing happens until the returned {@link Completable}
-     * is subscribed; each subscribe is one transaction attempt. The subscribe returns at once:
-     * card search, EMV and the host run on the transaction thread, and every outcome (card found,
-     * search cancelled, timed out, or errored) arrives as a {@link CardSearchListener} callback
-     * there. Its steps are on {@link #transactionSteps()}.
+     * Start with an explicit reader mode: card search, EMV and the host run on the transaction
+     * thread and this returns at once. Every outcome (card found, search cancelled, timed out,
+     * or errored) arrives as a {@link CardSearchListener} callback there, and the transaction's
+     * steps on {@link #transactionSteps()}, ending with COMPLETED or ERROR once the terminal is
+     * free.
      *
-     * <ul>
-     *   <li>{@code onComplete}: the transaction is done with the reader; the terminal is free.</li>
-     *   <li>{@code onError(}{@link TerminalBusyException}{@code )}: refused on the subscribing
-     *       thread, nothing queued, while the previous transaction hasn't finished — still
-     *       searching or running EMV, or cancelled but not yet done with the reader (a PAX poll
-     *       takes a moment to stop). It is not reported on {@link #transactionSteps()}, which
-     *       belongs to the transaction that is still there.</li>
-     *   <li>{@code dispose()}: cancels this transaction — its search stops and its EMV winds
-     *       down, or it never runs if it hadn't begun yet. It never interrupts the transaction
-     *       thread, and the terminal stays busy until that is done with the reader.</li>
-     * </ul>
+     * @return this transaction, to {@link Transaction#cancel() cancel} it — that one only, never
+     *         another's
+     * @throws TerminalBusyException at once, on the calling thread, nothing queued: the previous
+     *         transaction hasn't finished — still searching or running EMV, or cancelled but not
+     *         yet done with the reader (a PAX poll takes a moment to stop). It is not reported on
+     *         {@link #transactionSteps()}, which belongs to the transaction still there.
      */
-    public Completable startTransaction(TransactionConfig config) {
-        return Completable.defer(() -> {
-            Transaction transaction = new Transaction(config);
-            // Here, on the subscribing thread: a refused start is reported at once and never
-            // waits on the transaction thread to run later.
-            if (!current.compareAndSet(null, transaction)) {
-                EmvLog.d("POS terminal is busy: the previous transaction hasn't finished");
-                return Completable.error(new TerminalBusyException());
-            }
-            return Completable.fromAction(() -> process(transaction))
-                    .subscribeOn(transactionScheduler)
-                    .doOnDispose(transaction::cancel);
-        });
+    public Transaction startTransaction(TransactionConfig config) {
+        Transaction transaction = new Transaction(config);
+        if (!current.compareAndSet(null, transaction)) {
+            EmvLog.d("POS terminal is busy: the previous transaction hasn't finished");
+            throw new TerminalBusyException();
+        }
+        transactionExecutor.execute(() -> process(transaction));
+        return transaction;
     }
 
     /** Cancels the transaction still on this terminal, if any; the terminal is going away. */
@@ -229,14 +233,70 @@ public abstract class PosTerminal {
         engine.dispose();
     }
 
-    /**
-     * Whether the current transaction was cancelled (or is no longer the terminal's): the vendor
-     * search polling for it stops, and — through {@link EmvEngine#isCancelled()} — its EMV winds
-     * down. The one cancel flag of a transaction.
-     */
+    /** Whether the vendor search polling for the current transaction should stop: it is over. */
     public final boolean isSearchCancelled() {
         Transaction transaction = current.get();
         return transaction != null && transaction.isOver();
+    }
+
+    /** The engine's {@link EmvEngine#isRunning()}: the current transaction hasn't ended. */
+    private boolean isTransactionRunning() {
+        Transaction transaction = current.get();
+        return transaction != null && transaction.isRunning();
+    }
+
+    /** The engine's {@link EmvEngine#isCancelled()}: the current transaction was cancelled. */
+    private boolean isTransactionCancelled() {
+        Transaction transaction = current.get();
+        return transaction != null && transaction.isCancelled();
+    }
+
+    /**
+     * Every transaction step comes through here ({@link EmvEngine#notifyTransactionStep} hands
+     * the behavior's ones over). Published only while the current transaction is running; the
+     * first ERROR/COMPLETED ends it ({@link Transaction#end}) and is published by
+     * {@link #process} once the terminal is free; anything after it is dropped.
+     */
+    private void publish(TransactionStepEvent event) {
+        Transaction transaction = current.get();
+        if (transaction == null || !transaction.isRunning()) {
+            EmvLog.d("TransactionStep dropped, no transaction running: " + event);
+            engine.apduTrace().note("EMV", "transaction step dropped, the transaction has ended: "
+                    + event);
+            return;
+        }
+        if (event.getStep().isEnd()) {
+            transaction.end(event);
+            return;
+        }
+        publishNow(event);
+    }
+
+    private void publishNow(TransactionStepEvent event) {
+        EmvLog.d("TransactionStep: " + event);
+        traceTransactionStep(event);
+        transactionSteps.onNext(event);
+    }
+
+    /** Flags each transaction step in the APDU trace. */
+    private void traceTransactionStep(TransactionStepEvent event) {
+        TransactionStep step = event.getStep();
+        StringBuilder sb = new StringBuilder(step.getLabel().toUpperCase(Locale.US));
+        Object mode = event.get(TransactionStepEvent.KEY_MODE);
+        if (mode != null) {
+            sb.append(" (").append(mode).append(')');
+        }
+        Object error = event.get(TransactionStepEvent.KEY_ERROR);
+        Object result = event.get(TransactionStepEvent.KEY_RESULT);
+        String message = event.getMessage();
+        if (message != null && !message.equalsIgnoreCase(step.getLabel())) {
+            sb.append(": ").append(message);
+        } else if (error != null) {
+            sb.append(": ").append(error);
+        } else if (result != null) {
+            sb.append(": ").append(result);
+        }
+        engine.apduTrace().transactionEvent(sb.toString());
     }
 
     /**
@@ -269,81 +329,92 @@ public abstract class PosTerminal {
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted {@link #startTransaction}: its config and where it is in its life. The
-     * terminal outlives every transaction, so what belongs to one transaction lives here — a
-     * search still running for an earlier transaction can then tell it is over, instead of acting
-     * on the next.
+     * One accepted {@link #startTransaction}: its config and its end. The terminal outlives every
+     * transaction, so what belongs to one transaction lives here — a search still running for an
+     * earlier transaction can then tell it is over, instead of acting on the next.
+     *
+     * <p>{@link #end} is its whole state: {@code null} while it runs; the first ERROR/COMPLETED
+     * (or the cancel's ERROR) once it has ended. One compare-and-set decides it, so a cancel
+     * racing the end, or two ends from two threads, end it exactly once.
      */
-    private final class Transaction {
+    public final class Transaction {
 
-        final TransactionConfig config;
-        /**
-         * PENDING until {@link #process} takes it (RUNNING) or a cancel does (CANCELLED) —
-         * whichever comes first; a RUNNING one can still be cancelled. One compare-and-set per
-         * move, so a cancel racing the start is decided exactly once.
-         */
-        final AtomicReference<State> state = new AtomicReference<>(State.PENDING);
+        private final TransactionConfig config;
+        private final AtomicReference<TransactionStepEvent> end = new AtomicReference<>();
+        /** The cancel's own end event: {@link #isCancelled()} is "ended by this one". */
+        private final TransactionStepEvent cancelled = errorEvent("Transaction cancelled");
 
-        Transaction(TransactionConfig config) {
+        private Transaction(TransactionConfig config) {
             this.config = config;
         }
 
         /**
-         * Cancelled before {@link #process} began: it never will (the dispose dropped its task),
-         * so free the terminal here. Running: its search stops and its EMV winds down — only
-         * while it is still the terminal's transaction: once done, the reader and the engine may
-         * belong to the next one.
+         * Cancels this transaction: its search stops and its EMV winds down, or it never starts
+         * if it hadn't yet. Never interrupts the transaction thread: the terminal stays busy
+         * until that is done with the reader, then reports ERROR "Transaction cancelled". Does
+         * nothing once it has ended — a finished sale, or a second cancel.
          */
-        void cancel() {
-            if (state.compareAndSet(State.PENDING, State.CANCELLED)) {
-                current.compareAndSet(this, null);
-                return;
-            }
-            if (current.get() == this && state.compareAndSet(State.RUNNING, State.CANCELLED)) {
+        public void cancel() {
+            if (end.compareAndSet(null, cancelled)) {
                 cancelCardSearch();
-                engine.cancel();
             }
         }
 
-        /** Cancelled, or no longer the terminal's transaction: nothing it reports reaches the engine. */
+        boolean isRunning() {
+            return end.get() == null;
+        }
+
+        boolean isCancelled() {
+            return end.get() == cancelled;
+        }
+
+        /** Ended, or no longer the terminal's transaction: nothing it reports reaches the UI. */
         boolean isOver() {
-            return state.get() == State.CANCELLED || current.get() != this;
+            return !isRunning() || current.get() != this;
+        }
+
+        /** The first end wins; a later one (a stage noticing the cancel, say) is dropped. */
+        private void end(TransactionStepEvent event) {
+            if (!end.compareAndSet(null, event)) {
+                EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
+            }
         }
     }
 
-    private enum State { PENDING, RUNNING, CANCELLED }
-
     /**
-     * Runs on {@link #transactionScheduler}. One {@link EmvEngine#begin()} guards the whole
+     * Runs on the transaction thread — always, even for a transaction cancelled before it got
+     * here, so it always frees the terminal. One {@link EmvEngine#begin()} for the whole
      * transaction, including any retries a behavior requests via {@link EmvEngine#requestRetry}
-     * (PAX fallback / try-another-interface / try-again). Never throws. Frees the terminal when it
-     * returns — done with the reader — so {@code onComplete} means "free".
+     * (PAX fallback / try-another-interface / try-again). Never throws.
+     *
+     * <p>Its {@code finally} is the one place a transaction's end is published: frees the
+     * terminal first, then publishes the end, so a screen that sees COMPLETED/ERROR can start the
+     * next sale at once.
      */
     private void process(Transaction transaction) {
-        if (!transaction.state.compareAndSet(State.PENDING, State.RUNNING)) {
-            return; // cancelled before it began; the cancel freed the terminal
-        }
-        boolean began = false;
         try {
-            began = engine.begin();
-            if (began && !transaction.isOver()) {
+            engine.begin();
+            if (transaction.isRunning()) {
                 triggerSearch(transaction, transaction.config);
             }
         } catch (Throwable t) {
             //noinspection CallToPrintStackTrace
             t.printStackTrace();
-            if (!transaction.isOver()) {
-                engine.notifyError(t.getMessage() != null ? t.getMessage() : "Transaction failed");
-            }
+            transaction.end(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
         } finally {
-            if (began) {
-                // The transaction this began ends here at the latest — cancelled before its search
-                // started, or a search that stopped with no outcome. Dropped if it already ended.
-                engine.notifyError(transaction.isOver()
-                        ? "Transaction cancelled" : "Transaction ended without an outcome");
-            }
+            // A search that stopped with no outcome still ends its transaction.
+            transaction.end.compareAndSet(null, errorEvent("Transaction ended without an outcome"));
+            TransactionStepEvent end = transaction.end.get();
             current.compareAndSet(transaction, null);
+            publishNow(end);
         }
+    }
+
+    private static TransactionStepEvent errorEvent(String error) {
+        return TransactionStepEvent.builder(TransactionStep.ERROR)
+                .message(error)
+                .put(TransactionStepEvent.KEY_ERROR, error)
+                .build();
     }
 
     /**
@@ -357,9 +428,7 @@ public abstract class PosTerminal {
      */
     private void triggerSearch(Transaction transaction, TransactionConfig config) {
         if (!engine.prepare(config)) {
-            if (!transaction.isOver()) {
-                engine.notifyError("Terminal initialization failed");
-            }
+            engine.notifyError("Terminal initialization failed"); // dropped if it already ended
             return;
         }
         searchCard(config, new EngineReportingListener(transaction, config));

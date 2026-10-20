@@ -28,8 +28,8 @@
 └──────────────────────────────────────────┬────────────────────────────────────────────┘
                                            │ PosTerminal فقط — الـ UI عمرها ما تشوف Pax*
 ┌────────────────────────── :core — مفيش فيه أي حاجة vendor ────────────────────────────┐
-│ PosTerminal (abstract)  ── يملك: card search, CommunicationBehavior, PrinterBehavior    │
-│     └── EmvEngine       ── يملك: EmvBehavior, running flag, 2 observables, ApduTrace    │
+│ PosTerminal (abstract)  ── يملك: الـ transaction كلها (busy/cancel/steps/النهاية)، search │
+│     └── EmvEngine       ── يملك: EmvBehavior, emvSteps, ApduTrace, retry                │
 │           └── EmvBehavior ◄── AbstractEmvBehavior (goToStep / askStep / dispatch)       │
 └──────────────────────────────────────────┬────────────────────────────────────────────┘
                                            │ product flavor: pax | ingenico | fake
@@ -64,7 +64,7 @@
 |---|---|---|---|
 | `EmvEnhanceApp` | Application.onCreate | `PosTerminal` واحد طول عمر الـ process | `TerminalFactory.create` |
 | `PaxTerminal` | `TerminalFactory` (بعد `EmvFlowRuntime.init`) | `PaxKernel`، الـ reader، الـ host، الـ printer | `EmvEngine` بس |
-| `EmvEngine` | constructor بتاع `PosTerminal` | `PaxEmvBehavior`، `running`، `transactionSteps`، `emvSteps`، `ApduTrace`، retry | يرجع للـ terminal بـ `Authorizer` (= `PosTerminal::authorize`) |
+| `EmvEngine` | constructor بتاع `PosTerminal` | `PaxEmvBehavior`، `emvSteps`، `ApduTrace`، retry | يرجع للـ terminal بـ hooks ضيقة: `Authorizer` (`PosTerminal::authorize`)، الـ transaction steps، `isRunning`، `isCancelled` [rxTx] |
 | `PaxEmvBehavior` | constructor بتاع `PaxTerminal` | `TransactionState tx` (جديد كل attempt) | `PaxKernel` + engine |
 | `PaxKernel` | `PaxTerminal` | `EmvParamService params` (الـ cache)، `ContactProcess contact` (جديد كل attempt)، `ClssProcess contactless` (singleton)، `MagCardService mag` | الـ native |
 
@@ -82,10 +82,11 @@
 | | `TransactionStep` | `EmvStep` |
 |---|---|---|
 | لمين | الـ business / الـ UI النهائي | مهندس EMV / الـ banner / الـ trace |
-| الـ subject | [rxTx] `PublishSubject` + `toSerialized()` (الـ cancel بينشر من الـ UI thread) | `PublishSubject` **مش serialized** |
-| بيعمل replay؟ | [rxTx] لأ. `MainViewModel` بيرجع IDLE مع كل start | لأ |
-| بيشغّل كود؟ | لأ. الـ engine بيعمل `running=false` بنفسه جوه `notifyTransactionStep` (compare-and-set) | **آه** — كل step بيشغّل الـ `onXxx` بتاعه |
-| بيتنشر إمتى | [rxTx] بس وهو `running` (من أي thread). أول ERROR/COMPLETED بس اللي بيعدّي، والباقي dropped + note في الـ trace | بس وهو `running` — بعد النهاية بيتساب (dropped + note في الـ trace) |
+| مكانه | [rxTx] `PosTerminal.transactionSteps` | `EmvEngine.emvSteps` |
+| الـ subject | `PublishSubject` + `toSerialized()` (vendor callback ممكن ييجي من thread تاني) | `PublishSubject` **مش serialized** |
+| بيعمل replay؟ | لأ، ومبيخلصش أبداً. `MainViewModel` بيرجع IDLE مع كل start | لأ |
+| بيشغّل كود؟ | لأ | **آه** — كل step بيشغّل الـ `onXxx` بتاعه |
+| بيتنشر إمتى | والـ transaction الحالية شغالة بس. أول ERROR/COMPLETED بيقفلها (`Transaction.end`، CAS) ويتنشر من الـ `finally` بتاع `process` **بعد** ما الـ terminal يفضى؛ أي حاجة بعده dropped + note | والـ transaction شغالة بس — بعد النهاية بيتساب (dropped + note في الـ trace) |
 
 `TransactionStep` بالترتيب: `IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → APPLICATION_SELECTED → CARD_READ → CARDHOLDER_VERIFIED → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → COMPLETED` أو `ERROR` في أي لحظة.
 **النهاية = `COMPLETED` أو `ERROR` بس** (`TransactionStep.isEnd()`). `APPROVED`/`DECLINED` دايماً بعدها `COMPLETED`؛ `ERROR` لوحده.
@@ -95,7 +96,7 @@
 ```text
 vendor code: goToStep(EmvStep.X, detail)
   └─ AbstractEmvBehavior.goToStep
-       ├─ cancelled?  → notifyError("Transaction cancelled") لو لسه running، وخلاص
+       ├─ cancelled?  → notifyError("Transaction cancelled") (بيتساب، الـ cancel قفلها خلاص)
        └─ enterStep → engine.notifyEmvStep(X, detail)
             ├─ !running → dropped (note في الـ trace)  ← ده اللي بيمنع "نهاية مرتين"
             ├─ apduTrace.kernelStep(...)
@@ -110,7 +111,7 @@ vendor code: goToStep(EmvStep.X, detail)
 ليه كده:
 - **synchronous ومفيش `observeOn`/`subscribeOn`**: الـ kernel بينادي callback ومستني return value؛ لازم الـ step يكون خلص قبل ما الـ callback يرجع. والـ step بيعمل APDU/PIN/host، يعني blocking — مينفعش على computation thread.
 - **`EmvStepObserver` بيتعمل subscribe من جديد في كل `prepare`/`start`** عشان يبقى آخر subscriber. لو مكانش آخر، الـ subscribers اللي بعده كانوا هيشوفوا الـ step الجاي قبل الحالي (لأن الجاي بيتنشر من جوه الحالي).
-- **بيتعمل dispose أول ما الـ transaction تنتهي** (`isEnd`)، فـ step من كود لسه بيـ unwind عمره ما يشغّل method.
+- [rxTx] بعد النهاية الـ engine مبينشرش أي EmvStep (`isRunning()` = false)، فـ step من كود لسه بيـ unwind عمره ما يشغّل method؛ والـ `prepare` الجاي بيعمل subscribe من جديد.
 
 ### 2.3 `askStep` / `answerStep` — لما الـ kernel مستني إجابة
 
@@ -137,9 +138,10 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
 | `finishError(msg)` | `notifyError` → `ERROR` |
 | exception جوه أي `onXxx` | `EmvStepObserver` يمسكه → `finishError` |
 | step مش معروف / `null` | `unknownStep` → `finishError` (مرة واحدة بس) |
-| `engine.cancel()` | `notifyError("Transaction cancelled")` (بيتساب لو مش running). الـ flag نفسه بتاع `PosTerminal` [rxTx] |
+| `Transaction.cancel()` [rxTx] | `end` = ERROR "Transaction cancelled" (CAS) + `cancelCardSearch()` — بيتنشر لما `process` يخلص |
+| الـ search خلص من غير callback | الـ `finally` بتاع `process`: ERROR "Transaction ended without an outcome" |
 
-أول `ERROR`/`COMPLETED` → `running=false` → أي step بعدها dropped، [rxTx] الـ EmvStep والـ TransactionStep الاتنين. ده الحل بتاع bug "ERROR وبعدين DECLINED + COMPLETED"، وكمان "Terminal initialization failed" مرتين.
+أول `ERROR`/`COMPLETED` → `Transaction.end` (CAS) → أي step بعدها dropped، الـ EmvStep والـ TransactionStep الاتنين، والنهاية بتتنشر مرة واحدة من مكان واحد. ده الحل بتاع bug "ERROR وبعدين DECLINED + COMPLETED"، وكمان "Terminal initialization failed" مرتين.
 
 ### 2.5 الـ retry (fallback / try again / see phone / try another interface)
 
@@ -202,15 +204,14 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
 ```text
 [main]  AmountFragment: amount + type (+ reference لو REFUND) → SearchCardFragment.newInstance
 [main]  SearchCardFragment.onViewCreated → viewModel.acceptCard(type, amountMinor, ref)
-[main]  MainViewModel.acceptCard → PosTerminal.acceptCard(...).subscribe   [rxTx: Completable]
+[main]  MainViewModel.acceptCard → PosTerminal.acceptCard(...)   [rxTx]
           → startTransaction(new TransactionConfig(type, amount, EntryMethod.ANY).withReferenceNumber)
-          → Completable.defer: current.compareAndSet(null, t)
-               false = onError(TerminalBusyException) → showBusy   (فوراً، مفيش queue)
-          → Completable.fromAction(process(t)).subscribeOn(transactionScheduler)   ── يرجع فوراً
-          → doOnDispose(t::cancel)
-          الـ steps: الـ stream الوحيد بتاع الـ engine (MainViewModel: IDLE مع كل start)
+          → current.compareAndSet(null, t)
+               false = throw TerminalBusyException → showBusy   (فوراً، مفيش queue)
+          → transactionExecutor.execute(process(t))   ── يرجع t فوراً (الـ handle بتاع الـ cancel)
+          الـ steps: PosTerminal.transactionSteps (MainViewModel: IDLE مع كل start)
 ────────────────────────────────────────────────────────────────────────────────
-[tx]    process(t): state PENDING → RUNNING؟ → engine.begin()  (running=true، retry=0، trace جديد)
+[tx]    process(t) → engine.begin()  (retry=0، trace جديد)؛ لو t اتلغت قبل كده → مفيش search
 [tx]    triggerSearch → engine.prepare(config) → PaxEmvBehavior.prepare
           tx = new TransactionState()
           → AbstractEmvBehavior.prepare: initEmvObserver، TRANSACTION_STARTED
@@ -228,7 +229,8 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
                … السلسلة كلها synchronous (§4، §5) لحد TRANSACTION_COMPLETION …
         ← engine.start يرجع
 [tx]    consumePendingRetry() ≠ null → triggerSearch(retryConfig)  (نفس الـ thread)
-[tx]    finally: current.compareAndSet(t, null) → fromAction بيخلص → onComplete  ── الـ terminal فاضي
+[tx]    finally: end لو مفيش (no outcome) → current.compareAndSet(t, null) → publish(end)
+          ── COMPLETED/ERROR بيوصل والـ terminal فاضي خلاص
 ────────────────────────────────────────────────────────────────────────────────
 [main]  MainViewModel: transactionSteps / emvSteps (observeOn main) → LiveData
 [main]  SearchCardFragment: banner = EmvStep؛ outcome = APPROVED/DECLINED/ERROR؛
@@ -272,19 +274,17 @@ startXxxTransProcess شاف RESULT_REQ_ONLINE (أو refund / offline approved �
 ### 3.3 الـ cancel
 
 ```text
-[main] زرار Cancel / onCleared → MainViewModel.cancel → dispose() على الـ Completable بتاع الشاشة   [rxTx]
-         doOnDispose → Transaction.cancel():
-           process لسه مبدأتش؟ → state PENDING → CANCELLED، current = null، والـ subscribeOn بيشيل الـ task
-           خلصت؟ (current != t) أو اتلغت قبل كده؟ → ولا حاجة
-         state RUNNING → CANCELLED → isSearchCancelled() = engine.isCancelled() = behavior.isCancelled() = true
-                                     (الـ flag الوحيد — الـ behavior مالوش flag)
-         cancelCardSearch() → ICardReaderHelper.stopPolling()
-         engine.cancel() → ERROR "Transaction cancelled"
-                           (على الـ stream بتاع الـ engine؛ الشاشة بتتقفل)
+[main] زرار Cancel / onCleared → MainViewModel.cancel → transaction.cancel()   [rxTx]
+         end.compareAndSet(null, ERROR "Transaction cancelled")
+           خلصت قبل كده أو اتلغت قبل كده؟ → ولا حاجة
+         → isSearchCancelled() = engine.isCancelled() = behavior.isCancelled() = true
+           (الـ state الوحيد — الـ behavior مالوش flag)
+         → cancelCardSearch() → ICardReaderHelper.stopPolling()
 [tx]   السلسلة بتشوف isCancelled() عند أول stage/goToStep → finishXxxStage (يقفل الـ readers)
        الـ host call نفسه مبيتقطعش (ممكن يكون اتوافق عليه) — بيستنى الرد أو الـ timeout
-       الـ terminal يفضل busy لحد ما process يخلص (مفيش interrupt: Schedulers.from(executor))
-       finally: لو الـ transaction لسه running (اتلغت قبل الـ search) → ERROR، وبعدين current = null
+       الـ terminal يفضل busy لحد ما process يخلص (مفيش interrupt)
+       اتلغت قبل ما process تبدأ؟ → process بتشتغل برضه، مبتعملش search، وبتفضّي الـ terminal
+       finally: current = null، وبعدين ERROR "Transaction cancelled" يتنشر — مرة واحدة
 ```
 
 ---
@@ -555,8 +555,8 @@ prepare → onTerminalInitialization → prepareKernel(config)
 
 | Thread | بيشغّل | ممنوع |
 |---|---|---|
-| main | الـ UI، `acceptCard` (subscribe)، الـ cancel (dispose)، الـ LiveData، الـ dialogs (`AppSelectDialog`، `PaxPinPad`) | أي blocking (EMV، host، print، DB) |
-| transaction (`Executors.newSingleThreadExecutor`) | `process` (`subscribeOn`): search → EMV كله → host (`blockingGet`) → retry | interrupt؛ أكتر من transaction (`AtomicReference current`) |
+| main | الـ UI، `acceptCard`، `transaction.cancel()`، الـ LiveData، الـ dialogs (`AppSelectDialog`، `PaxPinPad`) | أي blocking (EMV، host، print، DB) |
+| transaction (`Executors.newSingleThreadExecutor`) | `process`: search → EMV كله → host (`blockingGet`) → retry | interrupt؛ أكتر من transaction (`AtomicReference current`) |
 | print (single thread) | `printReceipt` بالترتيب | — |
 | `Schedulers.io()` | download الـ params، onboarding | — |
 | `ConfigInit` | seed أول boot | — |

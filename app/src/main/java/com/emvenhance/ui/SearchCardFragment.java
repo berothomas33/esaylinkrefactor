@@ -116,11 +116,6 @@ public class SearchCardFragment extends Fragment {
             outcomeGroup.setVisibility(View.GONE);
             viewModel.acceptCard(type, amountMinor, referenceNumber);
         });
-        viewModel.getTerminalBusy().observe(getViewLifecycleOwner(), event -> {
-            if (event.consume() != null) {
-                showBusy(view);
-            }
-        });
 
         bindKvRow(view, R.id.rowPan, getString(R.string.label_pan_result));
         bindKvRow(view, R.id.rowTvr, getString(R.string.label_tvr));
@@ -211,6 +206,13 @@ public class SearchCardFragment extends Fragment {
                 setKvValue(view, R.id.rowIccData, event.getString(TransactionStepEvent.KEY_ICC_DATA));
             } else if (stillChoosing) {
                 resultGroup.setVisibility(View.GONE);
+            }
+        });
+
+        // After the step observer: a refused start sets IDLE, then BUSY — BUSY must be drawn last.
+        viewModel.getTerminalBusy().observe(getViewLifecycleOwner(), event -> {
+            if (event.consume() != null) {
+                showBusy(view);
             }
         });
 

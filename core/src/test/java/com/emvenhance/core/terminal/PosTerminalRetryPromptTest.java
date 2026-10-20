@@ -38,8 +38,8 @@ public class PosTerminalRetryPromptTest {
     public void setUp() throws Exception {
         terminal = new CapturingTerminal();
         engine = terminal.engine;
-        engine.transactionSteps().subscribe(events::add);
-        terminal.acceptCard(TransactionType.SALE, 1000).subscribe();
+        terminal.transactionSteps().subscribe(events::add);
+        terminal.acceptCard(TransactionType.SALE, 1000);
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS));
         events.clear();
     }

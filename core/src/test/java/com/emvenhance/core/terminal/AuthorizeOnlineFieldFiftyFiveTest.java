@@ -68,7 +68,7 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
         return new EmvEngine(vendor, config -> {
             sentToHost.add(config);
             return AuthResult.approved("123456", "00", null, null);
-        }, () -> false);
+        }, event -> { }, () -> true, () -> false);
     }
 
     /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */

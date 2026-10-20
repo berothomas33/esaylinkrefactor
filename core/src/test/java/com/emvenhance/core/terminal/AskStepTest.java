@@ -9,12 +9,12 @@ import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.engine.TestSession;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -31,13 +31,13 @@ public class AskStepTest {
 
     private EmvEngine engine;
     private Vendor vendor;
+    private static final TestSession session = new TestSession();
 
     @Before
     public void setUp() {
         vendor = new Vendor();
-        engine = new EmvEngine(vendor, config -> AuthResult.failed("no host"),
-                vendor.terminalCancelled::get);
-        engine.begin();
+        engine = session.engine(vendor, config -> AuthResult.failed("no host"));
+        session.begin(engine);
     }
 
     @Test
@@ -117,8 +117,6 @@ public class AskStepTest {
     /** APPLICATION_SELECTION plays the kernel calling back for the cardholder's choice. */
     private static final class Vendor extends AbstractEmvBehavior {
 
-        /** The terminal's cancel flag (PosTerminal owns it in the app). */
-        final AtomicBoolean terminalCancelled = new AtomicBoolean();
         Integer selectionAnswer;
         boolean cancelBeforeAsking;
         boolean throwInSelection;
@@ -131,7 +129,7 @@ public class AskStepTest {
 
         @Override protected void onApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) {
             if (cancelBeforeAsking) {
-                terminalCancelled.set(true);
+                session.cancelled.set(true);
             }
             if (goWithoutAsking) {
                 goToStep(EmvStep.WAIT_APPLICATION_SELECTION);

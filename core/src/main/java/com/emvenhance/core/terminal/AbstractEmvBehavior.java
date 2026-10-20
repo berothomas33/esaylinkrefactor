@@ -402,8 +402,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         @Override
         public void onComplete() {
             // emvSteps never completes: it lives as long as the engine, and the UI keeps
-            // observing it from one transaction to the next. The end of a transaction disposes
-            // this observer instead (initEmvObserver).
+            // observing it from one transaction to the next. After a transaction's end the engine
+            // publishes nothing more, and the next prepare re-subscribes (initEmvObserver).
         }
     }
 
@@ -475,9 +475,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * A step with no method to run ends the transaction: its ERROR stops the engine publishing
-     * steps ({@link EmvEngine#notifyEmvStep}) and disposes this behavior's observer
-     * ({@link #initEmvObserver}).
+     * A step with no method to run ends the transaction: after its ERROR the engine publishes no
+     * more steps ({@link EmvEngine#notifyEmvStep}).
      */
     private void unknownStep(@Nullable EmvStep step) {
         if (engine == null || !engine.isRunning()) {
