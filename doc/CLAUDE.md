@@ -84,6 +84,51 @@ Ingenico) plug in as a Gradle flavor.
 8. Keep `EmvStep` numbers (EMV Book 3 order). A new step = a new abstract hook in every vendor
    — avoid.
 
+*Added 2026-10-20 from the rxTx / cleanup session. Apply them unasked, like 1–8.*
+
+9. **One owner per thing.** Before adding a flag, `Atomic*`, `Boolean`, subject, stream, list or
+   guard, grep for the one that exists and use it. Two of the same kind is a design bug (found
+   twice already: two `cancelled` flags; two `TransactionStepEvent` streams). Owners today:
+   cancel = `PosTerminal.Transaction.state`; "a transaction has ended" = `EmvEngine.running`
+   (compare-and-set); transaction steps = `EmvEngine.transactionSteps`; EMV steps =
+   `EmvEngine.emvSteps`; busy = `PosTerminal.current`. A class that needs another's state gets a
+   narrow read (e.g. `EmvEngine.isCancelled()`, a `BooleanSupplier`), never its own copy.
+10. **Separation of responsibilities.** `PosTerminal`: thread, busy, cancel, card search, host,
+    printer. `EmvEngine`: running flag, the two step streams, the APDU trace, the retry request.
+    `AbstractEmvBehavior` + vendor: EMV steps and kernel work, nothing about threads, busy or
+    the host. UI: observes and asks, owns no transaction state. When a change makes a class do
+    another's job, move the job, don't bridge it.
+11. **A step exists only where the kernel does that work.** Before publishing or moving a step
+    (`SET_TRANSACTION_DATA`, `READ_APPLICATION_DATA`, …) check the SDK: which native call runs
+    there, in which order (rule 2), once per attempt. Atomic kernels (one native call) announce
+    steps from callbacks and leave the hooks empty with a comment; they don't fake a stage.
+12. **Kernel callbacks** (`IContactCallback`, `IContactlessCallback`, `EMVCallback` adapters):
+    thin, plain (never `suspend`, never Rx), and on every path — including exceptions and
+    cancel — they end with `setCallBackResult` and a fail-closed value (`askStep` does this for
+    you). Anything that waits for a person has a timeout that answers `USER_CANCEL`, never
+    "pick the first". Open violations: BACKLOG 0.4, 1.1.
+13. **Rx only where it earns its place, and safely.** The kernel and every callback stay on the
+    one transaction thread; Rx never moves them. See the facts in §6 before touching
+    `PosTerminal`, `EmvEngine` or `MainViewModel`. Anything about Rx behavior you haven't
+    proven in a test is marked *unverified*, not assumed.
+14. **The vendor seam is the only layer.** `core` and `app/src/main` import no vendor class, so
+    the same code runs on any POS. A new POS = a flavor with a `TerminalFactory`, a
+    `PosTerminal` subclass (`searchCard`, `cancelCardSearch`), an `AbstractEmvBehavior`
+    subclass (the `onXxx` hooks, `readIccTag`), and optionally its own `CommunicationBehavior` /
+    `PrinterBehavior`. `pax`, `ingenico` and `fake` are the implementors that justify the seam;
+    rule 5 still forbids every other facade or single-implementor interface. Keep `fake`
+    compiling and testable: it is the proof that core is vendor-free.
+15. **Logs say what was decided and why.** Every path that drops, retries, ends or fails closed
+    writes one line saying what happened, why, and what was done instead — to the APDU trace
+    (`apduTrace.note(tag, text)`; tags `EMV`, `PICC`, `ICC`) and `EmvLog.d` (debug only).
+    Examples: `EmvStep dropped, no transaction running`, `no answer for <step> — answering
+    <value>`, `RETRY #n`, `online step did not run — online failed`. Never a PAN, track, PIN
+    block, key or token (BACKLOG 5.2 lists the ones that still leak).
+16. **Before saying "done"** (on top of §1): grep that nothing is duplicated (rule 9);
+    each new guard has a test that fails when the guard is removed (mutation check), named in
+    the commit; say what is not device-tested; update this file and `doc/REFERENCE.md` in the
+    same commit.
+
 ## 3. Where things are
 
 | What | File |
@@ -145,12 +190,11 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   (`emvflow emvbase emvlib emvlib:base emvlib:dpas emvservice poslib bizlib bizentity
   commonutils`). Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
   AGP 8 → `new X()`.
-- **`PosTerminal`** [rxSet]: one transaction thread
-  (`Schedulers.from(Executors.newSingleThreadExecutor())`, `scheduleDirect`), one
-  `AtomicReference<Transaction> current` (busy = non-empty, freed when `run()` returns),
-  cancel = the transaction's `AtomicBoolean`. Never dispose/interrupt the transaction thread.
-  Print: its own single thread, receipts in order.
-- **[rxTx] the transaction is a `Completable`**: `startTransaction` / `acceptCard` —
+- **`PosTerminal`**: one transaction thread (`Schedulers.from(Executors.newSingleThreadExecutor())`),
+  one `AtomicReference<Transaction> current` (busy = non-empty, freed when `process` returns).
+  Never interrupt the transaction thread. Print: its own single thread, receipts in order.
+  [rxSet] started with `scheduleDirect(transaction::run)` and a `boolean`; **[rxTx]** replaced
+  that: the transaction is a `Completable` — `startTransaction` / `acceptCard` —
   subscribe = start (`Completable.defer`: busy check on the subscribing thread,
   `onError(TerminalBusyException)`, never queued; then `fromAction(process)` +
   `subscribeOn(transactionScheduler)`, no `scheduleDirect`), `onComplete` = `process` freed the
@@ -173,9 +217,22 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   `askStep(step, detail, failClosed)` / `answerStep`. `TransactionStep.isEnd()` = "ended".
 - **Threading**: kernel + callbacks on the transaction thread only. `askStep` works because
   the hook runs before `goToStep` returns — keep dispatch synchronous.
-- **Rx facts (proven)**: PublishSubject is synchronous and re-entrant; `takeUntil` drops
-  re-entrant `onNext`; a throwing observer sticks a `SerializedSubject`;
-  `subscribe(Consumer)` errors crash.
+- **Rx facts (proven by tests or the lifecycle tests)**: PublishSubject is synchronous and
+  re-entrant; `takeUntil` drops re-entrant `onNext`; a throwing observer sticks a
+  `SerializedSubject`; `subscribe(Consumer)` errors crash.
+  - `subscribeOn` + dispose before the task starts: the task **never runs**, so whatever it
+    would have freed stays held. That is why `Transaction.state` has PENDING.
+  - `Completable.defer` runs on the subscribing thread: the right place for the busy check
+    (never queued behind the transaction thread).
+  - `Schedulers.from(executor)` is not interruptible by default: a dispose never interrupts a
+    native call. Keep it that way.
+  - A cancellable/`doOnDispose` can fire after `onComplete`: the cancel must guard itself
+    (`current == this`, compare-and-set), or every finished sale cancels the reader.
+  - A `BehaviorSubject` replays to new subscribers; every consumer then needed `skip(1)`.
+    A `PublishSubject.toSerialized()` replays nothing (see `EmvEngine` above).
+  - In Kotlin (not yet done): `StateFlow` conflates (APPROVED then COMPLETED can arrive as
+    COMPLETED only); `flowOn` around the busy check would queue a second sale; `awaitClose`
+    also runs after a normal close.
 
 ## 7. EMV flow (PAX)
 
@@ -310,3 +367,12 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 - Never silently delete payment-safety code (torn log) — ask.
 - No bulk `sed` renames in Java. Don't dismiss native-lib / permission errors.
 - Don't move uncommitted work between branches with stash without saying so.
+- "I want to get rid of X" means X goes away, not that it gets hidden behind another layer
+  (the first `rxTx` commit hid `scheduleDirect` and added a second steps stream). If unclear
+  what he wants gone, ask in one line first.
+- Don't write a big doc nobody asked for: a prompt is a prompt. A doc about a design that is
+  still moving is stale within the hour.
+- Before judging a branch, check which commit it is built on (`coroutineDesign` was built on
+  the discarded `ae25378`, so it lacked every later fix).
+- Don't refactor on top of code that hasn't passed the device form without saying so.
+- A subagent's claim is a claim: verify it in the code before it goes into a doc.
