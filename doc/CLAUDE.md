@@ -61,6 +61,10 @@ Ingenico) plug in as a Gradle flavor.
 - "Logs still wrong" → suspect a stale build first: logcat tag, `git log -1`, Clean + Rebuild.
 - Test environment: don't lecture about tokens in logs.
 - His Excel test form: fill only the cells he asks for; never change his own edits.
+- **Docs once a day, not per commit.** Don't touch `doc/CLAUDE.md` / `doc/REFERENCE.md` with
+  every code commit (tokens). A scheduled task reminds him daily at ~5 PM Cairo; then, if he
+  says yes, both docs are brought up to date in one commit. The commit bodies are the record
+  until then. Exception: he asks for a doc change now.
 
 ## 2. His design rules (apply them unasked)
 
@@ -136,7 +140,7 @@ Ingenico) plug in as a Gradle flavor.
     block, key or token (BACKLOG 5.2 lists the ones that still leak).
 16. **Before saying "done"** (on top of §1): grep that nothing is duplicated (rule 9);
     each new guard has a test that fails when the guard is removed (mutation check), named in
-    the commit; say what is not device-tested; update this file and `doc/REFERENCE.md` in the
+    the commit; say what is not device-tested. Docs: at the daily 5 PM update (§1), not in the
     same commit.
 
 ## 3. Where things are
@@ -364,6 +368,11 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 - ~~Re-evaluate `startTransaction()` and the `Completable` design~~ — done on
   `rxTransactionDesign`: the lifecycle and the transaction steps live in `PosTerminal`, no Rx in
   the lifecycle (§6). Not device-tested.
+  - Last change (`40f080d`) — goal: a cancel the UI can see at once without breaking "the end
+    means the terminal is free". `CANCELLING` (a non-end step) is published the moment
+    `cancel()` wins; ERROR "Transaction cancelled" still comes from `process`'s `finally`. One
+    lock (the subject) orders the two across threads; each subscriber is a `SafeObserver`, so
+    one that throws can't stop the steps or the transaction thread.
 - Kotlin + coroutines migration: plan in `claudekotlin.md`; in progress on `coroutineDesign`.
 - Everything else found by the 2026-10-20 scan (PCI, fail-open host response, Back, DB
   encryption, receipt, tests…): `doc/BACKLOG.md`.
