@@ -60,7 +60,6 @@ Ingenico) plug in as a Gradle flavor.
 - He asks "is this safe / does this break anything?" — answer with the concrete call path.
 - "Logs still wrong" → suspect a stale build first: logcat tag, `git log -1`, Clean + Rebuild.
 - Test environment: don't lecture about tokens in logs.
-- Other agents (Cursor, other sessions) push to this repo: **fetch first**.
 - His Excel test form: fill only the cells he asks for; never change his own edits.
 
 ## 2. His design rules (apply them unasked)
@@ -86,18 +85,23 @@ Ingenico) plug in as a Gradle flavor.
 
 *Added 2026-10-20 from the rxTx / cleanup session. Apply them unasked, like 1–8.*
 
-9. **One owner per thing.** Before adding a flag, `Atomic*`, `Boolean`, subject, stream, list or
-   guard, grep for the one that exists and use it. Two of the same kind is a design bug (found
-   twice already: two `cancelled` flags; two `TransactionStepEvent` streams). Owners today:
+9. **One responsibility, one owner, one source of truth.** Check existing ownership before
+   adding anything: before adding a flag, `Atomic*`, `Boolean`, subject, stream, list or
+   guard, grep for the one that exists and use it. No duplicated state, flags, `Atomic*`,
+   subjects, streams or guards — two of the same kind is a design bug (e.g. cancellation has
+   one owner, never two `cancelled` flags; found twice already: two `cancelled` flags; two
+   `TransactionStepEvent` streams). Owners today:
    cancel = `PosTerminal.Transaction.state`; "a transaction has ended" = `EmvEngine.running`
    (compare-and-set); transaction steps = `EmvEngine.transactionSteps`; EMV steps =
    `EmvEngine.emvSteps`; busy = `PosTerminal.current`. A class that needs another's state gets a
    narrow read (e.g. `EmvEngine.isCancelled()`, a `BooleanSupplier`), never its own copy.
+   Prefer removing redundant code over adding abstractions.
 10. **Separation of responsibilities.** `PosTerminal`: thread, busy, cancel, card search, host,
     printer. `EmvEngine`: running flag, the two step streams, the APDU trace, the retry request.
     `AbstractEmvBehavior` + vendor: EMV steps and kernel work, nothing about threads, busy or
     the host. UI: observes and asks, owns no transaction state. When a change makes a class do
-    another's job, move the job, don't bridge it.
+    another's job, move the job, don't bridge it — remove the redundant copy rather than add a
+    layer to reconcile two.
 11. **A step exists only where the kernel does that work.** Before publishing or moving a step
     (`SET_TRANSACTION_DATA`, `READ_APPLICATION_DATA`, …) check the SDK: which native call runs
     there, in which order (rule 2), once per attempt. Atomic kernels (one native call) announce
@@ -111,13 +115,16 @@ Ingenico) plug in as a Gradle flavor.
     one transaction thread; Rx never moves them. See the facts in §6 before touching
     `PosTerminal`, `EmvEngine` or `MainViewModel`. Anything about Rx behavior you haven't
     proven in a test is marked *unverified*, not assumed.
-14. **The vendor seam is the only layer.** `core` and `app/src/main` import no vendor class, so
-    the same code runs on any POS. A new POS = a flavor with a `TerminalFactory`, a
+14. **The vendor seam is the only layer.** `core` and `app/src/main` must stay
+    vendor-independent: they import no vendor class, so the same code runs on any POS. All
+    vendor-specific SDK code belongs in its vendor flavor. Adding a vendor must not require
+    changing the core transaction flow. A new POS = a flavor with a `TerminalFactory`, a
     `PosTerminal` subclass (`searchCard`, `cancelCardSearch`), an `AbstractEmvBehavior`
     subclass (the `onXxx` hooks, `readIccTag`), and optionally its own `CommunicationBehavior` /
     `PrinterBehavior`. `pax`, `ingenico` and `fake` are the implementors that justify the seam;
-    rule 5 still forbids every other facade or single-implementor interface. Keep `fake`
-    compiling and testable: it is the proof that core is vendor-free.
+    do not add unnecessary layers or abstractions — rule 5 still forbids every other facade or
+    single-implementor interface. Keep `fake` compiling and testable: it is the proof that core
+    is vendor-free.
 15. **Logs say what was decided and why.** Every path that drops, retries, ends or fails closed
     writes one line saying what happened, why, and what was done instead — to the APDU trace
     (`apduTrace.note(tag, text)`; tags `EMV`, `PICC`, `ICC`) and `EmvLog.d` (debug only).
@@ -253,9 +260,6 @@ ISSUER_AUTH (`EMVCompleteTrans`) → COMPLETION (reports the outcome once).
 **Facts**
 - **Never write 9F03 into the contact kernel** (AUC → cashback → TVR b2b5 → IAC-Denial → AAC
   −11; device-confirmed). `readIccTag` answers 9F03 as zeros. Sale transType `0x00`.
-- **Field 55 = old app byte for byte** (`Field55Test`): `5F2A 5F34 82 84 95 9A 9C 9F02 9F03
-  9F09 9F10 9F21 9F1A 9F26 9F27 9F33 9F34 9F35 9F36 9F37 9F41 9F42 9F1E` + `9F09 9F33 9F34
-  9F35 9F41` + `9F53 9F63 9F66`. Never add `9F49 97 9F40 9F1B 9F15 9F1C`.
 - Online-only: `forceOnline=1`; nothing is approved offline. A kernel TC / offline approval
   after the 1st GAC goes to the host without an ARQC and the host's answer is the result
   (`needsHostWithoutArqc`, REFERENCE §4.4); an OFFLINE_APPROVED outcome at the end = Online
@@ -356,6 +360,37 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
   checksum, duplicates); no AID/CAPK check before a transaction; no automatic update.
 - Reversal/ack, refund AAC at host, withdraw/deposit bodies, remove the hardcoded mToken, gate
   secret logging before live, Ingenico, manual PAN, `ConfigInit` place, pick the mainline.
+- **Re-evaluate `startTransaction()` and the `Completable` design** (high level; analyze
+  first, no code change as part of this task): does `Completable` provide necessary value, or
+  can the transaction lifecycle be implemented more simply? Any answer must preserve busy
+  rejection, cancellation before and during execution, safe native-call threading (one
+  transaction thread, never interrupted), exactly-once completion, and cleanup.
+  - *Proposed direction (2026-10-20, analysis only — not implemented, not device-tested):*
+    today two signals say "ended" (`Completable.onComplete` and COMPLETED/ERROR on
+    `transactionSteps`) and two owners hold the lifecycle (`PosTerminal.current`,
+    `EmvEngine.running`) — a rule 9 violation. Merge them in `PosTerminal`:
+    - `startTransaction(...)` returns `boolean` / throws `TerminalBusyException`: busy =
+      `current.compareAndSet` on the caller's thread, never queued. Run with
+      `executor.execute(process)` — no Rx on the transaction thread, never interrupted.
+    - `cancelTransaction()` comes back: one `Transaction.state` compare-and-set, only while
+      `current == this`; it publishes a "cancelling" step, not the end.
+    - One long-lived `PublishSubject<TransactionStepEvent>.toSerialized()` in `PosTerminal`
+      (serialized: cancel publishes from the UI thread); the ViewModel subscribes once. It
+      never gets `onComplete` / `onError` — the end is an event, not the end of the stream.
+    - `EmvEngine.running` goes: "ended" = "not busy", owned by `current`. A step from a
+      transaction that isn't `current` is dropped with a log line (rule 15). `EmvEngine` keeps
+      `emvSteps` + the APDU trace and gets a narrow `Consumer<TransactionStepEvent>` publisher
+      for the behavior's steps.
+    - End order in `process`'s `finally`: first `current.compareAndSet(this, null)`, then
+      publish the end event — the reverse lets the UI start a new sale on COMPLETED and get
+      BUSY. One place publishes the end → exactly once.
+    - Gone: PENDING and the "cancel before `process` frees the terminal itself" branch (the
+      executor always runs the task; `process` sees the state, ends, `finally` frees), and the
+      `doOnDispose`-after-`onComplete` guard.
+    - Watch: a cancel during a blocking native call leaves the terminal BUSY until the thread
+      returns (correct); observers run synchronously on the transaction thread → the UI needs
+      `observeOn(main)` and a throwing consumer must be caught (it sticks a
+      `SerializedSubject`); rule 10 (`EmvEngine` owns the streams) must be updated with it.
 - Kotlin + coroutines migration: plan in `claudekotlin.md`; in progress on `coroutineDesign`.
 - Everything else found by the 2026-10-20 scan (PCI, fail-open host response, Back, DB
   encryption, receipt, tests…): `doc/BACKLOG.md`.
