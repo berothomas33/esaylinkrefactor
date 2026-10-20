@@ -18,9 +18,9 @@ import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.PublishSubject;
-import io.reactivex.rxjava3.subjects.Subject;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
@@ -64,13 +64,18 @@ public abstract class PosTerminal {
     private final Executor transactionExecutor = Executors.newSingleThreadExecutor();
 
     /**
-     * Every transaction's steps. Serialized: a vendor SDK may report a search callback from its
-     * own thread, and Rx subscribers must never get two {@code onNext} calls at once. Nothing is
-     * replayed to a new subscriber, and the stream never completes — a transaction's end is an
-     * event on it (COMPLETED / ERROR), not the end of the stream.
+     * Every transaction's steps. Nothing is replayed to a new subscriber, and the stream never
+     * completes — a transaction's end is an event on it (COMPLETED / ERROR), not the end of the
+     * stream.
+     *
+     * <p>It is also the one lock of the transaction's reporting: every publish holds it. Steps
+     * come from the transaction thread, a cancel's CANCELLING from the UI thread, maybe a
+     * vendor's SDK thread: Rx subscribers must never get two {@code onNext} calls at once, and a
+     * cancel and the end must not cross (CANCELLING, then the end — never the end, then
+     * CANCELLING). One atomic can't order a publish on two threads; this lock does, in place of
+     * a {@code toSerialized()} — which, with a subscriber that throws, stops delivering for good.
      */
-    private final Subject<TransactionStepEvent> transactionSteps =
-            PublishSubject.<TransactionStepEvent>create().toSerialized();
+    private final PublishSubject<TransactionStepEvent> transactionSteps = PublishSubject.create();
 
     /**
      * The one thread receipts print on: one printer, one job at a time, in the order they were
@@ -164,9 +169,13 @@ public abstract class PosTerminal {
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
-    /** Every transaction's steps from now on; see {@link #transactionSteps the field}. */
+    /**
+     * Every transaction's steps from now on; see {@link #transactionSteps the field}. Each
+     * subscriber is a {@link SafeObserver}: one that throws is cut off alone, and the others go on
+     * getting every step.
+     */
     public Observable<TransactionStepEvent> transactionSteps() {
-        return transactionSteps.hide();
+        return Observable.wrap(observer -> transactionSteps.subscribe(new SafeObserver<>(observer)));
     }
 
     public Observable<EmvStepEvent> emvSteps() {
@@ -258,24 +267,39 @@ public abstract class PosTerminal {
      * {@link #process} once the terminal is free; anything after it is dropped.
      */
     private void publish(TransactionStepEvent event) {
-        Transaction transaction = current.get();
-        if (transaction == null || !transaction.isRunning()) {
-            EmvLog.d("TransactionStep dropped, no transaction running: " + event);
-            engine.apduTrace().note("EMV", "transaction step dropped, the transaction has ended: "
-                    + event);
-            return;
+        synchronized (transactionSteps) {
+            Transaction transaction = current.get();
+            if (transaction == null || !transaction.isRunning()) {
+                EmvLog.d("TransactionStep dropped, no transaction running: " + event);
+                engine.apduTrace().note("EMV",
+                        "transaction step dropped, the transaction has ended: " + event);
+                return;
+            }
+            if (event.getStep().isEnd()) {
+                transaction.end(event);
+                return;
+            }
+            publishNow(event);
         }
-        if (event.getStep().isEnd()) {
-            transaction.end(event);
-            return;
-        }
-        publishNow(event);
     }
 
+    /**
+     * Delivers {@code event} to every subscriber, under the lock. A subscriber that throws is
+     * logged and the delivery carries on: neither the stream nor the transaction thread (which
+     * may be mid-EMV) goes down with it.
+     */
     private void publishNow(TransactionStepEvent event) {
-        EmvLog.d("TransactionStep: " + event);
-        traceTransactionStep(event);
-        transactionSteps.onNext(event);
+        synchronized (transactionSteps) {
+            EmvLog.d("TransactionStep: " + event);
+            traceTransactionStep(event);
+            try {
+                transactionSteps.onNext(event);
+            } catch (Throwable t) {
+                EmvLog.d("A transaction-steps subscriber threw on " + event + ": " + t);
+                engine.apduTrace().note("EMV", "a screen failed on " + event.getStep()
+                        + " — the transaction carries on");
+            }
+        }
     }
 
     /** Flags each transaction step in the APDU trace. */
@@ -343,21 +367,28 @@ public abstract class PosTerminal {
         private final AtomicReference<TransactionStepEvent> end = new AtomicReference<>();
         /** The cancel's own end event: {@link #isCancelled()} is "ended by this one". */
         private final TransactionStepEvent cancelled = errorEvent("Transaction cancelled");
+        private final TransactionStepEvent cancelling = TransactionStepEvent.of(
+                TransactionStep.CANCELLING, "Cancelling — finishing with the card");
 
         private Transaction(TransactionConfig config) {
             this.config = config;
         }
 
         /**
-         * Cancels this transaction: its search stops and its EMV winds down, or it never starts
-         * if it hadn't yet. Never interrupts the transaction thread: the terminal stays busy
-         * until that is done with the reader, then reports ERROR "Transaction cancelled". Does
-         * nothing once it has ended — a finished sale, or a second cancel.
+         * Cancels this transaction: CANCELLING at once, its search stops and its EMV winds down
+         * (or it never starts if it hadn't yet). Never interrupts the transaction thread: the
+         * terminal stays busy until that is done with the reader — a host call already sent is
+         * waited for — then reports ERROR "Transaction cancelled". Does nothing once it has
+         * ended — a finished sale, or a second cancel.
          */
         public void cancel() {
-            if (end.compareAndSet(null, cancelled)) {
-                cancelCardSearch();
+            synchronized (transactionSteps) {
+                if (!end.compareAndSet(null, cancelled)) {
+                    return;
+                }
+                publishNow(cancelling); // under the lock: before the end, whichever thread is first
             }
+            cancelCardSearch();
         }
 
         boolean isRunning() {
@@ -402,11 +433,13 @@ public abstract class PosTerminal {
             t.printStackTrace();
             transaction.end(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
         } finally {
-            // A search that stopped with no outcome still ends its transaction.
-            transaction.end.compareAndSet(null, errorEvent("Transaction ended without an outcome"));
-            TransactionStepEvent end = transaction.end.get();
-            current.compareAndSet(transaction, null);
-            publishNow(end);
+            synchronized (transactionSteps) { // a cancel's CANCELLING can't land after the end
+                // A search that stopped with no outcome still ends its transaction.
+                transaction.end.compareAndSet(null,
+                        errorEvent("Transaction ended without an outcome"));
+                current.compareAndSet(transaction, null);
+                publishNow(transaction.end.get());
+            }
         }
     }
 

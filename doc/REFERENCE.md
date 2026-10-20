@@ -83,12 +83,12 @@
 |---|---|---|
 | لمين | الـ business / الـ UI النهائي | مهندس EMV / الـ banner / الـ trace |
 | مكانه | [rxTx] `PosTerminal.transactionSteps` | `EmvEngine.emvSteps` |
-| الـ subject | `PublishSubject` + `toSerialized()` (vendor callback ممكن ييجي من thread تاني) | `PublishSubject` **مش serialized** |
+| الـ subject | `PublishSubject` عادي، وكل publish ماسك lock واحد (مفيش onNext اتنين مع بعض، والـ CANCELLING عمره ما ييجي بعد النهاية). كل subscriber `SafeObserver`: اللي يرمي exception بيتقطع لوحده | `PublishSubject` **مش serialized** |
 | بيعمل replay؟ | لأ، ومبيخلصش أبداً. `MainViewModel` بيرجع IDLE مع كل start | لأ |
 | بيشغّل كود؟ | لأ | **آه** — كل step بيشغّل الـ `onXxx` بتاعه |
 | بيتنشر إمتى | والـ transaction الحالية شغالة بس. أول ERROR/COMPLETED بيقفلها (`Transaction.end`، CAS) ويتنشر من الـ `finally` بتاع `process` **بعد** ما الـ terminal يفضى؛ أي حاجة بعده dropped + note | والـ transaction شغالة بس — بعد النهاية بيتساب (dropped + note في الـ trace) |
 
-`TransactionStep` بالترتيب: `IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → APPLICATION_SELECTED → CARD_READ → CARDHOLDER_VERIFIED → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → COMPLETED` أو `ERROR` في أي لحظة.
+`TransactionStep` بالترتيب: `IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → APPLICATION_SELECTED → CARD_READ → CARDHOLDER_VERIFIED → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → COMPLETED` أو `ERROR` في أي لحظة. [rxTx] `CANCELLING` على طول لما الـ cancel يتطلب (مش نهاية) — بعده `ERROR "Transaction cancelled"` لما الـ terminal يفضى.
 **النهاية = `COMPLETED` أو `ERROR` بس** (`TransactionStep.isEnd()`). `APPROVED`/`DECLINED` دايماً بعدها `COMPLETED`؛ `ERROR` لوحده.
 
 ### 2.2 `goToStep` بيعمل إيه بالظبط
@@ -275,8 +275,9 @@ startXxxTransProcess شاف RESULT_REQ_ONLINE (أو refund / offline approved �
 
 ```text
 [main] زرار Cancel / onCleared → MainViewModel.cancel → transaction.cancel()   [rxTx]
-         end.compareAndSet(null, ERROR "Transaction cancelled")
+         [lock] end.compareAndSet(null, ERROR "Transaction cancelled")
            خلصت قبل كده أو اتلغت قبل كده؟ → ولا حاجة
+         [lock] CANCELLING يتنشر على طول (الـ UI يعرف إن الـ cancel اتطلب)
          → isSearchCancelled() = engine.isCancelled() = behavior.isCancelled() = true
            (الـ state الوحيد — الـ behavior مالوش flag)
          → cancelCardSearch() → ICardReaderHelper.stopPolling()

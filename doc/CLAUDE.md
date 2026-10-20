@@ -168,7 +168,7 @@ All start from `4a74277`. Keep shared fixes in sync where they apply.
 | `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
 | `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
 | `coroutineDesign` | rxSet + 7 | Kotlin | the whole app in Kotlin + coroutines, **built on `ae25378`** (the Observable detour) — lacks rxTx's lifecycle in `PosTerminal` (one owner, ends once). Not device-tested |
-| `rxTransactionDesign` | rxSet + 7 | Rx (UI only) | rxSet + the transaction owned by `PosTerminal`, no Rx in its lifecycle (**[rxTx]** below). **Not device-tested**. `doc/kotlin-rx-transaction.md` still describes the earlier `Observable` form (`ae25378`) |
+| `rxTransactionDesign` | rxSet + 8 | Rx (UI only) | rxSet + the transaction owned by `PosTerminal`, no Rx in its lifecycle (**[rxTx]** below). **Not device-tested**. `doc/kotlin-rx-transaction.md` still describes the earlier `Observable` form (`ae25378`) |
 
 Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form. Old:
 `add-rsa-pin-key-injection`, many stale `claude/*` branches — don't merge blindly.
@@ -182,7 +182,7 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:bizentity:…`, or the green arrow in
-  Android Studio. Core (rxSet): 65; rxTx: 75 — `AskStepTest`, `EmvStepObserverTest`,
+  Android Studio. Core (rxSet): 65; rxTx: 77 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `Field55Test`, `OldAppSaleRequestTest`,
   `PosTerminal*Test`. Bizentity: XML parser tests on the host's real sections
   (`clss_param_paypass.xml`, `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`.
@@ -208,13 +208,16 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   cancels). `Transaction.end` (`AtomicReference<TransactionStepEvent>`) is its whole state:
   `null` = running; the first ERROR/COMPLETED, or the cancel's ERROR, = ended; one
   compare-and-set, so it ends exactly once and a second cancel / a cancel after the end does
-  nothing. `cancel()` = that CAS + `cancelCardSearch()`; the EMV winds down at its next check.
+  nothing. `cancel()` = that CAS, then CANCELLING at once (a non-end step), then
+  `cancelCardSearch()`; the EMV winds down at its next check.
   `process` always runs (even cancelled before it started) and its `finally` is the one place the
   end is published — after `current` is freed, so COMPLETED/ERROR means "the terminal is free"; a
   search with no outcome ends as "Transaction ended without an outcome". Steps:
-  `PosTerminal.transactionSteps` (`PublishSubject.toSerialized()` — a vendor callback may come
-  from its SDK thread; no replay; never completes), published only while the current
-  transaction runs. Print: its own single thread, receipts in order. [rxSet] had
+  `PosTerminal.transactionSteps` (plain `PublishSubject`, no replay, never completes), published
+  only while the current transaction runs. Every publish holds one lock (the subject): no two
+  `onNext` at once, and a cancel's CANCELLING can never land after the end — one atomic can't
+  order a publish across two threads. Each subscriber is a `SafeObserver`: one that throws is
+  cut off alone; the stream and the transaction thread carry on. Print: its own single thread, receipts in order. [rxSet] had
   `scheduleDirect` + `boolean`; an rxTx detour had a `Completable` (`13e2b02`, `0bee281`) —
   gone: it was a second "ended" signal next to the steps.
 - **`EmvEngine`**: `emvSteps` (PublishSubject, not serialized, no `observeOn`; dropped once the

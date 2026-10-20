@@ -21,9 +21,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 /**
- * The terminal's steps subject is serialized: a step reported from a second thread (a vendor
- * SDK callback) while one is being delivered waits for it, and the thread already delivering
- * delivers it next — subscribers never get two {@code onNext} calls at once.
+ * Every publish holds the terminal's one lock: a step reported from a second thread (a vendor
+ * SDK callback, a cancel) while one is being delivered waits for it — subscribers never get two
+ * {@code onNext} calls at once.
  */
 public class PosTerminalConcurrentStepsTest {
 
@@ -33,14 +33,14 @@ public class PosTerminalConcurrentStepsTest {
         AtomicInteger inFlight = new AtomicInteger();
         AtomicInteger maxInFlight = new AtomicInteger();
         CountDownLatch firstInside = new CountDownLatch(1);
-        CountDownLatch secondReported = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
         List<String> delivered = new CopyOnWriteArrayList<>();
         terminal.transactionSteps().subscribe(event -> {
             maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
             delivered.add(event.getStep() + " on " + Thread.currentThread().getName());
             if (event.getStep() == TransactionStep.ONLINE_PROCESSING) {
                 firstInside.countDown();
-                secondReported.await(1, TimeUnit.SECONDS); // still delivering when it lands
+                releaseFirst.await(5, TimeUnit.SECONDS); // still delivering when the second lands
             }
             inFlight.decrementAndGet();
         });
@@ -51,14 +51,51 @@ public class PosTerminalConcurrentStepsTest {
                 TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING)), "first");
         first.start();
         assertTrue(firstInside.await(5, TimeUnit.SECONDS));
-        terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_COMPLETED));
-        secondReported.countDown();
+        Thread second = new Thread(() -> terminal.engine.notifyTransactionStep(
+                TransactionStepEvent.of(TransactionStep.ONLINE_COMPLETED)), "second");
+        second.start();
+        second.join(300);
+        assertTrue("the second waits for the first's delivery", second.isAlive());
+
+        releaseFirst.countDown();
         first.join(5_000);
+        second.join(5_000);
         terminal.release.countDown();
 
         assertEquals("two onNext calls at once", 1, maxInFlight.get());
-        assertEquals(Arrays.asList("ONLINE_PROCESSING on first", "ONLINE_COMPLETED on first"),
+        assertEquals(Arrays.asList("ONLINE_PROCESSING on first", "ONLINE_COMPLETED on second"),
                 delivered.subList(0, 2));
+    }
+
+    @Test
+    public void aSubscriberThatThrowsStopsNeitherTheStreamNorTheTransaction() throws Exception {
+        TestTerminal terminal = new TestTerminal();
+        List<TransactionStep> seen = new CopyOnWriteArrayList<>();
+        CountDownLatch ended = new CountDownLatch(1);
+        terminal.transactionSteps().subscribe(new io.reactivex.rxjava3.core.Observer<TransactionStepEvent>() {
+            @Override public void onSubscribe(io.reactivex.rxjava3.disposables.Disposable d) { }
+            @Override public void onNext(TransactionStepEvent e) {
+                throw new IllegalStateException("a screen's bug");
+            }
+            @Override public void onError(Throwable e) { }
+            @Override public void onComplete() { }
+        });
+        terminal.transactionSteps().subscribe(e -> {
+            seen.add(e.getStep());
+            if (e.getStep().isEnd()) {
+                ended.countDown();
+            }
+        });
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        assertTrue(terminal.searching.await(5, TimeUnit.SECONDS));
+
+        terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        terminal.release.countDown();
+
+        assertTrue("the transaction never ended", ended.await(5, TimeUnit.SECONDS));
+        assertEquals(Arrays.asList(TransactionStep.ONLINE_REQUIRED, TransactionStep.ONLINE_PROCESSING,
+                TransactionStep.ERROR), seen);
     }
 
     /** prepare() succeeds; the search is held open until released. */

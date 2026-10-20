@@ -120,7 +120,7 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
-    public void aCancelStopsItsTransactionAndItsErrorComesOnceTheTerminalIsFree() throws Exception {
+    public void aCancelSaysCancellingAtOnceAndItsErrorComesOnceTheTerminalIsFree() throws Exception {
         PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
         events.clear();
@@ -131,14 +131,35 @@ public class PosTerminalTransactionLifecycleTest {
         assertFalse("the EMV winds down", terminal.engine.isRunning());
         assertTrue(terminal.engine.isCancelled());
         assertEquals(1, terminal.searchCancels.get());
-        assertTrue("not before the transaction thread stops: " + events, events.isEmpty());
+        assertEquals("at once, not the end yet", java.util.Collections.singletonList(
+                TransactionStep.CANCELLING), steps());
 
         first.listener.onSearchCancelled(); // what the vendor reports as its poll stops
         first.release.countDown();
         TransactionStepEvent end = terminal.awaitEnd();
         assertEquals(TransactionStep.ERROR, end.getStep());
         assertEquals("Transaction cancelled", end.getMessage());
-        assertEquals("one end", 1, count(TransactionStep.ERROR) + count(TransactionStep.COMPLETED));
+        assertEquals(java.util.Arrays.asList(TransactionStep.CANCELLING, TransactionStep.ERROR),
+                steps());
+    }
+
+    @Test
+    public void aCancelRacingTheEndNeverSaysCancellingAfterIt() throws Exception {
+        for (int i = 0; i < 200; i++) {
+            terminal.ends.clear();
+            events.clear();
+            PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000 + i);
+            Search search = terminal.nextSearch();
+            Thread canceller = new Thread(sale::cancel);
+            search.release.countDown(); // the transaction ends on its own...
+            canceller.start();          // ...while the screen cancels it
+            canceller.join(5_000);
+            assertTrue("no end", awaitTrue(() -> count(TransactionStep.ERROR) == 1));
+            List<TransactionStep> steps = steps();
+            assertEquals("ends last: " + steps, TransactionStep.ERROR, steps.get(steps.size() - 1));
+            assertTrue("at most one CANCELLING: " + steps, count(TransactionStep.CANCELLING) <= 1);
+            assertTrue("terminal stayed busy", awaitTrue(() -> terminal.engineFree()));
+        }
     }
 
     @Test
@@ -339,6 +360,11 @@ public class PosTerminalTransactionLifecycleTest {
         TestTerminal() {
             super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
             transactionSteps().filter(e -> e.getStep().isEnd()).subscribe(ends::add);
+        }
+
+        /** The terminal is free (its current transaction is gone). */
+        boolean engineFree() {
+            return !isSearchCancelled() && !engine.isRunning();
         }
 
         /** The next transaction's end, as published once the terminal is free. */
