@@ -1,5 +1,6 @@
 plugins {
     id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
 }
 // WMRouter's plugin can't run on this AGP version — see the note in the root build.gradle.
 // annotationProcessor alone (below) generates each module's own registrations, but nothing
@@ -105,6 +106,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
     buildFeatures {
         viewBinding true
         buildConfig true
@@ -141,6 +145,9 @@ dependencies {
     implementation "androidx.constraintlayout:constraintlayout:$rootProject.constraintlayout"
     implementation 'androidx.multidex:multidex:2.0.1'
 
-    implementation "io.reactivex.rxjava3:rxjava:$rootProject.rxjava3"
-    implementation "io.reactivex.rxjava3:rxandroid:$rootProject.rxandroid3"
+    // viewModelScope / lifecycleScope / repeatOnLifecycle; Dispatchers.Main for Android.
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$rootProject.coroutines"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$rootProject.lifecycle"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:$rootProject.lifecycle"
+    implementation "androidx.fragment:fragment-ktx:$rootProject.fragmentKtx"
 }

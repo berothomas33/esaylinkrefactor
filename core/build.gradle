@@ -1,5 +1,6 @@
 plugins {
     id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
 }
 
 android {
@@ -17,6 +18,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
     buildFeatures {
         buildConfig true
     }
@@ -32,8 +37,9 @@ android {
 }
 
 dependencies {
-    api "io.reactivex.rxjava3:rxjava:$rootProject.rxjava3"
-    implementation 'androidx.annotation:annotation:1.7.1'
+    // Flow / SharedFlow / StateFlow in the API (transaction steps, APDU trace), suspend ports.
+    api "org.jetbrains.kotlinx:kotlinx-coroutines-core:$rootProject.coroutines"
 
     testImplementation "junit:junit:$rootProject.junit"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:$rootProject.coroutines"
 }

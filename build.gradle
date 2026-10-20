@@ -1,7 +1,10 @@
-// Top-level build file — AGP 8.2 / JDK 17 multi-module, Java + RxJava only
+// Top-level build file — AGP 8.2 / JDK 17 multi-module. core / network / app are Kotlin +
+// coroutines; the PAX SDK modules stay Java (claudekotlin.md §4).
 plugins {
     id 'com.android.application' version '8.2.2' apply false
     id 'com.android.library' version '8.2.2' apply false
+    // 1.9.22 is the newest Kotlin AGP 8.2.2 is tested with.
+    id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
 }
 
 ext {
@@ -18,9 +21,9 @@ ext {
     androidxSqlite = '2.2.0'
     multidex = '2.0.1'
     fastjson = '1.1.72.android'
-    rxjava3 = '3.1.8'
-    rxandroid3 = '3.0.2'
-    rxlifecycle4 = '4.0.2'
+    coroutines = '1.7.3'
+    lifecycle = '2.6.2'
+    fragmentKtx = '1.6.2'
     glide = '4.16.0'
     retrofit2 = '2.9.0'
     okhttp3 = '4.9.1'

@@ -35,7 +35,7 @@ android {
 }
 
 dependencies {
-    // Brings EmvStep / EmvBehavior.Callback (and RxJava) so the PAX callbacks can
+    // Brings EmvStep / EmvBehavior.Callback (and the Kotlin stdlib) so the PAX callbacks can
     // report EMV progress directly, without a second listener type in between.
     api project(':core')
     api project(':emvservice')
