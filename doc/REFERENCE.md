@@ -81,10 +81,10 @@
 | | `TransactionStep` | `EmvStep` |
 |---|---|---|
 | لمين | الـ business / الـ UI النهائي | مهندس EMV / الـ banner / الـ trace |
-| الـ subject | `BehaviorSubject` + `toSerialized()` | `PublishSubject` **مش serialized** |
-| بيعمل replay؟ | آه، آخر قيمة. [rxTx] `MainViewModel` بيعمل `skip(1)` وبيرجع IDLE مع كل start | لأ |
-| بيشغّل كود؟ | engine بس: `isEnd()` → `running=false` | **آه** — كل step بيشغّل الـ `onXxx` بتاعه |
-| بيتنشر إمتى | أي وقت (حتى من الـ UI thread وقت الـ cancel) | بس وهو `running` — بعد النهاية بيتساب (dropped + note في الـ trace) |
+| الـ subject | [rxTx] `PublishSubject` + `toSerialized()` (الـ cancel بينشر من الـ UI thread) | `PublishSubject` **مش serialized** |
+| بيعمل replay؟ | [rxTx] لأ. `MainViewModel` بيرجع IDLE مع كل start | لأ |
+| بيشغّل كود؟ | لأ. الـ engine بيعمل `running=false` بنفسه جوه `notifyTransactionStep` (compare-and-set) | **آه** — كل step بيشغّل الـ `onXxx` بتاعه |
+| بيتنشر إمتى | [rxTx] بس وهو `running` (من أي thread). أول ERROR/COMPLETED بس اللي بيعدّي، والباقي dropped + note في الـ trace | بس وهو `running` — بعد النهاية بيتساب (dropped + note في الـ trace) |
 
 `TransactionStep` بالترتيب: `IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → APPLICATION_SELECTED → CARD_READ → CARDHOLDER_VERIFIED → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → COMPLETED` أو `ERROR` في أي لحظة.
 **النهاية = `COMPLETED` أو `ERROR` بس** (`TransactionStep.isEnd()`). `APPROVED`/`DECLINED` دايماً بعدها `COMPLETED`؛ `ERROR` لوحده.
@@ -136,9 +136,9 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
 | `finishError(msg)` | `notifyError` → `ERROR` |
 | exception جوه أي `onXxx` | `EmvStepObserver` يمسكه → `finishError` |
 | step مش معروف / `null` | `unknownStep` → `finishError` (مرة واحدة بس) |
-| `engine.cancel()` | `behavior.cancel()` + `notifyError("Transaction cancelled")` لو running |
+| `engine.cancel()` | `notifyError("Transaction cancelled")` (بيتساب لو مش running). الـ flag نفسه بتاع `PosTerminal` [rxTx] |
 
-أول `ERROR`/`COMPLETED` → `running=false` → أي step بعدها dropped. ده الحل بتاع bug "ERROR وبعدين DECLINED + COMPLETED".
+أول `ERROR`/`COMPLETED` → `running=false` → أي step بعدها dropped، [rxTx] الـ EmvStep والـ TransactionStep الاتنين. ده الحل بتاع bug "ERROR وبعدين DECLINED + COMPLETED"، وكمان "Terminal initialization failed" مرتين.
 
 ### 2.5 الـ retry (fallback / try again / see phone / try another interface)
 
@@ -206,9 +206,9 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
                false = onError(TerminalBusyException) → showBusy   (فوراً، مفيش queue)
           → Completable.fromAction(process(t)).subscribeOn(transactionScheduler)   ── يرجع فوراً
           → doOnDispose(t::cancel)
-          الـ steps: الـ stream الوحيد بتاع الـ engine (MainViewModel: skip(1))
+          الـ steps: الـ stream الوحيد بتاع الـ engine (MainViewModel: IDLE مع كل start)
 ────────────────────────────────────────────────────────────────────────────────
-[tx]    process(t): claimed؟ → engine.begin()  (running=true، retry=0، trace جديد)
+[tx]    process(t): state PENDING → RUNNING؟ → engine.begin()  (running=true، retry=0، trace جديد)
 [tx]    triggerSearch → engine.prepare(config) → PaxEmvBehavior.prepare
           tx = new TransactionState()
           → AbstractEmvBehavior.prepare: initEmvObserver، TRANSACTION_STARTED
@@ -272,15 +272,17 @@ startXxxTransProcess شاف RESULT_REQ_ONLINE (أو refund / offline approved �
 ```text
 [main] زرار Cancel / onCleared → MainViewModel.cancel → dispose() على الـ Completable بتاع الشاشة   [rxTx]
          doOnDispose → Transaction.cancel():
-           process لسه مبدأتش؟ → claimed = true، current = null، والـ subscribeOn بيشيل الـ task
-           خلصت؟ (current != t) → ولا حاجة
-         transaction.cancelled = true → isSearchCancelled() true
+           process لسه مبدأتش؟ → state PENDING → CANCELLED، current = null، والـ subscribeOn بيشيل الـ task
+           خلصت؟ (current != t) أو اتلغت قبل كده؟ → ولا حاجة
+         state RUNNING → CANCELLED → isSearchCancelled() = engine.isCancelled() = behavior.isCancelled() = true
+                                     (الـ flag الوحيد — الـ behavior مالوش flag)
          cancelCardSearch() → ICardReaderHelper.stopPolling()
-         engine.cancel() → behavior.cancel() (cancelled flag) + ERROR "Transaction cancelled"
+         engine.cancel() → ERROR "Transaction cancelled"
                            (على الـ stream بتاع الـ engine؛ الشاشة بتتقفل)
 [tx]   السلسلة بتشوف isCancelled() عند أول stage/goToStep → finishXxxStage (يقفل الـ readers)
        الـ host call نفسه مبيتقطعش (ممكن يكون اتوافق عليه) — بيستنى الرد أو الـ timeout
        الـ terminal يفضل busy لحد ما process يخلص (مفيش interrupt: Schedulers.from(executor))
+       finally: لو الـ transaction لسه running (اتلغت قبل الـ search) → ERROR، وبعدين current = null
 ```
 
 ---

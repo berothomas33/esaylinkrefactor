@@ -170,6 +170,33 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
+    public void aSearchThatStopsWithNoOutcomeStillEndsItsTransaction() throws Exception {
+        TestObserver<Void> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
+        Search first = terminal.nextSearch();
+
+        first.release.countDown(); // returns without any listener callback
+        sale.await(5, TimeUnit.SECONDS);
+
+        sale.assertComplete();
+        assertFalse("the engine stayed claimed", terminal.engine.isRunning());
+        assertTrue(hasStep(TransactionStep.ERROR));
+        assertEquals("the next sale runs", 2000L, startWhenFree(2000).config.getAmountMinor());
+    }
+
+    @Test
+    public void aSecondDisposeCancelsNothingMore() throws Exception {
+        TestObserver<Void> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
+        Search first = terminal.nextSearch();
+
+        sale.dispose();
+        sale.dispose();
+        terminal.dispose(); // the terminal going away cancels its transaction, once
+
+        assertEquals(1, terminal.searchCancels.get());
+        first.release.countDown();
+    }
+
+    @Test
     public void engineRefusesASecondBeginWithoutEndingTheFirst() {
         assertTrue(terminal.engine.begin());
         events.clear();

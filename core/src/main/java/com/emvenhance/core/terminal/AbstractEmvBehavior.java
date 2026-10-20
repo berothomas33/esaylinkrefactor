@@ -13,7 +13,6 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.observers.DisposableObserver;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Vendor base: each step method does vendor work, then calls {@link #goToStep} to
@@ -39,8 +38,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
-    protected final AtomicBoolean cancelled = new AtomicBoolean(false);
-
     @Nullable
     protected EmvEngine engine;
     @Nullable
@@ -57,12 +54,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = null;
-        cancelled.set(false);
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION);
-        return !cancelled.get() && engine.isRunning();
+        return !isCancelled() && engine.isRunning();
     }
 
     @Override
@@ -71,15 +67,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = card;
-        cancelled.set(false);
 
         // First post-search step — vendor methods chain via goToStep from here.
         goToStep(firstStepAfterSearch(card));
-    }
-
-    @Override
-    public void cancel() {
-        cancelled.set(true);
     }
 
     @Override
@@ -98,21 +88,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * Re-subscribing moves it behind every subscriber that came first, such as a
      * {@code MainViewModel} created after an earlier transaction.
      *
-     * <p>It observes one transaction: when that one ends ({@link TransactionStep#isEnd()}) it is
-     * disposed, and a step still published by code unwinding never runs a step method. The next
-     * {@link #prepare} subscribes again.
+     * <p>Once a transaction has ended ({@link TransactionStep#isEnd()}) the engine publishes no
+     * step until the next {@link EmvEngine#begin()}, so a step still published by code unwinding
+     * never runs a step method; the next {@link #prepare} subscribes again.
      */
     protected final void initEmvObserver(EmvEngine engine) {
         disposables.clear();
         // No subscribeOn / observeOn: see EmvStepObserver.
         disposables.add(engine.emvSteps().subscribeWith(new EmvStepObserver()));
-        // skip(1): transactionSteps replays the step it is on, maybe the last transaction's end.
-        // Not emvSteps().takeUntil(…): it drops a step published from inside onNext — every
-        // goToStep a step method makes.
-        disposables.add(engine.transactionSteps()
-                .skip(1)
-                .filter(event -> event.getStep().isEnd())
-                .subscribe(end -> disposables.clear()));
     }
 
     /**
@@ -128,10 +111,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             unknownStep(null);
             return;
         }
-        if (cancelled.get()) {
-            if (engine != null && engine.isRunning()) {
-                engine.notifyError("Transaction cancelled");
-            }
+        if (isCancelled()) {
+            engine.notifyError("Transaction cancelled"); // ends it, if it hasn't ended yet
             return;
         }
         if (engine == null || activeConfig == null) {
@@ -213,8 +194,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         engine.notifyError(message);
     }
 
+    /** Whether {@code PosTerminal} cancelled the current transaction (see {@link EmvEngine#isCancelled()}). */
     protected final boolean isCancelled() {
-        return cancelled.get();
+        return engine != null && engine.isCancelled();
     }
 
     /**
@@ -400,7 +382,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
         @Override
         public void onNext(EmvStepEvent event) {
-            if (cancelled.get()) {
+            if (isCancelled()) {
                 return;
             }
             EmvStep step = event.getStep();

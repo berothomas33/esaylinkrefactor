@@ -126,7 +126,7 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:bizentity:…`, or the green arrow in
-  Android Studio. Core (rxSet): 65; rxTx: 68 — `AskStepTest`, `EmvStepObserverTest`,
+  Android Studio. Core (rxSet): 65; rxTx: 73 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `Field55Test`, `OldAppSaleRequestTest`,
   `PosTerminal*Test`. Bizentity: XML parser tests on the host's real sections
   (`clss_param_paypass.xml`, `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`.
@@ -153,14 +153,21 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   subscribe = start (`Completable.defer`: busy check on the subscribing thread,
   `onError(TerminalBusyException)`, never queued; then `fromAction(process)` +
   `subscribeOn(transactionScheduler)`, no `scheduleDirect`), `onComplete` = `process` freed the
-  terminal, `dispose()` = `doOnDispose(cancel)` for this one only. `Transaction.claimed`
-  (one Atomic): a dispose before `process` began frees the terminal itself (the dispose dropped
-  the task); otherwise cancel only while `current == this`. Steps: one stream only, the
-  engine's `transactionSteps` (`MainViewModel` `skip(1)` + IDLE on each start).
-  `cancelTransaction()` is gone; `MainViewModel.getTerminalBusy()`.
-- **`EmvEngine`**: `transactionSteps` (BehaviorSubject → `skip(1)`), `emvSteps`
-  (PublishSubject, not serialized, no `observeOn`), `ApduTrace`. Drops steps after the end.
-- **Contracts**: `EmvBehavior` = `prepare/start/cancel` (+ `dispose`). `AbstractEmvBehavior`:
+  terminal, `dispose()` = `doOnDispose(cancel)` for this one only. `Transaction.state`
+  (`AtomicReference<State>` PENDING → RUNNING | CANCELLED) is **the one cancel flag**: a cancel
+  before `process` began frees the terminal itself (the dispose dropped the task); a running
+  one is cancelled once, only while `current == this`. The behavior reads it through
+  `EmvEngine.isCancelled()` (`PosTerminal::isSearchCancelled`); `AbstractEmvBehavior` has no
+  flag and `EmvBehavior` no `cancel()`. `process`'s `finally` ends a transaction it began that
+  is still running (cancelled before its search, or a search with no outcome). Steps: one
+  stream only (`MainViewModel` resets to IDLE on each start). `cancelTransaction()` is gone;
+  `MainViewModel.getTerminalBusy()`.
+- **`EmvEngine`**: `transactionSteps` ([rxTx] `PublishSubject.toSerialized()`, no replay —
+  serialized because a cancel publishes from the UI thread), `emvSteps` (PublishSubject, not
+  serialized, no `observeOn`), `ApduTrace`. [rxTx] The running flag guards **both** streams:
+  nothing published outside `begin()` … first ERROR/COMPLETED (compare-and-set), so a
+  transaction ends exactly once.
+- **Contracts**: `EmvBehavior` = `prepare/start` (+ `dispose`; [rxTx] no `cancel`). `AbstractEmvBehavior`:
   16 `protected abstract onXxx`, optional `onSearchCard`, `readIccTag`, `goToStep`, [rxSet]
   `askStep(step, detail, failClosed)` / `answerStep`. `TransactionStep.isEnd()` = "ended".
 - **Threading**: kernel + callbacks on the transaction thread only. `askStep` works because

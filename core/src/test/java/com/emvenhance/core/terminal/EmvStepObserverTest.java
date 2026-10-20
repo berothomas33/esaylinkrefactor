@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -39,8 +40,9 @@ public class EmvStepObserverTest {
     @Before
     public void setUp() {
         vendor = new VendorBehavior();
-        engine = new EmvEngine(vendor, config -> AuthResult.failed("no host"));
-        engine.transactionSteps().skip(1).subscribe(transaction::add);
+        engine = new EmvEngine(vendor, config -> AuthResult.failed("no host"),
+                vendor.terminalCancelled::get);
+        engine.transactionSteps().subscribe(transaction::add);
     }
 
     @Test
@@ -83,7 +85,7 @@ public class EmvStepObserverTest {
         engine.prepare(CONFIG);
         vendor.ran.clear();
 
-        vendor.cancel();
+        vendor.terminalCancelled.set(true);
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
 
         assertTrue(vendor.ran.isEmpty());
@@ -132,7 +134,7 @@ public class EmvStepObserverTest {
         engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
-        vendor.cancel();
+        vendor.terminalCancelled.set(true);
         vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
         assertTrue(vendor.ran.isEmpty());
@@ -152,11 +154,10 @@ public class EmvStepObserverTest {
 
         vendor.ran.clear();
         seen.clear();
-        engine.begin(); // the next transaction, before its prepare subscribes again
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // after the end
 
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty());
-        assertEquals(Collections.singletonList(EmvStep.SEARCH_CARD), seen);
+        assertTrue("published after the end: " + seen, seen.isEmpty());
     }
 
     @Test
@@ -172,10 +173,10 @@ public class EmvStepObserverTest {
 
         vendor.failOn = null;
         vendor.ran.clear();
-        engine.begin();
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // after the end
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty());
 
+        engine.begin();
         engine.prepare(CONFIG);
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
         assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.SEARCH_CARD),
@@ -242,6 +243,9 @@ public class EmvStepObserverTest {
 
     /** Chains APPLICATION_SELECTION → READ_APPLICATION_DATA → TRANSACTION_COMPLETION. */
     private static final class VendorBehavior extends AbstractEmvBehavior {
+
+        /** The terminal's cancel flag (PosTerminal owns it in the app). */
+        final AtomicBoolean terminalCancelled = new AtomicBoolean();
 
         final List<EmvStep> ran = new ArrayList<>();
         final List<Thread> threads = new ArrayList<>();

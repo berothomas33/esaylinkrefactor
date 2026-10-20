@@ -49,13 +49,14 @@ public class PosTerminalHostTest {
         });
         List<TransactionStep> steps = new ArrayList<>();
         terminal.transactionSteps().subscribe(event -> steps.add(event.getStep()));
+        terminal.engine.begin(); // a vendor goes online inside a transaction
 
         AuthResult result = terminal.engine.authorize(CONFIG);
 
         assertTrue(result.isApproved());
         assertEquals(1, sentToHost.size());
         assertSame(CONFIG, sentToHost.get(0));
-        assertEquals(Arrays.asList(TransactionStep.IDLE, TransactionStep.ONLINE_REQUIRED,
+        assertEquals(Arrays.asList(TransactionStep.ONLINE_REQUIRED,
                 TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED), steps);
     }
 
@@ -78,6 +79,7 @@ public class PosTerminalHostTest {
         terminal.onlineTimeoutMs = 200;
         List<TransactionStep> steps = new ArrayList<>();
         terminal.transactionSteps().subscribe(event -> steps.add(event.getStep()));
+        terminal.engine.begin();
 
         long started = System.currentTimeMillis();
         AuthResult result = terminal.engine.authorize(CONFIG);

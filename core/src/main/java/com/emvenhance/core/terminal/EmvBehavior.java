@@ -7,8 +7,9 @@ import com.emvenhance.core.engine.EmvEngine;
 /**
  * What {@link EmvEngine} drives on a vendor's EMV kernel — and all it can call.
  *
- * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} → {@link #cancel};
- * {@link #dispose} once, when the terminal itself goes away.
+ * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start}; {@link #dispose} once,
+ * when the terminal itself goes away. A cancel isn't a call into the behavior: it reads
+ * {@link EmvEngine#isCancelled()} (via {@link AbstractEmvBehavior#isCancelled()}) at each step.
  *
  * <p>A vendor doesn't implement this directly: it extends {@link AbstractEmvBehavior}, which
  * implements it and declares the EMV step methods ({@code onApplicationSelection}, …) every
@@ -24,8 +25,6 @@ public interface EmvBehavior {
     boolean prepare(EmvEngine engine, TransactionConfig config);
 
     void start(EmvEngine engine, TransactionConfig config, CardPresence card);
-
-    void cancel();
 
     /**
      * Releases what the behavior holds beyond one transaction — {@link AbstractEmvBehavior}'s

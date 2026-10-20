@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -84,7 +83,7 @@ public abstract class PosTerminal {
             PrinterBehavior printer) {
         this.communication = communication;
         this.printer = printer;
-        this.engine = new EmvEngine(behavior, this::authorize);
+        this.engine = new EmvEngine(behavior, this::authorize, this::isSearchCancelled);
         initializeVendor();
     }
 
@@ -169,10 +168,6 @@ public abstract class PosTerminal {
         return engine.apduTrace();
     }
 
-    public TransactionStepEvent currentState() {
-        return engine.currentTransactionState();
-    }
-
     /**
      * Accept any presented card (chip / tap / swipe / manual as enabled by the vendor).
      * Preferred UI entry point — see {@link #startTransaction}.
@@ -234,7 +229,11 @@ public abstract class PosTerminal {
         engine.dispose();
     }
 
-    /** Whether the search calling this should stop: its transaction was cancelled. */
+    /**
+     * Whether the current transaction was cancelled (or is no longer the terminal's): the vendor
+     * search polling for it stops, and — through {@link EmvEngine#isCancelled()} — its EMV winds
+     * down. The one cancel flag of a transaction.
+     */
     public final boolean isSearchCancelled() {
         Transaction transaction = current.get();
         return transaction != null && transaction.isOver();
@@ -270,45 +269,49 @@ public abstract class PosTerminal {
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted {@link #startTransaction}: its config and whether it was cancelled. The terminal
-     * outlives every transaction, so what belongs to one transaction lives here — a search still
-     * running for an earlier transaction can then tell it is over, instead of acting on the next.
+     * One accepted {@link #startTransaction}: its config and where it is in its life. The
+     * terminal outlives every transaction, so what belongs to one transaction lives here — a
+     * search still running for an earlier transaction can then tell it is over, instead of acting
+     * on the next.
      */
     private final class Transaction {
 
         final TransactionConfig config;
-        final AtomicBoolean cancelled = new AtomicBoolean();
-        /** Taken by whichever comes first: {@link #process} starting, or a cancel before it. */
-        final AtomicBoolean claimed = new AtomicBoolean();
+        /**
+         * PENDING until {@link #process} takes it (RUNNING) or a cancel does (CANCELLED) —
+         * whichever comes first; a RUNNING one can still be cancelled. One compare-and-set per
+         * move, so a cancel racing the start is decided exactly once.
+         */
+        final AtomicReference<State> state = new AtomicReference<>(State.PENDING);
 
         Transaction(TransactionConfig config) {
             this.config = config;
         }
 
         /**
-         * Disposed before {@link #process} began: it never will (the dispose dropped its task),
-         * so free the terminal here. Otherwise its search stops and its EMV winds down — only
+         * Cancelled before {@link #process} began: it never will (the dispose dropped its task),
+         * so free the terminal here. Running: its search stops and its EMV winds down — only
          * while it is still the terminal's transaction: once done, the reader and the engine may
          * belong to the next one.
          */
         void cancel() {
-            if (claimed.compareAndSet(false, true)) {
+            if (state.compareAndSet(State.PENDING, State.CANCELLED)) {
                 current.compareAndSet(this, null);
                 return;
             }
-            if (current.get() != this) {
-                return;
+            if (current.get() == this && state.compareAndSet(State.RUNNING, State.CANCELLED)) {
+                cancelCardSearch();
+                engine.cancel();
             }
-            cancelled.set(true);
-            cancelCardSearch();
-            engine.cancel();
         }
 
         /** Cancelled, or no longer the terminal's transaction: nothing it reports reaches the engine. */
         boolean isOver() {
-            return cancelled.get() || current.get() != this;
+            return state.get() == State.CANCELLED || current.get() != this;
         }
     }
+
+    private enum State { PENDING, RUNNING, CANCELLED }
 
     /**
      * Runs on {@link #transactionScheduler}. One {@link EmvEngine#begin()} guards the whole
@@ -317,14 +320,15 @@ public abstract class PosTerminal {
      * returns — done with the reader — so {@code onComplete} means "free".
      */
     private void process(Transaction transaction) {
-        if (!transaction.claimed.compareAndSet(false, true)) {
-            return; // disposed before it began; the cancel freed the terminal
+        if (!transaction.state.compareAndSet(State.PENDING, State.RUNNING)) {
+            return; // cancelled before it began; the cancel freed the terminal
         }
+        boolean began = false;
         try {
-            if (transaction.isOver() || !engine.begin()) {
-                return;
+            began = engine.begin();
+            if (began && !transaction.isOver()) {
+                triggerSearch(transaction, transaction.config);
             }
-            triggerSearch(transaction, transaction.config);
         } catch (Throwable t) {
             //noinspection CallToPrintStackTrace
             t.printStackTrace();
@@ -332,6 +336,12 @@ public abstract class PosTerminal {
                 engine.notifyError(t.getMessage() != null ? t.getMessage() : "Transaction failed");
             }
         } finally {
+            if (began) {
+                // The transaction this began ends here at the latest — cancelled before its search
+                // started, or a search that stopped with no outcome. Dropped if it already ended.
+                engine.notifyError(transaction.isOver()
+                        ? "Transaction cancelled" : "Transaction ended without an outcome");
+            }
             current.compareAndSet(transaction, null);
         }
     }
@@ -436,9 +446,7 @@ public abstract class PosTerminal {
             if (isStale("onSearchCancelled")) {
                 return;
             }
-            if (engine.isRunning()) {
-                engine.notifyError("Card search cancelled");
-            }
+            engine.notifyError("Card search cancelled");
         }
 
         @Override

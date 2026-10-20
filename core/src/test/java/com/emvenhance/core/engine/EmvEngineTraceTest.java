@@ -137,6 +137,6 @@ public class EmvEngineTraceTest {
         EmvBehavior behavior = (EmvBehavior) Proxy.newProxyInstance(
                 EmvBehavior.class.getClassLoader(), new Class<?>[] {EmvBehavior.class},
                 (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null);
-        return new EmvEngine(behavior, config -> AuthResult.failed("no host"));
+        return new EmvEngine(behavior, config -> AuthResult.failed("no host"), () -> false);
     }
 }

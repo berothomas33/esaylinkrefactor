@@ -41,9 +41,8 @@ public class MainViewModel extends ViewModel {
         this.terminal = terminal;
         this.apduTrace = new MutableLiveData<>(terminal.apduTrace().text());
 
-        // skip(1): the engine replays the step it is on — the previous transaction's end.
+        // Nothing replayed: only steps published from now on.
         disposables.add(terminal.transactionSteps()
-                .skip(1)
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(transactionStep::setValue));
 

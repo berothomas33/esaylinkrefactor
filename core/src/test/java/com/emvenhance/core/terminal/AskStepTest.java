@@ -14,6 +14,7 @@ import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -34,7 +35,8 @@ public class AskStepTest {
     @Before
     public void setUp() {
         vendor = new Vendor();
-        engine = new EmvEngine(vendor, config -> AuthResult.failed("no host"));
+        engine = new EmvEngine(vendor, config -> AuthResult.failed("no host"),
+                vendor.terminalCancelled::get);
         engine.begin();
     }
 
@@ -115,6 +117,8 @@ public class AskStepTest {
     /** APPLICATION_SELECTION plays the kernel calling back for the cardholder's choice. */
     private static final class Vendor extends AbstractEmvBehavior {
 
+        /** The terminal's cancel flag (PosTerminal owns it in the app). */
+        final AtomicBoolean terminalCancelled = new AtomicBoolean();
         Integer selectionAnswer;
         boolean cancelBeforeAsking;
         boolean throwInSelection;
@@ -127,7 +131,7 @@ public class AskStepTest {
 
         @Override protected void onApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) {
             if (cancelBeforeAsking) {
-                cancel();
+                terminalCancelled.set(true);
             }
             if (goWithoutAsking) {
                 goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
