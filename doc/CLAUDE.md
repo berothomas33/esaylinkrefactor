@@ -4,7 +4,7 @@ Project memory for Claude. Read it before touching code. When a fact here change
 file in the same commit. Never put credentials, tokens, keys, PANs, track data or serial
 numbers in it. Kotlin migration plan: `claudekotlin.md`. Full flow reference (architecture,
 EmvEngine/EmvStep/onXxx, contact, contactless, EMV params, UI → kernel callback):
-`doc/REFERENCE.md`.
+`doc/REFERENCE.md`. Status of every branch: `doc/BRANCHES.md`.
 
 ---
 
@@ -88,18 +88,18 @@ Ingenico) plug in as a Gradle flavor.
 
 | What | File |
 |---|---|
-| Transaction thread, busy, cancel, host timeout, printing | `core/.../terminal/PosTerminal.java` |
-| Step bus, drop-after-end, APDU trace | `core/.../engine/EmvEngine.java`, `core/.../util/ApduTrace.java` |
-| Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../card/Field55.java` |
-| PAX flow (contact / contactless runners, callbacks, PIN, online) | `app/src/pax/.../vendor/pax/PaxEmvBehavior.java` |
-| Card search (polling, ICC retry) | `app/src/pax/.../vendor/pax/PaxTerminal.java` |
+| Transaction thread, busy, cancel, host timeout, printing | `core/.../terminal/PosTerminal.kt` |
+| Step bus, drop-after-end, APDU trace | `core/.../engine/EmvEngine.kt`, `core/.../util/ApduTrace.kt` |
+| Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.kt`, `core/.../card/Field55.kt` |
+| PAX flow (contact / contactless runners, callbacks, PIN, online) | `app/src/pax/.../vendor/pax/PaxEmvBehavior.kt` |
+| Card search (polling, ICC retry) | `app/src/pax/.../vendor/pax/PaxTerminal.kt` |
 | Contact kernel wrapper + callback adapter | `emvlib/dpas/.../contact/ContactProcess.java` |
 | Contactless dispatcher, reselect | `emvlib/.../contactless/ClssProcess.java` |
 | Per-kernel stages | `emvlib/.../contactless/Clss{PayPass,PayWave,EFT,...}Process.java`, base `ClssKernelProcess` |
 | Parameter cache, DB → kernel conversion, terminal config | `bizentity/.../configservice/impl/EmvParamService.java` |
 | XML parsing | `bizentity/.../configservice/xml/{EmvXmlParamParser,ClssXmlParamParser,XmlDomUtils}.java` |
 | Download apply / delete / result | `bizentity/.../configservice/impl/EmvParamUpdater.java`, `EmvParamUpdateResult.java` |
-| EMV Params screen (download, Downloaded XML, cached details) | `app/src/pax/.../ui/EmvParamActivity.java`, `EmvParamListFragment.java`, `ParamDump.java` |
+| EMV Params screen (download, Downloaded XML, cached details) | `app/src/pax/.../ui/EmvParamActivity.kt`, `EmvParamListFragment.kt`, `ParamDump.kt` |
 | Host envelope / sale / onboarding | `network/...` (`HostCommunicationBehavior`, `SaleCommunicationBehavior`, `OnboardingClient`) |
 | Seeds | `bizentity/src/main/assets/{acquirer,config,...}.json` |
 
@@ -112,14 +112,18 @@ All start from `4a74277`. Keep shared fixes in sync where they apply.
 | `Finalvision` | 8 | direct | end-of-transaction, contracts, 9F03 fix. Safest. Device-tested (form) |
 | `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
 | `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
-| `rxTransactionDesign` | rxSet + 1 | Rx | rxSet + the transaction as an `Observable` (**[rxTx]** below). **Not device-tested**; Kotlin form: `doc/kotlin-rx-transaction.md` |
+| `rxTransactionDesign` | rxSet + 2 | Rx | rxSet + the transaction as an `Observable` (`ae25378`, **[rxTx]** below), then as a `Completable` (`13e2b02`, pushed later the same day). **Not device-tested** |
+| `coroutineDesign` | rxTx `ae25378` + 5 | direct + Flow | **Kotlin + coroutines**, every phase of `claudekotlin.md` (**[co]** below). Not built with Gradle, **not device-tested** |
 
-Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form. Old:
+Details, commits and the recommended order: `doc/BRANCHES.md`. Mainline not chosen; the
+plan is `rxSetTransactionData` once it passes the form. Old:
 `add-rsa-pin-key-injection`, many stale `claude/*` branches — don't merge blindly.
 
 ## 5. Build & test
 
-- AGP 8.2.2, Gradle 8.2, Java 17, compileSdk 34, minSdk 24. Java + RxJava 3 (Kotlin: planned).
+- AGP 8.2.2, Gradle 8.2, Java 17, compileSdk 34, minSdk 24. Java + RxJava 3; [co] Kotlin 1.9.22 +
+  coroutines 1.7.3 + lifecycle-ktx 2.6.2 for `core`/`network`/`app`, no Rx anywhere (PAX SDK
+  modules and `bizentity` stay Java).
 - Flavors: vendor `pax|ingenico|fake` × environment `prod|envtest|uat|uatr3|bank|pos_as_atm|dss`
   (`BuildConfig.baseUrl`) × production `dev|staging|live` → e.g. `paxEnvtestDevDebug`.
 - `~/.gradle/gradle.properties` (never committed): `DATABASE_PWD`, `MTOKEN_TEMP`.
@@ -132,7 +136,10 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   (`clss_param_paypass.xml`, `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`.
 - **Cloud container: no Android SDK → no Gradle.** Tests run with javac + JUnit + stub jars;
   vendor code is checked by comparing the javac error set to a baseline (emvlib ≈ 2558 known
-  errors) plus a mutation check that the harness sees the file.
+  errors) plus a mutation check that the harness sees the file. [co] Kotlin: kotlinc 1.9.22 +
+  JUnit (core 74, network 14 incl. MockWebServer, fake vendor flow 2); app flavors type-checked
+  against robolectric `android-all` 14 + the PAX module sources/jars + hand-written androidx
+  stubs (Google Maven is blocked there) — 0 errors, mutation-checked.
 - Logcat: `EmvLog` (steps), `DeviceImplNeptune` (APDU, debug), `HostComm`, `SaleComm`,
   `ClssPayWaveProcess` (9F35 / 9F33 / TTQ / limits), `ClssXmlParamParser`, `EmvParamUpdater`.
 - GreenDAO `SCHEMA_VERSION = 1`, no migrations: a schema change needs **uninstall + install**
@@ -156,6 +163,22 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   `current == this`). `run()` is not tied to the subscription (always runs, always frees).
   `cancelTransaction()` is gone. `MainViewModel`: `getTransactionStep()` (own sale),
   `getTerminalStatus()` (terminal-wide, `MainActivity`), `getTerminalBusy()`.
+- **[co] coroutineDesign**: `startTransaction(): Flow<TransactionStepEvent>` (callbackFlow +
+  `buffer(UNLIMITED)`): collect = start (busy check on the collector's thread, never `flowOn`),
+  values = this transaction's steps (a synchronous engine listener → `trySend`), completion =
+  terminal free, cancelling the collector = `awaitClose { cancel() }` (guarded). `run()` on a
+  plain single-thread executor (not a coroutine: one cancelled before it starts would never
+  free `current`). `EmvEngine`: synchronous `addTransactionStepListener` /
+  `addEmvStepListener` / `setEmvStepHandler` (the behavior's dispatch, always last) for
+  everything the transaction depends on; `SharedFlow`s (`transactionSteps` replay 1,
+  `emvSteps`) for observers only — never a `StateFlow` (APPROVED + COMPLETED would conflate).
+  `notifyTransactionStep` serializes with a drain loop (Rx `toSerialized` semantics).
+  `CommunicationBehavior.authorize` / `PrinterBehavior.print` are `suspend`;
+  `PosTerminal.authorize` = `runBlocking { withTimeout(90 s) }` on the transaction thread (the
+  only `runBlocking`). Print: single-thread scope + `Mutex`. `MainViewModel`: `viewModelScope`,
+  `transactionStep` SharedFlow(replay 1), `terminalBusy` Channel, screens collect with
+  `repeatOnLifecycle(STARTED)`. Kernel callbacks, `askStep`, PIN pad, app-select dialog stay
+  plain blocking functions.
 - **`EmvEngine`**: `transactionSteps` (BehaviorSubject → `skip(1)`), `emvSteps`
   (PublishSubject, not serialized, no `observeOn`), `ApduTrace`. Drops steps after the end.
 - **Contracts**: `EmvBehavior` = `prepare/start/cancel` (+ `dispose`). `AbstractEmvBehavior`:
@@ -287,7 +310,10 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
   checksum, duplicates); no AID/CAPK check before a transaction; no automatic update.
 - Reversal/ack, refund AAC at host, withdraw/deposit bodies, remove the hardcoded mToken, gate
   secret logging before live, Ingenico, manual PAN, `ConfigInit` place, pick the mainline.
-- Kotlin + coroutines migration: plan in `claudekotlin.md`, not started.
+- Kotlin + coroutines migration: done on `coroutineDesign` (all phases, one commit each); needs
+  an Android Studio build, `./gradlew test`, and the whole device form in its own column.
+  Not ported there: `rxTransactionDesign`'s later Completable design (`13e2b02`) — decide one
+  transaction API.
 
 ## 12. Never again
 

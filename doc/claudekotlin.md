@@ -8,6 +8,13 @@ This file is the plan; each phase is its own branch, its own commits, and its ow
 On `rxTransactionDesign` (the transaction as an `Observable`): `doc/kotlin-rx-transaction.md`
 maps that design to Kotlin Flow and lists the traps it found in §3 below.
 
+## Status (2026-10-20)
+
+All phases 0–5 are done on branch `coroutineDesign` (one commit per phase, not per file:
+the user asked for the whole migration on one branch). §3 row 1 and the `transactionScheduler`
+row were applied as `doc/kotlin-rx-transaction.md` §6 proposed (listener + `SharedFlow`, a plain
+executor). Not built with Gradle and not device-tested yet — see `doc/BRANCHES.md`.
+
 ---
 
 ## 0. Ground rules for the migration
