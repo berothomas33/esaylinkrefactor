@@ -5,6 +5,8 @@ every rule there still applies (Egyptian Arabic, do only what was asked, one exp
 commit, the kernel's order wins, fail closed, never put credentials or card data in a file).
 
 This file is the plan; each phase is its own branch, its own commits, and its own device test.
+On `rxTransactionDesign` (the transaction as an `Observable`): `doc/kotlin-rx-transaction.md`
+maps that design to Kotlin Flow and lists the traps it found in §3 below.
 
 ---
 

@@ -112,6 +112,7 @@ All start from `4a74277`. Keep shared fixes in sync where they apply.
 | `Finalvision` | 8 | direct | end-of-transaction, contracts, 9F03 fix. Safest. Device-tested (form) |
 | `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
 | `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
+| `rxTransactionDesign` | rxSet + 1 | Rx | rxSet + the transaction as an `Observable` (**[rxTx]** below). **Not device-tested**; Kotlin form: `doc/kotlin-rx-transaction.md` |
 
 Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form. Old:
 `add-rsa-pin-key-injection`, many stale `claude/*` branches — don't merge blindly.
@@ -125,7 +126,7 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:bizentity:…`, or the green arrow in
-  Android Studio. Core (rxSet): 65 — `AskStepTest`, `EmvStepObserverTest`,
+  Android Studio. Core (rxSet): 65; rxTx: 69 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `Field55Test`, `OldAppSaleRequestTest`,
   `PosTerminal*Test`. Bizentity: XML parser tests on the host's real sections
   (`clss_param_paypass.xml`, `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`.
@@ -148,6 +149,13 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   `AtomicReference<Transaction> current` (busy = non-empty, freed when `run()` returns),
   cancel = the transaction's `AtomicBoolean`. Never dispose/interrupt the transaction thread.
   Print: its own single thread, receipts in order.
+- **[rxTx] the transaction is a stream**: `startTransaction` / `acceptCard` return
+  `Observable<TransactionStepEvent>` — subscribe = start (busy check on the subscribing
+  thread, `onError(TerminalBusyException)`, never queued), `onNext` = this transaction's steps
+  only, `onComplete` = `run()` freed the terminal, `dispose()` = cancel this one only (guarded
+  `current == this`). `run()` is not tied to the subscription (always runs, always frees).
+  `cancelTransaction()` is gone. `MainViewModel`: `getTransactionStep()` (own sale),
+  `getTerminalStatus()` (terminal-wide, `MainActivity`), `getTerminalBusy()`.
 - **`EmvEngine`**: `transactionSteps` (BehaviorSubject → `skip(1)`), `emvSteps`
   (PublishSubject, not serialized, no `observeOn`), `ApduTrace`. Drops steps after the end.
 - **Contracts**: `EmvBehavior` = `prepare/start/cancel` (+ `dispose`). `AbstractEmvBehavior`:
@@ -262,6 +270,10 @@ Add for **rxSetTransactionData** (new column + rows): contact banner 5 → 6; Vi
 PR → ODA; app-select dialog (debug, even one AID); cancel during PIN / host → one ERROR;
 refund online; kernel not in the package removed; Downloaded XML; cached details on tap;
 PayWave 9F33 = E06848 in field 55; uninstall first (new column).
+
+Add for **rxTransactionDesign** (its own column): rows 13, 14, 15, 18 (cancel / back / cancel
+after approve / rotate — this branch changes their path); Retry after a decline; BUSY screen
+when a cancelled search is still stopping; `MainActivity` status after a sale.
 
 ## 11. Open
 

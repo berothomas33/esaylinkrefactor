@@ -39,7 +39,7 @@ public class PosTerminalRetryPromptTest {
         terminal = new CapturingTerminal();
         engine = terminal.engine;
         engine.transactionSteps().subscribe(events::add);
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        terminal.acceptCard(TransactionType.SALE, 1000).subscribe();
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS));
         events.clear();
     }

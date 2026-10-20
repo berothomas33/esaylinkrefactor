@@ -16,6 +16,9 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
+import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.observers.TestObserver;
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.Collections;
 import java.util.List;
@@ -23,6 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,6 +35,9 @@ import org.junit.Test;
  * One transaction at a time: a start while the previous one hasn't finished — even cancelled, with
  * its search still stopping — is refused as "terminal busy", never queued. And a search that
  * outlives its transaction can't fail, or start EMV for, the next one.
+ *
+ * <p>Each transaction is its own stream: subscribe starts it, dispose cancels that one only, its
+ * steps are its own, and {@code onComplete} comes once the terminal is free.
  */
 public class PosTerminalTransactionLifecycleTest {
 
@@ -77,12 +84,13 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Test
     public void aStartWhileTheCancelledSearchIsStillStoppingIsRefusedAsBusy() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
         Search first = terminal.nextSearch();
-        terminal.cancelTransaction();
+        sale.dispose();
         events.clear();
 
-        assertFalse("busy", terminal.acceptCard(TransactionType.SALE, 2000));
+        terminal.acceptCard(TransactionType.SALE, 2000).test()
+                .assertError(TerminalBusyException.class);
         assertTrue("busy is not reported on the old transaction's steps: " + events,
                 events.isEmpty());
 
@@ -96,17 +104,88 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Test
     public void aStartWhileSearchingIsRefusedAndTheFirstCarriesOn() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        terminal.acceptCard(TransactionType.SALE, 1000).test();
         Search first = terminal.nextSearch();
         events.clear();
 
-        assertFalse("busy", terminal.acceptCard(TransactionType.SALE, 2000));
+        TestObserver<TransactionStepEvent> refused = terminal.acceptCard(TransactionType.SALE, 2000).test();
+        refused.assertError(TerminalBusyException.class);
+        refused.dispose(); // leaving the refused screen cancels nothing
 
         assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS));
         assertTrue("first transaction got " + events, events.isEmpty());
         assertTrue(terminal.engine.isRunning());
         first.listener.onChipDetected(CardPresence.chip());
         assertEquals(Collections.singletonList(1000L), emvStartedWithAmount);
+    }
+
+    @Test
+    public void disposeCancelsItsOwnTransactionAndEndsItsStream() throws Exception {
+        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
+        Search first = terminal.nextSearch();
+        first.listener.onSearchStarted(first.config);
+        assertEquals(1, sale.values().size());
+
+        sale.dispose();
+
+        assertTrue(terminal.isSearchCancelled());
+        assertTrue("the cancel reached the engine", hasStep(TransactionStep.ERROR));
+        assertEquals("nothing after dispose, the cancel's ERROR included", 1, sale.values().size());
+        first.release.countDown();
+        assertTrue("old search kept searching", awaitTrue(() -> first.cancelledWhenReleased));
+    }
+
+    @Test
+    public void aTransactionDisposedBeforeItRanStillFreesTheTerminal() throws Exception {
+        CountDownLatch hold = new CountDownLatch(1);
+        transactionScheduler().scheduleDirect(() -> {
+            try {
+                hold.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
+        sale.dispose(); // its run() is still queued behind the held thread
+
+        hold.countDown();
+
+        Search next = startWhenFree(2000);
+        assertEquals("the disposed one never searched", 2000L, next.config.getAmountMinor());
+    }
+
+    @Test
+    public void completesOnlyOnceTheTerminalIsFree() throws Exception {
+        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
+        Search first = terminal.nextSearch();
+        sale.assertNotComplete();
+
+        first.listener.onSearchTimeout(); // like a vendor: one callback, then the search returns
+        first.release.countDown();
+
+        sale.await(5, TimeUnit.SECONDS);
+        sale.assertComplete().assertNoErrors();
+        assertEquals("finishing is not a cancel", 0, terminal.searchCancels.get());
+        terminal.acceptCard(TransactionType.SALE, 2000).test().assertNoErrors();
+        assertEquals(2000L, terminal.nextSearch().config.getAmountMinor());
+    }
+
+    @Test
+    public void aNewTransactionNeverSeesThePreviousOnesSteps() throws Exception {
+        TestObserver<TransactionStepEvent> first = terminal.acceptCard(TransactionType.SALE, 1000).test();
+        Search firstSearch = terminal.nextSearch();
+        firstSearch.listener.onSearchTimeout(); // ERROR: the engine's latest step
+        firstSearch.release.countDown();
+        first.await(5, TimeUnit.SECONDS);
+        assertEquals(TransactionStep.ERROR, terminal.currentState().getStep());
+
+        TestObserver<TransactionStepEvent> second = terminal.acceptCard(TransactionType.SALE, 2000).test();
+        Search secondSearch = terminal.nextSearch();
+        second.assertNoValues();
+
+        secondSearch.listener.onSearchStarted(secondSearch.config);
+        second.assertValueCount(1);
+        assertEquals(TransactionStep.WAITING_FOR_CARD, second.values().get(0).getStep());
     }
 
     @Test
@@ -125,9 +204,9 @@ public class PosTerminalTransactionLifecycleTest {
      * late, from its own thread), then the next transaction for 2000, searching.
      */
     private Search cancelledSearchThenNextTransaction() throws InterruptedException {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        TestObserver<TransactionStepEvent> sale = terminal.acceptCard(TransactionType.SALE, 1000).test();
         Search first = terminal.nextSearch();
-        terminal.cancelTransaction();
+        sale.dispose();
         first.release.countDown();
         Search second = startWhenFree(2000);
         terminal.searches.add(second); // hand it back for tests that need it
@@ -137,9 +216,25 @@ public class PosTerminalTransactionLifecycleTest {
 
     /** Starts a sale as soon as the terminal stops being busy, and returns its search. */
     private Search startWhenFree(long amount) throws InterruptedException {
-        assertTrue("terminal stayed busy",
-                awaitTrue(() -> terminal.acceptCard(TransactionType.SALE, amount)));
+        assertTrue("terminal stayed busy", awaitTrue(() -> started(amount)));
         return terminal.nextSearch();
+    }
+
+    /** Subscribes a sale; {@code false} if it was refused as busy. */
+    private boolean started(long amount) {
+        try {
+            terminal.acceptCard(TransactionType.SALE, amount).test().assertNoErrors();
+            return true;
+        } catch (AssertionError busy) {
+            return false;
+        }
+    }
+
+    /** The terminal's one transaction thread, to hold it busy from a test. */
+    private Scheduler transactionScheduler() throws ReflectiveOperationException {
+        Field field = PosTerminal.class.getDeclaredField("transactionScheduler");
+        field.setAccessible(true);
+        return (Scheduler) field.get(terminal);
     }
 
     private static boolean awaitTrue(java.util.function.BooleanSupplier condition)
@@ -180,6 +275,7 @@ public class PosTerminalTransactionLifecycleTest {
     private final class TestTerminal extends PosTerminal {
 
         final LinkedBlockingQueue<Search> searches = new LinkedBlockingQueue<>();
+        final AtomicInteger searchCancels = new AtomicInteger();
         private final List<Search> all = new CopyOnWriteArrayList<>();
 
         TestTerminal() {
@@ -215,6 +311,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         @Override
         protected void cancelCardSearch() {
+            searchCancels.incrementAndGet();
         }
     }
 

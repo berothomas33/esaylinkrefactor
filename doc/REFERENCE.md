@@ -82,7 +82,7 @@
 |---|---|---|
 | لمين | الـ business / الـ UI النهائي | مهندس EMV / الـ banner / الـ trace |
 | الـ subject | `BehaviorSubject` + `toSerialized()` | `PublishSubject` **مش serialized** |
-| بيعمل replay؟ | آه، آخر قيمة (عشان كده `SearchCardFragment` بيتجاهل لحد `TRANSACTION_STARTED`) | لأ |
+| بيعمل replay؟ | آه، آخر قيمة. [rxTx] الشاشة مش بتشوفه: بتشوف الـ stream بتاع الـ transaction بتاعتها بس (`startTransaction`، §3.1) | لأ |
 | بيشغّل كود؟ | engine بس: `isEnd()` → `running=false` | **آه** — كل step بيشغّل الـ `onXxx` بتاعه |
 | بيتنشر إمتى | أي وقت (حتى من الـ UI thread وقت الـ cancel) | بس وهو `running` — بعد النهاية بيتساب (dropped + note في الـ trace) |
 
@@ -200,10 +200,12 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
 ```text
 [main]  AmountFragment: amount + type (+ reference لو REFUND) → SearchCardFragment.newInstance
 [main]  SearchCardFragment.onViewCreated → viewModel.acceptCard(type, amountMinor, ref)
-[main]  MainViewModel.acceptCard → PosTerminal.acceptCard
+[main]  MainViewModel.acceptCard → PosTerminal.acceptCard(...).subscribe   [rxTx: Observable]
           → startTransaction(new TransactionConfig(type, amount, EntryMethod.ANY).withReferenceNumber)
-          → current.compareAndSet(null, t)  ── false = busy → الـ UI تعرض showBusy
+          → current.compareAndSet(null, t)  ── false = onError(TerminalBusyException) → showBusy
+          → engine.transactionSteps().skip(1) → الـ emitter (steps الـ transaction دي بس)
           → transactionScheduler.scheduleDirect(t::run)         ── يرجع فوراً
+             (مش مربوط بالـ dispose: run() بيشتغل دايماً وبيفضّي الـ terminal)
 ────────────────────────────────────────────────────────────────────────────────
 [tx]    Transaction.run → engine.begin()  (running=true، retry=0، trace جديد)
 [tx]    triggerSearch → engine.prepare(config) → PaxEmvBehavior.prepare
@@ -223,7 +225,7 @@ protected void onWaitApplicationSelection(...) { answerStep(dialog.selectBlockin
                … السلسلة كلها synchronous (§4، §5) لحد TRANSACTION_COMPLETION …
         ← engine.start يرجع
 [tx]    consumePendingRetry() ≠ null → triggerSearch(retryConfig)  (نفس الـ thread)
-[tx]    finally: current.compareAndSet(this, null)  ── الـ terminal فاضي
+[tx]    finally: steps.dispose() → current.compareAndSet(this, null) → onComplete  ── الـ terminal فاضي
 ────────────────────────────────────────────────────────────────────────────────
 [main]  MainViewModel: transactionSteps / emvSteps (observeOn main) → LiveData
 [main]  SearchCardFragment: banner = EmvStep؛ outcome = APPROVED/DECLINED/ERROR؛
@@ -267,10 +269,12 @@ startXxxTransProcess شاف RESULT_REQ_ONLINE (أو refund / offline approved �
 ### 3.3 الـ cancel
 
 ```text
-[main] زرار Cancel / onCleared → MainViewModel.cancel → PosTerminal.cancelTransaction
+[main] زرار Cancel / onCleared → MainViewModel.cancel → dispose() على الـ stream بتاع الشاشة   [rxTx]
+         Transaction.cancel(): بس لو current == t (خلصت؟ ولا حاجة — والـ dispose اللي بعد onComplete بيوصل هنا برضه)
          transaction.cancelled = true → isSearchCancelled() true
          cancelCardSearch() → ICardReaderHelper.stopPolling()
          engine.cancel() → behavior.cancel() (cancelled flag) + ERROR "Transaction cancelled"
+                           (مش بيوصل للشاشة اللي عملت dispose — الشاشة بتتقفل)
 [tx]   السلسلة بتشوف isCancelled() عند أول stage/goToStep → finishXxxStage (يقفل الـ readers)
        الـ host call نفسه مبيتقطعش (ممكن يكون اتوافق عليه) — بيستنى الرد أو الـ timeout
        الـ terminal يفضل busy لحد ما Transaction.run يخلص
@@ -540,7 +544,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 
 | Thread | بيشغّل | ممنوع |
 |---|---|---|
-| main | الـ UI، `acceptCard`، `cancelTransaction`، الـ LiveData، الـ dialogs (`AppSelectDialog`، `PaxPinPad`) | أي blocking (EMV، host، print، DB) |
+| main | الـ UI، `acceptCard` (subscribe)، الـ cancel (dispose)، الـ LiveData، الـ dialogs (`AppSelectDialog`، `PaxPinPad`) | أي blocking (EMV، host، print، DB) |
 | transaction (`Executors.newSingleThreadExecutor`) | `Transaction.run`: search → EMV كله → host (`blockingGet`) → retry | interrupt؛ أكتر من transaction (`AtomicReference current`) |
 | print (single thread) | `printReceipt` بالترتيب | — |
 | `Schedulers.io()` | download الـ params، onboarding | — |

@@ -114,7 +114,10 @@ public class SearchCardFragment extends Fragment {
         view.findViewById(R.id.btnOutcomeDone).setOnClickListener(v -> requireActivity().finish());
         view.findViewById(R.id.btnOutcomeRetry).setOnClickListener(v -> {
             outcomeGroup.setVisibility(View.GONE);
-            if (!viewModel.acceptCard(type, amountMinor, referenceNumber)) {
+            viewModel.acceptCard(type, amountMinor, referenceNumber);
+        });
+        viewModel.getTerminalBusy().observe(getViewLifecycleOwner(), event -> {
+            if (event.consume() != null) {
                 showBusy(view);
             }
         });
@@ -147,22 +150,13 @@ public class SearchCardFragment extends Fragment {
         // captureTransactionSummary), so their rows just read "—".
         View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
         TextView retryPromptText = view.findViewById(R.id.retryPromptText);
-        // The engine replays its last step to a new subscriber, so this screen can first receive
-        // the previous transaction's ERROR/COMPLETED. Only react to an outcome once this screen's
-        // own transaction has started.
-        boolean[] started = {false};
+        // Only this screen's own transaction's steps arrive here (PosTerminal#startTransaction):
+        // nothing replayed from the previous one.
         viewModel.getTransactionStep().observe(getViewLifecycleOwner(), event -> {
             TransactionStep step = event.getStep();
             boolean stillChoosing = step == TransactionStep.IDLE
                     || step == TransactionStep.TRANSACTION_STARTED
                     || step == TransactionStep.WAITING_FOR_CARD;
-            if (step == TransactionStep.TRANSACTION_STARTED
-                    || step == TransactionStep.WAITING_FOR_CARD) {
-                started[0] = true;
-            }
-            if (!started[0]) {
-                return;
-            }
             methodSelectionGroup.setVisibility(stillChoosing ? View.VISIBLE : View.GONE);
 
             // A retry (tap too short, see phone, chip not read...) brings the card UI back with
@@ -224,9 +218,8 @@ public class SearchCardFragment extends Fragment {
         // cardholder sees "present card" — matches AmountFragment's old behavior, just moved
         // here now that there's a dedicated screen for it. Only the first time: a rotation
         // recreates this view while its transaction carries on.
-        if (savedInstanceState == null
-                && !viewModel.acceptCard(type, amountMinor, referenceNumber)) {
-            showBusy(view);
+        if (savedInstanceState == null) {
+            viewModel.acceptCard(type, amountMinor, referenceNumber);
         }
     }
 
