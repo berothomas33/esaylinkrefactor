@@ -27,8 +27,6 @@ public class MainViewModel extends ViewModel {
 
     private final MutableLiveData<TransactionStepEvent> transactionStep =
             new MutableLiveData<>(TransactionStepEvent.idle());
-    private final MutableLiveData<TransactionStepEvent> terminalStatus =
-            new MutableLiveData<>(TransactionStepEvent.idle());
     private final MutableLiveData<Event<EmvStepEvent>> emvStep = new MutableLiveData<>();
     private final MutableLiveData<String> apduTrace;
     private final MutableLiveData<Event<Boolean>> terminalBusy = new MutableLiveData<>();
@@ -43,9 +41,11 @@ public class MainViewModel extends ViewModel {
         this.terminal = terminal;
         this.apduTrace = new MutableLiveData<>(terminal.apduTrace().text());
 
+        // skip(1): the engine replays the step it is on — the previous transaction's end.
         disposables.add(terminal.transactionSteps()
+                .skip(1)
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(terminalStatus::setValue));
+                .subscribe(transactionStep::setValue));
 
         disposables.add(terminal.emvSteps()
                 .observeOn(AndroidSchedulers.mainThread())
@@ -61,17 +61,8 @@ public class MainViewModel extends ViewModel {
                 .subscribe(apduTrace::setValue));
     }
 
-    /** The steps of the transaction this screen started ({@link #acceptCard}), and only those. */
     public LiveData<TransactionStepEvent> getTransactionStep() {
         return transactionStep;
-    }
-
-    /**
-     * Whichever transaction the terminal is on (or ended last), for a status screen that starts
-     * none of its own ({@code MainActivity}).
-     */
-    public LiveData<TransactionStepEvent> getTerminalStatus() {
-        return terminalStatus;
     }
 
     /** A start this screen asked for was refused: the previous transaction hasn't finished. */
@@ -95,7 +86,7 @@ public class MainViewModel extends ViewModel {
 
     /**
      * Preferred: accept chip / tap / swipe — vendor terminal decides. Its steps arrive on
-     * {@link #getTransactionStep()}; a refused start (the POS terminal is busy with the previous
+     * {@link #getTransactionStep()} (the engine's one stream); a refused start (the POS terminal is busy with the previous
      * transaction, see {@link PosTerminal#startTransaction}) on {@link #getTerminalBusy()}.
      *
      * @param referenceNumber the original sale's reference number, for a refund; else {@code null}
@@ -105,7 +96,7 @@ public class MainViewModel extends ViewModel {
         transactionStep.setValue(TransactionStepEvent.idle());
         transactions.add(terminal.acceptCard(type, amountMinor, referenceNumber)
                 .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(transactionStep::setValue, this::onTransactionError));
+                .subscribe(() -> { }, this::onTransactionError));
     }
 
     private void onTransactionError(Throwable error) {

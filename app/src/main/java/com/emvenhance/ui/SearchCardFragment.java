@@ -150,8 +150,8 @@ public class SearchCardFragment extends Fragment {
         // captureTransactionSummary), so their rows just read "—".
         View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
         TextView retryPromptText = view.findViewById(R.id.retryPromptText);
-        // Only this screen's own transaction's steps arrive here (PosTerminal#startTransaction):
-        // nothing replayed from the previous one.
+        // Nothing replayed from the previous transaction: MainViewModel skips the engine's replay
+        // and resets to IDLE on each start.
         viewModel.getTransactionStep().observe(getViewLifecycleOwner(), event -> {
             TransactionStep step = event.getStep();
             boolean stillChoosing = step == TransactionStep.IDLE

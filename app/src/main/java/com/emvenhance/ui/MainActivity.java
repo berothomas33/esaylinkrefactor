@@ -47,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
         binding.btnCancel.setOnClickListener(v -> viewModel.cancel());
         VendorDebugPanel.wire(this, binding);
 
-        viewModel.getTerminalStatus().observe(this, this::renderTransactionStep);
+        viewModel.getTransactionStep().observe(this, this::renderTransactionStep);
 
         viewModel.getEmvStep().observe(this, event -> {
             EmvStepEvent emvEvent = event.consume();
