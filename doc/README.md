@@ -16,7 +16,7 @@ UI  →  PosTerminal
 
 Each vendor overrides step methods and advances with `goToStep(EmvStep)`.
 Full flow reference (architecture, EmvEngine/EmvStep/onXxx, contact, contactless, EMV params):
-[`doc/REFERENCE.md`](doc/REFERENCE.md). Project memory and working rules: [`CLAUDE.md`](CLAUDE.md).
+[`doc/REFERENCE.md`](REFERENCE.md). Project memory and working rules: [`CLAUDE.md`](CLAUDE.md).
 
 ## Package layout
 
