@@ -15,7 +15,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -27,21 +29,23 @@ class PosTerminalRetryPromptTest {
 
     private lateinit var engine: EmvEngine
     private lateinit var terminal: CapturingTerminal
-    private val events = CopyOnWriteArrayList<TransactionStepEvent>()
+    private lateinit var events: FlowRecorder<TransactionStepEvent>
+    private val scope = CoroutineScope(Dispatchers.Unconfined)
 
     @Before
     fun setUp() {
         terminal = CapturingTerminal()
         engine = terminal.engine()
-        engine.addTransactionStepListener { events.add(it) }
-        terminal.acceptCard(TransactionType.SALE, 1000).record()
+        events = engine.transactionSteps.recordIn(scope)
+        TestSale(scope) { terminal.acceptCard(TransactionType.SALE, 1000) }
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS))
-        events.clear()
+        events.values.clear()
     }
 
     @After
     fun tearDown() {
         terminal.release.countDown()
+        scope.cancel()
     }
 
     @Test
@@ -79,7 +83,7 @@ class PosTerminalRetryPromptTest {
     }
 
     private fun lastWaiting(): TransactionStepEvent {
-        val last = events.lastOrNull { it.step == TransactionStep.WAITING_FOR_CARD }
+        val last = events.values.lastOrNull { it.step == TransactionStep.WAITING_FOR_CARD }
         assertNotNull("no WAITING_FOR_CARD event", last)
         return last!!
     }

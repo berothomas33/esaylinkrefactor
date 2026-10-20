@@ -133,6 +133,6 @@ class EmvEngineTraceTest {
         fun config() = TransactionConfig(TransactionType.SALE, 100, EntryMethod.ANY)
 
         /** An engine whose behavior does nothing and that never reaches a host. */
-        fun newEngine() = EmvEngine(stubBehavior()) { AuthResult.failed("no host") }
+        fun newEngine() = EmvEngine(stubBehavior(), { AuthResult.failed("no host") }) { false }
     }
 }

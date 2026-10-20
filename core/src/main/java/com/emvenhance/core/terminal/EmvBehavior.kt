@@ -7,8 +7,9 @@ import com.emvenhance.core.engine.EmvEngine
 /**
  * What [EmvEngine] drives on a vendor's EMV kernel — and all it can call.
  *
- * Lifecycle: [prepare] → (PosTerminal search) → [start] → [cancel]; [dispose] once, when the
- * terminal itself goes away.
+ * Lifecycle: [prepare] → (PosTerminal search) → [start]; [dispose] once, when the terminal
+ * itself goes away. Cancelling is the terminal's: its one flag, read through
+ * [EmvEngine.isCancelled].
  *
  * A vendor doesn't implement this directly: it extends [AbstractEmvBehavior], which implements
  * it and declares the EMV step methods (`onApplicationSelection`, …) every vendor writes. Those
@@ -26,8 +27,6 @@ interface EmvBehavior {
     fun prepare(engine: EmvEngine, config: TransactionConfig): Boolean
 
     fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
-
-    fun cancel()
 
     /**
      * Releases what the behavior holds beyond one transaction — [AbstractEmvBehavior]'s step

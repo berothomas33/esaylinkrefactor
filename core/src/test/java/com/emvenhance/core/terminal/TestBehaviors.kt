@@ -36,7 +36,6 @@ internal fun stubBehavior(
 ): EmvBehavior = object : EmvBehavior {
     override fun prepare(engine: EmvEngine, config: TransactionConfig) = prepared
     override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence) = onStart(config)
-    override fun cancel() {}
 }
 
 /** Interface stub whose methods do nothing and return a default value. */

@@ -20,21 +20,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.SendChannel
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlin.coroutines.resume
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -44,16 +39,17 @@ import java.util.concurrent.atomic.AtomicReference
  * its [EmvEngine], which owns the vendor's [EmvBehavior].
  *
  * ```
- *   UI → PosTerminal.startTransaction(ANY|CHIP|…).collect { }     [collecting starts it]
+ *   UI → PosTerminal.startTransaction(ANY|CHIP|…)               [suspends until the terminal is free]
  *          └── engine.prepare + searchCard(config, listener)        ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
  *                        └── engine.start(card)                     ← vendor EMV, from inside the callback
  *                               └── behavior → engine.authorize → PosTerminal.authorize → host
  * ```
  *
- * A transaction is a cold [Flow] of its own [TransactionStepEvent]s: collecting starts it,
- * cancelling the collector cancels it (that one only, never another's), and the flow completes
- * once the terminal is free again. The transaction thread stays inside this class.
+ * A transaction is one call of the suspending [startTransaction]: calling it starts it,
+ * cancelling the caller cancels it (that one only, never another's), returning means the
+ * terminal is free again, [TerminalBusyException] means it was refused. Its steps are on the
+ * engine's one [transactionSteps] flow. The transaction thread stays inside this class.
  *
  * Threads: one dedicated transaction thread (card search, kernel, kernel callbacks, the host
  * call through `runBlocking`), never the main thread and never `Dispatchers.Default`/`IO` — a
@@ -67,14 +63,15 @@ abstract class PosTerminal protected constructor(
 ) {
 
     @JvmField
-    protected val engine: EmvEngine = EmvEngine(behavior, EmvEngine.Authorizer { authorize(it) })
+    protected val engine: EmvEngine =
+        EmvEngine(behavior, EmvEngine.Authorizer { authorize(it) }) { isSearchCancelled() }
 
     /**
      * The one thread every transaction runs on, from card search through EMV and the host: one
-     * reader, one kernel. Nothing ever queues on it — a collect of [startTransaction] is refused
-     * while the previous transaction is still there. A plain executor, not a coroutine launched
-     * from the flow: a coroutine cancelled before it starts never runs, and its transaction would
-     * then never free the terminal.
+     * reader, one kernel. Nothing ever queues on it — a [startTransaction] is refused while the
+     * previous transaction is still there. A plain executor, never a coroutine dispatcher shared
+     * with anything else; its task always runs, and a transaction cancelled before it began
+     * returns at once (see [Transaction.cancel]).
      */
     private val transactionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
@@ -167,11 +164,7 @@ abstract class PosTerminal protected constructor(
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
-    /**
-     * Every transaction's steps, replaying the latest one to a new collector — for terminal-wide
-     * observers (`MainActivity`'s status). A screen collects the flow [startTransaction] returned
-     * instead: that one carries its own transaction's steps only.
-     */
+    /** Every transaction's steps, from now on — nothing replayed. See [EmvEngine.transactionSteps]. */
     fun transactionSteps(): SharedFlow<TransactionStepEvent> = engine.transactionSteps
 
     fun emvSteps(): SharedFlow<EmvStepEvent> = engine.emvSteps
@@ -182,64 +175,56 @@ abstract class PosTerminal protected constructor(
      */
     fun apduTrace(): ApduTrace = engine.apduTrace()
 
-    fun currentState(): TransactionStepEvent = engine.currentTransactionState()
-
     /**
      * Accept any presented card (chip / tap / swipe / manual as enabled by the vendor), with the
      * original sale's reference number, which a refund needs for the host — see
-     * [TransactionConfig.referenceNumber]. Preferred UI entry point — see [startTransaction] for
-     * the flow it returns.
+     * [TransactionConfig.referenceNumber]. Preferred UI entry point — see [startTransaction].
      */
-    @JvmOverloads
-    fun acceptCard(
-        type: TransactionType,
-        amountMinor: Long,
-        referenceNumber: String? = null,
-    ): Flow<TransactionStepEvent> = startTransaction(
-        TransactionConfig(type, amountMinor, EntryMethod.ANY).withReferenceNumber(referenceNumber),
-    )
+    suspend fun acceptCard(type: TransactionType, amountMinor: Long, referenceNumber: String? = null) {
+        startTransaction(
+            TransactionConfig(type, amountMinor, EntryMethod.ANY).withReferenceNumber(referenceNumber),
+        )
+    }
 
     /**
-     * Start with an explicit reader mode. Nothing happens until the returned flow is collected;
-     * each collect is one transaction attempt. Collecting returns control at once: card search,
-     * EMV and the host run on the transaction thread, and every outcome (card found, search
-     * cancelled, timed out, or errored) arrives as a [CardSearchListener] callback there.
+     * Start with an explicit reader mode — one transaction attempt per call. Card search, EMV and
+     * the host run on the transaction thread, and every outcome (card found, search cancelled,
+     * timed out, or errored) arrives as a [CardSearchListener] callback there; the steps are on
+     * [transactionSteps].
      *
-     * - Values: this transaction's steps, from `TRANSACTION_STARTED` to `COMPLETED` or `ERROR` —
-     *   never the previous transaction's, nothing conflated or dropped.
-     * - Completion: the transaction is done with the reader; the terminal is free.
-     * - [TerminalBusyException]: thrown into the collector at once, on the collecting thread,
-     *   nothing queued, while the previous transaction hasn't finished — still searching or
-     *   running EMV, or cancelled but not yet done with the reader (a PAX poll takes a moment to
-     *   stop). It is not reported on the previous transaction's steps.
-     * - Cancelling the collector: cancels this transaction — its search stops and its EMV winds
-     *   down, or it never runs if it hadn't begun yet. It never interrupts the transaction
-     *   thread, and the terminal stays busy until that is done with the reader. This flow's
-     *   steps stop at once, the cancel's own ERROR included.
+     * - Returns: the transaction is done with the reader; the terminal is free.
+     * - Throws [TerminalBusyException]: refused at once, on the calling thread, before this
+     *   suspends — nothing queued — while the previous transaction hasn't finished (still
+     *   searching or running EMV, or cancelled but not yet done with the reader: a PAX poll takes
+     *   a moment to stop). It is not reported on the steps.
+     * - Cancelling the caller: cancels this transaction only — its search stops and its EMV
+     *   winds down, or it never runs if it hadn't begun yet. The cancel is the transaction's own
+     *   flag ([Transaction.state]); it never interrupts the transaction thread, and the terminal
+     *   stays busy until that is done with the reader.
      *
-     * Collect it on the caller's dispatcher (`viewModelScope`'s `Main.immediate`); never add a
-     * `flowOn` — that would move the busy check onto another thread, and two quick taps would
-     * queue a second sale.
+     * Call it straight from the caller's coroutine (`viewModelScope`'s `Main.immediate`); never
+     * wrap it in `withContext` / `flowOn` — that would move the busy check onto another thread,
+     * and two quick taps would queue a second sale.
      */
-    open fun startTransaction(config: TransactionConfig): Flow<TransactionStepEvent> = callbackFlow {
-        val transaction = Transaction(config, channel)
-        // Here, on the collecting thread: a refused start is reported at once and never waits
-        // on the transaction thread to run later.
+    open suspend fun startTransaction(config: TransactionConfig) {
+        val transaction = Transaction(config)
+        // Here, on the calling thread, before any suspension: a refused start is reported at once
+        // and never waits on the transaction thread to run later.
         if (!current.compareAndSet(null, transaction)) {
             EmvLog.d("POS terminal is busy: the previous transaction hasn't finished")
-            close(TerminalBusyException())
-            return@callbackFlow
+            throw TerminalBusyException()
         }
-        // A plain synchronous listener: every step of this transaction, in order, the moment it
-        // is published — nothing replayed from the previous one.
-        transaction.steps = engine.addTransactionStepListener { trySend(it) }
-        // Not tied to this flow: run() always runs — even cancelled before it began, it returns
-        // at once — so it always frees the terminal.
-        transactionExecutor.execute(transaction::run)
-        // The collector was cancelled (Cancel, Back, onCleared) — and also after run() closed
-        // the channel: cancel() is guarded, so a finished transaction cancels nothing.
-        awaitClose { transaction.cancel() }
-    }.buffer(Channel.UNLIMITED) // a transaction's steps are few; trySend must never drop one
+        suspendCancellableCoroutine { done ->
+            done.invokeOnCancellation { transaction.cancel() }
+            transactionExecutor.execute {
+                try {
+                    process(transaction)
+                } finally {
+                    done.resume(Unit) // ignored once the caller was cancelled
+                }
+            }
+        }
+    }
 
     /** Cancels the transaction still on this terminal, if any; the terminal is going away. */
     open fun dispose() {
@@ -278,63 +263,69 @@ abstract class PosTerminal protected constructor(
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted [startTransaction]: its config, its channel, and whether it was cancelled.
-     * The terminal outlives every transaction, so what belongs to one transaction lives here — a
-     * search still running for an earlier transaction can then tell it is over, instead of
-     * acting on the next.
+     * One accepted [startTransaction]: its config and its one cancel flag. The terminal outlives
+     * every transaction, so what belongs to one transaction lives here — a search still running
+     * for an earlier transaction can then tell it is over, instead of acting on the next.
      */
-    private inner class Transaction(
-        val config: TransactionConfig,
-        private val channel: SendChannel<TransactionStepEvent>,
-    ) {
-        val cancelled = AtomicBoolean()
+    private inner class Transaction(val config: TransactionConfig) {
 
-        /** The engine's steps forwarded to [channel]; set before [run] is scheduled. */
-        @Volatile
-        var steps: AutoCloseable = AutoCloseable { }
+        /** PENDING → RUNNING ([process]) | CANCELLED ([cancel]). Never reset. */
+        val state = AtomicReference(State.PENDING)
 
         /**
-         * Its search stops and its EMV winds down. Only while it is still the terminal's
-         * transaction: once done — `awaitClose` after the channel closed lands here too — the
-         * reader and the engine may belong to the next one.
+         * Cancelled before it began: it never will (its [process] returns at once), so the cancel
+         * frees the terminal itself. Running: its search stops and the engine's transaction ends —
+         * once (a second cancel does nothing), and only while it is still the terminal's
+         * transaction: once done, the reader and the engine may belong to the next one.
          */
         fun cancel() {
-            if (current.get() !== this) {
+            if (state.compareAndSet(State.PENDING, State.CANCELLED)) {
+                current.compareAndSet(this, null)
                 return
             }
-            cancelled.set(true)
-            cancelCardSearch()
-            engine.cancel()
+            if (current.get() === this && state.compareAndSet(State.RUNNING, State.CANCELLED)) {
+                cancelCardSearch()
+                engine.cancel()
+            }
         }
 
         /** Cancelled, or no longer the terminal's transaction: nothing it reports reaches the engine. */
-        fun isOver(): Boolean = cancelled.get() || current.get() !== this
+        fun isOver(): Boolean = state.get() == State.CANCELLED || current.get() !== this
+    }
 
-        /**
-         * Runs on [transactionExecutor]; blocking, never `suspend`. One [EmvEngine.begin] guards
-         * the whole transaction, including any retries a behavior requests via
-         * [EmvEngine.requestRetry] (PAX fallback / try-another-interface / try-again). Never
-         * throws: nothing above it would catch it. Frees the terminal when it returns — done with
-         * the reader — and only then closes its flow, so completion means "free".
-         */
-        fun run() {
-            try {
-                if (isOver() || !engine.begin()) {
-                    return
-                }
-                triggerSearch(this, config)
-            } catch (t: Throwable) {
-                t.printStackTrace()
-                if (!isOver()) {
-                    engine.notifyError(t.message ?: "Transaction failed")
-                }
-            } finally {
-                // Stop forwarding first: once the terminal is free, the next transaction's steps
-                // go through the same engine.
-                steps.close()
-                current.compareAndSet(this, null)
-                channel.close()
+    private enum class State { PENDING, RUNNING, CANCELLED }
+
+    /**
+     * Runs on [transactionExecutor]; blocking, never `suspend`. One [EmvEngine.begin] guards the
+     * whole transaction, including any retries a behavior requests via [EmvEngine.requestRetry]
+     * (PAX fallback / try-another-interface / try-again). Never throws: nothing above it would
+     * catch it. Ends the transaction it began, at the latest here, and frees the terminal when it
+     * returns — done with the reader.
+     */
+    private fun process(transaction: Transaction) {
+        if (!transaction.state.compareAndSet(State.PENDING, State.RUNNING)) {
+            return // cancelled before it began; the cancel freed the terminal
+        }
+        var began = false
+        try {
+            began = engine.begin()
+            if (began && !transaction.isOver()) {
+                triggerSearch(transaction, transaction.config)
             }
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            if (!transaction.isOver()) {
+                engine.notifyError(t.message ?: "Transaction failed")
+            }
+        } finally {
+            if (began) {
+                // The transaction this began ends here at the latest — cancelled before its search
+                // started, or a search that stopped with no outcome. Dropped if it already ended.
+                engine.notifyError(
+                    if (transaction.isOver()) "Transaction cancelled" else "Transaction ended without an outcome",
+                )
+            }
+            current.compareAndSet(transaction, null)
         }
     }
 
@@ -425,9 +416,7 @@ abstract class PosTerminal protected constructor(
             if (isStale("onSearchCancelled")) {
                 return
             }
-            if (engine.isRunning()) {
-                engine.notifyError("Card search cancelled")
-            }
+            engine.notifyError("Card search cancelled")
         }
 
         override fun onReaderError(message: String?) {

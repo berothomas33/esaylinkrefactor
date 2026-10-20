@@ -10,7 +10,6 @@ import com.emvenhance.core.event.TransactionStep
 import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
 import com.emvenhance.core.util.EmvLog
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Vendor base: each step method does vendor work, then calls [goToStep] to publish the next
@@ -40,9 +39,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 abstract class AbstractEmvBehavior : EmvBehavior {
 
     @JvmField
-    protected val cancelled = AtomicBoolean(false)
-
-    @JvmField
     protected var engine: EmvEngine? = null
 
     @JvmField
@@ -54,20 +50,16 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     /** This behavior's step handler on the engine — see [initEmvObserver]. */
     private val stepHandler = EmvEngine.Listener<EmvStepEvent> { event -> handleEmvStep(event) }
 
-    /** Watches for the end of the observed transaction — see [initEmvObserver]. */
-    private var endWatcher: AutoCloseable? = null
-
     override fun prepare(engine: EmvEngine, config: TransactionConfig): Boolean {
         this.engine = engine
         initEmvObserver(engine)
         this.activeConfig = config
         this.activeCard = null
-        cancelled.set(false)
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED))
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION)
-        return !cancelled.get() && engine.isRunning()
+        return !isCancelled() && engine.isRunning()
     }
 
     override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
@@ -75,14 +67,9 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         initEmvObserver(engine)
         this.activeConfig = config
         this.activeCard = card
-        cancelled.set(false)
 
         // First post-search step — vendor methods chain via goToStep from here.
         goToStep(firstStepAfterSearch(card))
-    }
-
-    override fun cancel() {
-        cancelled.set(true)
     }
 
     override fun dispose() {
@@ -90,31 +77,19 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     }
 
     /**
-     * Makes this behavior the engine's step handler for one transaction, replacing any earlier
-     * registration. Called at the start of every [prepare] and [start].
+     * Makes this behavior the engine's step handler, replacing any earlier registration. Called
+     * at the start of every [prepare] and [start].
      *
-     * The engine always runs the handler after every flow and listener has the step, so every
-     * observer sees a step before its method publishes the next one — the UI ends on the last
-     * step, not the first.
-     *
-     * It observes one transaction: when that one ends ([TransactionStep.isEnd]) the handler is
-     * removed, and a step still published by code unwinding never runs a step method. The next
-     * [prepare] registers again.
+     * The engine always runs the handler after the flow has the step, so every observer sees a
+     * step before its method publishes the next one — the UI ends on the last step, not the
+     * first. After a transaction's end the engine publishes no EMV step, so a step from code
+     * still unwinding never runs a step method; the next [prepare] registers again.
      */
     protected fun initEmvObserver(engine: EmvEngine) {
-        stopObserving()
         engine.setEmvStepHandler(stepHandler)
-        // A listener sees only steps published from now on: nothing replayed, nothing to skip.
-        endWatcher = engine.addTransactionStepListener { event ->
-            if (event.step.isEnd) {
-                stopObserving()
-            }
-        }
     }
 
     private fun stopObserving() {
-        endWatcher?.close()
-        endWatcher = null
         engine?.clearEmvStepHandler(stepHandler)
     }
 
@@ -129,10 +104,8 @@ abstract class AbstractEmvBehavior : EmvBehavior {
             return
         }
         val engine = engine
-        if (cancelled.get()) {
-            if (engine != null && engine.isRunning()) {
-                engine.notifyError("Transaction cancelled")
-            }
+        if (engine != null && engine.isCancelled()) {
+            engine.notifyError("Transaction cancelled") // ends it, if it hasn't ended yet
             return
         }
         if (engine == null || activeConfig == null) {
@@ -200,7 +173,8 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         engine?.notifyError(message)
     }
 
-    protected fun isCancelled(): Boolean = cancelled.get()
+    /** Whether `PosTerminal` cancelled the current transaction (see [EmvEngine.isCancelled]). */
+    protected fun isCancelled(): Boolean = engine?.isCancelled() == true
 
     /**
      * The one way a vendor goes online. For chip and contactless it first builds field 55 from
@@ -353,7 +327,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      * throws ends the transaction with an ERROR.
      */
     private fun handleEmvStep(event: EmvStepEvent) {
-        if (cancelled.get()) {
+        if (isCancelled()) {
             return
         }
         val step = event.step

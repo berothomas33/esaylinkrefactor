@@ -11,14 +11,15 @@ import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Test
 
 /**
@@ -31,13 +32,19 @@ class EmvStepObserverTest {
 
     private lateinit var engine: EmvEngine
     private lateinit var vendor: VendorBehavior
-    private val transaction = ArrayList<TransactionStepEvent>()
+    private lateinit var transaction: FlowRecorder<TransactionStepEvent>
+    private val scope = CoroutineScope(Dispatchers.Unconfined)
 
     @Before
     fun setUp() {
         vendor = VendorBehavior()
-        engine = EmvEngine(vendor) { AuthResult.failed("no host") }
-        engine.addTransactionStepListener { transaction.add(it) }
+        engine = EmvEngine(vendor, { AuthResult.failed("no host") }) { vendor.terminalCancelled.get() }
+        transaction = engine.transactionSteps.recordIn(scope)
+    }
+
+    @After
+    fun tearDown() {
+        scope.cancel()
     }
 
     @Test
@@ -85,7 +92,7 @@ class EmvStepObserverTest {
         engine.prepare(CONFIG)
         vendor.ran.clear()
 
-        vendor.cancel()
+        vendor.terminalCancelled.set(true)
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe")
 
         assertTrue(vendor.ran.isEmpty())
@@ -133,30 +140,12 @@ class EmvStepObserverTest {
     }
 
     @Test
-    fun flowCollectorsSeeNestedStepsInOrder() {
-        val seen = ArrayList<EmvStep>()
-        // Like the UI: a collector of the flow, not a listener.
-        val ui = GlobalScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            engine.emvSteps.map { it.step }.toList(seen)
-        }
-        engine.begin()
-
-        engine.start(CONFIG, CardPresence.chip())
-        ui.cancel()
-
-        assertEquals(
-            listOf(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION),
-            seen,
-        )
-    }
-
-    @Test
     fun cancelledStepsAreNotRun() {
         engine.begin()
         engine.start(CONFIG, CardPresence.chip())
         vendor.ran.clear()
 
-        vendor.cancel()
+        vendor.terminalCancelled.set(true)
         vendor.go(EmvStep.TRANSACTION_COMPLETION)
 
         assertTrue(vendor.ran.isEmpty())
@@ -176,11 +165,10 @@ class EmvStepObserverTest {
 
         vendor.ran.clear()
         seen.clear()
-        engine.begin() // the next transaction, before its prepare registers again
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe")
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe") // after the end
 
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty())
-        assertEquals(listOf(EmvStep.SEARCH_CARD), seen)
+        assertTrue("published after the end: $seen", seen.isEmpty())
     }
 
     @Test
@@ -195,10 +183,10 @@ class EmvStepObserverTest {
 
         vendor.failOn = null
         vendor.ran.clear()
-        engine.begin()
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe")
+        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe") // after the end
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty())
 
+        engine.begin()
         engine.prepare(CONFIG)
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe")
         assertEquals(listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.SEARCH_CARD), vendor.ran)
@@ -228,7 +216,7 @@ class EmvStepObserverTest {
         vendor.go(EmvStep.TRANSACTION_COMPLETION) // code still unwinding
 
         assertEquals(listOf(TransactionStep.ERROR), steps())
-        assertEquals("Unknown EMV step: null", transaction[0].message)
+        assertEquals("Unknown EMV step: null", transaction.values[0].message)
         assertEquals(listOf(EmvStep.APPLICATION_SELECTION), vendor.ran)
         assertEquals(listOf(EmvStep.APPLICATION_SELECTION), seen)
         assertFalse(engine.isRunning())
@@ -250,16 +238,22 @@ class EmvStepObserverTest {
         assertTrue(steps().isEmpty())
     }
 
-    private fun steps(): List<TransactionStep> = transaction.map { it.step }
+    private fun steps(): List<TransactionStep> = transaction.values.map { it.step }
 
+    /** The EMV steps a collector of the flow sees, in order — like the UI. */
     private fun record(engine: EmvEngine): MutableList<EmvStep> {
-        val seen = ArrayList<EmvStep>()
-        engine.addEmvStepListener { seen.add(it.step) }
+        val seen = java.util.concurrent.CopyOnWriteArrayList<EmvStep>()
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            engine.emvSteps.collect { seen.add(it.step) }
+        }
         return seen
     }
 
     /** Chains APPLICATION_SELECTION → READ_APPLICATION_DATA → TRANSACTION_COMPLETION. */
     private class VendorBehavior : NoOpStepsBehavior() {
+        /** The terminal's cancel flag (PosTerminal owns it in the app). */
+        val terminalCancelled = AtomicBoolean()
+
         val ran = ArrayList<EmvStep>()
         val threads = ArrayList<Thread>()
 

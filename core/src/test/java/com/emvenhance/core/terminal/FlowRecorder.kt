@@ -1,12 +1,10 @@
 package com.emvenhance.core.terminal
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -14,13 +12,31 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Collects a flow on the calling thread (`Dispatchers.Unconfined`, started undispatched — like
- * `viewModelScope`'s `Main.immediate` on the main thread) and records what it got: the test's
- * version of Rx's `TestObserver`. [cancel] is the screen going away.
+ * Collects a flow on the publishing thread (`Dispatchers.Unconfined`, started undispatched) and
+ * records every value — the test's version of an Rx `subscribe(list::add)`: a step is in
+ * [values] before the publish that emitted it returns.
  */
-internal class FlowRecorder<T>(flow: Flow<T>) {
+internal class FlowRecorder<T>(scope: CoroutineScope, flow: Flow<T>) {
 
     val values: MutableList<T> = CopyOnWriteArrayList()
+
+    private val job = scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+        flow.collect { values.add(it) }
+    }
+
+    fun cancel() {
+        job.cancel()
+    }
+}
+
+internal fun <T> Flow<T>.recordIn(scope: CoroutineScope): FlowRecorder<T> = FlowRecorder(scope, this)
+
+/**
+ * One call of a suspending transaction start, launched on the calling thread
+ * (`Dispatchers.Unconfined`, undispatched — like `viewModelScope`'s `Main.immediate` on the main
+ * thread): the test's version of Rx's `TestObserver<Void>`. [cancel] is the screen going away.
+ */
+internal class TestSale(scope: CoroutineScope, start: suspend () -> Unit) {
 
     @Volatile
     var error: Throwable? = null
@@ -32,9 +48,9 @@ internal class FlowRecorder<T>(flow: Flow<T>) {
 
     private val done = CountDownLatch(1)
 
-    private val job = GlobalScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+    private val job = scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
         try {
-            flow.collect { values.add(it) }
+            start()
             completed = true
         } catch (e: CancellationException) {
             throw e
@@ -49,7 +65,7 @@ internal class FlowRecorder<T>(flow: Flow<T>) {
         job.cancel()
     }
 
-    /** Waits for the flow to complete or fail; `false` on timeout. */
+    /** Waits for the start to return or fail; `false` on timeout. */
     fun await(seconds: Long): Boolean = done.await(seconds, TimeUnit.SECONDS)
 
     fun assertError(type: Class<out Throwable>) = apply {
@@ -57,7 +73,7 @@ internal class FlowRecorder<T>(flow: Flow<T>) {
     }
 
     fun assertNoErrors() = apply {
-        assertNull("got $error", error)
+        assertTrue("got $error", error == null)
     }
 
     fun assertComplete() = apply {
@@ -67,14 +83,4 @@ internal class FlowRecorder<T>(flow: Flow<T>) {
     fun assertNotComplete() = apply {
         assertTrue("completed", !completed)
     }
-
-    fun assertNoValues() = apply {
-        assertTrue("got $values", values.isEmpty())
-    }
-
-    fun assertValueCount(count: Int) = apply {
-        assertEquals("got $values", count, values.size)
-    }
 }
-
-internal fun <T> Flow<T>.record(): FlowRecorder<T> = FlowRecorder(this)

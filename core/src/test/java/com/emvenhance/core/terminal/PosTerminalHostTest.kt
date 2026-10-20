@@ -15,7 +15,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Test
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -29,6 +33,12 @@ import java.util.concurrent.atomic.AtomicInteger
 class PosTerminalHostTest {
 
     private val sentToHost = ArrayList<TransactionConfig>()
+    private val scope = CoroutineScope(Dispatchers.Unconfined)
+
+    @After
+    fun tearDown() {
+        scope.cancel()
+    }
     private val printed = CopyOnWriteArrayList<List<String>>()
     private val printDone = CountDownLatch(1)
 
@@ -38,8 +48,8 @@ class PosTerminalHostTest {
             sentToHost.add(config)
             AuthResult.approved("123456", "00", null, null)
         })
-        val steps = ArrayList<TransactionStep>()
-        terminal.engine().addTransactionStepListener { steps.add(it.step) }
+        val steps = terminal.transactionSteps().recordIn(scope)
+        terminal.engine().begin() // a vendor goes online inside a transaction
 
         val result = terminal.engine().authorize(CONFIG)
 
@@ -48,7 +58,7 @@ class PosTerminalHostTest {
         assertSame(CONFIG, sentToHost[0])
         assertEquals(
             listOf(TransactionStep.ONLINE_REQUIRED, TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED),
-            steps,
+            steps.values.map { it.step },
         )
     }
 
@@ -73,8 +83,8 @@ class PosTerminalHostTest {
             }
         })
         terminal.onlineTimeoutMs = 200
-        val steps = ArrayList<TransactionStep>()
-        terminal.engine().addTransactionStepListener { steps.add(it.step) }
+        val steps = terminal.transactionSteps().recordIn(scope)
+        terminal.engine().begin()
 
         val started = System.currentTimeMillis()
         val result = terminal.engine().authorize(CONFIG)
@@ -86,7 +96,7 @@ class PosTerminalHostTest {
             System.currentTimeMillis() - started < 2_000,
         )
         assertEquals(1, requestsCancelled.get())
-        assertEquals(TransactionStep.ONLINE_COMPLETED, steps[steps.size - 1])
+        assertEquals(TransactionStep.ONLINE_COMPLETED, steps.values.last().step)
     }
 
     @Test

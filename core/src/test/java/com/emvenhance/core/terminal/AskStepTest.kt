@@ -10,7 +10,12 @@ import com.emvenhance.core.host.AuthResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import org.junit.After
 import org.junit.Before
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Test
 
 /**
@@ -23,24 +28,30 @@ class AskStepTest {
     private lateinit var engine: EmvEngine
     private lateinit var vendor: Vendor
 
+    private val scope = CoroutineScope(Dispatchers.Unconfined)
+
+    @After
+    fun tearDown() {
+        scope.cancel()
+    }
+
     @Before
     fun setUp() {
         vendor = Vendor()
-        engine = EmvEngine(vendor) { AuthResult.failed("no host") }
+        engine = EmvEngine(vendor, { AuthResult.failed("no host") }) { vendor.terminalCancelled.get() }
         engine.begin()
     }
 
     @Test
     fun theStepMethodsAnswerReachesTheCallback() {
-        val seen = ArrayList<EmvStep>()
-        engine.addEmvStepListener { seen.add(it.step) }
+        val seen = engine.emvSteps.recordIn(scope)
         vendor.selectionAnswer = 1
 
         engine.start(CONFIG, CardPresence.chip())
 
         assertEquals(1, vendor.callbackGot)
         assertEquals(Thread.currentThread(), vendor.answeredOn)
-        assertTrue(seen.contains(EmvStep.WAIT_APPLICATION_SELECTION))
+        assertTrue(seen.values.any { it.step == EmvStep.WAIT_APPLICATION_SELECTION })
     }
 
     @Test
@@ -106,6 +117,8 @@ class AskStepTest {
 
     /** APPLICATION_SELECTION plays the kernel calling back for the cardholder's choice. */
     private class Vendor : NoOpStepsBehavior() {
+        /** The terminal's cancel flag (PosTerminal owns it in the app). */
+        val terminalCancelled = AtomicBoolean()
         var selectionAnswer: Int? = null
         var cancelBeforeAsking = false
         var throwInSelection = false
@@ -118,7 +131,7 @@ class AskStepTest {
 
         override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
             if (cancelBeforeAsking) {
-                cancel()
+                terminalCancelled.set(true)
             }
             if (goWithoutAsking) {
                 goToStep(EmvStep.WAIT_APPLICATION_SELECTION)
