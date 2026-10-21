@@ -89,6 +89,11 @@ abstract class PosTerminal protected constructor(
      * `StateFlow`: `APPROVED` and `COMPLETED` are published back to back and a `StateFlow`
      * collector could see only the second, so the result panel would never show. A slow
      * collector loses the oldest buffered step, never the latest; `tryEmit` never waits.
+     *
+     * Also the one lock: every emit, the cancel's [end + CANCELLING] and [process]'s [end + free +
+     * emit] hold it, so no two emits run at once and a cancel's CANCELLING can never land after
+     * the end — one atomic can't order an emit across two threads. A collector that throws fails
+     * its own coroutine, never the emitter or the transaction thread.
      */
     private val _transactionSteps = MutableSharedFlow<TransactionStepEvent>(
         extraBufferCapacity = 64,
@@ -248,23 +253,31 @@ abstract class PosTerminal protected constructor(
      * is free; anything after it is dropped.
      */
     private fun publish(event: TransactionStepEvent) {
-        val transaction = current.get()
-        if (transaction == null || !transaction.isRunning()) {
-            EmvLog.d("TransactionStep dropped, no transaction running: $event")
-            engine.apduTrace().note("EMV", "transaction step dropped, the transaction has ended: $event")
-            return
+        synchronized(_transactionSteps) {
+            val transaction = current.get()
+            if (transaction == null || !transaction.isRunning()) {
+                EmvLog.d("TransactionStep dropped, no transaction running: $event")
+                engine.apduTrace().note("EMV", "transaction step dropped, the transaction has ended: $event")
+                return
+            }
+            if (event.step.isEnd) {
+                transaction.end(event)
+                return
+            }
+            publishNow(event)
         }
-        if (event.step.isEnd) {
-            transaction.end(event)
-            return
-        }
-        publishNow(event)
     }
 
+    /** Emits `event`, holding the one lock ([_transactionSteps]). */
     private fun publishNow(event: TransactionStepEvent) {
-        EmvLog.d("TransactionStep: $event")
-        traceTransactionStep(event)
-        _transactionSteps.tryEmit(event)
+        synchronized(_transactionSteps) {
+            EmvLog.d("TransactionStep: $event")
+            traceTransactionStep(event)
+            if (!_transactionSteps.tryEmit(event)) {
+                EmvLog.d("TransactionStep not delivered, the buffer refused it: $event")
+                engine.apduTrace().note("EMV", "transaction step not delivered, the buffer refused it: $event")
+            }
+        }
     }
 
     /** Flags each transaction step in the APDU trace. */
@@ -330,16 +343,23 @@ abstract class PosTerminal protected constructor(
         /** The cancel's own end event: [isCancelled] is "ended by this one". */
         private val cancelled = errorEvent("Transaction cancelled")
 
+        private val cancelling =
+            TransactionStepEvent.of(TransactionStep.CANCELLING, "Cancelling — finishing with the card")
+
         /**
-         * Cancels this transaction: its search stops and its EMV winds down, or it never starts
-         * if it hadn't yet. Never interrupts the transaction thread: the terminal stays busy until
-         * that is done with the reader, then reports ERROR "Transaction cancelled". Does nothing
-         * once it has ended — a finished sale, or a second cancel.
+         * Cancels this transaction: CANCELLING at once, then its search stops and its EMV winds
+         * down, or it never starts if it hadn't yet. Never interrupts the transaction thread: the
+         * terminal stays busy until that is done with the reader, then reports ERROR "Transaction
+         * cancelled". Does nothing once it has ended — a finished sale, or a second cancel.
          */
         fun cancel() {
-            if (end.compareAndSet(null, cancelled)) {
-                cancelCardSearch()
+            synchronized(_transactionSteps) {
+                if (!end.compareAndSet(null, cancelled)) {
+                    return
+                }
+                publishNow(cancelling)
             }
+            cancelCardSearch()
         }
 
         internal fun isRunning(): Boolean = end.get() == null
@@ -378,11 +398,12 @@ abstract class PosTerminal protected constructor(
             t.printStackTrace()
             transaction.end(errorEvent(t.message ?: "Transaction failed"))
         } finally {
-            // A search that stopped with no outcome still ends its transaction.
-            transaction.end.compareAndSet(null, errorEvent("Transaction ended without an outcome"))
-            val end = transaction.end.get()!!
-            current.compareAndSet(transaction, null)
-            publishNow(end)
+            synchronized(_transactionSteps) {
+                // A search that stopped with no outcome still ends its transaction.
+                transaction.end.compareAndSet(null, errorEvent("Transaction ended without an outcome"))
+                current.compareAndSet(transaction, null)
+                publishNow(transaction.end.get()!!)
+            }
         }
     }
 

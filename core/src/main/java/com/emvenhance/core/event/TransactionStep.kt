@@ -42,6 +42,13 @@ enum class TransactionStep(val label: String) {
     /** Host replied; result available in the event data. */
     ONLINE_COMPLETED("Online authorization completed"),
 
+    /**
+     * Cancel asked for: the search stops and the EMV winds down. Not the end — ERROR
+     * "Transaction cancelled" follows once the terminal is free (a host call already sent is
+     * still waited for).
+     */
+    CANCELLING("Cancelling"),
+
     /** Transaction approved (online or offline). */
     APPROVED("Approved"),
 

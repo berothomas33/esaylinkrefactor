@@ -130,7 +130,7 @@ class PosTerminalTransactionLifecycleTest {
         assertFalse("the EMV winds down", terminal.engine().isRunning())
         assertTrue(terminal.engine().isCancelled())
         assertEquals(1, terminal.searchCancels.get())
-        assertTrue("not before the transaction thread stops: ${events.values}", events.values.isEmpty())
+        assertEquals("only CANCELLING before the transaction thread stops", listOf(TransactionStep.CANCELLING), events.values.map { it.step })
 
         first.listener.onSearchCancelled() // what the vendor reports as its poll stops
         first.release.countDown()
