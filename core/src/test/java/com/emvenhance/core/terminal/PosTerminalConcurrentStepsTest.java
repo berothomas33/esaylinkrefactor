@@ -64,7 +64,7 @@ public class PosTerminalConcurrentStepsTest {
 
         assertEquals("two onNext calls at once", 1, maxInFlight.get());
         assertEquals(Arrays.asList("ONLINE_PROCESSING on first", "ONLINE_COMPLETED on second"),
-                delivered.subList(0, 2));
+                delivered.subList(1, 3)); // after TRANSACTION_STARTED
     }
 
     @Test
@@ -94,8 +94,8 @@ public class PosTerminalConcurrentStepsTest {
         terminal.release.countDown();
 
         assertTrue("the transaction never ended", ended.await(5, TimeUnit.SECONDS));
-        assertEquals(Arrays.asList(TransactionStep.ONLINE_REQUIRED, TransactionStep.ONLINE_PROCESSING,
-                TransactionStep.ERROR), seen);
+        assertEquals(Arrays.asList(TransactionStep.TRANSACTION_STARTED, TransactionStep.ONLINE_REQUIRED,
+                TransactionStep.ONLINE_PROCESSING, TransactionStep.ERROR), seen);
     }
 
     /** prepare() succeeds; the search is held open until released. */

@@ -22,6 +22,12 @@ public final class TestSession {
         return new EmvEngine(behavior, authorizer, this::publish, running::get, cancelled::get);
     }
 
+    /** As {@code PosTerminal.Transaction.cancel}: cancelled, and so ended — no step runs after it. */
+    public void cancel() {
+        cancelled.set(true);
+        running.set(false);
+    }
+
     /** A new transaction on {@code engine}, as {@code PosTerminal.process} begins one. */
     public void begin(EmvEngine engine) {
         running.set(true);

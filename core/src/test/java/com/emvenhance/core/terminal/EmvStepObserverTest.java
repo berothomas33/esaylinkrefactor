@@ -84,7 +84,7 @@ public class EmvStepObserverTest {
         engine.prepare(CONFIG);
         vendor.ran.clear();
 
-        session.cancelled.set(true);
+        session.cancel();
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
 
         assertTrue(vendor.ran.isEmpty());
@@ -133,10 +133,11 @@ public class EmvStepObserverTest {
         engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
-        session.cancelled.set(true);
-        vendor.go(EmvStep.TRANSACTION_COMPLETION);
+        session.cancel();
+        boolean ran = vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
         assertTrue(vendor.ran.isEmpty());
+        assertFalse("goToStep says it didn't run, so a vendor releases its reader", ran);
     }
 
     // ─── The end of a transaction ─────────────────────────────────────────
@@ -252,8 +253,8 @@ public class EmvStepObserverTest {
         EmvStep afterApplicationSelection = EmvStep.READ_APPLICATION_DATA;
         boolean approveOnCompletion;
 
-        void go(EmvStep step) {
-            goToStep(step);
+        boolean go(EmvStep step) {
+            return goToStep(step);
         }
 
         private void ran(EmvStep step) {

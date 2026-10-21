@@ -425,8 +425,13 @@ public abstract class PosTerminal {
     private void process(Transaction transaction) {
         try {
             engine.begin();
-            if (transaction.isRunning()) {
-                triggerSearch(transaction, transaction.config);
+            publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)); // once
+            // Each attempt: prepare, search, EMV. A retry the behavior asked for (fallback,
+            // try another interface, try again, See Phone) is the next turn of this loop — not a
+            // search started from inside the previous search's callback.
+            TransactionConfig config = transaction.config;
+            while (config != null && transaction.isRunning()) {
+                config = attempt(transaction, config);
             }
         } catch (Throwable t) {
             //noinspection CallToPrintStackTrace
@@ -451,20 +456,28 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Fires card search and returns immediately — search and EMV are not sequenced by a
-     * blocking return value here. Every {@link CardSearchListener} implementation (Pax/
-     * Ingenico/Fake) always calls exactly one listener method before it stops searching, so
-     * that callback — not this method's return — is what drives what happens next:
-     * {@link EngineReportingListener#handleCardFound} starts EMV the moment a card is found,
-     * and a behavior-requested retry re-enters this same method with the adjusted config —
-     * still on this one thread, so it never races the attempt that requested it.
+     * One attempt: terminal initialization, then card search. Every {@link CardSearchListener}
+     * implementation (Pax/Ingenico/Fake) calls exactly one listener method before it stops
+     * searching, and that callback drives what happens next:
+     * {@link EngineReportingListener#handleCardFound} runs EMV the moment a card is found.
+     *
+     * @return the adjusted config of a retry the behavior asked for ({@link EmvEngine#requestRetry}),
+     *         or {@code null}: the transaction is done
      */
-    private void triggerSearch(Transaction transaction, TransactionConfig config) {
+    @Nullable
+    private TransactionConfig attempt(Transaction transaction, TransactionConfig config) {
         if (!engine.prepare(config)) {
             engine.notifyError("Terminal initialization failed"); // dropped if it already ended
-            return;
+            return null;
         }
         searchCard(config, new EngineReportingListener(transaction, config));
+        // Consumed either way; process's loop drops it if the transaction is over (cancelled).
+        TransactionConfig retry = engine.consumePendingRetry();
+        if (retry != null && !transaction.isRunning()) {
+            EmvLog.d("Retry dropped: the transaction is over");
+            engine.apduTrace().note("EMV", "retry dropped — the transaction is over");
+        }
+        return retry;
     }
 
     /**
@@ -570,7 +583,7 @@ public abstract class PosTerminal {
             engine.notifyEmvStep(EmvStep.SEARCH_CARD, message);
         }
 
-        /** Runs EMV right here, then re-triggers search if the behavior asked for a retry. */
+        /** Runs EMV right here; a retry it asks for is {@link #attempt}'s to return. */
         private void handleCardFound(CardPresence card) {
             if (isStale("card detected")) {
                 return;
@@ -581,12 +594,6 @@ public abstract class PosTerminal {
                     .build());
 
             engine.start(config, card);
-
-            // Consumed either way: a retry requested by a cancelled transaction never searches.
-            TransactionConfig retryConfig = engine.consumePendingRetry();
-            if (retryConfig != null && !transaction.isOver()) {
-                triggerSearch(transaction, retryConfig);
-            }
         }
     }
 

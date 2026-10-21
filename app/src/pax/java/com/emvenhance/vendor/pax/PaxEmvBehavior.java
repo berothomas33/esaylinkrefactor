@@ -249,7 +249,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // kernel result read as this one's.
         tx = new TransactionState();
         super.prepare(engine, config);
-        return tx.initOk && !isCancelled() && engine.isRunning();
+        return tx.initOk && engine.isRunning();
     }
 
     @Override
@@ -334,10 +334,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             CardPresence card) {
         // Mag / manual sync path
         if (isSynchronousEntry(card)) {
-            if (isCancelled()) {
-                finishError("Cancelled");
-                return;
-            }
             tx.lastAuth = authorizeOnline();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
@@ -549,10 +545,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: App Select ============");
             // reset every transaction
             tx.clsCachedTrack2Data = null;
@@ -622,10 +614,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         boolean reselected = false;
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Set Transaction Data ============");
             tx.clsTransResult = kernel.contactless.setTransactionData();
             int ret = tx.clsTransResult.getResultCode();
@@ -662,10 +650,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         boolean reselected = false;
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Read App Data ============");
             tx.clsTransResult = kernel.contactless.readApplicationData();
             int ret = tx.clsTransResult.getResultCode();
@@ -707,10 +691,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         boolean reselected = false;
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Offline Data Authentication ============");
             tx.clsTransResult = kernel.contactless.offlineDataAuthentication();
             int ret = tx.clsTransResult.getResultCode();
@@ -762,10 +742,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         boolean reselected = false;
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Processing Restrictions ============");
             tx.clsTransResult = kernel.contactless.processRestrictions();
             int ret = tx.clsTransResult.getResultCode();
@@ -810,10 +786,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactlessStartTransaction() {
         requireEngine();
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Start Transaction ============");
             int ret = startContactlessTransProcess();
             LogUtils.d(TAG, "startTransProcess ret=" + ret);
@@ -1017,26 +989,28 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** Common tail once a contactless stage chain has reached a terminal outcome. */
     private void finishContactlessStage() {
         closeReaders(true);
-        if (!isCancelled()) {
-            try {
-                checkContactlessResult();
-            } catch (Exception e) {
-                LogUtils.e(TAG, "checkClsResult error", e);
-                finishError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
-            }
+        if (isCancelled()) {
+            noteResultNotReported();
+            return;
+        }
+        try {
+            checkContactlessResult();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "checkClsResult error", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
         }
     }
 
-    /**
-     * Advances to {@code next} via {@link #goToStep} — unless {@code cancel()} landed in the
-     * window between a stage's own work finishing and this call; see {@link #advanceContactStage}
-     * for why that window matters.
-     */
+    /** Cancelled: the readers are closed, and the card's result is not turned into an outcome. */
+    private void noteResultNotReported() {
+        LogUtils.i(TAG, "Cancelled — the card's result is not reported");
+        requireEngine().apduTrace().note("EMV", "cancelled — the card's result is not reported");
+    }
+
+    /** Advances to {@code next}; see {@link #advanceContactStage} for why a step that didn't run still cleans up. */
     private void advanceContactlessStage(EmvStep next) {
-        if (isCancelled()) {
+        if (!goToStep(next)) {
             finishContactlessStage();
-        } else {
-            goToStep(next);
         }
     }
 
@@ -1142,14 +1116,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * simple-flow-end, per {@link #isContactTransactionFinished()}, stops and reports
      * via {@link #finishContactStage}.
      *
-     * <p>{@link #goToStep} itself returns early on cancellation, before dispatching at all —
-     * which for every other goToStep transition in this class (mag/manual,
-     * APPLICATION_SELECTION) is fine, since there's no vendor-owned resource left open to clean
-     * up. For chip the ICC reader stays activated across the whole app-select → start-transaction
-     * span, so {@link #advanceContactStage} re-checks {@link #isCancelled()} itself right before
-     * calling goToStep and falls back to {@link #finishContactStage} instead, guaranteeing
-     * closeReaders/checkContactResult still run even if cancel() lands in the narrow window
-     * between one stage finishing and the next stage's transition.
+     * <p>Once the transaction is cancelled (or ended) no step runs: the engine publishes none,
+     * and {@link #goToStep} says so by returning {@code false}. For chip the ICC reader stays
+     * activated across the whole app-select → start-transaction span, so
+     * {@link #advanceContactStage} falls back to {@link #finishContactStage} when the next step
+     * didn't run — the reader is released whatever ended the chain.
      *
      * <p>Processing restrictions, cardholder verification, terminal risk management and
      * terminal action analysis stay bundled inside {@link #runContactStartTransaction}'s
@@ -1163,10 +1134,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: App Select ============");
             // reset every transaction — mirrors EmvContactService#selectApplication
             tx.cachedTrack2Data = null;
@@ -1233,10 +1200,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactReadAppData() {
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============");
             tx.transResult = kernel.contact.readApplicationData();
             int ret = tx.transResult.getResultCode();
@@ -1266,10 +1229,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactSetTransactionData() {
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: Set Transaction Data ============");
             tx.transResult = kernel.contact.setTransactionData();
             int ret = tx.transResult.getResultCode();
@@ -1299,10 +1258,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactCardAuth() {
         boolean proceed = false;
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============");
             tx.transResult = kernel.contact.cardAuthentication();
             int ret = tx.transResult.getResultCode();
@@ -1325,18 +1280,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Advances to {@code next} via {@link #goToStep} — unless {@code cancel()} landed in the
-     * window between a stage's own work finishing and this call, in which case {@code goToStep}
-     * would silently swallow it: it returns before {@code dispatchStepMethod} runs at all, so
-     * the next run* method (and its {@link #finishContactStage} cleanup) would never fire.
-     * Re-checking {@link #isCancelled()} here and falling back to {@link #finishContactStage}
-     * directly closes that window instead of leaving readers open / the result unreported.
+     * Advances to {@code next} via {@link #goToStep}. If it didn't run — cancelled or ended in
+     * between — the next run* method (and its {@link #finishContactStage} cleanup) never fires,
+     * so the cleanup runs here instead: the readers are never left open.
      */
     private void advanceContactStage(EmvStep next) {
-        if (isCancelled()) {
+        if (!goToStep(next)) {
             finishContactStage();
-        } else {
-            goToStep(next);
         }
     }
 
@@ -1349,10 +1299,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void runContactStartTransaction() {
         requireEngine();
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled");
-                return;
-            }
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
             // CVM is published separately from onCardHolderPwd below when the kernel actually
             // asks for it; terminal risk management and terminal action analysis have no
@@ -1449,13 +1395,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             tx.activePinPad.dismiss();
             tx.activePinPad = null;
         }
-        if (!isCancelled()) {
-            try {
-                checkContactResult();
-            } catch (Exception e) {
-                LogUtils.e(TAG, "checkContactResult error", e);
-                finishError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
-            }
+        if (isCancelled()) {
+            noteResultNotReported();
+            return;
+        }
+        try {
+            checkContactResult();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "checkContactResult error", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
         }
     }
 
@@ -2337,8 +2285,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * {@code startTransaction()} call, so it can't race the attempt that's still unwinding.
      */
     private void retryWithMode(EntryMethod mode, String reason, String prompt) {
-        if (isCancelled() || activeConfig == null) {
-            finishError(reason + " — cancelled");
+        if (activeConfig == null) {
+            finishError(reason + " — no active transaction");
             return;
         }
         LogUtils.i(TAG, reason);

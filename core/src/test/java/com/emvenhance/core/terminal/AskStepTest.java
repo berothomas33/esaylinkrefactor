@@ -129,7 +129,7 @@ public class AskStepTest {
 
         @Override protected void onApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) {
             if (cancelBeforeAsking) {
-                session.cancelled.set(true);
+                session.cancel();
             }
             if (goWithoutAsking) {
                 goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
