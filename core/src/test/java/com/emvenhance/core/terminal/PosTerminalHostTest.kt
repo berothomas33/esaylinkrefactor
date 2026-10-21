@@ -57,8 +57,11 @@ class PosTerminalHostTest {
         assertEquals(1, sentToHost.size)
         assertSame(CONFIG, sentToHost[0])
         assertEquals(
-            listOf(TransactionStep.ONLINE_REQUIRED, TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED),
-            steps.values.map { it.step }.subList(0, 3),
+            listOf(
+                TransactionStep.TRANSACTION_STARTED,
+                TransactionStep.ONLINE_REQUIRED, TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED,
+            ),
+            steps.values.map { it.step }.subList(0, 4),
         )
     }
 

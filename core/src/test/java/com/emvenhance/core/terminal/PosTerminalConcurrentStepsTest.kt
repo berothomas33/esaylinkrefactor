@@ -68,7 +68,7 @@ class PosTerminalConcurrentStepsTest {
         terminal.release.countDown()
 
         assertEquals("two steps at once", 1, maxInFlight.get())
-        assertEquals(listOf("ONLINE_PROCESSING on first", "ONLINE_COMPLETED on second"), delivered.subList(0, 2))
+        assertEquals(listOf("ONLINE_PROCESSING on first", "ONLINE_COMPLETED on second"), delivered.subList(1, 3)) // after TRANSACTION_STARTED
     }
 
     /** prepare() succeeds; the search is held open until released. */

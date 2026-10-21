@@ -6,8 +6,6 @@ import com.emvenhance.core.card.TransactionConfig
 import com.emvenhance.core.engine.EmvEngine
 import com.emvenhance.core.event.EmvStep
 import com.emvenhance.core.event.EmvStepEvent
-import com.emvenhance.core.event.TransactionStep
-import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
 import com.emvenhance.core.util.EmvLog
 
@@ -56,7 +54,6 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         this.activeConfig = config
         this.activeCard = null
 
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED))
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION)
         return engine.isRunning() // false once it ended: init failed, or cancelled
