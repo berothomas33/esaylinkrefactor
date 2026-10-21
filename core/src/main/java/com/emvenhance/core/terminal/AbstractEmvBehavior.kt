@@ -59,7 +59,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED))
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION)
-        return !isCancelled() && engine.isRunning()
+        return engine.isRunning() // false once it ended: init failed, or cancelled
     }
 
     override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
@@ -96,22 +96,23 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     /**
      * Vendor finished the current step → publish `step`; the engine runs that step's `onXxx`
      * method before this returns.
+     *
+     * No cancel check of its own: once the transaction is cancelled (or ended) the engine
+     * publishes no step ([EmvEngine.notifyEmvStep]), so nothing runs.
+     *
+     * @return whether the step ran — `false` once the transaction is cancelled or ended, so a
+     *      vendor holding a resource across steps (the ICC reader) knows to release it
      */
     @JvmOverloads
-    protected fun goToStep(step: EmvStep?, detail: String? = null) {
+    protected fun goToStep(step: EmvStep?, detail: String? = null): Boolean {
         if (step == null) {
             unknownStep(null)
-            return
-        }
-        val engine = engine
-        if (engine != null && engine.isCancelled()) {
-            engine.notifyError("Transaction cancelled") // ends it, if it hasn't ended yet
-            return
+            return false
         }
         if (engine == null || activeConfig == null) {
-            return
+            return false
         }
-        enterStep(step, detail)
+        return enterStep(step, detail)
     }
 
     /**
@@ -317,9 +318,9 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      */
     protected abstract fun readIccTag(tag: Int): ByteArray?
 
-    private fun enterStep(step: EmvStep, detail: String? = null) {
+    private fun enterStep(step: EmvStep, detail: String? = null): Boolean {
         // Flows/listeners → UI, then the step handler → dispatchStepMethod → onXxx.
-        engine?.notifyEmvStep(step, detail)
+        return engine?.notifyEmvStep(step, detail) == true
     }
 
     /**
@@ -327,9 +328,6 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      * throws ends the transaction with an ERROR.
      */
     private fun handleEmvStep(event: EmvStepEvent) {
-        if (isCancelled()) {
-            return
-        }
         val step = event.step
         try {
             dispatchStepMethod(step)

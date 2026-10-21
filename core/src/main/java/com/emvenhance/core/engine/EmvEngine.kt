@@ -126,21 +126,28 @@ class EmvEngine(
      * COMPLETED, however it got there) a step from code still unwinding is dropped: it never
      * reaches the UI or the behavior's step methods. The next transaction publishes again.
      *
+     * This is the one cancel check at a step boundary: a cancel ends the transaction at once
+     * (`PosTerminal.Transaction.cancel`), so after it no step runs.
+     *
      * Not serialized, on purpose: a step method publishes the next step from inside the
      * handler, and it has to run right there, before the current one returns.
+     *
+     * @return whether it was published (and so, for the behavior's steps, ran)
      */
     @JvmOverloads
-    fun notifyEmvStep(step: EmvStep, detail: String? = null) {
+    fun notifyEmvStep(step: EmvStep, detail: String? = null): Boolean {
         val event = EmvStepEvent(step, detail)
         if (!isRunning()) {
-            EmvLog.d("EmvStep dropped, no transaction running: $event")
-            apduTrace.note("EMV", "step dropped, the transaction has ended: $event")
-            return
+            val why = if (isCancelled()) "cancelled" else "the transaction has ended"
+            EmvLog.d("EmvStep dropped, $why: $event")
+            apduTrace.note("EMV", "step dropped, $why: $event")
+            return false
         }
         EmvLog.d("EmvStep: $event")
         apduTrace.kernelStep(event.toString())
         _emvSteps.tryEmit(event)
         emvStepHandler?.onStep(event)
+        return true
     }
 
     /** Hands `event` to `PosTerminal`, which publishes it while the transaction runs. */

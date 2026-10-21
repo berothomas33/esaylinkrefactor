@@ -196,7 +196,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         // kernel result read as this one's.
         tx = TransactionState()
         super.prepare(engine, config)
-        return tx.initOk && !isCancelled() && engine.isRunning()
+        return tx.initOk && engine.isRunning()
     }
 
     override fun onTerminalInitialization(engine: EmvEngine, config: TransactionConfig) {
@@ -278,10 +278,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     override fun onStartOnlineProcess(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
         // Mag / manual sync path
         if (isSynchronousEntry(card)) {
-            if (isCancelled()) {
-                finishError("Cancelled")
-                return
-            }
             tx.lastAuth = authorizeOnline()
             goToStep(EmvStep.TRANSACTION_COMPLETION)
             return
@@ -457,10 +453,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         var proceed = false
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance())
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contactless EMV: App Select ============")
             // reset every transaction
             tx.clsCachedTrack2Data = null
@@ -529,10 +521,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         var proceed = false
         var reselected = false
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Set Transaction Data ============")
             val result = kernel.contactless.setTransactionData()
             tx.clsTransResult = result
@@ -569,10 +557,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         var proceed = false
         var reselected = false
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Read App Data ============")
             val result = kernel.contactless.readApplicationData()
             tx.clsTransResult = result
@@ -619,10 +603,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         var proceed = false
         var reselected = false
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Offline Data Authentication ============")
             val result = kernel.contactless.offlineDataAuthentication()
             tx.clsTransResult = result
@@ -673,10 +653,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         var proceed = false
         var reselected = false
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Processing Restrictions ============")
             val result = kernel.contactless.processRestrictions()
             tx.clsTransResult = result
@@ -721,10 +697,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     private fun runContactlessStartTransaction() {
         requireEngine()
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contactless EMV: Start Transaction ============")
             val ret = startContactlessTransProcess()
             LogUtils.d(TAG, "startTransProcess ret=$ret")
@@ -920,26 +892,27 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     /** Common tail once a contactless stage chain has reached a terminal outcome. */
     private fun finishContactlessStage() {
         closeReaders(true)
-        if (!isCancelled()) {
-            try {
-                checkContactlessResult()
-            } catch (e: Exception) {
-                LogUtils.e(TAG, "checkClsResult error", e)
-                finishError(e.message ?: "checkClsResult failed")
-            }
+        if (isCancelled()) {
+            noteResultNotReported()
+            return
+        }
+        try {
+            checkContactlessResult()
+        } catch (e: Exception) {
+            LogUtils.e(TAG, "checkClsResult error", e)
+            finishError(e.message ?: "checkClsResult failed")
         }
     }
 
-    /**
-     * Advances to `next` via [goToStep] — unless `cancel()` landed in the window between a
-     * stage's own work finishing and this call; see [advanceContactStage] for why that window
-     * matters.
-     */
+    private fun noteResultNotReported() {
+        LogUtils.i(TAG, "Cancelled — the card's result is not reported")
+        requireEngine().apduTrace().note("EMV", "cancelled — the card's result is not reported")
+    }
+
+    /** Advances to `next`; see [advanceContactStage] for why a step that didn't run still cleans up. */
     private fun advanceContactlessStage(next: EmvStep) {
-        if (isCancelled()) {
+        if (!goToStep(next)) {
             finishContactlessStage()
-        } else {
-            goToStep(next)
         }
     }
 
@@ -1049,14 +1022,11 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     // as simple-flow-end, per isContactTransactionFinished(), stops and reports via
     // finishContactStage.
     //
-    // goToStep itself returns early on cancellation, before dispatching at all — which for every
-    // other goToStep transition in this class (mag/manual, APPLICATION_SELECTION) is fine, since
-    // there's no vendor-owned resource left open to clean up. For chip the ICC reader stays
-    // activated across the whole app-select → start-transaction span, so advanceContactStage
-    // re-checks isCancelled() itself right before calling goToStep and falls back to
-    // finishContactStage instead, guaranteeing closeReaders/checkContactResult still run even if
-    // cancel() lands in the narrow window between one stage finishing and the next stage's
-    // transition.
+    // After a cancel no step runs (the engine publishes none) — which for every other goToStep
+    // transition in this class (mag/manual, APPLICATION_SELECTION) is fine, since there's no
+    // vendor-owned resource left open to clean up. For chip the ICC reader stays activated across
+    // the whole app-select → start-transaction span, so advanceContactStage falls back to
+    // finishContactStage when goToStep reports the step didn't run: the readers are always closed.
     //
     // Processing restrictions, cardholder verification, terminal risk management and terminal
     // action analysis stay bundled inside runContactStartTransaction's EMVStartTrans call — the
@@ -1068,10 +1038,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         var proceed = false
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance())
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contact EMV: App Select ============")
             // reset every transaction — mirrors EmvContactService#selectApplication
             tx.cachedTrack2Data = null
@@ -1142,10 +1108,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     private fun runContactReadAppData() {
         var proceed = false
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contact EMV: Read App Data ============")
             val result = kernel.contact.readApplicationData()
             tx.transResult = result
@@ -1176,10 +1138,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     private fun runContactSetTransactionData() {
         var proceed = false
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contact EMV: Set Transaction Data ============")
             val result = kernel.contact.setTransactionData()
             tx.transResult = result
@@ -1206,10 +1164,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     private fun runContactCardAuth() {
         var proceed = false
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contact EMV: Card Auth ============")
             val result = kernel.contact.cardAuthentication()
             tx.transResult = result
@@ -1233,18 +1187,13 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     }
 
     /**
-     * Advances to `next` via [goToStep] — unless `cancel()` landed in the window between a
-     * stage's own work finishing and this call, in which case `goToStep` would silently swallow
-     * it: it returns before `dispatchStepMethod` runs at all, so the next run* method (and its
-     * [finishContactStage] cleanup) would never fire. Re-checking [isCancelled] here and falling
-     * back to [finishContactStage] directly closes that window instead of leaving readers open /
-     * the result unreported.
+     * Advances to `next` via [goToStep]. If it didn't run — cancelled or ended in between — the
+     * next run* method (and its [finishContactStage] cleanup) never fires, so the cleanup runs
+     * here instead: the readers are never left open.
      */
     private fun advanceContactStage(next: EmvStep) {
-        if (isCancelled()) {
+        if (!goToStep(next)) {
             finishContactStage()
-        } else {
-            goToStep(next)
         }
     }
 
@@ -1257,10 +1206,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     private fun runContactStartTransaction() {
         requireEngine()
         try {
-            if (isCancelled()) {
-                finishError("Transaction cancelled")
-                return
-            }
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============")
             // CVM is published separately from onCardHolderPwd below when the kernel actually
             // asks for it; terminal risk management and terminal action analysis have no callback
@@ -1364,13 +1309,15 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             it.dismiss()
             tx.activePinPad = null
         }
-        if (!isCancelled()) {
-            try {
-                checkContactResult()
-            } catch (e: Exception) {
-                LogUtils.e(TAG, "checkContactResult error", e)
-                finishError(e.message ?: "checkContactResult failed")
-            }
+        if (isCancelled()) {
+            noteResultNotReported()
+            return
+        }
+        try {
+            checkContactResult()
+        } catch (e: Exception) {
+            LogUtils.e(TAG, "checkContactResult error", e)
+            finishError(e.message ?: "checkContactResult failed")
         }
     }
 
@@ -2179,8 +2126,8 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
      */
     private fun retryWithMode(mode: EntryMethod, reason: String, prompt: String) {
         val config = activeConfig
-        if (isCancelled() || config == null) {
-            finishError("$reason — cancelled")
+        if (config == null) {
+            finishError("$reason — no active transaction")
             return
         }
         LogUtils.i(TAG, reason)

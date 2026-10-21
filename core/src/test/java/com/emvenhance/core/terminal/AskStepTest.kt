@@ -132,7 +132,7 @@ class AskStepTest {
 
         override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
             if (cancelBeforeAsking) {
-                session.cancelled.set(true)
+                session.cancel()
             }
             if (goWithoutAsking) {
                 goToStep(EmvStep.WAIT_APPLICATION_SELECTION)

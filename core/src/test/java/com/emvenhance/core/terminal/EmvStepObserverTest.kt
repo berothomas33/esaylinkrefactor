@@ -94,7 +94,7 @@ class EmvStepObserverTest {
         engine.prepare(CONFIG)
         vendor.ran.clear()
 
-        session.cancelled.set(true)
+        session.cancel()
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe")
 
         assertTrue(vendor.ran.isEmpty())
@@ -147,7 +147,7 @@ class EmvStepObserverTest {
         engine.start(CONFIG, CardPresence.chip())
         vendor.ran.clear()
 
-        session.cancelled.set(true)
+        session.cancel()
         vendor.go(EmvStep.TRANSACTION_COMPLETION)
 
         assertTrue(vendor.ran.isEmpty())

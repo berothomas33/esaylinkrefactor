@@ -104,10 +104,6 @@ class IngenicoEmvBehavior : AbstractEmvBehavior() {
     }
 
     override fun onStartOnlineProcess(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
-        if (isCancelled()) {
-            finishError("Cancelled")
-            return
-        }
         lastAuth = authorizeOnline()
         goToStep(EmvStep.TRANSACTION_COMPLETION)
     }

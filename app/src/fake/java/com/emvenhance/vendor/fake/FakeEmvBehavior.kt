@@ -103,10 +103,6 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
     }
 
     override fun onStartOnlineProcess(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
-        if (isCancelled()) {
-            finishError("Cancelled")
-            return
-        }
         lastAuth = authorizeOnline()
         if (card.isChip) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION)
