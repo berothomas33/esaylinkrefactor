@@ -15,7 +15,7 @@ import org.junit.Before
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import java.util.concurrent.atomic.AtomicBoolean
+import com.emvenhance.core.engine.TestSession
 import org.junit.Test
 
 /**
@@ -38,8 +38,8 @@ class AskStepTest {
     @Before
     fun setUp() {
         vendor = Vendor()
-        engine = EmvEngine(vendor, { AuthResult.failed("no host") }) { vendor.terminalCancelled.get() }
-        engine.begin()
+        engine = vendor.session.engine(vendor) { AuthResult.failed("no host") }
+        vendor.session.begin(engine)
     }
 
     @Test
@@ -118,7 +118,8 @@ class AskStepTest {
     /** APPLICATION_SELECTION plays the kernel calling back for the cardholder's choice. */
     private class Vendor : NoOpStepsBehavior() {
         /** The terminal's cancel flag (PosTerminal owns it in the app). */
-        val terminalCancelled = AtomicBoolean()
+        /** Stands in for the terminal: its cancel flag (PosTerminal owns it in the app). */
+        val session = TestSession()
         var selectionAnswer: Int? = null
         var cancelBeforeAsking = false
         var throwInSelection = false
@@ -131,7 +132,7 @@ class AskStepTest {
 
         override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
             if (cancelBeforeAsking) {
-                terminalCancelled.set(true)
+                session.cancelled.set(true)
             }
             if (goWithoutAsking) {
                 goToStep(EmvStep.WAIT_APPLICATION_SELECTION)

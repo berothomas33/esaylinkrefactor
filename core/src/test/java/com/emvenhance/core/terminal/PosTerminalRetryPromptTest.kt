@@ -36,8 +36,8 @@ class PosTerminalRetryPromptTest {
     fun setUp() {
         terminal = CapturingTerminal()
         engine = terminal.engine()
-        events = engine.transactionSteps.recordIn(scope)
-        TestSale(scope) { terminal.acceptCard(TransactionType.SALE, 1000) }
+        events = terminal.transactionSteps().recordIn(scope)
+        terminal.acceptCard(TransactionType.SALE, 1000)
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS))
         events.values.clear()
     }

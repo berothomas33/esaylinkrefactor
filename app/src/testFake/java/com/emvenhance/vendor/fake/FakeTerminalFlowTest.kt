@@ -9,34 +9,37 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * The converted core contract driven end to end by a second vendor: a fake chip sale publishes
- * its steps on the engine's one stream, from TRANSACTION_STARTED to COMPLETED, and returns once
- * the terminal is free; a second sale while it runs is refused as busy.
+ * its steps on the terminal's stream, from TRANSACTION_STARTED to COMPLETED, the end once the
+ * terminal is free; a second sale while it runs is refused as busy.
  */
 class FakeTerminalFlowTest {
 
     @Test
-    fun aChipSaleRunsEveryStepAndReturnsOnceFree() = runBlocking {
+    fun aChipSaleRunsEveryStepAndEndsOnceFree() {
         val terminal = FakeTerminal()
         val steps = CopyOnWriteArrayList<TransactionStep>()
         val emvSteps = CopyOnWriteArrayList<EmvStep>()
+        val ended = CountDownLatch(1)
         val handles = listOf(
-            record(terminal.transactionSteps()) { steps.add(it.step) },
+            record(terminal.transactionSteps()) {
+                steps.add(it.step)
+                if (it.step.isEnd) ended.countDown()
+            },
             record(terminal.emvSteps()) { emvSteps.add(it.step) },
         )
 
-        withTimeout(10_000) {
-            terminal.acceptCard(TransactionType.SALE, 1000)
-        }
+        terminal.acceptCard(TransactionType.SALE, 1000)
+        assertTrue("the sale never ended", ended.await(10, TimeUnit.SECONDS))
         handles.forEach { it.close() }
 
         assertEquals(TransactionStep.TRANSACTION_STARTED, steps.first())
@@ -51,28 +54,27 @@ class FakeTerminalFlowTest {
     }
 
     @Test
-    fun aSecondSaleWhileTheFirstRunsIsRefusedAsBusy() = runBlocking {
+    fun aSecondSaleWhileTheFirstRunsIsRefusedAsBusy() {
         val terminal = FakeTerminal()
         val steps = CopyOnWriteArrayList<TransactionStep>()
+        val ended = CountDownLatch(1)
         var refused: Throwable? = null
         // Started from inside a step, so the first sale is certainly still running.
         val handle = record(terminal.transactionSteps()) { event ->
             steps.add(event.step)
             if (event.step == TransactionStep.TRANSACTION_STARTED) {
-                runBlocking {
-                    try {
-                        terminal.acceptCard(TransactionType.SALE, 2000)
-                        fail("the second sale started")
-                    } catch (e: TerminalBusyException) {
-                        refused = e // expected: refused at once, nothing queued
-                    }
+                try {
+                    terminal.acceptCard(TransactionType.SALE, 2000)
+                    fail("the second sale started")
+                } catch (e: TerminalBusyException) {
+                    refused = e // expected: refused at once, nothing queued
                 }
             }
+            if (event.step.isEnd) ended.countDown()
         }
 
-        withTimeout(10_000) {
-            terminal.acceptCard(TransactionType.SALE, 1000)
-        }
+        terminal.acceptCard(TransactionType.SALE, 1000)
+        assertTrue("the sale never ended", ended.await(10, TimeUnit.SECONDS))
         handle.close()
 
         assertTrue("the second sale was not refused", refused is TerminalBusyException)

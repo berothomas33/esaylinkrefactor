@@ -4,14 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emvenhance.core.card.TransactionType
 import com.emvenhance.core.event.EmvStepEvent
-import com.emvenhance.core.event.TransactionStep
 import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.terminal.PosTerminal
 import com.emvenhance.core.terminal.TerminalBusyException
 import com.emvenhance.core.util.ApduTrace
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -31,13 +28,14 @@ import kotlinx.coroutines.launch
  *
  * Everything here runs on `viewModelScope` (`Dispatchers.Main.immediate`); screens collect with
  * `repeatOnLifecycle(STARTED)`, so a rotation re-attaches to the same flows and neither starts
- * nor cancels a sale.
+ * nor cancels a sale. The ViewModel never runs a transaction in a coroutine: it keeps the
+ * [PosTerminal.Transaction] it started, to cancel it.
  */
 class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
 
     /**
-     * The engine's one transaction-steps stream, from this ViewModel's start on (nothing from
-     * before: the engine replays no step), reset to IDLE by each [acceptCard]. Replays the latest
+     * The terminal's transaction steps, from this ViewModel's start on (nothing from before: the
+     * terminal replays no step), reset to IDLE by each [acceptCard]. Replays the latest
      * one to a screen re-attaching after rotation (as LiveData did). Not a `StateFlow`:
      * `APPROVED` and `COMPLETED` arrive back to back and a `StateFlow` could skip `APPROVED`,
      * whose data the result panel shows.
@@ -79,7 +77,7 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
     }
 
     init {
-        // Unconfined: each step is copied the moment the engine publishes it, on its thread (the
+        // Unconfined: each step is copied the moment the terminal publishes it, on its thread (the
         // buffer above never waits); the screens read it on the main thread.
         viewModelScope.launch(Dispatchers.Unconfined) {
             terminal.transactionSteps().collect { _transactionStep.emit(it) }
@@ -87,55 +85,37 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
     }
 
     /**
-     * The transactions this screen started. Cancelling them cancels this screen's own, never
-     * another's: a refused (busy) or finished one is already over and a cancel does nothing.
+     * The transaction this screen started, to cancel it — that one only, never another's. A
+     * finished one ignores the cancel; a refused (busy) start leaves the earlier one here.
      */
-    private val transactions = mutableListOf<Job>()
+    private var transaction: PosTerminal.Transaction? = null
 
     /** The APDU trace wrapped to `width` columns, for the receipt printer. */
     fun getApduTracePrintLines(width: Int): List<String> = terminal.apduTrace().wrapped(width)
 
     /**
      * Preferred: accept chip / tap / swipe — vendor terminal decides. Its steps arrive on
-     * [transactionStep] (the engine's one stream); a refused start (the POS terminal is busy
+     * [transactionStep]; a refused start (the POS terminal is busy
      * with the previous transaction, see [PosTerminal.startTransaction]) on [terminalBusy].
      *
      * Called on the main thread; the transaction's busy check runs right here, before this
-     * returns (`Main.immediate`, no `withContext`).
+     * returns — a plain call, no coroutine and no `withContext`.
      *
      * @param referenceNumber the original sale's reference number, for a refund; else `null`
      */
     fun acceptCard(type: TransactionType, amountMinor: Long, referenceNumber: String?) {
         // A screen observing from here on sees this transaction only, not the last one's outcome.
         _transactionStep.tryEmit(TransactionStepEvent.idle())
-        transactions += viewModelScope.launch {
-            try {
-                terminal.acceptCard(type, amountMinor, referenceNumber)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (error: Throwable) {
-                onTransactionError(error)
-            }
+        try {
+            transaction = terminal.acceptCard(type, amountMinor, referenceNumber)
+        } catch (busy: TerminalBusyException) {
+            _terminalBusy.trySend(Unit)
         }
     }
 
-    private suspend fun onTransactionError(error: Throwable) {
-        if (error is TerminalBusyException) {
-            _terminalBusy.send(Unit)
-            return
-        }
-        // Not expected (the terminal reports failures as ERROR steps), but never silent.
-        _transactionStep.emit(
-            TransactionStepEvent.builder(TransactionStep.ERROR)
-                .message(error.message ?: "Transaction failed")
-                .build(),
-        )
-    }
-
-    /** Cancels this screen's transaction; the screen closes, so it shows nothing more of it. */
+    /** Cancels this screen's transaction; it reports ERROR "Transaction cancelled" once stopped. */
     fun cancel() {
-        transactions.forEach { it.cancel() }
-        transactions.clear()
+        transaction?.cancel()
     }
 
     /** Prints via the terminal-owned `PrinterBehavior` — see [PosTerminal.printReceipt]. */
@@ -150,6 +130,11 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
 
     fun isApduLoggingEnabled(): Boolean = terminal.isApduLoggingEnabled()
 
-    // onCleared: viewModelScope cancels every transaction this screen started (Cancel, Done, or
-    // Back), so its search never keeps holding the reader, or its EMV running, for the next one.
+    /**
+     * The screen is gone (Cancel, Done, or Back): its transaction is cancelled, so its search
+     * never keeps holding the reader, or its EMV running, for the next one.
+     */
+    override fun onCleared() {
+        cancel()
+    }
 }

@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -49,16 +50,15 @@ class PosTerminalHostTest {
             AuthResult.approved("123456", "00", null, null)
         })
         val steps = terminal.transactionSteps().recordIn(scope)
-        terminal.engine().begin() // a vendor goes online inside a transaction
 
-        val result = terminal.engine().authorize(CONFIG)
+        val result = terminal.authorizeInsideATransaction()
 
         assertTrue(result.isApproved)
         assertEquals(1, sentToHost.size)
         assertSame(CONFIG, sentToHost[0])
         assertEquals(
             listOf(TransactionStep.ONLINE_REQUIRED, TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED),
-            steps.values.map { it.step },
+            steps.values.map { it.step }.subList(0, 3),
         )
     }
 
@@ -84,10 +84,9 @@ class PosTerminalHostTest {
         })
         terminal.onlineTimeoutMs = 200
         val steps = terminal.transactionSteps().recordIn(scope)
-        terminal.engine().begin()
 
         val started = System.currentTimeMillis()
-        val result = terminal.engine().authorize(CONFIG)
+        val result = terminal.authorizeInsideATransaction()
 
         assertTrue(result.isFailed)
         assertEquals("Online failed: the host didn't answer in time", result.message)
@@ -96,7 +95,10 @@ class PosTerminalHostTest {
             System.currentTimeMillis() - started < 2_000,
         )
         assertEquals(1, requestsCancelled.get())
-        assertEquals(TransactionStep.ONLINE_COMPLETED, steps.values.last().step)
+        assertEquals(
+            "the host call's last step, before the end",
+            TransactionStep.ONLINE_COMPLETED, steps.values[steps.values.size - 2].step,
+        )
     }
 
     @Test
@@ -179,13 +181,26 @@ class PosTerminalHostTest {
             printed.add(lines)
             printDone.countDown()
         },
-    ) : PosTerminal(stubBehavior(), host, printer) {
+    ) : PosTerminal(stubBehavior(prepared = true), host, printer) {
 
         var onlineTimeoutMs = 90_000L
+        private val online = LinkedBlockingQueue<AuthResult>()
+        private val ends = transactionSteps().recordIn(scope)
 
         fun engine() = engine
 
-        override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? = null
+        /** A sale whose "card search" is the vendor going online, as EMV does mid-transaction. */
+        fun authorizeInsideATransaction(): AuthResult {
+            acceptCard(TransactionType.SALE, 1000)
+            val result = online.poll(5, TimeUnit.SECONDS)
+            assertTrue("the transaction never ended", ends.await { it.step.isEnd })
+            return result!!
+        }
+
+        override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? {
+            online.add(engine.authorize(CONFIG))
+            return null
+        }
 
         override fun cancelCardSearch() {}
 

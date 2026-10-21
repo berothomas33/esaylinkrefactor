@@ -60,7 +60,7 @@ class AuthorizeOnlineFieldFiftyFiveTest {
     private fun engineFor(vendor: VendorBehavior) = EmvEngine(vendor, { config ->
         sentToHost.add(config)
         AuthResult.approved("123456", "00", null, null)
-    }) { false }
+    }, {}, { true }, { false })
 
     /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */
     private class VendorBehavior(private val hasCryptogram: Boolean) : NoOpStepsBehavior() {

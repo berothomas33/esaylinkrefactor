@@ -188,9 +188,10 @@ class SearchCardFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch { viewModel.emvStep.collect { emvStepBanner.text = it.toString() } }
-                // Nothing replayed from the previous transaction: the engine replays no step, and
+                // Nothing replayed from the previous transaction: the terminal replays no step, and
                 // MainViewModel resets to IDLE on each start.
                 launch { viewModel.transactionStep.collect { render(it) } }
+                // After the step collector: a refused start sets IDLE, then BUSY — BUSY is drawn last.
                 launch { viewModel.terminalBusy.collect { showBusy(view) } }
                 if (traceText != null) {
                     launch { viewModel.apduTrace.collect { traceText.setText(it) } }

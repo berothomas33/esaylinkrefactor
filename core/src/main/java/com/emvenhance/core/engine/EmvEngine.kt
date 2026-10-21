@@ -14,24 +14,19 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import java.util.Locale
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * The EMV side of one terminal: owns the vendor's [EmvBehavior], the running flag, and the
- * [transactionSteps] / [emvSteps] flows. No vendor logic.
+ * The EMV side of one terminal: owns the vendor's [EmvBehavior], the [emvSteps] flow, the APDU
+ * trace and the retry request. No vendor logic, no transaction state.
  *
- * `PosTerminal` owns everything outside EMV — card search, the host, the printer, the
- * transaction's cancel flag — and reaches the behavior only through this class ([prepare],
- * [start]). The behavior reads the terminal's cancel flag through [isCancelled].
+ * `PosTerminal` owns the transaction itself — its thread, busy, cancel, its steps and its end —
+ * and reaches the behavior only through this class ([prepare], [start]). The engine reads that
+ * state through the narrow hooks it is given: whether the transaction is still running
+ * ([isRunning] — no EMV step is published once it ended), whether it was cancelled
+ * ([isCancelled]), and where a transaction step goes ([notifyTransactionStep]).
  *
- * One end guard for both kinds of step: nothing is published outside [begin]…the first
- * ERROR/COMPLETED, so a transaction ends exactly once. The bookkeeping is a direct
- * compare-and-set inside [notifyTransactionStep], before any collector sees the step — never a
- * collector of its own.
- *
- * The flows are for observers only (the UI, tests): `tryEmit` into a buffer, never blocking or
+ * [emvSteps] is for observers only (the UI, tests): `tryEmit` into a buffer, never blocking or
  * suspending the transaction thread. The behavior's step dispatch is not a collector: it is a
  * plain call ([setEmvStepHandler]) right after the step is emitted, on the publishing thread,
  * before the publish returns — a step method publishes the next step from inside itself, and a
@@ -41,12 +36,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * engine hands that request to the [Authorizer] `PosTerminal` gave it — `PosTerminal#authorize`,
  * which holds the communication port. The engine never holds the port itself.
  *
- * @param cancelled the terminal's cancel flag for the current transaction
- *      (`PosTerminal#isSearchCancelled`)
+ * @param transactionSteps where a transaction step goes — `PosTerminal`, which drops it once its
+ *      transaction has ended
+ * @param running whether the current transaction is still running (not ended)
+ * @param cancelled whether it was cancelled
  */
 class EmvEngine(
     private val behavior: EmvBehavior,
     private val authorizer: Authorizer,
+    private val transactionSteps: (TransactionStepEvent) -> Unit,
+    private val running: () -> Boolean,
     private val cancelled: () -> Boolean,
 ) {
 
@@ -60,23 +59,10 @@ class EmvEngine(
         fun onStep(event: T)
     }
 
-    /**
-     * Every transaction step, from now on: nothing is replayed. Not a `StateFlow`: `APPROVED`
-     * and `COMPLETED` are published back to back and a `StateFlow` collector could see only the
-     * second, so the result panel would never show. A slow collector loses the oldest buffered
-     * step, never the latest; `tryEmit` never waits.
-     */
-    private val _transactionSteps = MutableSharedFlow<TransactionStepEvent>(
-        extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-
     private val _emvSteps = MutableSharedFlow<EmvStepEvent>(
         extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
-
-    val transactionSteps: SharedFlow<TransactionStepEvent> = _transactionSteps.asSharedFlow()
 
     /** Every EMV step for observers; not replayed. */
     val emvSteps: SharedFlow<EmvStepEvent> = _emvSteps.asSharedFlow()
@@ -84,8 +70,6 @@ class EmvEngine(
     /** The behavior's step dispatch; runs after the flow has the step — see [setEmvStepHandler]. */
     @Volatile
     private var emvStepHandler: Listener<EmvStepEvent>? = null
-
-    private val running = AtomicBoolean(false)
 
     /**
      * The behavior's step dispatch (`AbstractEmvBehavior`), called for every published step
@@ -103,25 +87,18 @@ class EmvEngine(
         }
     }
 
-    fun isRunning(): Boolean = running.get()
+    /** Whether the current transaction is still running: false once it has ended. */
+    fun isRunning(): Boolean = running()
 
-    /** Whether the terminal cancelled the current transaction — its one cancel flag. */
+    /** Whether the current transaction was cancelled; its EMV winds down at the next check. */
     fun isCancelled(): Boolean = cancelled()
 
-    /**
-     * Claims the engine for a new transaction; `false` if one is already running. That one is
-     * left alone — reporting the refusal as an ERROR would end it too.
-     */
-    fun begin(): Boolean {
-        if (!running.compareAndSet(false, true)) {
-            EmvLog.d("begin() refused: a transaction is already running")
-            return false
-        }
+    /** A new transaction: fresh trace, no retry pending. */
+    fun begin() {
         retryCount.set(0)
         retryPrompt = null
         pendingRetryConfig = null
         apduTrace.beginTransaction()
-        return true
     }
 
     /**
@@ -144,15 +121,10 @@ class EmvEngine(
         behavior.dispose()
     }
 
-    /** Ends the current transaction as cancelled — dropped if it has already ended. */
-    fun cancel() {
-        notifyError("Transaction cancelled")
-    }
-
     /**
      * Publishes `step` — only while a transaction is running. Once it has ended (ERROR or
      * COMPLETED, however it got there) a step from code still unwinding is dropped: it never
-     * reaches the UI or the behavior's step methods. The next [begin] publishes again.
+     * reaches the UI or the behavior's step methods. The next transaction publishes again.
      *
      * Not serialized, on purpose: a step method publishes the next step from inside the
      * handler, and it has to run right there, before the current one returns.
@@ -160,7 +132,7 @@ class EmvEngine(
     @JvmOverloads
     fun notifyEmvStep(step: EmvStep, detail: String? = null) {
         val event = EmvStepEvent(step, detail)
-        if (!running.get()) {
+        if (!isRunning()) {
             EmvLog.d("EmvStep dropped, no transaction running: $event")
             apduTrace.note("EMV", "step dropped, the transaction has ended: $event")
             return
@@ -171,44 +143,9 @@ class EmvEngine(
         emvStepHandler?.onStep(event)
     }
 
-    /**
-     * Publishes `event` — only while a transaction is running, and the first ERROR/COMPLETED
-     * wins `running` (compare-and-set), so a transaction ends exactly once: no second
-     * "Transaction cancelled" when a stage notices the cancel, no APPROVED after a cancel's
-     * ERROR. Called from the transaction thread and, for a cancel's ERROR, from the UI thread;
-     * `tryEmit` is thread-safe and never waits.
-     */
+    /** Hands `event` to `PosTerminal`, which publishes it while the transaction runs. */
     fun notifyTransactionStep(event: TransactionStepEvent) {
-        val published = if (event.step.isEnd) running.compareAndSet(true, false) else running.get()
-        if (!published) {
-            EmvLog.d("TransactionStep dropped, no transaction running: $event")
-            apduTrace.note("EMV", "transaction step dropped, the transaction has ended: $event")
-            return
-        }
-        EmvLog.d("TransactionStep: $event")
-        traceTransactionStep(event)
-        _transactionSteps.tryEmit(event)
-    }
-
-    /** Flags each transaction step in the APDU trace. */
-    private fun traceTransactionStep(event: TransactionStepEvent) {
-        val step = event.step
-        val sb = StringBuilder(step.label.uppercase(Locale.US))
-        val mode = event.get<Any>(TransactionStepEvent.KEY_MODE)
-        if (mode != null) {
-            sb.append(" (").append(mode).append(')')
-        }
-        val error = event.get<Any>(TransactionStepEvent.KEY_ERROR)
-        val result = event.get<Any>(TransactionStepEvent.KEY_RESULT)
-        val message = event.message
-        if (message != null && !message.equals(step.label, ignoreCase = true)) {
-            sb.append(": ").append(message)
-        } else if (error != null) {
-            sb.append(": ").append(error)
-        } else if (result != null) {
-            sb.append(": ").append(result)
-        }
-        apduTrace.transactionEvent(sb.toString())
+        transactionSteps(event)
     }
 
     fun notifyApproved(result: String) {

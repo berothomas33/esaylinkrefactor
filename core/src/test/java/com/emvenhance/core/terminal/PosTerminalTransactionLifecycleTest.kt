@@ -8,15 +8,18 @@ import com.emvenhance.core.engine.EmvEngine
 import com.emvenhance.core.event.TransactionStep
 import com.emvenhance.core.event.TransactionStepEvent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -32,13 +35,14 @@ import java.util.concurrent.atomic.AtomicInteger
  * with its search still stopping — is refused as "terminal busy", never queued. And a search that
  * outlives its transaction can't fail, or start EMV for, the next one.
  *
- * Each transaction is one call of the suspending start: calling starts it, cancelling the caller
- * cancels that one only, and it returns once the terminal is free.
+ * A start returns its transaction at once; its cancel cancels that one only, and its end
+ * (COMPLETED / ERROR) is published once, after the terminal is free.
  */
 class PosTerminalTransactionLifecycleTest {
 
     private lateinit var terminal: TestTerminal
     private lateinit var events: FlowRecorder<TransactionStepEvent>
+    private lateinit var ends: FlowRecorder<TransactionStepEvent>
     private val emvStartedWithAmount = CopyOnWriteArrayList<Long>()
     private val scope = CoroutineScope(Dispatchers.Unconfined)
 
@@ -46,6 +50,7 @@ class PosTerminalTransactionLifecycleTest {
     fun setUp() {
         terminal = TestTerminal()
         events = terminal.transactionSteps().recordIn(scope)
+        ends = terminal.transactionSteps().recordIn(scope)
     }
 
     @After
@@ -55,8 +60,8 @@ class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
-    fun lateCallbacksFromAnEarlierSearchDoNotEndTheNextTransaction() = runTest {
-        val first = cancelledSearchThenNextTransaction(backgroundScope)
+    fun lateCallbacksFromAnEarlierSearchDoNotEndTheNextTransaction() {
+        val first = cancelledSearchThenNextTransaction()
 
         first.listener.onSearchCancelled()
         first.listener.onSearchTimeout()
@@ -68,8 +73,8 @@ class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
-    fun aCardCaughtByAnEarlierSearchNeverStartsEmv() = runTest {
-        val first = cancelledSearchThenNextTransaction(backgroundScope)
+    fun aCardCaughtByAnEarlierSearchNeverStartsEmv() {
+        val first = cancelledSearchThenNextTransaction()
         val second = terminal.nextSearch()
 
         first.listener.onChipDetected(CardPresence.chip())
@@ -81,32 +86,30 @@ class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
-    fun aStartWhileTheCancelledSearchIsStillStoppingIsRefusedAsBusy() = runTest {
-        val sale = sale(backgroundScope, 1000)
+    fun aStartWhileTheCancelledSearchIsStillStoppingIsRefusedAsBusy() {
+        val sale = sale(1000)
         val first = terminal.nextSearch()
         sale.cancel()
         events.values.clear()
 
-        sale(backgroundScope, 2000).assertError(TerminalBusyException::class.java)
+        assertThrows(TerminalBusyException::class.java) { sale(2000) }
         assertTrue("busy is not reported on the old transaction's steps: ${events.values}", events.values.isEmpty())
 
         first.release.countDown() // the old search finally stops
         assertTrue("old search kept searching", awaitTrue { first.cancelledWhenReleased })
-        val second = startWhenFree(backgroundScope, 3000)
+        val second = startWhenFree(3000)
         assertEquals(3000L, second.config.amountMinor)
         assertSame("one transaction thread", first.thread, second.thread)
         assertNull("the refused start never ran", terminal.searches.poll(300, TimeUnit.MILLISECONDS))
     }
 
     @Test
-    fun aStartWhileSearchingIsRefusedAndTheFirstCarriesOn() = runTest {
-        sale(backgroundScope, 1000)
+    fun aStartWhileSearchingIsRefusedAndTheFirstCarriesOn() {
+        sale(1000)
         val first = terminal.nextSearch()
         events.values.clear()
 
-        val refused = sale(backgroundScope, 2000)
-        refused.assertError(TerminalBusyException::class.java)
-        refused.cancel() // leaving the refused screen cancels nothing
+        assertThrows(TerminalBusyException::class.java) { sale(2000) }
 
         assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS))
         assertTrue("first transaction got ${events.values}", events.values.isEmpty())
@@ -116,109 +119,149 @@ class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
-    fun disposeCancelsItsOwnTransaction() = runTest {
-        val sale = sale(backgroundScope, 1000)
+    fun aCancelStopsItsTransactionAndItsErrorComesOnceTheTerminalIsFree() {
+        val sale = sale(1000)
         val first = terminal.nextSearch()
+        events.values.clear()
 
         sale.cancel()
 
         assertTrue(terminal.isSearchCancelled())
+        assertFalse("the EMV winds down", terminal.engine().isRunning())
+        assertTrue(terminal.engine().isCancelled())
         assertEquals(1, terminal.searchCancels.get())
-        assertTrue("the cancel reached the engine", hasStep(TransactionStep.ERROR))
+        assertTrue("not before the transaction thread stops: ${events.values}", events.values.isEmpty())
+
+        first.listener.onSearchCancelled() // what the vendor reports as its poll stops
         first.release.countDown()
-        assertTrue("old search kept searching", awaitTrue { first.cancelledWhenReleased })
+        val end = awaitEnd()
+        assertEquals(TransactionStep.ERROR, end.step)
+        assertEquals("Transaction cancelled", end.message)
+        assertEquals("one end", 1, events.values.count { it.step.isEnd })
     }
 
     @Test
-    fun aTransactionDisposedBeforeItRanStillFreesTheTerminal() = runTest {
+    fun aTransactionCancelledBeforeItRanStillFreesTheTerminal() {
         val hold = CountDownLatch(1)
         terminal.transactionExecutor().execute { hold.await(5, TimeUnit.SECONDS) }
-        val sale = sale(backgroundScope, 1000)
+        val sale = sale(1000)
         sale.cancel() // its work is still queued behind the held thread
 
         hold.countDown()
 
-        val next = startWhenFree(backgroundScope, 2000)
+        val next = startWhenFree(2000)
         assertEquals("the cancelled one never searched", 2000L, next.config.amountMinor)
+        assertEquals("nothing searching to stop", 1, terminal.searchCancels.get())
     }
 
     @Test
-    fun completesOnlyOnceTheTerminalIsFree() = runTest {
-        val sale = sale(backgroundScope, 1000)
+    fun theEndIsPublishedOnceTheTerminalIsFree() {
+        val startOnEnd = CopyOnWriteArrayList<Throwable>()
+        // On the publishing thread, like a screen's "Retry" right away.
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            terminal.transactionSteps().first { it.step.isEnd }
+            try {
+                sale(2000)
+            } catch (t: Throwable) {
+                startOnEnd.add(t)
+            }
+        }
+        sale(1000)
         val first = terminal.nextSearch()
-        sale.assertNotComplete()
 
         first.listener.onSearchTimeout() // like a vendor: one callback, then the search returns
         first.release.countDown()
 
-        assertTrue(sale.await(5))
-        sale.assertComplete().assertNoErrors()
-        sale.cancel() // a screen cancelling a finished sale
-        assertEquals("finishing is not a cancel", 0, terminal.searchCancels.get())
-        sale(backgroundScope, 2000).assertNoErrors()
+        assertEquals(TransactionStep.ERROR, awaitEnd().step)
         assertEquals(2000L, terminal.nextSearch().config.amountMinor)
+        assertTrue("busy on the end: $startOnEnd", startOnEnd.isEmpty())
+        assertEquals("finishing is not a cancel", 0, terminal.searchCancels.get())
     }
 
     @Test
-    fun aSearchThatStopsWithNoOutcomeStillEndsItsTransaction() = runTest {
-        val sale = sale(backgroundScope, 1000)
+    fun aTransactionEndsOnceWhateverItsCodeReportsAfter() {
+        sale(1000)
+        val first = terminal.nextSearch()
+        events.values.clear()
+
+        first.listener.onSearchTimeout() // the end
+        terminal.engine().notifyApproved("00") // code still unwinding
+        terminal.engine().notifyCompleted()
+        terminal.engine().notifyError("Transaction cancelled")
+        first.release.countDown()
+
+        val end = awaitEnd()
+        assertEquals("No card presented — card search timed out", end.message)
+        assertEquals(listOf(TransactionStep.ERROR), events.values.map { it.step })
+    }
+
+    @Test
+    fun aSearchThatStopsWithNoOutcomeStillEndsItsTransaction() {
+        sale(1000)
         val first = terminal.nextSearch()
 
         first.release.countDown() // returns without any listener callback
-        assertTrue(sale.await(5))
 
-        sale.assertComplete()
-        assertFalse("the engine stayed claimed", terminal.engine().isRunning())
-        assertTrue(hasStep(TransactionStep.ERROR))
-        assertEquals("the next sale runs", 2000L, startWhenFree(backgroundScope, 2000).config.amountMinor)
+        val end = awaitEnd()
+        assertEquals("Transaction ended without an outcome", end.message)
+        assertFalse(terminal.engine().isRunning())
+        assertEquals("the next sale runs", 2000L, startWhenFree(2000).config.amountMinor)
     }
 
     @Test
-    fun aSecondDisposeCancelsNothingMore() = runTest {
-        val sale = sale(backgroundScope, 1000)
+    fun aCancelAfterTheEndAndASecondCancelDoNothing() {
+        val sale = sale(1000)
         val first = terminal.nextSearch()
 
         sale.cancel()
         sale.cancel()
         terminal.dispose() // the terminal going away cancels its transaction, once
-
         assertEquals(1, terminal.searchCancels.get())
+
         first.release.countDown()
+        awaitEnd()
+        sale.cancel() // a screen cancelling a finished sale
+        assertEquals(1, terminal.searchCancels.get())
     }
 
     @Test
-    fun engineRefusesASecondBeginWithoutEndingTheFirst() {
-        assertTrue(terminal.engine().begin())
-        events.values.clear()
+    fun nothingIsPublishedOutsideATransaction() {
+        terminal.engine().notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED))
+        terminal.engine().notifyCompleted()
 
-        assertFalse(terminal.engine().begin())
-
-        assertTrue(terminal.engine().isRunning())
-        assertTrue("got ${events.values}", events.values.isEmpty())
+        assertTrue(events.values.isEmpty())
+        assertFalse(terminal.engine().isRunning())
     }
 
     /** A sale for `amount`, started on the calling thread like the UI does. */
-    private fun sale(scope: CoroutineScope, amount: Long) =
-        TestSale(scope) { terminal.acceptCard(TransactionType.SALE, amount) }
+    private fun sale(amount: Long): PosTerminal.Transaction = terminal.acceptCard(TransactionType.SALE, amount)
+
+    /** The next end published (each one once), within 5 s. */
+    private fun awaitEnd(): TransactionStepEvent {
+        assertTrue("no end published", ends.await(endsSeen + 1) { it.step.isEnd })
+        return ends.values.filter { it.step.isEnd }[endsSeen++]
+    }
+
+    private var endsSeen = 0
 
     /**
      * A transaction for 1000, cancelled, whose listener is still held (like a vendor reporting
      * late, from its own thread), then the next transaction for 2000, searching.
      */
-    private fun cancelledSearchThenNextTransaction(scope: CoroutineScope): Search {
-        val sale = sale(scope, 1000)
+    private fun cancelledSearchThenNextTransaction(): Search {
+        val sale = sale(1000)
         val first = terminal.nextSearch()
         sale.cancel()
         first.release.countDown()
-        val second = startWhenFree(scope, 2000)
+        val second = startWhenFree(2000)
         terminal.searches.add(second) // hand it back for tests that need it
         events.values.clear()
         return first
     }
 
     /** Starts a sale as soon as the terminal stops being busy, and returns its search. */
-    private fun startWhenFree(scope: CoroutineScope, amount: Long): Search {
-        assertTrue("terminal stayed busy", awaitTrue { sale(scope, amount).error == null })
+    private fun startWhenFree(amount: Long): Search {
+        assertTrue("terminal stayed busy", awaitTrue { runCatching { sale(amount) }.isSuccess })
         return terminal.nextSearch()
     }
 

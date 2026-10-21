@@ -3,6 +3,8 @@ package com.emvenhance.core.terminal
 import com.emvenhance.core.card.CardPresence
 import com.emvenhance.core.card.CardSearchListener
 import com.emvenhance.core.card.TransactionConfig
+import com.emvenhance.core.card.TransactionType
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -38,6 +40,19 @@ class PosTerminalApduTraceTest {
         terminal.setApduLoggingEnabled(true)
         trace.note("ICC", "recorded")
         assertTrue(trace.text().contains("recorded"))
+    }
+
+    @Test
+    fun aTransactionsStepsAndItsEndReachTheTrace() = runTest {
+        val terminal = TestTerminal() // its prepare() fails: the sale ends at once
+        val trace = terminal.apduTrace()
+        assumeTrue("trace records in debug builds only", trace.isEnabled())
+        val steps = terminal.transactionSteps().recordIn(backgroundScope)
+
+        terminal.acceptCard(TransactionType.SALE, 1000)
+
+        assertTrue(steps.await { it.step.isEnd })
+        assertTrue(trace.text(), trace.text().contains("--- ERROR: Terminal initialization failed"))
     }
 
     private class TestTerminal : PosTerminal(stubBehavior(), stub(), stub()) {
