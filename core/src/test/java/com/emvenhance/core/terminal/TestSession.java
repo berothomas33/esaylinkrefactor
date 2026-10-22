@@ -31,7 +31,7 @@ final class TestSession {
     TestSession(EmvBehavior behavior, EmvEngine.Authorizer authorizer) {
         this.behavior = behavior;
         this.terminal = new Terminal(behavior, authorizer);
-        this.engine = terminal.engine;
+        this.engine = behavior.engine();
     }
 
     /** A new transaction, as {@code PosTerminal.process} begins one. */

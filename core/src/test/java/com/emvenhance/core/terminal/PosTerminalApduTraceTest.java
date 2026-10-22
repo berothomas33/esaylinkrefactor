@@ -27,7 +27,7 @@ public class PosTerminalApduTraceTest {
     public void exposesTheEnginesTrace() {
         PosTerminal terminal = new TestTerminal();
 
-        assertSame(terminal.engine.apduTrace(), terminal.apduTrace());
+        assertSame(terminal.behavior.engine().apduTrace(), terminal.apduTrace());
     }
 
     @Test
@@ -38,7 +38,7 @@ public class PosTerminalApduTraceTest {
         assertTrue(terminal.isApduLoggingEnabled());
 
         terminal.setApduLoggingEnabled(false);
-        terminal.engine.begin();
+        terminal.behavior.engine().begin();
         trace.note("ICC", "not recorded");
 
         assertFalse(terminal.isApduLoggingEnabled());
@@ -77,7 +77,9 @@ public class PosTerminalApduTraceTest {
         }
 
         TestTerminal() {
-            super(stub(EmvBehavior.class), stub(CommunicationBehavior.class),
+            super(StubBehavior.of((proxy, method, args) ->
+                            method.getReturnType() == boolean.class ? false : null),
+                    stub(CommunicationBehavior.class),
                     stub(PrinterBehavior.class));
         }
 

@@ -422,16 +422,15 @@ public class PosTerminalTransactionLifecycleTest {
 
     /** prepare() succeeds; start() records the amount EMV ran for. */
     private EmvBehavior behavior() {
-        return (EmvBehavior) Proxy.newProxyInstance(EmvBehavior.class.getClassLoader(),
-                new Class<?>[] {EmvBehavior.class}, (proxy, method, args) -> {
-                    if (method.getName().equals("prepare")) {
-                        return Boolean.TRUE;
-                    }
-                    if (method.getName().equals("start")) {
-                        emvStartedWithAmount.add(((TransactionConfig) args[0]).getAmountMinor());
-                    }
-                    return method.getReturnType() == boolean.class ? false : null;
-                });
+        return StubBehavior.of((proxy, method, args) -> {
+            if (method.getName().equals("prepare")) {
+                return Boolean.TRUE;
+            }
+            if (method.getName().equals("start")) {
+                emvStartedWithAmount.add(((TransactionConfig) args[0]).getAmountMinor());
+            }
+            return method.getReturnType() == boolean.class ? false : null;
+        });
     }
 
     @SuppressWarnings("unchecked")

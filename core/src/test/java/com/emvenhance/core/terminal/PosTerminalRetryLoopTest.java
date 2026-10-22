@@ -41,8 +41,6 @@ public class PosTerminalRetryLoopTest {
     private final AtomicReference<java.util.function.BiConsumer<EmvEngine, PosTerminal.Transaction>>
             onStart = new AtomicReference<>();
     private final AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
-    /** The engine the terminal attached to the behavior. */
-    private final AtomicReference<EmvEngine> attached = new AtomicReference<>();
 
     @Test
     public void aRetryIsTheNextTurnOfTheLoopNotASearchInsideTheLastOne() throws Exception {
@@ -149,19 +147,15 @@ public class PosTerminalRetryLoopTest {
 
     /** prepare() succeeds; start() does what the test set in {@link #onStart}. */
     private EmvBehavior behavior() {
-        return (EmvBehavior) Proxy.newProxyInstance(EmvBehavior.class.getClassLoader(),
-                new Class<?>[] {EmvBehavior.class}, (proxy, method, args) -> {
-                    if (method.getName().equals("prepare")) {
-                        return Boolean.TRUE;
-                    }
-                    if (method.getName().equals("attach")) {
-                        attached.set((EmvEngine) args[0]);
-                    }
-                    if (method.getName().equals("start")) {
-                        onStart.get().accept(attached.get(), (PosTerminal.Transaction) args[2]);
-                    }
-                    return method.getReturnType() == boolean.class ? false : null;
-                });
+        return StubBehavior.of((proxy, method, args) -> {
+            if (method.getName().equals("prepare")) {
+                return Boolean.TRUE;
+            }
+            if (method.getName().equals("start")) {
+                onStart.get().accept(((EmvBehavior) proxy).engine(), (PosTerminal.Transaction) args[2]);
+            }
+            return method.getReturnType() == boolean.class ? false : null;
+        });
     }
 
     @SuppressWarnings("unchecked")

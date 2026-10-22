@@ -135,10 +135,8 @@ public class PosTerminalConcurrentStepsTest {
         }
 
         private static EmvBehavior behavior() {
-            return (EmvBehavior) Proxy.newProxyInstance(EmvBehavior.class.getClassLoader(),
-                    new Class<?>[] {EmvBehavior.class},
-                    (proxy, method, args) -> method.getName().equals("prepare") ? Boolean.TRUE
-                            : method.getReturnType() == boolean.class ? false : null);
+            return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
+                    ? Boolean.TRUE : method.getReturnType() == boolean.class ? false : null);
         }
 
         @SuppressWarnings("unchecked")

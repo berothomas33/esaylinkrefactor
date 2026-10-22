@@ -42,7 +42,10 @@ import io.reactivex.rxjava3.observers.DisposableObserver;
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
-    /** The terminal's engine, from {@link #attach}: given once, when the terminal is built. */
+    /**
+     * The EMV engine, from {@link #attach}: given once, when the terminal is built. The one place
+     * it is kept — {@code PosTerminal} reaches it through {@link #engine()}.
+     */
     protected EmvEngine engine;
     @Nullable
     protected TransactionConfig activeConfig;
@@ -58,6 +61,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Override
     public final void attach(EmvEngine engine) {
         this.engine = engine;
+    }
+
+    @Override
+    public final EmvEngine engine() {
+        return engine;
     }
 
     @Override

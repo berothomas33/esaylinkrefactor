@@ -67,7 +67,7 @@ public class PosTerminalHostTest {
         TestTerminal terminal = new TestTerminal(
                 config -> Single.error(new RuntimeException("timeout")));
 
-        AuthResult result = terminal.engine.authorize(CONFIG);
+        AuthResult result = terminal.behavior.engine().authorize(CONFIG);
 
         assertTrue(result.isFailed());
         assertEquals("timeout", result.getMessage());
@@ -177,7 +177,7 @@ public class PosTerminalHostTest {
 
         @Override
         public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            online.add(engine.authorize(CONFIG));
+            online.add(behavior.engine().authorize(CONFIG));
             return null;
         }
 
@@ -193,10 +193,8 @@ public class PosTerminalHostTest {
 
     /** prepare() succeeds, so the terminal goes on to "search"; everything else is a no-op. */
     private static EmvBehavior preparingBehavior() {
-        return (EmvBehavior) Proxy.newProxyInstance(EmvBehavior.class.getClassLoader(),
-                new Class<?>[] {EmvBehavior.class},
-                (proxy, method, args) -> method.getName().equals("prepare") ? Boolean.TRUE
-                        : method.getReturnType() == boolean.class ? false : null);
+        return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
+                ? Boolean.TRUE : method.getReturnType() == boolean.class ? false : null);
     }
 
     /** Interface stub whose methods do nothing and return a default value. */

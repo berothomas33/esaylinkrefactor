@@ -38,7 +38,7 @@ public class PosTerminalRetryPromptTest {
     @Before
     public void setUp() throws Exception {
         terminal = new CapturingTerminal();
-        engine = terminal.engine;
+        engine = terminal.behavior.engine();
         terminal.allSteps.subscribe(events::add);
         terminal.acceptCard(TransactionType.SALE, 1000);
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS));
@@ -134,10 +134,8 @@ public class PosTerminalRetryPromptTest {
 
         /** prepare() succeeds so the terminal goes on to search; everything else is a no-op. */
         private static EmvBehavior behavior() {
-            return (EmvBehavior) Proxy.newProxyInstance(EmvBehavior.class.getClassLoader(),
-                    new Class<?>[] {EmvBehavior.class},
-                    (proxy, method, args) -> method.getName().equals("prepare") ? Boolean.TRUE
-                            : defaultValue(method.getReturnType()));
+            return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
+                    ? Boolean.TRUE : defaultValue(method.getReturnType()));
         }
 
         @SuppressWarnings("unchecked")

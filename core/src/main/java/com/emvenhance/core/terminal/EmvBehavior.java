@@ -7,7 +7,8 @@ import com.emvenhance.core.engine.EmvEngine;
 /**
  * What {@link PosTerminal} drives on a vendor's EMV kernel — and all it can call.
  *
- * <p>Lifecycle: {@link #attach} once, when the terminal is built (its {@link EmvEngine});
+ * <p>Lifecycle: {@link #attach} once, when the terminal is built (the {@link EmvEngine}, kept
+ * only here — {@link PosTerminal} reaches it through {@link #engine()});
  * {@link #prepare} → (PosTerminal search) → {@link #start} once per attempt, each handed the
  * attempt's {@link PosTerminal.Transaction}; {@link #dispose} once, when the terminal itself goes
  * away. A cancel isn't a call into the behavior: it reads that transaction
@@ -24,8 +25,11 @@ import com.emvenhance.core.engine.EmvEngine;
  */
 public interface EmvBehavior {
 
-    /** The terminal's engine, given once by {@link PosTerminal}'s constructor; it never changes. */
+    /** The EMV engine, given once by {@link PosTerminal}'s constructor; it never changes. */
     void attach(EmvEngine engine);
+
+    /** The engine {@link #attach} gave: the one place it is kept. */
+    EmvEngine engine();
 
     /**
      * Terminal initialization for one attempt.
