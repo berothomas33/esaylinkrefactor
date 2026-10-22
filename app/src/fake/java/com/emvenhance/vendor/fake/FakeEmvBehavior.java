@@ -147,11 +147,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        if (isCancelled()) {
-            finishError("Cancelled");
-            return;
-        }
-        lastAuth = authorizeOnline();
+        lastAuth = authorizeOnline(); // a cancelled transaction never runs this step
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
         } else {

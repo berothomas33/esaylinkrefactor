@@ -44,7 +44,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION);
-        return !isCancelled() && engine.isRunning();
+        return engine.isRunning(); // false once it ended: init failed, or cancelled
     }
 
     @Override
@@ -60,23 +60,26 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     /**
      * Vendor finished the current step → publish {@code step} on the EmvStep observable
      * and execute that step's {@code onXxx} method.
+     *
+     * <p>No cancel check of its own: once the transaction is cancelled (or ended) the engine
+     * publishes no step ({@link EmvEngine#notifyEmvStep}), so nothing runs.
+     *
+     * @return whether the step ran — {@code false} once the transaction is cancelled or ended,
+     *         so a vendor holding a resource across steps (the ICC reader) knows to release it
      */
-    protected final void goToStep(EmvStep step) {
-        goToStep(step, null);
+    protected final boolean goToStep(EmvStep step) {
+        return goToStep(step, null);
     }
 
-    protected final void goToStep(@Nullable EmvStep step, @Nullable String detail) {
+    protected final boolean goToStep(@Nullable EmvStep step, @Nullable String detail) {
         if (step == null) {
             unknownStep(null);
-            return;
-        }
-        if (isCancelled()) { // a cancel has already ended the transaction
-            return;
+            return false;
         }
         if (engine == null || activeConfig == null) {
-            return;
+            return false;
         }
-        enterStep(step, detail);
+        return enterStep(step, detail);
     }
 
     /**
@@ -289,17 +292,18 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         enterStep(step, null);
     }
 
-    private void enterStep(EmvStep step, @Nullable String detail) {
-        engine.notifyEmvStep(step, detail); // EmvStep observable → UI
-        // Ended (TransactionStep#isEnd): the engine dropped the step, and its method doesn't run.
-        if (isCancelled() || !engine.isRunning()) {
-            return;
+    private boolean enterStep(EmvStep step, @Nullable String detail) {
+        // EmvStep observable → UI. Cancelled or ended: the engine dropped the step, and its
+        // method doesn't run.
+        if (!engine.notifyEmvStep(step, detail)) {
+            return false;
         }
         try {
             dispatchStepMethod(step);
         } catch (Exception e) {
             finishError(e.getMessage() != null ? e.getMessage() : step.getTitle());
         }
+        return true;
     }
 
     private void dispatchStepMethod(EmvStep step) {

@@ -142,11 +142,7 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        if (isCancelled()) {
-            finishError("Cancelled");
-            return;
-        }
-        lastAuth = authorizeOnline();
+        lastAuth = authorizeOnline(); // a cancelled transaction never runs this step
         goToStep(EmvStep.TRANSACTION_COMPLETION);
     }
 

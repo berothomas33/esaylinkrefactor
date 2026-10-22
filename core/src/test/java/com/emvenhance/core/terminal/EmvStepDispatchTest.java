@@ -100,9 +100,19 @@ public class EmvStepDispatchTest {
         vendor.ran.clear();
 
         session.cancel();
-        vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
+        assertFalse("goToStep says the step didn't run", vendor.go(EmvStep.TRANSACTION_COMPLETION));
         assertTrue(vendor.ran.isEmpty());
+    }
+
+    @Test
+    public void aStepThatRanSaysSo() {
+        session.begin(engine);
+        engine.start(CONFIG, CardPresence.chip());
+        vendor.ran.clear();
+
+        assertTrue(vendor.go(EmvStep.TRANSACTION_COMPLETION));
+        assertEquals(Collections.singletonList(EmvStep.TRANSACTION_COMPLETION), vendor.ran);
     }
 
     // ─── The end of a transaction ─────────────────────────────────────────
@@ -218,8 +228,8 @@ public class EmvStepDispatchTest {
         EmvStep afterApplicationSelection = EmvStep.READ_APPLICATION_DATA;
         boolean approveOnCompletion;
 
-        void go(EmvStep step) {
-            goToStep(step);
+        boolean go(EmvStep step) {
+            return goToStep(step);
         }
 
         void announce(EmvStep step) {
