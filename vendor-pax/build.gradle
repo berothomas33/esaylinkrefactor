@@ -1,0 +1,48 @@
+// The PAX vendor: PaxTerminal, PaxEmvBehavior, PaxKernel and the rest of the PAX A920 code, over
+// the PAX SDK modules. Only this module (and the app's pax debug screens, through it) sees the
+// PAX SDK; core and app/src/main never do (rule 14).
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.emvenhance.vendor.pax'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    buildFeatures {
+        buildConfig true // BuildConfig.DEBUG (PaxEmvBehavior's app-select dialog)
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    api project(':core')
+    api project(':network')
+    // api: the app's pax debug screens (EMV params, onboarding, country) use the PAX SDK too.
+    api project(':emvflow')
+    api project(':emvservice')
+    api project(':bizentity')
+    api project(':bizlib')
+    api project(':commonutils')
+
+    // AppSelectDialog: FragmentActivity / AlertDialog.
+    implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
+}

@@ -2,7 +2,6 @@ package com.emvenhance.vendor.pax
 
 import android.os.SystemClock
 import android.util.Log
-import com.emvenhance.BuildConfig
 import com.emvenhance.core.card.CardPresence
 import com.emvenhance.core.card.EmvTransactionResult
 import com.emvenhance.core.card.EntryMethod
