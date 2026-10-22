@@ -11,8 +11,10 @@ import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import com.emvenhance.BuildConfig;
@@ -116,10 +118,16 @@ public class SearchCardFragment extends Fragment {
                         Toast.LENGTH_SHORT).show());
 
         View btnCancelSearch = view.findViewById(R.id.btnCancelSearch);
-        btnCancelSearch.setOnClickListener(v -> {
-            viewModel.cancel();
-            requireActivity().finish();
-        });
+        btnCancelSearch.setOnClickListener(v -> cancelAndClose(viewModel));
+        // Back is Cancel: leaving the search screen must not leave its sale running unseen (the
+        // search, the kernel, maybe the host) with no screen to show how it ends.
+        requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(),
+                new OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        cancelAndClose(viewModel);
+                    }
+                });
 
         View outcomeGroup = view.findViewById(R.id.outcomeGroup);
         view.findViewById(R.id.btnOutcomeDone).setOnClickListener(v -> requireActivity().finish());
@@ -175,22 +183,27 @@ public class SearchCardFragment extends Fragment {
                 }
             }
 
-            // Final outcome. A card-search timeout, reader failure, kernel/PIN error or host
-            // failure all end in ERROR (never followed by COMPLETED); a decline ends in DECLINED
-            // — the cardholder sees both as a declined transaction, with the reason under it.
+            // Final outcome, each with its own title: a decline (the card or the issuer said no),
+            // a failure (card search timeout, reader, kernel/PIN error, host didn't answer —
+            // never "declined", the card may be fine), or a cancel. The reason goes under it.
             switch (step) {
                 case APPROVED:
-                    showOutcome(view, true, event.get(TransactionStepEvent.KEY_RESULT));
+                    showOutcome(view, R.string.outcome_approved, true,
+                            event.get(TransactionStepEvent.KEY_RESULT));
                     btnCancelSearch.setVisibility(View.GONE);
                     break;
                 case DECLINED:
-                    showOutcome(view, false, event.get(TransactionStepEvent.KEY_ERROR));
+                    showOutcome(view, R.string.outcome_declined, false,
+                            event.get(TransactionStepEvent.KEY_ERROR));
                     btnCancelSearch.setVisibility(View.GONE);
                     break;
                 case ERROR:
-                case CANCELLED:
-                    showOutcome(view, false, event.getMessage() != null
+                    showOutcome(view, R.string.outcome_failed, false, event.getMessage() != null
                             ? event.getMessage() : event.get(TransactionStepEvent.KEY_ERROR));
+                    btnCancelSearch.setVisibility(View.GONE);
+                    break;
+                case CANCELLED:
+                    showOutcome(view, R.string.outcome_cancelled, false, null);
                     btnCancelSearch.setVisibility(View.GONE);
                     break;
                 case TRANSACTION_STARTED:
@@ -292,11 +305,17 @@ public class SearchCardFragment extends Fragment {
         });
     }
 
-    private static void showOutcome(View view, boolean approved, @Nullable Object reason) {
+    /** Cancels this screen's transaction (CANCELLING, then CANCELLED once stopped) and closes. */
+    private void cancelAndClose(MainViewModel viewModel) {
+        viewModel.cancel();
+        requireActivity().finish();
+    }
+
+    private static void showOutcome(View view, @StringRes int title, boolean approved,
+            @Nullable Object reason) {
         View group = view.findViewById(R.id.outcomeGroup);
         group.setBackgroundColor(approved ? 0xFF2E7D32 : 0xFFC62828);
-        ((TextView) view.findViewById(R.id.outcomeTitle)).setText(
-                approved ? R.string.outcome_approved : R.string.outcome_declined);
+        ((TextView) view.findViewById(R.id.outcomeTitle)).setText(title);
         TextView reasonText = view.findViewById(R.id.outcomeReason);
         reasonText.setText(reason != null ? reason.toString() : "");
         reasonText.setVisibility(reason != null ? View.VISIBLE : View.GONE);
@@ -305,7 +324,7 @@ public class SearchCardFragment extends Fragment {
         group.setVisibility(View.VISIBLE);
 
         TextView banner = view.findViewById(R.id.emvStepBanner);
-        banner.setText(approved ? R.string.outcome_approved : R.string.outcome_declined);
+        banner.setText(title);
     }
 
     /**
@@ -314,9 +333,8 @@ public class SearchCardFragment extends Fragment {
      * cancel — Try again, or Done.
      */
     private static void showBusy(View view) {
-        showOutcome(view, false, view.getContext().getString(R.string.terminal_busy_reason));
-        ((TextView) view.findViewById(R.id.outcomeTitle)).setText(R.string.outcome_terminal_busy);
-        ((TextView) view.findViewById(R.id.emvStepBanner)).setText(R.string.outcome_terminal_busy);
+        showOutcome(view, R.string.outcome_terminal_busy, false,
+                view.getContext().getString(R.string.terminal_busy_reason));
         view.findViewById(R.id.methodSelectionGroup).setVisibility(View.GONE);
         view.findViewById(R.id.btnCancelSearch).setVisibility(View.GONE);
     }

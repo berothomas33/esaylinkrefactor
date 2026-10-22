@@ -30,9 +30,10 @@ public class MainViewModel extends ViewModel {
     /**
      * The transaction this screen started: the one thing it keeps about it. A screen reads its
      * steps ({@link PosTerminal.Transaction#steps()}, replayed from its first after a rotation)
-     * and cancels it — that one only, never another's. {@code null}: none, or the last start was
-     * refused (busy) — a refused screen shows nothing of, and cancels nothing of, the transaction
-     * still there.
+     * and cancels it — that one only, never another's. {@code null}: this screen started none.
+     * A refused (busy) start leaves it as it was: if this screen's own earlier sale is what keeps
+     * the terminal busy, it keeps the handle to cancel it (onCleared included) — a second start
+     * never drops the first one.
      */
     private final MutableLiveData<PosTerminal.Transaction> transaction = new MutableLiveData<>();
 
@@ -88,7 +89,6 @@ public class MainViewModel extends ViewModel {
         try {
             transaction.setValue(terminal.acceptCard(type, amountMinor, referenceNumber));
         } catch (TerminalBusyException busy) {
-            transaction.setValue(null);
             terminalBusy.setValue(new Event<>(true));
         }
     }
