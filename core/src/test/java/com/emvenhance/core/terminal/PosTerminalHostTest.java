@@ -1,6 +1,7 @@
 package com.emvenhance.core.terminal;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -46,16 +47,17 @@ public class PosTerminalHostTest {
             sentToHost.add(config);
             return Single.just(AuthResult.approved("123456", "00", null, null));
         });
-        List<TransactionStep> steps = new ArrayList<>();
+        List<TransactionStep> steps = new CopyOnWriteArrayList<>();
         terminal.transactionSteps().subscribe(event -> steps.add(event.getStep()));
 
-        AuthResult result = terminal.engine.authorize(CONFIG);
+        AuthResult result = terminal.authorizeInsideATransaction();
 
         assertTrue(result.isApproved());
         assertEquals(1, sentToHost.size());
         assertSame(CONFIG, sentToHost.get(0));
-        assertEquals(Arrays.asList(TransactionStep.IDLE, TransactionStep.ONLINE_REQUIRED,
-                TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED), steps);
+        assertEquals(Arrays.asList(TransactionStep.ONLINE_REQUIRED,
+                TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED),
+                steps.subList(0, 3));
     }
 
     @Test
@@ -75,18 +77,19 @@ public class PosTerminalHostTest {
         TestTerminal terminal = new TestTerminal(
                 config -> Single.<AuthResult>never().doOnDispose(requestsCancelled::incrementAndGet));
         terminal.onlineTimeoutMs = 200;
-        List<TransactionStep> steps = new ArrayList<>();
+        List<TransactionStep> steps = new CopyOnWriteArrayList<>();
         terminal.transactionSteps().subscribe(event -> steps.add(event.getStep()));
 
         long started = System.currentTimeMillis();
-        AuthResult result = terminal.engine.authorize(CONFIG);
+        AuthResult result = terminal.authorizeInsideATransaction();
 
         assertTrue(result.isFailed());
         assertEquals("Online failed: the host didn't answer in time", result.getMessage());
         assertTrue("waited " + (System.currentTimeMillis() - started) + " ms",
                 System.currentTimeMillis() - started < 2_000);
         assertEquals(1, requestsCancelled.get());
-        assertEquals(TransactionStep.ONLINE_COMPLETED, steps.get(steps.size() - 1));
+        assertEquals("the host call's last step, before the end",
+                TransactionStep.ONLINE_COMPLETED, steps.get(steps.size() - 2));
     }
 
     @Test
@@ -104,12 +107,14 @@ public class PosTerminalHostTest {
         AtomicInteger inFlight = new AtomicInteger();
         AtomicInteger maxInFlight = new AtomicInteger();
         List<String> order = new CopyOnWriteArrayList<>();
+        List<Thread> threads = new CopyOnWriteArrayList<>();
         CountDownLatch allPrinted = new CountDownLatch(3);
         TestTerminal terminal = new TestTerminal(config -> Single.never(),
                 lines -> Completable.fromAction(() -> {
                     maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
                     Thread.sleep(50); // a real printer is slow
-                    order.add(lines.get(0) + " on " + Thread.currentThread().getName());
+                    order.add(lines.get(0));
+                    threads.add(Thread.currentThread());
                     inFlight.decrementAndGet();
                     allPrinted.countDown();
                 }));
@@ -120,8 +125,10 @@ public class PosTerminalHostTest {
 
         assertTrue("not all printed", allPrinted.await(5, TimeUnit.SECONDS));
         assertEquals("printer driven from two threads at once", 1, maxInFlight.get());
-        assertEquals(Arrays.asList("first on PosTerminal-print", "second on PosTerminal-print",
-                "third on PosTerminal-print"), order);
+        assertEquals(Arrays.asList("first", "second", "third"), order);
+        assertSame("one print thread", threads.get(0), threads.get(1));
+        assertSame("one print thread", threads.get(1), threads.get(2));
+        assertNotSame("not the caller's thread", Thread.currentThread(), threads.get(0));
     }
 
     private final class TestTerminal extends PosTerminal {
@@ -135,12 +142,30 @@ public class PosTerminalHostTest {
             }));
         }
 
+        private final java.util.concurrent.BlockingQueue<AuthResult> online =
+                new java.util.concurrent.LinkedBlockingQueue<>();
+        private final CountDownLatch ended = new CountDownLatch(1);
+
         TestTerminal(CommunicationBehavior host, PrinterBehavior printer) {
-            super(stub(EmvBehavior.class), host, printer);
+            super(preparingBehavior(), host, printer);
+            transactionSteps().filter(e -> e.getStep().isEnd()).subscribe(e -> ended.countDown());
+        }
+
+        /** A sale whose "card search" is the vendor going online, as EMV does mid-transaction. */
+        AuthResult authorizeInsideATransaction() {
+            acceptCard(TransactionType.SALE, 1000);
+            try {
+                AuthResult result = online.poll(5, TimeUnit.SECONDS);
+                assertTrue("the transaction never ended", ended.await(5, TimeUnit.SECONDS));
+                return result;
+            } catch (InterruptedException e) {
+                throw new AssertionError(e);
+            }
         }
 
         @Override
         public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
+            online.add(engine.authorize(CONFIG));
             return null;
         }
 
@@ -152,6 +177,14 @@ public class PosTerminalHostTest {
         protected long onlineTimeoutMs() {
             return onlineTimeoutMs;
         }
+    }
+
+    /** prepare() succeeds, so the terminal goes on to "search"; everything else is a no-op. */
+    private static EmvBehavior preparingBehavior() {
+        return (EmvBehavior) Proxy.newProxyInstance(EmvBehavior.class.getClassLoader(),
+                new Class<?>[] {EmvBehavior.class},
+                (proxy, method, args) -> method.getName().equals("prepare") ? Boolean.TRUE
+                        : method.getReturnType() == boolean.class ? false : null);
     }
 
     /** Interface stub whose methods do nothing and return a default value. */

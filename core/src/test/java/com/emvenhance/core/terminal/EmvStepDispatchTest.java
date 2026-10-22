@@ -35,13 +35,12 @@ public class EmvStepDispatchTest {
     private final TestSession session = new TestSession();
     private EmvEngine engine;
     private VendorBehavior vendor;
-    private final List<TransactionStepEvent> transaction = new ArrayList<>();
+    private final List<TransactionStepEvent> transaction = session.steps;
 
     @Before
     public void setUp() {
         vendor = new VendorBehavior();
         engine = session.engine(vendor, config -> AuthResult.failed("no host"));
-        engine.transactionSteps().skip(1).subscribe(transaction::add);
     }
 
     @Test

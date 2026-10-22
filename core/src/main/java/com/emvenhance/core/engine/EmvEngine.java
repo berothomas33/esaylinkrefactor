@@ -12,24 +12,21 @@ import com.emvenhance.core.util.EmvLog;
 
 import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
-import io.reactivex.rxjava3.subjects.Subject;
-import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
- * The EMV side of one terminal: owns the vendor's {@link EmvBehavior} and the
- * {@link #transactionSteps()} / {@link #emvSteps()} observables. No vendor logic, and no
- * transaction state: whether the transaction runs or was cancelled is {@code PosTerminal}'s,
- * read through the hooks it gives the constructor ({@link #isRunning()}, {@link #isCancelled()}).
+ * The EMV side of one terminal: owns the vendor's {@link EmvBehavior}, the {@link #emvSteps()}
+ * observable, the APDU trace and the retry request. No vendor logic.
  *
- * <p>{@code PosTerminal} owns everything outside EMV — card search, the host, the printer — and
- * reaches the behavior only through this class ({@link #prepare}, {@link #start}). An
- * ERROR/COMPLETED reported here is not published: it is handed to {@code PosTerminal}, which
- * ends the transaction with it and publishes it once the terminal is free ({@link #publishEnd}).
+ * <p>{@code PosTerminal} owns the transaction itself — its thread, busy, cancel, its steps and
+ * its end — and reaches the behavior only through this class ({@link #prepare},
+ * {@link #start}). The engine reads that state through the narrow hooks it is given: whether the
+ * transaction is still running ({@link #isRunning()} — no EMV step is published once it ended),
+ * whether it was cancelled ({@link #isCancelled()}), and where a transaction step goes
+ * ({@link #notifyTransactionStep}).
  *
  * <p>The one way back out is {@link #authorize}: a behavior goes online from inside the kernel,
  * so the engine hands that request to the {@link Authorizer} {@code PosTerminal} gave it —
@@ -38,29 +35,18 @@ import java.util.function.Consumer;
  */
 public final class EmvEngine {
 
-    private final BehaviorSubject<TransactionStepEvent> transactionSteps =
-            BehaviorSubject.createDefault(TransactionStepEvent.idle());
-
     /**
-     * Every transaction step is published through here, never on {@link #transactionSteps}
-     * directly: a cancel reports from the UI thread while the transaction thread is reporting
-     * too, and Rx subscribers must never get two {@code onNext} calls at once. One that arrives
-     * mid-delivery is queued and delivered right after, by the thread already delivering.
-     *
-     * <p>{@code emvSteps} deliberately is not serialized: a step method publishes the next step
-     * from inside delivery, and it has to run right there, not after the current one returns.
+     * Not serialized: a step method publishes the next step from inside delivery, and it has to
+     * run right there, not after the current one returns.
      */
-    private final Subject<TransactionStepEvent> transactionStepsSerialized =
-            transactionSteps.toSerialized();
-
     private final PublishSubject<EmvStepEvent> emvSteps = PublishSubject.create();
 
     private final EmvBehavior behavior;
 
     private final Authorizer authorizer;
 
-    /** {@code PosTerminal}'s: the first ERROR/COMPLETED ends the current transaction. */
-    private final Consumer<TransactionStepEvent> ended;
+    /** {@code PosTerminal}'s: where a transaction step goes (dropped once the transaction ended). */
+    private final Consumer<TransactionStepEvent> transactionSteps;
 
     /** {@code PosTerminal}'s: the current transaction hasn't ended. */
     private final BooleanSupplier running;
@@ -74,25 +60,17 @@ public final class EmvEngine {
     }
 
     public EmvEngine(EmvBehavior behavior, Authorizer authorizer,
-            Consumer<TransactionStepEvent> ended, BooleanSupplier running,
+            Consumer<TransactionStepEvent> transactionSteps, BooleanSupplier running,
             BooleanSupplier cancelled) {
         this.behavior = behavior;
         this.authorizer = authorizer;
-        this.ended = ended;
+        this.transactionSteps = transactionSteps;
         this.running = running;
         this.cancelled = cancelled;
     }
 
-    public Observable<TransactionStepEvent> transactionSteps() {
-        return transactionSteps.hide();
-    }
-
     public Observable<EmvStepEvent> emvSteps() {
         return emvSteps.hide();
-    }
-
-    public TransactionStepEvent currentTransactionState() {
-        return transactionSteps.getValue();
     }
 
     /** The current transaction hasn't ended (no ERROR/COMPLETED, not cancelled). */
@@ -153,52 +131,9 @@ public final class EmvEngine {
         notifyEmvStep(step, null);
     }
 
-    /**
-     * Publishes a transaction step. An ERROR/COMPLETED is not published here: it goes to
-     * {@code PosTerminal}, whose first one ends the transaction and is published by it, once,
-     * after the terminal is free ({@link #publishEnd}).
-     */
+    /** Hands {@code event} to {@code PosTerminal}, which publishes it while the transaction runs. */
     public void notifyTransactionStep(TransactionStepEvent event) {
-        if (event.getStep().isEnd()) {
-            ended.accept(event);
-            return;
-        }
-        publishNow(event);
-    }
-
-    /**
-     * {@code PosTerminal}'s: publishes the transaction's end, once, after the terminal is free.
-     * Interim until the transaction steps move to {@code PosTerminal}.
-     */
-    public void publishEnd(TransactionStepEvent end) {
-        publishNow(end);
-    }
-
-    private void publishNow(TransactionStepEvent event) {
-        EmvLog.d("TransactionStep: " + event);
-        traceTransactionStep(event);
-        transactionStepsSerialized.onNext(event);
-    }
-
-    /** Flags each transaction step in the APDU trace. */
-    private void traceTransactionStep(TransactionStepEvent event) {
-        TransactionStep step = event.getStep();
-        StringBuilder sb = new StringBuilder(step.getLabel().toUpperCase(Locale.US));
-        Object mode = event.get(TransactionStepEvent.KEY_MODE);
-        if (mode != null) {
-            sb.append(" (").append(mode).append(')');
-        }
-        Object error = event.get(TransactionStepEvent.KEY_ERROR);
-        Object result = event.get(TransactionStepEvent.KEY_RESULT);
-        String message = event.getMessage();
-        if (message != null && !message.equalsIgnoreCase(step.getLabel())) {
-            sb.append(": ").append(message);
-        } else if (error != null) {
-            sb.append(": ").append(error);
-        } else if (result != null) {
-            sb.append(": ").append(result);
-        }
-        apduTrace.transactionEvent(sb.toString());
+        transactionSteps.accept(event);
     }
 
     public void notifyApproved(String result) {

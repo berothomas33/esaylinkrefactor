@@ -13,8 +13,6 @@ import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStep;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.EmvBehavior;
 import com.emvenhance.core.util.ApduTrace;
@@ -56,20 +54,13 @@ public class EmvEngineTraceTest {
     }
 
     @Test
-    public void recordsKernelAndTransactionSteps() {
+    public void recordsKernelSteps() {
         assumeTrue("trace records in debug builds only", trace.isEnabled());
         session.begin(engine);
 
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                .put(TransactionStepEvent.KEY_MODE, "CONTACTLESS").build());
 
-        String text = trace.text();
-        assertTrue(text.contains("--- TRANSACTION STARTED"));
-        assertFalse("label repeated as message", text.contains("STARTED: Transaction started"));
-        assertTrue(text.contains("### KERNEL STEP 1. Search card (Insert, tap, or swipe)"));
-        assertTrue(text.contains("--- CARD DETECTED (CONTACTLESS)"));
+        assertTrue(trace.text().contains("### KERNEL STEP 1. Search card (Insert, tap, or swipe)"));
     }
 
     @Test

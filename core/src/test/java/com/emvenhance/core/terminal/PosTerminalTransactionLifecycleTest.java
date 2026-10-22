@@ -49,7 +49,7 @@ public class PosTerminalTransactionLifecycleTest {
     @Before
     public void setUp() {
         terminal = new TestTerminal();
-        terminal.transactionSteps().skip(1).subscribe(events::add); // skip the replayed state
+        terminal.transactionSteps().subscribe(events::add);
     }
 
     @After
@@ -144,6 +144,34 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
+    public void aCancelRacingTheEndNeverSaysCancellingAfterIt() throws Exception {
+        for (int i = 0; i < 200; i++) {
+            terminal.ends.clear();
+            events.clear();
+            PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000 + i);
+            Search search = terminal.nextSearch();
+            CountDownLatch go = new CountDownLatch(1);
+            Thread canceller = new Thread(() -> {
+                try {
+                    go.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                sale.cancel();          // ...while the screen cancels it
+            });
+            canceller.start();
+            go.countDown();
+            search.release.countDown(); // the transaction ends on its own...
+            canceller.join(5_000);
+            assertTrue("no end", awaitTrue(() -> count(TransactionStep.ERROR) == 1));
+            List<TransactionStep> steps = steps();
+            assertEquals("ends last: " + steps, TransactionStep.ERROR, steps.get(steps.size() - 1));
+            assertTrue("at most one CANCELLING: " + steps, count(TransactionStep.CANCELLING) <= 1);
+            assertTrue("terminal stayed busy", awaitTrue(() -> terminal.engineFree()));
+        }
+    }
+
+    @Test
     public void aTransactionCancelledBeforeItRanStillFreesTheTerminal() throws Exception {
         CountDownLatch hold = new CountDownLatch(1);
         transactionExecutor().execute(() -> {
@@ -199,8 +227,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         TransactionStepEvent end = terminal.awaitEnd();
         assertEquals("No card presented — card search timed out", end.getMessage());
-        assertEquals("one end: " + events, 1, count(TransactionStep.ERROR) + count(TransactionStep.COMPLETED));
-        assertNull("nothing ends it again", terminal.ends.poll(300, TimeUnit.MILLISECONDS));
+        assertEquals(java.util.Collections.singletonList(TransactionStep.ERROR), steps());
     }
 
     @Test
@@ -248,6 +275,15 @@ public class PosTerminalTransactionLifecycleTest {
         assertTrue(terminal.engine.isRunning());
         assertFalse(terminal.engine.isCancelled());
         assertEquals("the next search kept going", searchCancels, terminal.searchCancels.get());
+    }
+
+    @Test
+    public void nothingIsPublishedOutsideATransaction() {
+        terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        terminal.engine.notifyCompleted();
+
+        assertTrue(events.isEmpty());
+        assertFalse(terminal.engine.isRunning());
     }
 
     /**

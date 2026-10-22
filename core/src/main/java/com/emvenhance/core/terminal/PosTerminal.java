@@ -18,8 +18,11 @@ import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -60,6 +63,20 @@ public abstract class PosTerminal {
     });
 
     /**
+     * Every transaction's steps. Nothing is replayed to a new subscriber, and the stream never
+     * completes — a transaction's end is an event on it (COMPLETED / ERROR), not the end of the
+     * stream.
+     *
+     * <p>It is also the one lock of the transaction's reporting: every publish holds it. Steps
+     * come from the transaction thread, a cancel's CANCELLING from the UI thread, maybe a
+     * vendor's SDK thread: Rx subscribers must never get two {@code onNext} calls at once, and a
+     * cancel and the end must not cross (CANCELLING, then the end — never the end, then
+     * CANCELLING). One atomic can't order a publish on two threads; this lock does, in place of
+     * a {@code toSerialized()} — which, with a subscriber that throws, stops delivering for good.
+     */
+    private final PublishSubject<TransactionStepEvent> transactionSteps = PublishSubject.create();
+
+    /**
      * The one thread receipts print on: one printer, one job at a time, in the order they were
      * asked for — two quick taps on Print queue the second receipt instead of driving the printer
      * from two threads at once.
@@ -87,7 +104,7 @@ public abstract class PosTerminal {
             PrinterBehavior printer) {
         this.communication = communication;
         this.printer = printer;
-        this.engine = new EmvEngine(behavior, this::authorize, this::transactionEnded,
+        this.engine = new EmvEngine(behavior, this::authorize, this::publish,
                 this::isTransactionRunning, this::isTransactionCancelled);
         initializeVendor();
     }
@@ -156,8 +173,13 @@ public abstract class PosTerminal {
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
+    /**
+     * Every transaction's steps from now on; see {@link #transactionSteps the field}. Each
+     * subscriber is a {@link SafeObserver}: one that throws is cut off alone, and the others go on
+     * getting every step.
+     */
     public Observable<TransactionStepEvent> transactionSteps() {
-        return engine.transactionSteps();
+        return Observable.wrap(observer -> transactionSteps.subscribe(new SafeObserver<>(observer)));
     }
 
     public Observable<EmvStepEvent> emvSteps() {
@@ -171,10 +193,6 @@ public abstract class PosTerminal {
      */
     public ApduTrace apduTrace() {
         return engine.apduTrace();
-    }
-
-    public TransactionStepEvent currentState() {
-        return engine.currentTransactionState();
     }
 
     /**
@@ -245,17 +263,70 @@ public abstract class PosTerminal {
     }
 
     /**
-     * An ERROR/COMPLETED reported to the engine: the first one ends the current transaction, and
-     * {@link Transaction#run} publishes it once the terminal is free; a later one is dropped.
+     * Every transaction step comes through here ({@link EmvEngine#notifyTransactionStep} hands
+     * the behavior's ones over). Published only while the current transaction is running; the
+     * first ERROR/COMPLETED ends it ({@link Transaction#end}) and is published by
+     * {@link Transaction#run} once the terminal is free; anything after it is dropped.
      */
-    private void transactionEnded(TransactionStepEvent event) {
-        Transaction transaction = current.get();
-        if (transaction == null || !transaction.end.compareAndSet(null, event)) {
-            EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
-            engine.apduTrace().note("EMV",
-                    "transaction step dropped, the transaction has ended: " + event);
+    private void publish(TransactionStepEvent event) {
+        synchronized (transactionSteps) {
+            Transaction transaction = current.get();
+            if (transaction == null || !transaction.isRunning()) {
+                EmvLog.d("TransactionStep dropped, no transaction running: " + event);
+                engine.apduTrace().note("EMV",
+                        "transaction step dropped, the transaction has ended: " + event);
+                return;
+            }
+            if (event.getStep().isEnd()) {
+                if (!transaction.end.compareAndSet(null, event)) { // the first end wins
+                    EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
+                }
+                return;
+            }
+            publishNow(event);
         }
     }
+
+    /**
+     * Delivers {@code event} to every subscriber, under the lock. A subscriber that throws is
+     * logged and the delivery carries on: neither the stream nor the transaction thread (which
+     * may be mid-EMV) goes down with it.
+     */
+    private void publishNow(TransactionStepEvent event) {
+        synchronized (transactionSteps) {
+            EmvLog.d("TransactionStep: " + event);
+            traceTransactionStep(event);
+            try {
+                transactionSteps.onNext(event);
+            } catch (Throwable t) {
+                EmvLog.d("A transaction-steps subscriber threw on " + event + ": " + t);
+                engine.apduTrace().note("EMV", "a screen failed on " + event.getStep()
+                        + " — the transaction carries on");
+            }
+        }
+    }
+
+    /** Flags each transaction step in the APDU trace. */
+    private void traceTransactionStep(TransactionStepEvent event) {
+        TransactionStep step = event.getStep();
+        StringBuilder sb = new StringBuilder(step.getLabel().toUpperCase(Locale.US));
+        Object mode = event.get(TransactionStepEvent.KEY_MODE);
+        if (mode != null) {
+            sb.append(" (").append(mode).append(')');
+        }
+        Object error = event.get(TransactionStepEvent.KEY_ERROR);
+        Object result = event.get(TransactionStepEvent.KEY_RESULT);
+        String message = event.getMessage();
+        if (message != null && !message.equalsIgnoreCase(step.getLabel())) {
+            sb.append(": ").append(message);
+        } else if (error != null) {
+            sb.append(": ").append(error);
+        } else if (result != null) {
+            sb.append(": ").append(result);
+        }
+        engine.apduTrace().transactionEvent(sb.toString());
+    }
+
 
     private static TransactionStepEvent errorEvent(String error) {
         return TransactionStepEvent.builder(TransactionStep.ERROR)
@@ -324,10 +395,12 @@ public abstract class PosTerminal {
          * nothing once it has ended — a finished sale, or a second cancel.
          */
         public void cancel() {
-            if (!end.compareAndSet(null, cancelled)) {
-                return;
+            synchronized (transactionSteps) {
+                if (!end.compareAndSet(null, cancelled)) {
+                    return;
+                }
+                publishNow(cancelling); // under the lock: before the end, whichever thread is first
             }
-            engine.notifyTransactionStep(cancelling);
             cancelCardSearch();
         }
 
@@ -368,12 +441,14 @@ public abstract class PosTerminal {
                 end.compareAndSet(null,
                         errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
-                // A search that stopped with no outcome still ends its transaction.
-                if (end.compareAndSet(null, errorEvent("Transaction ended without an outcome"))) {
-                    engine.apduTrace().note("EMV", "the search stopped with no outcome — ERROR");
+                synchronized (transactionSteps) { // a cancel's CANCELLING can't land after the end
+                    // A search that stopped with no outcome still ends its transaction.
+                    if (end.compareAndSet(null, errorEvent("Transaction ended without an outcome"))) {
+                        engine.apduTrace().note("EMV", "the search stopped with no outcome — ERROR");
+                    }
+                    current.compareAndSet(this, null); // done with the reader: the terminal is free
+                    publishNow(end.get());
                 }
-                current.compareAndSet(this, null); // done with the reader: the terminal is free
-                engine.publishEnd(end.get());
             }
         }
     }
