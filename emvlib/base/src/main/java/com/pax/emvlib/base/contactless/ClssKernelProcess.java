@@ -59,7 +59,8 @@ public abstract class ClssKernelProcess<T extends BaseParam<? extends BaseAid>> 
     /**
      * True if this brand's native SDK exposes read/offline-auth/restrictions as separate calls
      * (see {@link com.pax.emvlib.process.contactless.ClssEFTProcess},
-     * {@link com.pax.emvlib.process.contactless.ClssPayPassProcess}). False (the default) means
+     * {@link com.pax.emvlib.process.contactless.ClssPayPassProcess},
+     * {@link com.pax.emvlib.process.contactless.ClssPayWaveProcess}). False (the default) means
      * the kernel's entire transaction runs inside one blocking {@link #startTransProcess()}
      * call — a genuine vendor SDK limitation, not an implementation gap.
      * {@code ClssProcess}/{@code PaxEmvBehavior} skip straight from application selection to
@@ -67,6 +68,16 @@ public abstract class ClssKernelProcess<T extends BaseParam<? extends BaseAid>> 
      * {@link #offlineDataAuthentication()}, and {@link #processRestrictions()} are never called.
      */
     public boolean supportsGranularSteps() {
+        return false;
+    }
+
+    /**
+     * True if this kernel runs {@link #processRestrictions()} before
+     * {@link #offlineDataAuthentication()} (PayWave). The stages always follow the kernel's own
+     * order; false (the default) is offline data authentication first. Only matters when
+     * {@link #supportsGranularSteps()} is true.
+     */
+    public boolean restrictionsBeforeOfflineDataAuth() {
         return false;
     }
 

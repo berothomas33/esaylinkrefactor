@@ -46,6 +46,14 @@ import java.util.Arrays;
 public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
     private static final String TAG = "ClssPayWaveProcess";
     private String track2 = null;
+    /** The card's cryptogram type from Clss_Proctrans_Wave; Clss_CardAuth_Wave may update it. */
+    private ACType acType = new ACType();
+    /**
+     * The card answered AAC to Clss_Proctrans_Wave: the original flow returned an offline
+     * decline right there, with no restrictions, card auth or CVM call — the later stages keep
+     * it that way.
+     */
+    private boolean cardDeclined;
 
     //partial match, the aid len in xml file is less than kernel select in card
     private boolean isSupportPartialAidMatch(PayWaveAid aid) {
@@ -191,8 +199,35 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
         return ClssWaveApi.Clss_SetFinalSelectData_Wave(finalSelectData, finalSelectDataLen);
     }
 
+    /**
+     * PayWave's SDK exposes each EMV stage as its own native call, and this class runs them in
+     * the same order the original single startTransProcess() did:
+     * <ol>
+     *   <li>{@link #setTransactionData()} — Clss_CoreInit_Wave, reader/final-select data,
+     *       Clss_SetVisaAidParam_Wave, Clss_SetTransData_Wave;</li>
+     *   <li>{@link #readApplicationData()} — Clss_Proctrans_Wave (GPO + read records; a qVSDC
+     *       card returns its cryptogram with the GPO), then MSD track data;</li>
+     *   <li>{@link #processRestrictions()} — Clss_ProcRestric_Wave;</li>
+     *   <li>{@link #offlineDataAuthentication()} — Clss_CardAuth_Wave, when needed;</li>
+     *   <li>{@link #startTransProcess()} — Clss_GetCvmType_Wave and the result.</li>
+     * </ol>
+     * Restrictions run before offline data authentication: see
+     * {@link #restrictionsBeforeOfflineDataAuth()}.
+     */
     @Override
-    public TransResult startTransProcess() {
+    public boolean supportsGranularSteps() {
+        return true;
+    }
+
+    /** Clss_ProcRestric_Wave, then Clss_CardAuth_Wave — the PAX PayWave order. */
+    @Override
+    public boolean restrictionsBeforeOfflineDataAuth() {
+        return true;
+    }
+
+    /** EMV "Set Transaction Data" (kernel init/config + Visa AID params + transaction data). */
+    @Override
+    public TransResult setTransactionData() {
         int ret = coreInit();
         if (ret != RetCode.EMV_OK) {
             LogUtils.e(TAG, "coreInit ret = " + ret);
@@ -204,9 +239,20 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
             LogUtils.e(TAG, "setTransParam ret = " + ret);
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
+        return new TransResult(RetCode.EMV_OK);
+    }
 
-        ACType acType = new ACType();
-        ret = ClssWaveApi.Clss_Proctrans_Wave(transactionPath, acType);
+    /**
+     * EMV "Read Application Data": Clss_Proctrans_Wave (GPO + read records), after
+     * setTransactionData. Ends the transaction on the kernel's own outcomes (see phone, use
+     * contact, an error). An AAC here goes on with no further kernel call, as before: see
+     * {@link #cardDeclined}.
+     */
+    @Override
+    public TransResult readApplicationData() {
+        acType = new ACType();
+        cardDeclined = false;
+        int ret = ClssWaveApi.Clss_Proctrans_Wave(transactionPath, acType);
         if (enableDebugLog) {
             LogUtils.d(TAG, "Clss_Proctrans_Wave: "+ ret
                     + "debug info: " + ClssWaveApi.Clss_GetDebugInfo_Wave());
@@ -239,32 +285,99 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
 
         if (acType.type == ACType.AC_AAC) {
             LogUtils.e(TAG, "Clss_Proctrans_Wave acType.type = " + acType.type);
+            cardDeclined = true;
+            return new TransResult(RetCode.EMV_OK);
+        }
+
+        if (isMsdPath()) {
+            ret = processMSD();
+            if (ret != RetCode.EMV_OK) {
+                LogUtils.e(TAG, "processTransactionPath ret = " + ret);
+                return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+            }
+        } else if (!isWavePath()) {
+            LogUtils.e(TAG, "processTransactionPath err transactionPath.path = " + transactionPath.path);
+            return new TransResult(RetCode.CLSS_PARAM_ERR, TransResultEnum.RESULT_OFFLINE_DENIED,
+                    CvmResultEnum.CVM_NO_CVM);
+        }
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    /** EMV "Processing Restrictions": Clss_ProcRestric_Wave (qVSDC / Wave2 paths only). */
+    @Override
+    public TransResult processRestrictions() {
+        if (cardDeclined || !isWavePath()) {
+            return new TransResult(RetCode.EMV_OK);
+        }
+        if(acType.type == ACType.AC_TC){
+            //todo, exception files checking, if need
+            //The exception files checking is implemented by application. When card returns TC,
+            // application should check the exception file first. If the PAN is in exception file,
+            // the application should decline the transaction immediately, otherwise, continue to Clss_ProcRestric_Wave.
+        }
+        int ret = ClssWaveApi.Clss_ProcRestric_Wave();
+        if (ret != RetCode.EMV_OK) {
+            LogUtils.e(TAG, "Clss_ProcRestric_Wave  ret =" + ret);
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
+        return new TransResult(RetCode.EMV_OK);
+    }
 
-        ret = processTransactionPath(acType);
-        if (ret != RetCode.EMV_OK) {
-            LogUtils.e(TAG, "processTransactionPath ret = " + ret);
-             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+    /**
+     * EMV "Offline Data Authentication": CAPK + Clss_CardAuth_Wave, after processRestrictions,
+     * only when the card returned a TC (not a refund) or the reader's TTQ asks for offline data
+     * authentication on online transactions too.
+     */
+    @Override
+    public TransResult offlineDataAuthentication() {
+        if (cardDeclined || !isWavePath()) {
+            return new TransResult(RetCode.EMV_OK);
         }
+        //Special purpose readers may perform offline data authentication for online transactions.
+        // change the condition of Clss_CardAuth_Wave if need(like ttq byte1 bit 1 = 1, Offline Data Authentication for Online Authorizations supported)
+        if (((acType.type == ACType.AC_TC) && transParam.ucTransType != 0x20) //no refund
+                || ((preProcInterInfo.aucReaderTTQ[0] & (byte)0x01) == 0x01)) { //Offline Data Authentication for Online Authorizations supported
+            ClssWaveApi.Clss_DelAllRevocList_Wave();
+            ClssWaveApi.Clss_DelAllCAPK_Wave();
+            int ret = addCapkRevList();
+            if (ret != RetCode.EMV_OK) {
+                LogUtils.e(TAG, "processTransactionPath ret = " + ret);
+                return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+            }
 
+            DDAFlag flag = new DDAFlag();
+            ret = ClssWaveApi.Clss_CardAuth_Wave(acType, flag);
+            LogUtils.d(TAG, "after Clss_CardAuth_Wave acType =" + acType.type + ", flag = " + flag.flag);
+            if (ret != RetCode.EMV_OK) {
+                LogUtils.e(TAG, "Clss_CardAuth_Wave ret =" + ret);
+                return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+            }
+        }
+        return new TransResult(RetCode.EMV_OK);
+    }
+
+    /**
+     * What remains after the granular stages: the CVM the kernel decided on
+     * (Clss_GetCvmType_Wave) and the outcome from the card's cryptogram. A card that answered
+     * AAC to Clss_Proctrans_Wave is an offline decline, with no further kernel call.
+     */
+    @Override
+    public TransResult startTransProcess() {
+        if (cardDeclined) {
+            return new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+        }
         return genTransResult(acType);
     }
 
-    private int processTransactionPath(ACType acType) {
-        LogUtils.d(TAG, "processTradnsactionPath transactionPath.path = " + transactionPath.path);
-        if (transactionPath.path == TransactionPath.CLSS_VISA_MSD
+    private boolean isMsdPath() {
+        return transactionPath.path == TransactionPath.CLSS_VISA_MSD
                 || transactionPath.path == TransactionPath.CLSS_VISA_MSD_CVN17
-                || transactionPath.path == TransactionPath.CLSS_VISA_MSD_LEGACY) {
+                || transactionPath.path == TransactionPath.CLSS_VISA_MSD_LEGACY;
+    }
 
-            return processMSD();
-        } else if (transactionPath.path == TransactionPath.CLSS_VISA_QVSDC
-                || transactionPath.path == TransactionPath.CLSS_VISA_WAVE2) {
-            return processWave(acType);
-        }
-
-        LogUtils.e(TAG, "processTransactionPath err transactionPath.path = " + transactionPath.path);
-        return RetCode.CLSS_PARAM_ERR;
+    private boolean isWavePath() {
+        return transactionPath.path == TransactionPath.CLSS_VISA_QVSDC
+                || transactionPath.path == TransactionPath.CLSS_VISA_WAVE2;
     }
 
     private int processMSD() {
@@ -279,41 +392,6 @@ public class ClssPayWaveProcess extends ClssKernelProcess<PayWaveParam> {
         }
         track2 = getTrack2FromTag57(ConvertUtils.bcd2Str(waveGetTrack2List.data, waveGetTrack2List.length));
         return RetCode.EMV_OK;
-    }
-
-    private int processWave(ACType acType) {
-        if(acType.type == ACType.AC_TC){
-            //todo, exception files checking, if need
-            //The exception files checking is implemented by application. When card returns TC,
-            // application should check the exception file first. If the PAN is in exception file,
-            // the application should decline the transaction immediately, otherwise, continue to Clss_ProcRestric_Wave.
-        }
-        int ret = ClssWaveApi.Clss_ProcRestric_Wave();
-        if (ret != RetCode.EMV_OK) {
-            LogUtils.e(TAG, "Clss_ProcRestric_Wave  ret =" + ret);
-            return ret;
-        }
-
-        //Special purpose readers may perform offline data authentication for online transactions.
-        // change the condition of Clss_CardAuth_Wave if need(like ttq byte1 bit 1 = 1, Offline Data Authentication for Online Authorizations supported)
-        if (((acType.type == ACType.AC_TC) && transParam.ucTransType != 0x20) //no refund
-                || ((preProcInterInfo.aucReaderTTQ[0] & (byte)0x01) == 0x01)) { //Offline Data Authentication for Online Authorizations supported
-            ClssWaveApi.Clss_DelAllRevocList_Wave();
-            ClssWaveApi.Clss_DelAllCAPK_Wave();
-            ret = addCapkRevList();
-            if (ret != RetCode.EMV_OK) {
-                return ret;
-            }
-
-            DDAFlag flag = new DDAFlag();
-            ret = ClssWaveApi.Clss_CardAuth_Wave(acType, flag);
-            LogUtils.d(TAG, "after Clss_CardAuth_Wave acType =" + acType.type + ", flag = " + flag.flag);
-            if (ret != RetCode.EMV_OK) {
-                LogUtils.e(TAG, "Clss_CardAuth_Wave ret =" + ret);
-                return ret;
-            }
-        }
-        return ret;
     }
 
     private TransResult genTransResult(ACType acType) {

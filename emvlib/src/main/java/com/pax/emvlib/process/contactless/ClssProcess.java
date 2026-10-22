@@ -174,6 +174,11 @@ public class ClssProcess extends EmvBase {
         return clssKernelProcess != null && clssKernelProcess.supportsGranularSteps();
     }
 
+    /** True if the selected kernel runs processing restrictions before offline data auth. */
+    public boolean restrictionsBeforeOfflineDataAuth() {
+        return clssKernelProcess != null && clssKernelProcess.restrictionsBeforeOfflineDataAuth();
+    }
+
     /** EMV "Set Transaction Data" — only called when {@link #supportsGranularSteps()} is true. */
     public TransResult setTransactionData() {
         if (clssKernelProcess == null) {
