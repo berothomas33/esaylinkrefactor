@@ -27,11 +27,9 @@ import java.util.function.Consumer;
  * read through the hooks it gives the constructor ({@link #isRunning()}, {@link #isCancelled()}).
  *
  * <p>{@code PosTerminal} owns everything outside EMV — card search, the host, the printer — and
- * reaches the behavior only through this class ({@link #prepare}, {@link #start}). It also
- * subscribes to its own {@link #transactionSteps()} to run {@code dispatchTransactionStepMethod} —
- * the one place engine-side bookkeeping tied to a specific step (handing ERROR/COMPLETED to
- * {@code PosTerminal}, which ends the transaction) lives, instead of scattering it across the
- * {@code notifyXxx} methods.
+ * reaches the behavior only through this class ({@link #prepare}, {@link #start}). An
+ * ERROR/COMPLETED reported here is not published: it is handed to {@code PosTerminal}, which
+ * ends the transaction with it and publishes it once the terminal is free ({@link #publishEnd}).
  *
  * <p>The one way back out is {@link #authorize}: a behavior goes online from inside the kernel,
  * so the engine hands that request to the {@link Authorizer} {@code PosTerminal} gave it —
@@ -83,10 +81,6 @@ public final class EmvEngine {
         this.ended = ended;
         this.running = running;
         this.cancelled = cancelled;
-        // notify → onNext → this observer: the single dispatch point for engine-side bookkeeping.
-        // Subscribing here, first, means this runs before any external subscriber
-        // (PosTerminal/MainViewModel) sees the same event.
-        transactionSteps.subscribe(this::dispatchTransactionStepMethod);
     }
 
     public Observable<TransactionStepEvent> transactionSteps() {
@@ -159,7 +153,28 @@ public final class EmvEngine {
         notifyEmvStep(step, null);
     }
 
+    /**
+     * Publishes a transaction step. An ERROR/COMPLETED is not published here: it goes to
+     * {@code PosTerminal}, whose first one ends the transaction and is published by it, once,
+     * after the terminal is free ({@link #publishEnd}).
+     */
     public void notifyTransactionStep(TransactionStepEvent event) {
+        if (event.getStep().isEnd()) {
+            ended.accept(event);
+            return;
+        }
+        publishNow(event);
+    }
+
+    /**
+     * {@code PosTerminal}'s: publishes the transaction's end, once, after the terminal is free.
+     * Interim until the transaction steps move to {@code PosTerminal}.
+     */
+    public void publishEnd(TransactionStepEvent end) {
+        publishNow(end);
+    }
+
+    private void publishNow(TransactionStepEvent event) {
         EmvLog.d("TransactionStep: " + event);
         traceTransactionStep(event);
         transactionStepsSerialized.onNext(event);
@@ -184,18 +199,6 @@ public final class EmvEngine {
             sb.append(": ").append(result);
         }
         apduTrace.transactionEvent(sb.toString());
-    }
-
-    /**
-     * Single dispatch point for engine-side transaction-step handling — every
-     * {@link #notifyTransactionStep} eventually reaches here via the {@link #transactionSteps}
-     * subscription above, exactly like {@code AbstractEmvBehavior#dispatchStepMethod} centralizes
-     * per-{@link EmvStep} handling instead of scattering it across call sites.
-     */
-    private void dispatchTransactionStepMethod(TransactionStepEvent event) {
-        if (event.getStep().isEnd()) {
-            ended.accept(event);
-        }
     }
 
     public void notifyApproved(String result) {
