@@ -21,7 +21,7 @@ app (src/main: every screen)  ──►  core (PosTerminal, AbstractEmvBehavior,
 | `com.emvenhance.vendor.TerminalFactory` | **By name.** `EmvEnhanceApp` calls `TerminalFactory.create(this)`. Same package and class name in every vendor — no interface | the flavor's build fails: `cannot find symbol TerminalFactory` |
 | `com.emvenhance.vendor.VendorApplication` | **By name.** `EmvEnhanceApp extends VendorApplication`. PAX: `extends BaseApplication` (the PAX SDK reads `BaseApplication.getAppContext()`); others: `extends Application` | the flavor's build fails: `cannot find symbol VendorApplication` |
 | a `PosTerminal` subclass (`PaxTerminal`) | **By inheritance.** `create()` returns a `PosTerminal`, which is abstract: `searchCard`, `cancelCardSearch` | can't instantiate `PosTerminal`; the compiler asks for both methods |
-| an `AbstractEmvBehavior` subclass (`PaxEmvBehavior`) | **By inheritance.** `PosTerminal`'s constructor takes the behavior: 16 step hooks + `readIccTag` | the compiler asks for all 17 |
+| an `AbstractEmvBehavior` subclass (`PaxEmvBehavior`) | **By inheritance.** `PosTerminal`'s constructor takes the behavior and runs it for each attempt (`prepare` / `start`, handed the engine and the attempt's `Transaction`): 16 step hooks + `readIccTag` | the compiler asks for all 17 |
 
 Not required as a class: the **printer**. `PosTerminal`'s constructor needs a `PrinterBehavior`
 object — `HostDefaults.logPrinter("Xyz")` is enough (Fake does that). A real printer is a class
@@ -72,11 +72,12 @@ and leaves the others empty with a comment (rule 11). Tools the base gives:
 | Tool | For |
 |---|---|
 | `goToStep(step)` | next stage; returns `false` once the transaction ended (a cancel) — release what you hold |
+| `publish(event)` | a transaction step the screen shows (`CARD_READ`, `APPLICATION_SELECTED`, `CARDHOLDER_VERIFIED`…), on the attempt's `Transaction`; dropped once it ended |
 | `askStep(step, detail, failClosed)` / `answerStep(value)` | a kernel callback that needs the cardholder (app choice, PIN): the step method answers; no answer → `failClosed` |
 | `authorizeOnline()` | send the sale to the host (builds field 55 from `readIccTag`) |
-| `finishApproved` / `finishDeclined` / `finishError` | end the transaction with its outcome |
+| `finishApproved` / `finishDeclined` / `finishError` | end the transaction with its outcome (an APPROVED / DECLINED event of your own carries your audit data) |
 | `isSynchronousEntry(card)` | magstripe / manual (no chip session) |
-| `isCancelled()` | only where a result must not be reported after a cancel |
+| `isRunning()` / `isCancelled()` | a wait of your own that must give up once the transaction ended; a result that must not be reported after a cancel |
 
 Kernel callbacks (rule 12): thin, never `suspend` / Rx, and on every path — exceptions included —
 they answer the kernel with a fail-closed value. Nothing is approved without a host answer

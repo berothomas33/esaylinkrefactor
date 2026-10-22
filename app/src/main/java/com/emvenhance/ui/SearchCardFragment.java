@@ -214,8 +214,8 @@ public class SearchCardFragment extends Fragment {
                     break;
             }
 
-            // APPROVED/DECLINED is immediately followed by a separate COMPLETED event (engine's
-            // notifyCompleted(), fired right after) — both land on this same observer within the
+            // APPROVED/DECLINED is immediately followed by a separate COMPLETED event (the
+            // behavior's finishApproved/finishDeclined) — both land on this same observer within the
             // same main-thread burst, before a frame ever draws. Hiding resultGroup again on
             // that COMPLETED event (or on ERROR, or on anything else) meant the panel was set
             // VISIBLE then GONE before Android ever painted it — never actually seen. Only ever

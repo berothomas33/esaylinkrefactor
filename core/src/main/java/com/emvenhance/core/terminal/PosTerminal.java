@@ -34,15 +34,16 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * The only public hardware API for the app.
  *
- * <p>Owns card search, host communication, and printer. EMV after entry selection is
- * delegated to its {@link EmvEngine}, which owns the vendor's {@link EmvBehavior}.
+ * <p>Owns card search, host communication, and printer. EMV after entry selection is the
+ * vendor's {@link EmvBehavior}, run by this terminal for each attempt with its {@link EmvEngine}
+ * (EMV steps, APDU trace, retry, the way online) and the attempt's {@link Transaction}.
  *
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [returns its Transaction at once]
  *          └── transaction thread: process(transaction)
- *          └── engine.prepare + searchCard(config, listener)        ← vendor SDK
+ *          └── behavior.prepare(engine, config, transaction) + searchCard(config, listener) ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
- *                        └── engine.start(card)                     ← vendor EMV, from inside the callback
+ *                        └── behavior.start(engine, config, card, transaction) ← vendor EMV, from inside the callback
  *                               └── behavior → engine.authorize → PosTerminal.authorize → host
  * </pre>
  *
@@ -54,6 +55,10 @@ import java.util.concurrent.atomic.AtomicReference;
 public abstract class PosTerminal {
 
     protected final EmvEngine engine;
+
+    /** The vendor's EMV: this terminal runs it for each attempt, handing it the transaction. */
+    private final EmvBehavior behavior;
+
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
 
@@ -79,17 +84,14 @@ public abstract class PosTerminal {
      */
     private final AtomicReference<Transaction> current = new AtomicReference<>();
 
-    /**
-     * @param behavior the vendor's EMV — handed to this terminal's {@link EmvEngine}, which owns
-     *                 it; the terminal itself only ever talks to the engine
-     */
+    /** @param behavior the vendor's EMV, run by this terminal for each attempt */
     protected PosTerminal(EmvBehavior behavior,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
+        this.behavior = behavior;
         this.communication = communication;
         this.printer = printer;
-        this.engine = new EmvEngine(behavior, this::authorize, this::publish,
-                this::isTransactionRunning, this::isTransactionCancelled);
+        this.engine = new EmvEngine(this::authorize);
         initializeVendor();
     }
 
@@ -110,8 +112,8 @@ public abstract class PosTerminal {
      * around the call, so a vendor gets the notify sequence for free instead of repeating it.
      */
     public AuthResult authorize(TransactionConfig config) {
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
         AuthResult result;
         try {
             // Cancel doesn't cut this short: once sent, the sale may be approved at the host, and
@@ -126,7 +128,7 @@ public abstract class PosTerminal {
                     ? "Online failed: the host didn't answer in time"
                     : e.getMessage() != null ? e.getMessage() : "Online failed");
         }
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
+        publish(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
                 .build());
         return result;
@@ -218,7 +220,7 @@ public abstract class PosTerminal {
         if (transaction != null) {
             transaction.cancel();
         }
-        engine.dispose();
+        behavior.dispose();
     }
 
     /**
@@ -236,44 +238,14 @@ public abstract class PosTerminal {
         return transaction != null && transaction.isOver();
     }
 
-    /** The engine's {@link EmvEngine#isRunning()}: the current transaction hasn't ended. */
-    private boolean isTransactionRunning() {
-        Transaction transaction = current.get();
-        return transaction != null && transaction.isRunning();
-    }
-
-    /** The engine's {@link EmvEngine#isCancelled()}: the current transaction was cancelled. */
-    private boolean isTransactionCancelled() {
-        Transaction transaction = current.get();
-        return transaction != null && transaction.isCancelled();
-    }
-
-    /**
-     * Every transaction step comes through here ({@link EmvEngine#notifyTransactionStep} hands
-     * the behavior's ones over). Published only while the current transaction is running, on
-     * that transaction's {@link Transaction#steps()}; the first end ends it
-     * ({@link Transaction#end}) and is published by {@link #process} once the terminal is free;
-     * anything after it is dropped.
-     */
+    /** {@link #authorize}'s steps, on the transaction going online: the current one. */
     private void publish(TransactionStepEvent event) {
         Transaction transaction = current.get();
         if (transaction == null) {
             EmvLog.d("TransactionStep dropped, no transaction: " + event);
             return;
         }
-        synchronized (transaction.steps) {
-            if (!transaction.isRunning()) {
-                EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
-                engine.apduTrace().note("EMV",
-                        "transaction step dropped, the transaction has ended: " + event);
-                return;
-            }
-            if (event.getStep().isEnd()) {
-                transaction.end(event);
-                return;
-            }
-            transaction.publishNow(event);
-        }
+        transaction.publish(event);
     }
 
     /** Flags each transaction step in the APDU trace. */
@@ -429,6 +401,28 @@ public abstract class PosTerminal {
             return !isRunning() || current.get() != this;
         }
 
+        /**
+         * Every step of this transaction comes through here — the terminal's own and its
+         * behavior's ({@link AbstractEmvBehavior#publish}). Published only while it is running;
+         * the first end ends it ({@link #end}) and is published by {@link #process} once the
+         * terminal is free; anything after it is dropped.
+         */
+        void publish(TransactionStepEvent event) {
+            synchronized (steps) {
+                if (!isRunning()) {
+                    EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
+                    engine.apduTrace().note("EMV",
+                            "transaction step dropped, the transaction has ended: " + event);
+                    return;
+                }
+                if (event.getStep().isEnd()) {
+                    end(event);
+                    return;
+                }
+                publishNow(event);
+            }
+        }
+
         /** The first end wins; a later one (a stage noticing the cancel, say) is dropped. */
         private void end(TransactionStepEvent event) {
             if (!end.compareAndSet(null, event)) {
@@ -469,7 +463,7 @@ public abstract class PosTerminal {
     private void process(Transaction transaction) {
         try {
             engine.begin();
-            publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)); // once
+            transaction.publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)); // once
             // Each attempt: prepare, search, EMV. A retry the behavior asked for (fallback,
             // try another interface, try again, See Phone) is the next turn of this loop — not a
             // search started from inside the previous search's callback.
@@ -492,7 +486,8 @@ public abstract class PosTerminal {
         }
     }
 
-    private static TransactionStepEvent errorEvent(String error) {
+    /** An ERROR step: the terminal's own, and its behavior's ({@link AbstractEmvBehavior#finishError}). */
+    static TransactionStepEvent errorEvent(String error) {
         return TransactionStepEvent.builder(TransactionStep.ERROR)
                 .message(error)
                 .put(TransactionStepEvent.KEY_ERROR, error)
@@ -510,8 +505,9 @@ public abstract class PosTerminal {
      */
     @Nullable
     private TransactionConfig attempt(Transaction transaction, TransactionConfig config) {
-        if (!engine.prepare(config)) {
-            engine.notifyError("Terminal initialization failed"); // dropped if it already ended
+        if (!behavior.prepare(engine, config, transaction)) {
+            // Dropped if it already ended.
+            transaction.publish(errorEvent("Terminal initialization failed"));
             return null;
         }
         searchCard(config, new EngineReportingListener(transaction, config));
@@ -525,7 +521,7 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Maps reader events → engine subjects for the UI, and starts EMV once a card is found. Belongs
+     * Maps reader events → its transaction's steps, and starts EMV once a card is found. Belongs
      * to one {@link Transaction}: once that is over, its callbacks are dropped, so a search that
      * outlived it can't fail, or start EMV for, the next one.
      */
@@ -559,7 +555,7 @@ public abstract class PosTerminal {
             if (prompt != null) {
                 waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt);
             }
-            engine.notifyTransactionStep(waiting.build());
+            transaction.publish(waiting.build());
             engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg);
         }
 
@@ -588,7 +584,7 @@ public abstract class PosTerminal {
             if (isStale("onCardRemoved")) {
                 return;
             }
-            engine.notifyTransactionStep(TransactionStepEvent.of(
+            transaction.publish(TransactionStepEvent.of(
                     TransactionStep.WAITING_FOR_CARD, "Card removed"));
         }
 
@@ -597,7 +593,7 @@ public abstract class PosTerminal {
             if (isStale("onSearchTimeout")) {
                 return;
             }
-            engine.notifyError("No card presented — card search timed out");
+            transaction.publish(errorEvent("No card presented — card search timed out"));
         }
 
         @Override
@@ -605,7 +601,7 @@ public abstract class PosTerminal {
             if (isStale("onSearchCancelled")) {
                 return;
             }
-            engine.notifyError("Card search cancelled");
+            transaction.publish(errorEvent("Card search cancelled"));
         }
 
         @Override
@@ -613,7 +609,7 @@ public abstract class PosTerminal {
             if (isStale("onReaderError")) {
                 return;
             }
-            engine.notifyError(message != null ? message : "Reader error");
+            transaction.publish(errorEvent(message != null ? message : "Reader error"));
         }
 
         @Override
@@ -621,7 +617,7 @@ public abstract class PosTerminal {
             if (isStale("onSearchRetry")) {
                 return;
             }
-            engine.notifyTransactionStep(TransactionStepEvent.builder(
+            transaction.publish(TransactionStepEvent.builder(
                     TransactionStep.WAITING_FOR_CARD).message(message)
                     .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build());
             engine.notifyEmvStep(EmvStep.SEARCH_CARD, message);
@@ -632,12 +628,12 @@ public abstract class PosTerminal {
             if (isStale("card detected")) {
                 return;
             }
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+            transaction.publish(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
                     .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
                     .put("entryMethod", card.getEntryMethod().name())
                     .build());
 
-            engine.start(config, card);
+            behavior.start(engine, config, card, transaction);
         }
     }
 

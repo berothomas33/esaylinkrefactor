@@ -17,6 +17,7 @@ import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractAppSelectDialog;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
+import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
@@ -157,13 +158,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Lifecycle ───────────────────────────────────────────────────────
 
     @Override
-    public boolean prepare(EmvEngine engine, TransactionConfig config) {
+    public boolean prepare(EmvEngine engine, TransactionConfig config,
+            PosTerminal.Transaction transaction) {
         // A fresh state per attempt: nothing from an earlier sale carries over — its online PIN
         // block (and RSA-wrapped key) sent again with this sale, flagged as online PIN; or its
         // kernel result read as this one's.
         tx = new PaxTransactionState();
-        super.prepare(engine, config);
-        return tx.initOk && engine.isRunning();
+        super.prepare(engine, config, transaction);
+        return tx.initOk && isRunning();
     }
 
     @Override
@@ -207,7 +209,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishError("Manual entry requires a PAN");
                 return;
             }
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+            publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MANUAL")
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
@@ -219,7 +221,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (card.isMagstripe()) {
             String track2 = card.getTrack2() != null ? card.getTrack2() : "";
             String pan = panFromTrack2(track2);
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+            publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MAG")
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
@@ -354,8 +356,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void answerApplicationSelection() {
         List<CandidateAID> candList = tx.candidates;
-        requireEngine().notifyTransactionStep(
-                TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
+        publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
         if (!showsAppSelectDialog(candList)) {
             // Nothing for the cardholder to choose between — index 0 either selects the card's
             // only application, or (candList empty/null) is the safe default the kernel expects.
@@ -363,7 +364,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         int index = new PaxAppSelectDialog().selectBlocking(
-                PaxAppSelectDialog.labels(candList), () -> !requireEngine().isRunning());
+                PaxAppSelectDialog.labels(candList), () -> !isRunning());
         if (index == AbstractAppSelectDialog.NO_ANSWER) {
             // Not answered: askStep gives the kernel USER_CANCEL and notes it in the trace.
             LogUtils.i(TAG, "Application not selected (timed out, cancelled or no screen)");
@@ -1621,8 +1622,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // runContactlessReadAppData(), so publishing it here would be a duplicate.
             goToStep(EmvStep.READ_APPLICATION_DATA, null);
         }
-        requireEngine().notifyTransactionStep(
-                TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
+        publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
     }
 
     // [CONTACTLESS]
@@ -1636,8 +1636,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // The contactless kernels don't take the TID from the trans param; set it for field 55.
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
                 kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());
-        EmvEngine eng = requireEngine();
-        eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+        publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactlessPan()))
                 .put(TransactionStepEvent.KEY_ISSUER_NAME, "PAX Issuer")
                 .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, safe(getContactlessCardholderName()))
@@ -1665,8 +1664,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int showConfirmCard() {
         // Called by ContactProcess.setTransactionData(), inside SET_TRANSACTION_DATA's own step.
-        EmvEngine eng = requireEngine();
-        eng.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+        publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
                 .put(TransactionStepEvent.KEY_ISSUER_NAME, "PAX Issuer")
                 .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, safe(getContactCardholderName()))
@@ -1992,7 +1990,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // with the reason, like every other re-presentment (KEY_RETRY_PROMPT).
         String prompt = "Tap the same card again to finish";
         requireEngine().apduTrace().note("PICC", "2nd tap requested — " + prompt);
-        requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
+        publish(TransactionStepEvent.builder(
                 TransactionStep.WAITING_FOR_CARD).message(prompt)
                 .put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt).build());
         goToStep(EmvStep.SEARCH_CARD, prompt);
@@ -2144,17 +2142,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private void reportOutcome(Outcome outcome) {
-        EmvEngine eng = requireEngine();
         switch (outcome.step) {
             case APPROVED:
-                eng.notifyTransactionStep(buildOutcomeEvent(TransactionStep.APPROVED,
+                finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
                         TransactionStepEvent.KEY_RESULT, outcome.message));
-                eng.notifyCompleted();
                 break;
             case DECLINED:
-                eng.notifyTransactionStep(buildOutcomeEvent(TransactionStep.DECLINED,
+                finishDeclined(buildOutcomeEvent(TransactionStep.DECLINED,
                         TransactionStepEvent.KEY_ERROR, outcome.message));
-                eng.notifyCompleted();
                 break;
             default:
                 finishError(outcome.message);
@@ -2163,14 +2158,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Builds the APPROVED/DECLINED event, same shape {@link EmvEngine#notifyApproved}/
-     * {@link EmvEngine#notifyDeclined} would build, plus the audit snapshot
-     * {@link #captureTransactionSummary()} stashed earlier — those two simple String-only
-     * methods have nowhere to attach it, so chip/CLSS outcomes go through
-     * {@code engine.notifyTransactionStep} directly instead. Mag/manual still use
-     * {@link #finishApproved}/{@link #finishDeclined} unchanged (see
-     * {@link #onTransactionCompletion}) — they never call {@link #captureTransactionSummary()},
-     * so their event simply has no PAN/TVR/TAC/IAC/Field 55 to attach.
+     * Builds the APPROVED/DECLINED event, same shape {@code finishApproved(String)}/
+     * {@code finishDeclined(String)} would build, plus the audit snapshot
+     * {@link #captureTransactionSummary()} stashed earlier — those two String-only methods have
+     * nowhere to attach it, so chip/CLSS outcomes pass this event to their event overloads
+     * instead. Mag/manual still use the String ones (see {@link #onTransactionCompletion}) — they
+     * never call {@link #captureTransactionSummary()}, so their event simply has no
+     * PAN/TVR/TAC/IAC/Field 55 to attach.
      */
     private TransactionStepEvent buildOutcomeEvent(TransactionStep step, String messageKey,
             String message) {

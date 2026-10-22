@@ -1,12 +1,8 @@
 package com.emvenhance.core.engine;
-import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
-import com.emvenhance.core.terminal.EmvBehavior;
 import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
 
@@ -14,19 +10,17 @@ import androidx.annotation.Nullable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 
 /**
- * The EMV side of one terminal: owns the vendor's {@link EmvBehavior}, the {@link #emvSteps()}
- * observable, the APDU trace and the retry request. No vendor logic.
+ * The EMV side of one terminal: the {@link #emvSteps()} observable, the APDU trace, the retry
+ * request and the way online. No vendor logic, and nothing of the transaction: it holds no
+ * transaction state and publishes no transaction step. Whether a step may still run is asked of
+ * the transaction before it is published here ({@code AbstractEmvBehavior#goToStep},
+ * {@code PosTerminal}'s card search).
  *
  * <p>{@code PosTerminal} owns the transaction itself — its thread, busy, cancel, its steps and
- * its end — and reaches the behavior only through this class ({@link #prepare},
- * {@link #start}). The engine reads that state through the narrow hooks it is given: whether the
- * transaction is still running ({@link #isRunning()} — no EMV step is published once it ended),
- * whether it was cancelled ({@link #isCancelled()}), and where a transaction step goes
- * ({@link #notifyTransactionStep}).
+ * its end — and runs the vendor's behavior for each attempt, handing it this engine and the
+ * transaction.
  *
  * <p>The one way back out is {@link #authorize}: a behavior goes online from inside the kernel,
  * so the engine hands that request to the {@link Authorizer} {@code PosTerminal} gave it —
@@ -41,51 +35,19 @@ public final class EmvEngine {
      */
     private final PublishSubject<EmvStepEvent> emvSteps = PublishSubject.create();
 
-    private final EmvBehavior behavior;
-
     private final Authorizer authorizer;
-
-    private final Consumer<TransactionStepEvent> transactionSteps;
-
-    private final BooleanSupplier running;
-
-    private final BooleanSupplier cancelled;
 
     /** How the engine goes online for its behavior — {@code PosTerminal#authorize}. */
     public interface Authorizer {
         AuthResult authorize(TransactionConfig config);
     }
 
-    /**
-     * The transaction's state is {@code PosTerminal}'s; these read it and hand it its steps.
-     *
-     * @param transactionSteps where a transaction step goes — {@code PosTerminal}, which drops it
-     *                         once its transaction has ended
-     * @param running          whether the current transaction is still running (not ended)
-     * @param cancelled        whether it was cancelled
-     */
-    public EmvEngine(EmvBehavior behavior, Authorizer authorizer,
-            Consumer<TransactionStepEvent> transactionSteps, BooleanSupplier running,
-            BooleanSupplier cancelled) {
-        this.behavior = behavior;
+    public EmvEngine(Authorizer authorizer) {
         this.authorizer = authorizer;
-        this.transactionSteps = transactionSteps;
-        this.running = running;
-        this.cancelled = cancelled;
     }
 
     public Observable<EmvStepEvent> emvSteps() {
         return emvSteps.hide();
-    }
-
-    /** Whether the current transaction is still running: false once it has ended. */
-    public boolean isRunning() {
-        return running.getAsBoolean();
-    }
-
-    /** Whether the current transaction was cancelled; its EMV winds down at the next check. */
-    public boolean isCancelled() {
-        return cancelled.getAsBoolean();
     }
 
     /** A new transaction: fresh trace, no retry pending. */
@@ -105,75 +67,20 @@ public final class EmvEngine {
         return apduTrace;
     }
 
-    /** Runs the behavior's terminal initialization; {@code false} if it failed or was cancelled. */
-    public boolean prepare(TransactionConfig config) {
-        return behavior.prepare(this, config);
-    }
-
-    /** Runs EMV on the card search found, from the behavior's first post-search step. */
-    public void start(TransactionConfig config, CardPresence card) {
-        behavior.start(this, config, card);
-    }
-
-    /** Releases the behavior's own subscriptions; the terminal is going away. */
-    public void dispose() {
-        behavior.dispose();
-    }
-
     /**
-     * Publishes {@code step} — only while a transaction is running. Once it has ended (ERROR or
-     * COMPLETED, however it got there) a step from code still unwinding is dropped: it never
-     * reaches the UI or the behavior's step methods. The next transaction publishes again.
-     *
-     * <p>This is the one cancel check at a step boundary: a cancel ends the transaction at once
-     * ({@code PosTerminal.Transaction.cancel}), so after it no step runs.
-     *
-     * @return whether it was published (and so, for the behavior's steps, ran)
+     * Publishes {@code step}: every subscriber — the screen, and the behavior's step methods —
+     * gets it before this returns. Its caller has already asked the transaction whether a step
+     * may still run.
      */
-    public boolean notifyEmvStep(EmvStep step, @Nullable String detail) {
+    public void notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);
-        if (!isRunning()) {
-            String why = isCancelled() ? "cancelled" : "the transaction has ended";
-            EmvLog.d("EmvStep dropped, " + why + ": " + event);
-            apduTrace.note("EMV", "step dropped, " + why + ": " + event);
-            return false;
-        }
         EmvLog.d("EmvStep: " + event);
         apduTrace.kernelStep(event.toString());
         emvSteps.onNext(event);
-        return true;
     }
 
     public void notifyEmvStep(EmvStep step) {
         notifyEmvStep(step, null);
-    }
-
-    /** Hands {@code event} to {@code PosTerminal}, which publishes it while the transaction runs. */
-    public void notifyTransactionStep(TransactionStepEvent event) {
-        transactionSteps.accept(event);
-    }
-
-    public void notifyApproved(String result) {
-        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.APPROVED)
-                .put(TransactionStepEvent.KEY_RESULT, result)
-                .build());
-    }
-
-    public void notifyDeclined(String reason) {
-        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.DECLINED)
-                .put(TransactionStepEvent.KEY_ERROR, reason)
-                .build());
-    }
-
-    public void notifyError(String error) {
-        notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.ERROR)
-                .message(error)
-                .put(TransactionStepEvent.KEY_ERROR, error)
-                .build());
-    }
-
-    public void notifyCompleted() {
-        notifyTransactionStep(TransactionStepEvent.of(TransactionStep.COMPLETED));
     }
 
     /**

@@ -3,13 +3,13 @@ package com.emvenhance.core.terminal;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
-import com.emvenhance.core.engine.TestSession;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
@@ -26,7 +26,7 @@ import org.junit.Test;
  * {@code dispatchStepMethod} consumes {@link EmvEngine#emvSteps()}: every step published there —
  * by {@link AbstractEmvBehavior#goToStep} or by anyone else — runs its {@code onXxx} method,
  * through the behavior's own observer, on the publishing thread, before the publish returns.
- * Observing lasts one transaction: once it ends, nothing more is published or run.
+ * Observing lasts one transaction: once it ends, {@code goToStep} publishes and runs nothing more.
  */
 public class EmvStepObserverTest {
 
@@ -35,20 +35,20 @@ public class EmvStepObserverTest {
 
     private EmvEngine engine;
     private VendorBehavior vendor;
-    private final TestSession session = new TestSession();
-    private final List<TransactionStepEvent> transaction = session.steps;
+    private TestSession session;
 
     @Before
     public void setUp() {
         vendor = new VendorBehavior();
-        engine = session.engine(vendor, config -> AuthResult.failed("no host"));
+        session = new TestSession(vendor, config -> AuthResult.failed("no host"));
+        engine = session.engine;
     }
 
     @Test
     public void everyStepRunsItsMethodOnce() {
-        session.begin(engine);
-        engine.prepare(CONFIG);
-        engine.start(CONFIG, CardPresence.chip());
+        session.begin(CONFIG);
+        session.prepare(CONFIG);
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
                 EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION), vendor.ran);
@@ -57,8 +57,8 @@ public class EmvStepObserverTest {
     @Test
     public void aStepPublishedByAnyoneRunsItsMethod() {
         List<EmvStep> seen = record(engine);
-        session.begin(engine);
-        engine.prepare(CONFIG);
+        session.begin(CONFIG);
+        session.prepare(CONFIG);
         vendor.ran.clear();
 
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // PosTerminal's prompt
@@ -70,9 +70,9 @@ public class EmvStepObserverTest {
     @Test
     public void stepsRunOnThePublishingThreadBeforeStartReturns() {
         Thread caller = Thread.currentThread();
-        session.begin(engine);
+        session.begin(CONFIG);
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(3, vendor.ran.size());
         assertEquals(Arrays.asList(caller, caller, caller), vendor.threads);
@@ -80,23 +80,23 @@ public class EmvStepObserverTest {
 
     @Test
     public void aStepPublishedAfterCancelDoesNotRun() {
-        session.begin(engine);
-        engine.prepare(CONFIG);
+        session.begin(CONFIG);
+        session.prepare(CONFIG);
         vendor.ran.clear();
 
         session.cancel();
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
+        vendor.go(EmvStep.SEARCH_CARD);
 
         assertTrue(vendor.ran.isEmpty());
     }
 
     @Test
     public void disposeStopsTheObserver() {
-        session.begin(engine);
-        engine.start(CONFIG, CardPresence.chip());
+        session.begin(CONFIG);
+        session.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
-        engine.dispose();
+        vendor.dispose();
         vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
         assertTrue(vendor.ran.isEmpty());
@@ -105,9 +105,9 @@ public class EmvStepObserverTest {
     @Test
     public void subscribersSeeNestedStepsInOrder() {
         List<EmvStep> seen = record(engine);
-        session.begin(engine);
+        session.begin(CONFIG);
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
                 EmvStep.TRANSACTION_COMPLETION), seen);
@@ -115,13 +115,13 @@ public class EmvStepObserverTest {
 
     @Test
     public void subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
-        session.begin(engine);
-        engine.start(CONFIG, CardPresence.chip());
-        engine.notifyCompleted();
+        session.begin(CONFIG);
+        session.start(CONFIG, CardPresence.chip());
+        session.transaction().publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
         List<EmvStep> seen = record(engine); // e.g. a new MainViewModel
 
-        session.begin(engine);
-        engine.start(CONFIG, CardPresence.chip());
+        session.begin(CONFIG);
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
                 EmvStep.TRANSACTION_COMPLETION), seen);
@@ -129,8 +129,8 @@ public class EmvStepObserverTest {
 
     @Test
     public void cancelledStepsAreNotRun() {
-        session.begin(engine);
-        engine.start(CONFIG, CardPresence.chip());
+        session.begin(CONFIG);
+        session.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
         session.cancel();
@@ -146,15 +146,15 @@ public class EmvStepObserverTest {
     public void aCompletedTransactionStopsObservingAfterItsLastStepReachedTheUi() {
         vendor.approveOnCompletion = true;
         List<EmvStep> seen = record(engine);
-        session.begin(engine);
-        engine.start(CONFIG, CardPresence.chip());
+        session.begin(CONFIG);
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(TransactionStep.APPROVED, TransactionStep.COMPLETED), steps());
         assertEquals(EmvStep.TRANSACTION_COMPLETION, seen.get(seen.size() - 1));
 
         vendor.ran.clear();
         seen.clear();
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // after the end
+        vendor.go(EmvStep.SEARCH_CARD); // after the end
 
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty());
         assertTrue("published after the end: " + seen, seen.isEmpty());
@@ -162,10 +162,10 @@ public class EmvStepObserverTest {
 
     @Test
     public void aThrowingStepEndsTheTransactionStopsObservingAndTheNextOneObservesAgain() {
-        session.begin(engine);
+        session.begin(CONFIG);
         vendor.failOn = EmvStep.READ_APPLICATION_DATA;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(Collections.singletonList(TransactionStep.ERROR), steps());
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA),
@@ -173,11 +173,11 @@ public class EmvStepObserverTest {
 
         vendor.failOn = null;
         vendor.ran.clear();
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // after the end
+        vendor.go(EmvStep.SEARCH_CARD); // after the end
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty());
 
-        session.begin(engine);
-        engine.prepare(CONFIG);
+        session.begin(CONFIG);
+        session.prepare(CONFIG);
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
         assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.SEARCH_CARD),
                 vendor.ran);
@@ -186,41 +186,56 @@ public class EmvStepObserverTest {
     @Test
     public void aStepFromCodeStillUnwindingAfterTheEndIsNeitherPublishedNorRun() {
         List<EmvStep> seen = record(engine);
-        session.begin(engine);
+        session.begin(CONFIG);
         vendor.errorOn = EmvStep.APPLICATION_SELECTION; // finishError, then carries on to READ
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), vendor.ran);
         assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), seen);
         assertEquals(Collections.singletonList(TransactionStep.ERROR), steps());
-        assertFalse(engine.isRunning());
+        assertFalse(session.transaction().isRunning());
     }
 
     @Test
     public void anUnknownStepEndsTheTransactionAndNothingIsPublishedOrRunAfterIt() {
         List<EmvStep> seen = record(engine);
-        session.begin(engine);
+        session.begin(CONFIG);
         vendor.afterApplicationSelection = null; // a step with no method to run
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
         vendor.go(EmvStep.TRANSACTION_COMPLETION); // code still unwinding
 
         assertEquals(Collections.singletonList(TransactionStep.ERROR), steps());
-        assertEquals("Unknown EMV step: null", transaction.get(0).getMessage());
+        assertEquals("Unknown EMV step: null", session.steps().get(0).getMessage());
         assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), vendor.ran);
         assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), seen);
-        assertFalse(engine.isRunning());
+        assertFalse(session.transaction().isRunning());
+    }
+
+    @Test
+    public void aStepAfterTheEndIsNotedInTheTraceAsDroppedNotAsAKernelStep() {
+        assumeTrue("trace records in debug builds only", engine.apduTrace().isEnabled());
+        session.begin(CONFIG);
+        session.prepare(CONFIG);
+        session.transaction().publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+
+        vendor.go(EmvStep.TRANSACTION_COMPLETION, "late");
+
+        String text = engine.apduTrace().text();
+        assertFalse(text.contains("### KERNEL STEP 16."));
+        assertTrue(text.contains(
+                "!!! EMV step dropped, the transaction has ended: 16. Transaction completion (late)"));
     }
 
     @Test
     public void aRetryInTheSameTransactionKeepsObserving() {
-        session.begin(engine);
-        engine.start(CONFIG, CardPresence.chip());
+        session.begin(CONFIG);
+        session.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
         engine.requestRetry(CONFIG, "Card not read — tap again"); // no ERROR, no COMPLETED
-        engine.start(engine.consumePendingRetry(), CardPresence.chip()); // as PosTerminal does
+        session.start(engine.consumePendingRetry(), CardPresence.chip()); // as PosTerminal does
 
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
                 EmvStep.TRANSACTION_COMPLETION), vendor.ran);
@@ -229,7 +244,7 @@ public class EmvStepObserverTest {
 
     private List<TransactionStep> steps() {
         List<TransactionStep> steps = new ArrayList<>();
-        for (TransactionStepEvent event : transaction) {
+        for (TransactionStepEvent event : session.steps()) {
             steps.add(event.getStep());
         }
         return steps;
@@ -255,6 +270,10 @@ public class EmvStepObserverTest {
 
         boolean go(EmvStep step) {
             return goToStep(step);
+        }
+
+        boolean go(EmvStep step, String detail) {
+            return goToStep(step, detail);
         }
 
         private void ran(EmvStep step) {

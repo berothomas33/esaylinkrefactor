@@ -45,14 +45,14 @@ public class PosTerminalConcurrentStepsTest {
             }
             inFlight.decrementAndGet();
         });
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         assertTrue(terminal.searching.await(5, TimeUnit.SECONDS));
 
-        Thread first = new Thread(() -> terminal.engine.notifyTransactionStep(
+        Thread first = new Thread(() -> sale.publish(
                 TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING)), "first");
         first.start();
         assertTrue(firstInside.await(5, TimeUnit.SECONDS));
-        Thread second = new Thread(() -> terminal.engine.notifyTransactionStep(
+        Thread second = new Thread(() -> sale.publish(
                 TransactionStepEvent.of(TransactionStep.ONLINE_COMPLETED)), "second");
         second.start();
         second.join(300);
@@ -90,8 +90,8 @@ public class PosTerminalConcurrentStepsTest {
         });
         assertTrue(terminal.searching.await(5, TimeUnit.SECONDS));
 
-        terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        sale.publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
+        sale.publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
         terminal.release.countDown();
 
         assertTrue("the transaction never ended", ended.await(5, TimeUnit.SECONDS));

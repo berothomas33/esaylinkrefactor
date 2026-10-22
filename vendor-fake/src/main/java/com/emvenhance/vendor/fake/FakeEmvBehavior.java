@@ -45,7 +45,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
+        publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
         goToStep(EmvStep.READ_APPLICATION_DATA);
     }
 
@@ -53,14 +53,14 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     public void onReadApplicationData(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
         if (card.isChip()) {
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+            publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, "4111111111111111")
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "Demo Bank")
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "CARD HOLDER")
                     .put(TransactionStepEvent.KEY_MODE, "Contact")
                     .build());
         } else if (card.isContactless()) {
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+            publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, "5555444433332222")
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "Demo Bank")
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "CL HOLDER")
@@ -69,7 +69,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         } else if (card.isMagstripe()) {
             String pan = card.getTrack2() != null
                     ? card.getTrack2().split("[=D]")[0] : "4111111111111111";
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+            publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MAG Bank")
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
@@ -77,7 +77,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
                     .build());
         } else if (card.isManual()) {
             String pan = card.getManualPan() != null ? card.getManualPan() : "";
-            engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+            publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MANUAL")
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
@@ -124,7 +124,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
             CardPresence card) {
-        engine.notifyTransactionStep(TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
+        publish(TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, true)
                 .put(TransactionStepEvent.KEY_PIN_BYPASS, true)
                 .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, 3)

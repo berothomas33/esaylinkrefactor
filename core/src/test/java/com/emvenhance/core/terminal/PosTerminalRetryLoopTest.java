@@ -38,19 +38,20 @@ public class PosTerminalRetryLoopTest {
     private final AtomicInteger deepestNesting = new AtomicInteger();
     private final CountDownLatch ended = new CountDownLatch(1);
     /** What the behavior's start() does: ask for a retry, maybe cancel first. */
-    private final AtomicReference<java.util.function.Consumer<EmvEngine>> onStart = new AtomicReference<>();
+    private final AtomicReference<java.util.function.BiConsumer<EmvEngine, PosTerminal.Transaction>>
+            onStart = new AtomicReference<>();
     private final AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
 
     @Test
     public void aRetryIsTheNextTurnOfTheLoopNotASearchInsideTheLastOne() throws Exception {
         AtomicInteger starts = new AtomicInteger();
-        onStart.set(engine -> {
+        onStart.set((engine, transaction) -> {
             if (starts.incrementAndGet() == 1) {
                 engine.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
                         EntryMethod.MAGSTRIPE), "Chip not readable — swipe the card");
             } else {
-                engine.notifyApproved("00");
-                engine.notifyCompleted();
+                transaction.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
+                transaction.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
             }
         });
         TestTerminal terminal = new TestTerminal();
@@ -67,7 +68,7 @@ public class PosTerminalRetryLoopTest {
     @Test
     public void aRetryAskedForByACancelledTransactionNeverSearches() throws Exception {
         CountDownLatch saleKnown = new CountDownLatch(1);
-        onStart.set(engine -> {
+        onStart.set((engine, transaction) -> {
             awaitQuietly(saleKnown);
             sale.get().cancel(); // the screen cancels while EMV is running
             engine.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
@@ -152,7 +153,7 @@ public class PosTerminalRetryLoopTest {
                         return Boolean.TRUE;
                     }
                     if (method.getName().equals("start")) {
-                        onStart.get().accept((EmvEngine) args[0]);
+                        onStart.get().accept((EmvEngine) args[0], (PosTerminal.Transaction) args[3]);
                     }
                     return method.getReturnType() == boolean.class ? false : null;
                 });

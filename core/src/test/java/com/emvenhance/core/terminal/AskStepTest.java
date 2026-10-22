@@ -9,7 +9,6 @@ import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
-import com.emvenhance.core.engine.TestSession;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.host.AuthResult;
@@ -31,13 +30,14 @@ public class AskStepTest {
 
     private EmvEngine engine;
     private Vendor vendor;
-    private static final TestSession session = new TestSession();
+    private static TestSession session;
 
     @Before
     public void setUp() {
         vendor = new Vendor();
-        engine = session.engine(vendor, config -> AuthResult.failed("no host"));
-        session.begin(engine);
+        session = new TestSession(vendor, config -> AuthResult.failed("no host"));
+        engine = session.engine;
+        session.begin(CONFIG);
     }
 
     @Test
@@ -46,7 +46,7 @@ public class AskStepTest {
         engine.emvSteps().map(EmvStepEvent::getStep).subscribe(seen::add);
         vendor.selectionAnswer = 1;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(1, vendor.callbackGot);
         assertEquals(Thread.currentThread(), vendor.answeredOn);
@@ -57,7 +57,7 @@ public class AskStepTest {
     public void noAnswerGivesTheFailClosedValue() {
         vendor.selectionAnswer = null;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
     }
@@ -67,7 +67,7 @@ public class AskStepTest {
         assumeTrue("trace records in debug builds only", engine.apduTrace().isEnabled());
         vendor.selectionAnswer = null;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertTrue(engine.apduTrace().text().contains("no answer for"));
     }
@@ -77,7 +77,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.cancelBeforeAsking = true;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
         assertEquals(0, vendor.selectionRuns);
@@ -88,7 +88,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.throwInSelection = true;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
     }
@@ -98,7 +98,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.askFinalInsideSelection = true;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(7, vendor.innerGot);
         assertEquals(1, vendor.callbackGot);
@@ -109,7 +109,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.goWithoutAsking = true;
 
-        engine.start(CONFIG, CardPresence.chip());
+        session.start(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
     }

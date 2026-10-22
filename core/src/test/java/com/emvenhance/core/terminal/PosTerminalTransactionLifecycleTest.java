@@ -68,7 +68,7 @@ public class PosTerminalTransactionLifecycleTest {
         first.listener.onSearchStarted(first.config);
 
         assertTrue("next transaction got " + events, events.isEmpty());
-        assertTrue(terminal.engine.isRunning());
+        assertTrue(terminal.last.isRunning());
     }
 
     @Test
@@ -115,7 +115,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS));
         assertTrue("first transaction got " + events, events.isEmpty());
-        assertTrue(terminal.engine.isRunning());
+        assertTrue(terminal.last.isRunning());
         first.listener.onChipDetected(CardPresence.chip());
         assertEquals(Collections.singletonList(1000L), emvStartedWithAmount);
     }
@@ -129,8 +129,8 @@ public class PosTerminalTransactionLifecycleTest {
         sale.cancel();
 
         assertTrue(terminal.isSearchCancelled());
-        assertFalse("the EMV winds down", terminal.engine.isRunning());
-        assertTrue(terminal.engine.isCancelled());
+        assertFalse("the EMV winds down", sale.isRunning());
+        assertTrue(sale.isCancelled());
         assertEquals(1, terminal.searchCancels.get());
         assertEquals("at once, not the end yet", java.util.Collections.singletonList(
                 TransactionStep.CANCELLING), steps());
@@ -206,14 +206,14 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Test
     public void aTransactionEndsOnceWhateverItsCodeReportsAfter() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
         events.clear();
 
         first.listener.onSearchTimeout();                 // the end
-        terminal.engine.notifyApproved("00");             // code still unwinding
-        terminal.engine.notifyCompleted();
-        terminal.engine.notifyError("Transaction cancelled");
+        sale.publish(TransactionStepEvent.of(TransactionStep.APPROVED)); // code still unwinding
+        sale.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        sale.publish(PosTerminal.errorEvent("Transaction cancelled"));
         first.release.countDown();
 
         TransactionStepEvent end = terminal.awaitEnd();
@@ -230,7 +230,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         TransactionStepEvent end = terminal.awaitEnd();
         assertEquals("Transaction ended without an outcome", end.getMessage());
-        assertFalse(terminal.engine.isRunning());
+        assertFalse(terminal.last.isRunning());
         assertEquals("the next sale runs", 2000L, startWhenFree(2000).config.getAmountMinor());
     }
 
@@ -252,11 +252,10 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Test
     public void nothingIsPublishedOutsideATransaction() {
-        terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
-        terminal.engine.notifyCompleted();
+        terminal.authorize(new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.ANY));
 
-        assertTrue(events.isEmpty());
-        assertFalse(terminal.engine.isRunning());
+        assertTrue("ONLINE_* with no transaction: " + events, events.isEmpty());
+        assertFalse(terminal.isBusy());
     }
 
     /**
@@ -355,9 +354,13 @@ public class PosTerminalTransactionLifecycleTest {
         /** Every transaction's steps, for the test: each transaction has its own stream. */
         final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
 
+        /** The last transaction started. */
+        volatile Transaction last;
+
         @Override
         public Transaction startTransaction(TransactionConfig config) {
             Transaction transaction = super.startTransaction(config);
+            last = transaction;
             transaction.steps().subscribe(allSteps::onNext);
             return transaction;
         }
@@ -374,7 +377,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         /** The terminal is free (its current transaction is gone). */
         boolean engineFree() {
-            return !isSearchCancelled() && !engine.isRunning();
+            return !isBusy();
         }
 
         /** The next transaction's end, as published once the terminal is free. */

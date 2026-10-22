@@ -32,6 +32,10 @@ import io.reactivex.rxjava3.observers.DisposableObserver;
  * internally is still published with {@link #goToStep}; its {@code onXxx} is then the place that
  * says so, with nothing to run.
  *
+ * <p>The attempt's {@link PosTerminal.Transaction} comes with {@link #prepare} / {@link #start}:
+ * the behavior reports its steps there ({@link #publish}, {@code finish*}) and asks it whether a
+ * step may still run ({@link #goToStep}, {@link #isRunning()}, {@link #isCancelled()}).
+ *
  * <p>{@link #prepare} only starts {@link EmvStep#TERMINAL_INITIALIZATION} (does not
  * chain further — PosTerminal searches next). {@link #start} kicks the first post-search
  * step; the vendor chain continues via {@link #goToStep}.
@@ -44,25 +48,32 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected TransactionConfig activeConfig;
     @Nullable
     protected CardPresence activeCard;
+    /** The attempt's transaction, from {@link #prepare} / {@link #start}. */
+    @Nullable
+    private PosTerminal.Transaction transaction;
 
     /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
     private final CompositeDisposable disposables = new CompositeDisposable();
 
     @Override
-    public boolean prepare(EmvEngine engine, TransactionConfig config) {
+    public boolean prepare(EmvEngine engine, TransactionConfig config,
+            PosTerminal.Transaction transaction) {
         this.engine = engine;
+        this.transaction = transaction;
         initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = null;
 
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION);
-        return engine.isRunning(); // false once it ended: init failed, or cancelled
+        return isRunning(); // false once it ended: init failed, or cancelled
     }
 
     @Override
-    public void start(EmvEngine engine, TransactionConfig config, CardPresence card) {
+    public void start(EmvEngine engine, TransactionConfig config, CardPresence card,
+            PosTerminal.Transaction transaction) {
         this.engine = engine;
+        this.transaction = transaction;
         initEmvObserver(engine);
         this.activeConfig = config;
         this.activeCard = card;
@@ -87,9 +98,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * Re-subscribing moves it behind every subscriber that came first, such as a
      * {@code MainViewModel} created after an earlier transaction.
      *
-     * <p>Once a transaction has ended ({@link TransactionStep#isEnd()}) the engine publishes no
-     * step until the next {@link EmvEngine#begin()}, so a step still published by code unwinding
-     * never runs a step method; the next {@link #prepare} subscribes again.
+     * <p>Once a transaction has ended ({@link TransactionStep#isEnd()}) {@link #goToStep}
+     * publishes no step, so a step still published by code unwinding never runs a step method;
+     * the next {@link #prepare} subscribes again.
      */
     protected final void initEmvObserver(EmvEngine engine) {
         disposables.clear();
@@ -101,8 +112,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * Vendor finished the current step → publish {@code step} on the EmvStep observable, whose
      * observer runs that step's {@code onXxx} method before this returns.
      *
-     * <p>No cancel check of its own: once the transaction is cancelled (or ended) the engine
-     * publishes no step ({@link EmvEngine#notifyEmvStep}), so nothing runs.
+     * <p>The one cancel check at a step boundary: once the transaction is cancelled (or ended)
+     * no step is published, so nothing runs.
      *
      * @return whether the step ran — {@code false} once the transaction is cancelled or ended,
      *         so a vendor holding a resource across steps (the ICC reader) knows to release it
@@ -145,7 +156,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         // No answer, or one that came after the transaction ended (a cancel while the cardholder
         // was choosing): the kernel gets the fail-closed value, never a choice nobody waits for.
-        boolean ended = engine == null || !engine.isRunning();
+        boolean ended = !isRunning();
         if (!answer.answered || ended) {
             if (engine != null) {
                 engine.apduTrace().note("EMV", (answer.answered
@@ -177,31 +188,53 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     protected final void finishApproved(String message) {
-        if (engine == null) {
-            return;
-        }
-        engine.notifyApproved(message);
-        engine.notifyCompleted();
+        finishApproved(TransactionStepEvent.builder(TransactionStep.APPROVED)
+                .put(TransactionStepEvent.KEY_RESULT, message)
+                .build());
+    }
+
+    /** As {@link #finishApproved(String)}, with an APPROVED event the vendor built (its audit data). */
+    protected final void finishApproved(TransactionStepEvent approved) {
+        publish(approved);
+        publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
     }
 
     protected final void finishDeclined(String message) {
-        if (engine == null) {
-            return;
-        }
-        engine.notifyDeclined(message);
-        engine.notifyCompleted();
+        finishDeclined(TransactionStepEvent.builder(TransactionStep.DECLINED)
+                .put(TransactionStepEvent.KEY_ERROR, message)
+                .build());
+    }
+
+    /** As {@link #finishDeclined(String)}, with a DECLINED event the vendor built (its audit data). */
+    protected final void finishDeclined(TransactionStepEvent declined) {
+        publish(declined);
+        publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
     }
 
     protected final void finishError(String message) {
-        if (engine == null) {
-            return;
-        }
-        engine.notifyError(message);
+        publish(PosTerminal.errorEvent(message));
     }
 
-    /** Whether {@code PosTerminal} cancelled the current transaction (see {@link EmvEngine#isCancelled()}). */
+    /**
+     * Reports a step of the transaction (CARD_READ, APPLICATION_SELECTED…) on its steps; dropped
+     * once it has ended.
+     */
+    protected final void publish(TransactionStepEvent event) {
+        if (transaction == null) {
+            EmvLog.d("TransactionStep dropped, no transaction: " + event);
+            return;
+        }
+        transaction.publish(event);
+    }
+
+    /** Whether the transaction is still running: false once it ended (an outcome, or a cancel). */
+    protected final boolean isRunning() {
+        return transaction != null && transaction.isRunning();
+    }
+
+    /** Whether {@code PosTerminal} cancelled the transaction ({@link PosTerminal.Transaction#cancel()}). */
     protected final boolean isCancelled() {
-        return engine != null && engine.isCancelled();
+        return transaction != null && transaction.isCancelled();
     }
 
     /**
@@ -367,9 +400,24 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         enterStep(step, null);
     }
 
+    /**
+     * Publishes {@code step} — only while the transaction is running. Once it has ended (an
+     * outcome, or a cancel) a step from code still unwinding is dropped: it never reaches the UI
+     * or a step method.
+     *
+     * @return whether it was published (and so ran)
+     */
     private boolean enterStep(EmvStep step, @Nullable String detail) {
+        if (!isRunning()) {
+            EmvStepEvent event = new EmvStepEvent(step, detail);
+            String why = isCancelled() ? "cancelled" : "the transaction has ended";
+            EmvLog.d("EmvStep dropped, " + why + ": " + event);
+            engine.apduTrace().note("EMV", "step dropped, " + why + ": " + event);
+            return false;
+        }
         // EmvStep observable → UI, then EmvStepObserver → dispatchStepMethod → onXxx.
-        return engine.notifyEmvStep(step, detail);
+        engine.notifyEmvStep(step, detail);
+        return true;
     }
 
     /**
@@ -404,7 +452,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         @Override
         public void onComplete() {
             // emvSteps never completes: it lives as long as the engine, and the UI keeps
-            // observing it from one transaction to the next. After a transaction's end the engine
+            // observing it from one transaction to the next. After a transaction's end goToStep
             // publishes nothing more, and the next prepare re-subscribes (initEmvObserver).
         }
     }
@@ -477,11 +525,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * A step with no method to run ends the transaction: after its ERROR the engine publishes no
-     * more steps ({@link EmvEngine#notifyEmvStep}).
+     * A step with no method to run ends the transaction: after its ERROR no more steps are
+     * published ({@link #goToStep}).
      */
     private void unknownStep(@Nullable EmvStep step) {
-        if (engine == null || !engine.isRunning()) {
+        if (!isRunning()) {
             return; // already ended: no second ERROR
         }
         finishError("Unknown EMV step: " + step);

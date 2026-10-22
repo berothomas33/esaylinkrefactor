@@ -14,22 +14,22 @@ import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.host.AuthResult;
-import com.emvenhance.core.terminal.EmvBehavior;
 import com.emvenhance.core.util.ApduTrace;
-import java.lang.reflect.Proxy;
 import org.junit.Before;
 import org.junit.Test;
 
-/** The engine owns the APDU trace: one per engine, started by begin(), fed by its own steps. */
+/**
+ * The engine owns the APDU trace: one per engine, started by begin(), fed by its own steps. A
+ * step dropped after the end is the behavior's to note ({@code EmvStepObserverTest}).
+ */
 public class EmvEngineTraceTest {
 
-    private final TestSession session = new TestSession();
     private EmvEngine engine;
     private ApduTrace trace;
 
     @Before
     public void setUp() {
-        engine = newEngine(session);
+        engine = newEngine();
         trace = engine.apduTrace();
     }
 
@@ -37,17 +37,16 @@ public class EmvEngineTraceTest {
     public void ownsOneTracePerEngine() {
         assertNotNull(trace);
         assertSame(trace, engine.apduTrace());
-        assertNotSame(trace, newEngine(new TestSession()).apduTrace());
+        assertNotSame(trace, newEngine().apduTrace());
     }
 
     @Test
     public void beginStartsAFreshTrace() {
         assumeTrue("trace records in debug builds only", trace.isEnabled());
-        session.begin(engine);
+        engine.begin();
         trace.note("ICC", "first transaction");
-        engine.notifyError("done"); // ends the transaction
 
-        session.begin(engine);
+        engine.begin();
 
         assertFalse(trace.text().contains("first transaction"));
         assertTrue(trace.text().startsWith("===== EMV TRANSACTION ====="));
@@ -56,7 +55,7 @@ public class EmvEngineTraceTest {
     @Test
     public void recordsKernelSteps() {
         assumeTrue("trace records in debug builds only", trace.isEnabled());
-        session.begin(engine);
+        engine.begin();
 
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
 
@@ -64,23 +63,9 @@ public class EmvEngineTraceTest {
     }
 
     @Test
-    public void aStepAfterTheEndIsNotedAsDroppedNotAsAKernelStep() {
-        assumeTrue("trace records in debug builds only", trace.isEnabled());
-        session.begin(engine);
-        engine.notifyCompleted();
-
-        engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION, "late");
-
-        String text = trace.text();
-        assertFalse(text.contains("### KERNEL STEP 16."));
-        assertTrue(text.contains(
-                "!!! EMV step dropped, the transaction has ended: 16. Transaction completion (late)"));
-    }
-
-    @Test
     public void retryKeepsTheFailedAttemptAndMarksIt() {
         assumeTrue("trace records in debug builds only", trace.isEnabled());
-        session.begin(engine);
+        engine.begin();
         trace.note("PICC", "card communication error -2");
 
         engine.requestRetry(config(), "Card not read — tap again");
@@ -94,7 +79,7 @@ public class EmvEngineTraceTest {
 
     @Test
     public void countsRetriesAndHandsThePromptOverOnce() {
-        session.begin(engine);
+        engine.begin();
         assertEquals(0, engine.getRetryCount());
 
         engine.requestRetry(config(), "Card not read — tap again");
@@ -109,12 +94,11 @@ public class EmvEngineTraceTest {
 
     @Test
     public void beginResetsRetryState() {
-        session.begin(engine);
+        engine.begin();
         engine.requestRetry(config(), "Insert the card");
         engine.consumePendingRetry();
-        engine.notifyError("done");
 
-        session.begin(engine);
+        engine.begin();
 
         assertEquals(0, engine.getRetryCount());
         assertNull(engine.consumeRetryPrompt());
@@ -124,11 +108,8 @@ public class EmvEngineTraceTest {
         return new TransactionConfig(TransactionType.SALE, 100, EntryMethod.ANY);
     }
 
-    /** An engine whose behavior does nothing and that never reaches a host. */
-    private static EmvEngine newEngine(TestSession session) {
-        EmvBehavior behavior = (EmvBehavior) Proxy.newProxyInstance(
-                EmvBehavior.class.getClassLoader(), new Class<?>[] {EmvBehavior.class},
-                (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null);
-        return session.engine(behavior, config -> AuthResult.failed("no host"));
+    /** An engine that never reaches a host. */
+    private static EmvEngine newEngine() {
+        return new EmvEngine(config -> AuthResult.failed("no host"));
     }
 }

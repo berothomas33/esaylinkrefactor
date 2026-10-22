@@ -30,7 +30,7 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
     public void chipRequestCarriesTheVendorsFieldFiftyFive() {
         VendorBehavior vendor = new VendorBehavior(true);
 
-        AuthResult result = vendor.goOnline(engineFor(vendor), CardPresence.chip());
+        AuthResult result = vendor.goOnline(sessionFor(vendor), CardPresence.chip());
 
         assertTrue(result.isApproved());
         assertTrue(vendor.tagsRead > 0);
@@ -43,7 +43,7 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
     public void contactlessWithoutFieldFiftyFiveIsOnlineFailedAndNeverSent() {
         VendorBehavior vendor = new VendorBehavior(false);
 
-        AuthResult result = vendor.goOnline(engineFor(vendor), CardPresence.contactless(null));
+        AuthResult result = vendor.goOnline(sessionFor(vendor), CardPresence.contactless(null));
 
         assertFalse(result.isApproved());
         assertTrue(result.isFailed());
@@ -55,7 +55,7 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
     public void magstripeNeverAsksForFieldFiftyFive() {
         VendorBehavior vendor = new VendorBehavior(true);
 
-        vendor.goOnline(engineFor(vendor),
+        vendor.goOnline(sessionFor(vendor),
                 CardPresence.magstripe(null, "4111111111111111=2812", null));
 
         assertEquals(0, vendor.tagsRead);
@@ -63,12 +63,12 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
         assertNull(sentToHost.get(0).getIccData());
     }
 
-    /** An engine for {@code vendor} whose host records each request and approves it. */
-    private EmvEngine engineFor(VendorBehavior vendor) {
-        return new EmvEngine(vendor, config -> {
+    /** A session for {@code vendor} whose host records each request and approves it. */
+    private TestSession sessionFor(VendorBehavior vendor) {
+        return new TestSession(vendor, config -> {
             sentToHost.add(config);
             return AuthResult.approved("123456", "00", null, null);
-        }, event -> { }, () -> true, () -> false);
+        });
     }
 
     /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */
@@ -82,8 +82,10 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
             this.hasCryptogram = hasCryptogram;
         }
 
-        AuthResult goOnline(EmvEngine engine, CardPresence card) {
-            start(engine, new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP), card);
+        AuthResult goOnline(TestSession session, CardPresence card) {
+            TransactionConfig config = new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP);
+            session.begin(config);
+            session.start(config, card);
             return authorizeOnline();
         }
 
