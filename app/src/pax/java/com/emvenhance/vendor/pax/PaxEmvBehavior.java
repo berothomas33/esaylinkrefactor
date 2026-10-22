@@ -466,10 +466,30 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             // EFT/PayPass expose read/offline-auth/restrictions as their own calls; the other
             // eight brands' SDKs bundle the whole transaction into one call instead — see
             // ClssKernelProcess#supportsGranularSteps().
-            advanceContactlessStage(kernel.contactless.supportsGranularSteps()
-                    ? EmvStep.SET_TRANSACTION_DATA
-                    : EmvStep.PROCESS_RESTRICTIONS);
+            advanceContactlessStage(firstStageAfterAppSelect());
         }
+    }
+
+    /** A granular kernel starts with its set-data stage; an atomic one goes to its one call. */
+    private EmvStep firstStageAfterAppSelect() {
+        return kernel.contactless.supportsGranularSteps()
+                ? EmvStep.SET_TRANSACTION_DATA
+                : EmvStep.PROCESS_RESTRICTIONS;
+    }
+
+    /**
+     * A granular stage got {@code CLSS_RESELECT_APP}: delete the candidate and select the next
+     * one ({@link ClssProcess#reselectApplication()}), as {@code ClssProcess.startTransProcess}'s
+     * loop does for the atomic kernels. Returns the selection's result code; the caller then
+     * starts the new candidate from {@link #firstStageAfterAppSelect()}.
+     */
+    private int reselectApplication() {
+        LogUtils.d(TAG, "CLSS_RESELECT_APP — selecting the next candidate");
+        requireEngine().apduTrace().note("EMV", "kernel asked to reselect — next application");
+        tx.clsTransResult = kernel.contactless.reselectApplication();
+        int ret = tx.clsTransResult.getResultCode();
+        LogUtils.d(TAG, "reselectApplication ret=" + ret);
+        return ret;
     }
 
     /**
@@ -479,11 +499,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void runContactlessSetTransactionData() {
         boolean proceed = false;
+        boolean reselected = false;
         try {
             LogUtils.d(TAG, "============ Contactless EMV: Set Transaction Data ============");
             tx.clsTransResult = kernel.contactless.setTransactionData();
             int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "setTransactionData ret=" + ret);
+            if (ret == RetCode.CLSS_RESELECT_APP) {
+                reselected = true;
+                ret = reselectApplication();
+            }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
@@ -499,18 +524,27 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            advanceContactlessStage(EmvStep.READ_APPLICATION_DATA);
+            if (reselected) {
+                advanceContactlessStage(firstStageAfterAppSelect());
+            } else {
+                advanceContactlessStage(EmvStep.READ_APPLICATION_DATA);
+            }
         }
     }
 
     /** Read App Data stage — reached via {@link #onReadApplicationData}'s contactless branch. */
     private void runContactlessReadAppData() {
         boolean proceed = false;
+        boolean reselected = false;
         try {
             LogUtils.d(TAG, "============ Contactless EMV: Read App Data ============");
             tx.clsTransResult = kernel.contactless.readApplicationData();
             int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
+            if (ret == RetCode.CLSS_RESELECT_APP) {
+                reselected = true;
+                ret = reselectApplication();
+            }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
@@ -525,7 +559,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            advanceContactlessStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
+            if (reselected) {
+                advanceContactlessStage(firstStageAfterAppSelect());
+            } else {
+                advanceContactlessStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
+            }
         }
     }
 
@@ -535,11 +573,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void runContactlessCardAuth() {
         boolean proceed = false;
+        boolean reselected = false;
         try {
             LogUtils.d(TAG, "============ Contactless EMV: Offline Data Authentication ============");
             tx.clsTransResult = kernel.contactless.offlineDataAuthentication();
             int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "offlineDataAuthentication ret=" + ret);
+            if (ret == RetCode.CLSS_RESELECT_APP) {
+                reselected = true;
+                ret = reselectApplication();
+            }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
@@ -555,7 +598,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            advanceContactlessStage(EmvStep.PROCESS_RESTRICTIONS);
+            if (reselected) {
+                advanceContactlessStage(firstStageAfterAppSelect());
+            } else {
+                advanceContactlessStage(EmvStep.PROCESS_RESTRICTIONS);
+            }
         }
     }
 
@@ -573,11 +620,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         boolean proceed = false;
+        boolean reselected = false;
         try {
             LogUtils.d(TAG, "============ Contactless EMV: Processing Restrictions ============");
             tx.clsTransResult = kernel.contactless.processRestrictions();
             int ret = tx.clsTransResult.getResultCode();
             LogUtils.d(TAG, "processRestrictions ret=" + ret);
+            if (ret == RetCode.CLSS_RESELECT_APP) {
+                reselected = true;
+                ret = reselectApplication();
+            }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
             if (!proceed) {
@@ -593,7 +645,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         }
         if (proceed) {
-            runContactlessStartTransaction();
+            if (reselected) {
+                advanceContactlessStage(firstStageAfterAppSelect());
+            } else {
+                runContactlessStartTransaction();
+            }
         }
     }
 

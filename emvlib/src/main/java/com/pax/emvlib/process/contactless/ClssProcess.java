@@ -232,12 +232,7 @@ public class ClssProcess extends EmvBase {
         while (true) {
             TransResult transResult = clssKernelProcess.startTransProcess();
             if (transResult.getResultCode() == RetCode.CLSS_RESELECT_APP) {
-                int ret = ClssEntryApi.Clss_DelCurCandApp_Entry();
-                if (ret != RetCode.EMV_OK) {
-                    LogUtils.e(TAG, "Clss_DelCurCandApp_Entry ret = " + ret);
-                    return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
-                }
-                TransResult reselect = selectApplication();
+                TransResult reselect = reselectApplication();
                 if (reselect.getTransResult() != null) {
                     // selection itself ended terminally (e.g. candidate list exhausted)
                     return reselect;
@@ -249,6 +244,22 @@ public class ClssProcess extends EmvBase {
             LogUtils.d(TAG, "clss trans time-consuming ms = " + (finishMs - startMs));
             return transResult;
         }
+    }
+
+    /**
+     * The kernel answered {@code CLSS_RESELECT_APP}: delete the current candidate and run
+     * application selection again for the next one. Used by {@link #startTransProcess()}'s loop,
+     * and by {@code PaxEmvBehavior} when a granular stage (set data, read data, offline data
+     * authentication, restrictions) gets it, so the next candidate starts over from its own
+     * set-data stage — the same native calls, in the same order, as the loop.
+     */
+    public TransResult reselectApplication() {
+        int ret = ClssEntryApi.Clss_DelCurCandApp_Entry();
+        if (ret != RetCode.EMV_OK) {
+            LogUtils.e(TAG, "Clss_DelCurCandApp_Entry ret = " + ret);
+            return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+        }
+        return selectApplication();
     }
 
     /**
