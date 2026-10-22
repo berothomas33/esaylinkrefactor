@@ -21,6 +21,7 @@ import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
 import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.settings.PinBypassSettings;
+import com.pax.configservice.impl.EmvParamService;
 import com.pax.bizentity.entity.SearchMode;
 import com.pax.bizlib.card.TrackUtils;
 import com.pax.bizlib.ped.PedHelper;
@@ -1581,26 +1582,21 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Terminal initialization, once per onboarding or parameter download
-     * ({@link OnboardingState#isTerminalInitialized}): loads every EMV/CLSS parameter (AIDs,
-     * CAPKs, terminal config, contactless kernels) from the database into memory. Every
-     * transaction after that reuses them and only runs its own kernel set-up
-     * ({@link #runPreTransProcess}: amount, date/time, 9F41, contactless pre-processing), which
-     * PAX and EMV need per transaction.
+     * Terminal initialization: loads every EMV/CLSS parameter (AIDs, CAPKs, terminal config,
+     * contactless kernels) from the database into memory, in step 0 before the card search —
+     * the first transaction after an app start, a download or a seed
+     * ({@link EmvParamService#isLoaded()}, the one owner). Every transaction after that reuses
+     * them and only runs its own kernel set-up ({@link #runPreTransProcess}: amount, date/time,
+     * 9F41, contactless pre-processing), which PAX and EMV need per transaction.
      */
     private void initializeTerminalIfNeeded() {
-        OnboardingState state = new OnboardingState(BaseApplication.getAppContext());
-        if (state.isTerminalInitialized()) {
-            // After an app restart the in-memory cache is empty: load it here, in step 0, not
-            // after the card search (runPreTransProcess). A no-op while the cache is full.
-            kernel.params.getCachedEmvParam();
+        if (EmvParamService.isLoaded()) {
             return;
         }
         long start = SystemClock.elapsedRealtime();
-        kernel.params.reloadFromDatabase();
-        state.markTerminalInitialized();
-        requireEngine().apduTrace().note("EMV", "terminal initialization (once per onboarding / "
-                + "parameter download): " + (SystemClock.elapsedRealtime() - start) + " ms");
+        kernel.params.getCachedEmvParam();
+        requireEngine().apduTrace().note("EMV", "terminal initialization (EMV parameters loaded"
+                + " from the database): " + (SystemClock.elapsedRealtime() - start) + " ms");
     }
 
     /**

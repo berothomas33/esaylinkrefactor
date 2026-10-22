@@ -423,7 +423,12 @@ public final class ClssXmlParamParser {
         return padded.append(hex).toString();
     }
 
-    /** No explicit enable-flag tag exists alongside these limits — treat "value present" as "on". */
+    /**
+     * No explicit enable-flag tag exists alongside these limits — treat "value present" as "on".
+     * A value that isn't a number stays "on" with limit 0 (logged by longOf): every tap over the
+     * limit / needing a CVM, the fail-closed side — turning the limit off would let any amount
+     * through contactless.
+     */
     private static byte flagFor(Element parent, String valueTag) {
         return XmlDomUtils.text(parent, valueTag) == null ? (byte) 0 : (byte) 1;
     }
@@ -432,6 +437,7 @@ public final class ClssXmlParamParser {
         try {
             return Integer.parseInt(hex, 16);
         } catch (NumberFormatException e) {
+            XmlDomUtils.notANumber("hex", hex, 0);
             return 0;
         }
     }

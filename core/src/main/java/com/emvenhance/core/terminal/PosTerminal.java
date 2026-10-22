@@ -221,6 +221,15 @@ public abstract class PosTerminal {
         engine.dispose();
     }
 
+    /**
+     * Whether a transaction is on this terminal (from its accepted start until it is done with
+     * the reader) — what refuses a second start. Nothing else may rewrite what it reads (EMV
+     * parameters) meanwhile.
+     */
+    public final boolean isBusy() {
+        return current.get() != null;
+    }
+
     /** Whether the vendor search polling for the current transaction should stop: it is over. */
     public final boolean isSearchCancelled() {
         Transaction transaction = current.get();

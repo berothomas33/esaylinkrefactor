@@ -6,6 +6,7 @@ import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.AmexDrlDbHelper;
 import com.pax.bizentity.db.helper.BaseDaoHelper;
 import com.pax.bizentity.db.helper.CapkRevokeDbHelper;
+import com.pax.bizentity.db.helper.DaoManager;
 import com.pax.bizentity.db.helper.DpasAidDbHelper;
 import com.pax.bizentity.db.helper.EFTAidDbHelper;
 import com.pax.bizentity.db.helper.GreendaoHelper;
@@ -30,6 +31,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -39,16 +41,13 @@ import java.util.zip.ZipInputStream;
  * from the bundled JSON assets — making the EMV/CLSS kernel configuration updatable at runtime
  * instead of fixed at build time.
  *
- * <p>Unlike {@code ConfigInit}'s one-time seed, this is meant to be re-run whenever a fresh
- * package is downloaded, so each section this actually received a fresh (non-empty) list for
- * gets its table cleared before the fresh rows go in — {@link EmvParamService}'s
- * {@code insertXxx()} methods use {@code insertOrReplace()} keyed by autoincrement id, which
- * would otherwise just accumulate duplicate/stale rows (and break
- * {@code EmvAidDbHelper#findAID}'s assumption of a unique {@code aid} column) on a second apply.
- * A section the package didn't include (or that parsed empty) is left untouched rather than
- * wiped, so a partial package — or a failed download that never reaches this at all — can't
- * silently delete data it didn't come to replace; the bundled JSON assets (or whatever the last
- * successful apply left in place) always remain the fallback.
+ * <p>One rule for both files (rule 7: parameters come from the host only): a file in the
+ * package is the whole truth for its side — a section it brings replaces the table, a section
+ * it doesn't bring is deleted. A file not in the package (or one that fails to parse) leaves its
+ * side as it was. Each section is replaced in one database transaction: a failed insert rolls
+ * its delete back, so a table is never left empty by a half-applied section. A package with
+ * neither file is a failed download. A changed database makes the next transaction reload the
+ * kernels' parameters ({@link EmvParamService#invalidate()}).
  *
  * <p>Scoped to what {@code emvParam.zip}'s sample files actually cover: contact AID/CAPK/
  * revocation, and PayPass/PayWave/Amex from the contactless side. DPAS/EFT/JCB/MIR/PBOC/PURE/
@@ -89,22 +88,30 @@ public final class EmvParamUpdater {
         saveForDiagnosis(CONTACT_FILE, emvXml);
         saveForDiagnosis(CONTACTLESS_FILE, clssXml);
 
+        if (emvXml == null && clssXml == null) {
+            // An HTTP 200 that isn't a parameter package (an error page, an empty zip).
+            result.failed("the download has neither " + CONTACT_FILE + " nor " + CONTACTLESS_FILE);
+            return result;
+        }
         List<EmvAid> contactAids = null;
         if (emvXml != null) {
             contactAids = applyEmvXml(emvXml, result);
         } else {
             LogUtils.w(TAG, "EMV param package had no *.emv entry — contact AID/CAPK unchanged");
         }
-        if (clssXml != null) {
-            // Terminal-wide values (Terminal Type, Additional Terminal Capabilities, Security
-            // Capability) for contactless AIDs whose scheme block lacks them: from this
-            // package's contact XML, else from the contact AIDs already stored.
-            if (contactAids == null) {
-                contactAids = GreendaoHelper.getEmvAidHelper().loadAll();
-            }
+        if (clssXml != null && contactAids == null) {
+            // Contactless AIDs take their terminal-wide values (Terminal Type, Additional
+            // Terminal Capabilities, Security Capability) from this package's contact file.
+            // Without it they would come from whatever is stored — the bundled JSON seed on a
+            // terminal that never downloaded (rule 7) — so the contactless side is left as it was.
+            result.failed(CONTACTLESS_FILE + " not applied: it needs this package's " + CONTACT_FILE);
+        } else if (clssXml != null) {
             applyClssXml(clssXml, new TerminalWideValues(contactAids), result);
         } else {
             LogUtils.w(TAG, "EMV param package had no *.clss entry — CLSS params unchanged");
+        }
+        if (result.changedDatabase()) {
+            EmvParamService.invalidate(); // the next transaction loads what was applied
         }
         return result;
     }
@@ -118,23 +125,23 @@ public final class EmvParamUpdater {
             EmvParamService service = new EmvParamService();
 
             if (!parsed.aids.isEmpty()) {
-                GreendaoHelper.getEmvAidHelper().deleteAll();
-                if (service.insertEmvAid(parsed.aids)) {
-                    result.applied("contact AID", parsed.aids.size());
-                } else {
-                    result.failed("contact AID insert failed");
-                }
+                replace("contact AID", parsed.aids.size(), result,
+                        () -> GreendaoHelper.getEmvAidHelper().deleteAll()
+                                && service.insertEmvAid(parsed.aids));
+            } else {
+                remove("contact AID", result, GreendaoHelper.getEmvAidHelper());
             }
 
             List<?> capkList = parsed.capk.getCapkList();
             if (capkList != null && !capkList.isEmpty()) {
-                GreendaoHelper.getEmvCapkHelper().deleteAll();
-                CapkRevokeDbHelper.getInstance().deleteAll();
-                if (service.insertEmvCapk(parsed.capk)) {
-                    result.applied("CAPK", capkList.size());
-                } else {
-                    result.failed("CAPK insert failed");
-                }
+                // The revocation list goes with its CAPKs: none in the file is none revoked.
+                replace("CAPK", capkList.size(), result,
+                        () -> GreendaoHelper.getEmvCapkHelper().deleteAll()
+                                && CapkRevokeDbHelper.getInstance().deleteAll()
+                                && service.insertEmvCapk(parsed.capk));
+            } else {
+                remove("CAPK", result, GreendaoHelper.getEmvCapkHelper(),
+                        CapkRevokeDbHelper.getInstance());
             }
             return parsed.aids;
         } catch (Exception e) {
@@ -153,29 +160,20 @@ public final class EmvParamUpdater {
             EmvParamService service = new EmvParamService();
 
             if (parsed.payPass != null && notEmpty(parsed.payPass.getAid())) {
-                PaypassAidDbHelper.getInstance().deleteAll();
-                if (service.insertPaypassParam(parsed.payPass)) {
-                    result.applied("PayPass", parsed.payPass.getAid().size());
-                } else {
-                    result.failed("PayPass insert failed");
-                }
+                replace("PayPass", parsed.payPass.getAid().size(), result,
+                        () -> PaypassAidDbHelper.getInstance().deleteAll()
+                                && service.insertPaypassParam(parsed.payPass));
             }
             if (parsed.payWave != null && notEmpty(parsed.payWave.getAid())) {
-                PaywaveAidDbHelper.getInstance().deleteAll();
-                if (service.insertPaywaveParam(parsed.payWave)) {
-                    result.applied("PayWave", parsed.payWave.getAid().size());
-                } else {
-                    result.failed("PayWave insert failed");
-                }
+                replace("PayWave", parsed.payWave.getAid().size(), result,
+                        () -> PaywaveAidDbHelper.getInstance().deleteAll()
+                                && service.insertPaywaveParam(parsed.payWave));
             }
             if (parsed.amex != null && notEmpty(parsed.amex.getAid())) {
-                AmexAidDbHelper.getInstance().deleteAll();
-                AmexDrlDbHelper.getInstance().deleteAll();
-                if (service.insertAmexParam(parsed.amex)) {
-                    result.applied("Amex", parsed.amex.getAid().size());
-                } else {
-                    result.failed("Amex insert failed");
-                }
+                replace("Amex", parsed.amex.getAid().size(), result,
+                        () -> AmexAidDbHelper.getInstance().deleteAll()
+                                && AmexDrlDbHelper.getInstance().deleteAll()
+                                && service.insertAmexParam(parsed.amex));
             }
             removeKernelsNotInPackage(parsed, result);
         } catch (Exception e) {
@@ -212,7 +210,27 @@ public final class EmvParamUpdater {
         remove("RuPay (no parser)", result, RupayAidDbHelper.getInstance());
     }
 
-    /** Deletes the kernel's tables; reported only when there were rows to delete. */
+    /**
+     * Replaces one section — its deletes and inserts — in one database transaction: all or
+     * nothing. A failed step rolls the deletes back, so the table keeps what it had.
+     */
+    private static void replace(String section, int rows, EmvParamUpdateResult result,
+            Callable<Boolean> deleteAndInsert) {
+        try {
+            DaoManager.getInstance().getDaoSession().callInTx(() -> {
+                if (!deleteAndInsert.call()) {
+                    throw new IllegalStateException(section + " insert failed");
+                }
+                return null;
+            });
+            result.applied(section, rows);
+        } catch (Exception e) {
+            LogUtils.e(TAG, section + ": not applied, the table keeps what it had", e);
+            result.failed(section + " insert failed — kept the previous values");
+        }
+    }
+
+    /** Deletes the section's tables; reported only when there were rows to delete. */
     private static void remove(String kernel, EmvParamUpdateResult result,
             BaseDaoHelper<?>... tables) {
         int rows = 0;

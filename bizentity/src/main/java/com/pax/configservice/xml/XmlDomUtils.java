@@ -1,6 +1,7 @@
 package com.pax.configservice.xml;
 
 import androidx.annotation.Nullable;
+import com.pax.commonlib.utils.LogUtils;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -149,6 +150,7 @@ final class XmlDomUtils {
         try {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
+            notANumber(tag, value, defaultValue);
             return defaultValue;
         }
     }
@@ -161,8 +163,14 @@ final class XmlDomUtils {
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException e) {
+            notANumber(tag, value, defaultValue);
             return defaultValue;
         }
+    }
+
+    /** A value the host sent that isn't a number: said in the log, never taken silently (rule 15). */
+    static void notANumber(String tag, String value, Object used) {
+        LogUtils.w("XmlDomUtils", tag + " '" + value + "' is not a number — using " + used);
     }
 
     /** {@code "0"/"1"} (or any nonzero digit) style boolean flag tags. */

@@ -3,6 +3,7 @@ package com.emvenhance.vendor.pax;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.param.EmvParams;
+import com.emvenhance.network.EmvParamDownloadClient;
 import com.emvenhance.network.HostHeaders;
 import com.emvenhance.network.onboarding.OnboardingClient;
 import com.emvenhance.network.onboarding.OnboardingState;
@@ -36,6 +37,7 @@ import com.pax.configservice.impl.EmvParamUpdater;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.clss.BaseAid;
 import com.pax.emvbase.param.clss.BaseParam;
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 import java.io.File;
 import java.util.ArrayList;
@@ -45,8 +47,8 @@ import java.util.List;
 /**
  * PAX's {@link EmvParams}: the GreenDAO parameter database, the kernel's parameter cache
  * ({@link PaxTerminal#kernelParams()}), and the host's parameter package
- * ({@link PaxEmvParamUpdateService}). Every row is rendered here, so the screen never sees a PAX
- * type.
+ * ({@link EmvParamDownloadClient} + {@link EmvParamUpdater}). Every row is rendered here, so the
+ * screen never sees a PAX type. Nothing writes the database while a transaction runs.
  */
 final class PaxEmvParams implements EmvParams {
 
@@ -85,30 +87,36 @@ final class PaxEmvParams implements EmvParams {
     /**
      * Refreshes the saved access token first if it is near or past expiry (rather than handing
      * the host whatever token onboarding first minted), then downloads with the authenticated
-     * headers — the confirmed post-onboarding contract. A download that changed the database
-     * makes the next transaction load it again.
+     * headers — the confirmed post-onboarding contract — and applies the package. Refused while
+     * a transaction runs (checked again right before the apply): the apply deletes and rewrites
+     * the tables that transaction may read. A changed database reloads at the next transaction
+     * ({@link EmvParamUpdater} invalidates the cache).
      */
     @Override
     public Single<String> download() {
         OnboardingState state = new OnboardingState(BaseApplication.getAppContext());
         String sn = terminal.serialNumber();
-        return new OnboardingClient()
-                .ensureValidAccessToken(HostHeaders.build(sn), state)
-                .flatMap(accessToken -> new PaxEmvParamUpdateService()
-                        .downloadAndApply(HostHeaders.buildAuthenticated(sn, accessToken), POS_TYPE))
-                .map(result -> {
-                    if (result.changedDatabase()) {
-                        // Rows applied or removed, even if a later section failed.
-                        state.requireTerminalInitialization();
-                    }
-                    return result.summarize();
+        return Completable.fromAction(this::refuseWhileBusy)
+                .andThen(new OnboardingClient().ensureValidAccessToken(HostHeaders.build(sn), state))
+                .flatMap(accessToken -> new EmvParamDownloadClient()
+                        .download(HostHeaders.buildAuthenticated(sn, accessToken), POS_TYPE))
+                .map(zip -> {
+                    refuseWhileBusy();
+                    return EmvParamUpdater.applyFromZip(zip).summarize();
                 });
     }
 
+    /** Seeds the database from the bundled JSON; refused while a transaction runs. Blocking. */
     @Override
     public void seedDefaults() {
-        new ConfigInit().init();
-        new OnboardingState(BaseApplication.getAppContext()).requireTerminalInitialization();
+        refuseWhileBusy();
+        new ConfigInit().init(); // synchronous; reloads the cache when done
+    }
+
+    private void refuseWhileBusy() {
+        if (terminal.isBusy()) {
+            throw new IllegalStateException("A transaction is running — try again when it ends");
+        }
     }
 
     @Override

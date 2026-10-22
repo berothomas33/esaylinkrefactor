@@ -18,6 +18,7 @@
 package com.pax.configservice.impl;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.AmexDrlDbHelper;
 import com.pax.bizentity.db.helper.CapkRevokeDbHelper;
@@ -99,9 +100,26 @@ import java.util.Locale;
 public class EmvParamService {
     private static final String TAG = "EmvParamService";
 
-    private EmvProcessParam.Builder cachedBuilder;
-    public EmvParamService() {
-        cachedBuilder = new EmvProcessParam.Builder();
+    /**
+     * The one copy of the parameters the kernels use, for the whole process: {@code null} until
+     * the first transaction (or anything else) loads it from the database, and again after
+     * {@link #invalidate()}. Its only owner: whether the parameters are loaded is whether this is
+     * set (no "initialized" pref next to it).
+     */
+    @Nullable
+    private static EmvProcessParam cache;
+
+    /**
+     * The database changed (a download, a seed): the next {@link #getCachedEmvParam()} loads it
+     * again. Any instance's database writes reach the one cache this way.
+     */
+    public static synchronized void invalidate() {
+        cache = null;
+    }
+
+    /** Whether the parameters are in memory (the next transaction won't read the database). */
+    public static synchronized boolean isLoaded() {
+        return cache != null;
     }
 
     /**
@@ -120,21 +138,10 @@ public class EmvParamService {
         if (capkList != null){
             capkInsert = GreendaoHelper.getEmvCapkHelper().insert(capkList);
         }
-        if (capkRevokeList != null){
-            CapkRevokeDbHelper.getInstance().insert(capkRevokeList);
+        if (capkRevokeList != null && !CapkRevokeDbHelper.getInstance().insert(capkRevokeList)){
+            return false; // a failed revocation insert is a failed CAPK section
         }
-        cachedBuilder.setCapkParam(capkConvert(emvCapkList));
         return capkInsert;
-    }
-
-    /**
-     * insert terminal config
-     *
-     * @return insert result
-     */
-    public boolean insertTerminalConfig() {
-        cachedBuilder.setTermConfig(getTerminalConfig());
-        return true;
     }
 
     /**
@@ -147,11 +154,7 @@ public class EmvParamService {
         if (emvAidList == null){
             return false;
         }
-        boolean insert = GreendaoHelper.getEmvAidHelper().insert(emvAidList);
-        if (insert){
-            cachedBuilder.setEmvAidList(emvAidConvert(emvAidList));
-        }
-        return insert;
+        return GreendaoHelper.getEmvAidHelper().insert(emvAidList);
     }
 
     /**
@@ -170,7 +173,6 @@ public class EmvParamService {
         if (programID != null){
             AmexDrlDbHelper.getInstance().insert(programID);
         }
-        cachedBuilder.setAmexParam(aemxConvert(amexParam));
         return aidInsert;
     }
 
@@ -186,7 +188,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = PaypassAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setPassParam(paypassConvert(payPassParam));
         return aidInsert;
     }
 
@@ -203,7 +204,6 @@ public class EmvParamService {
             // The per-transaction-type limits are stored in each paywave_aid row (FLOOR_LIMITS).
             aidInsert = PaywaveAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setPayWaveParam(paywaveConvert(payWaveParamBean));
         return aidInsert;
     }
 
@@ -219,7 +219,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = DpasAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setDpasParam(dpasConvert(dpasParamBean));
         return aidInsert;
     }
 
@@ -235,7 +234,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = EFTAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setEFTParam(eftConvert(eftParamBean));
         return aidInsert;
     }
 
@@ -251,7 +249,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = JcbAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setJcbParam(jcbConvert(jcbParamBean));
         return aidInsert;
     }
 
@@ -267,7 +264,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = MirAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setMirParam(mirConvert(mirParamBean));
         return aidInsert;
     }
 
@@ -283,7 +279,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = PBOCAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setPbocParam(pbocConvert(pbocParamBean));
         return aidInsert;
     }
 
@@ -299,7 +294,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = PureAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setPureParam(pureConvert(pureParamBean));
         return aidInsert;
     }
 
@@ -315,7 +309,6 @@ public class EmvParamService {
         if (aid != null){
             aidInsert = RupayAidDbHelper.getInstance().insert(aid);
         }
-        cachedBuilder.setRuPayParam(rupayConvert(rupayParamBean));
         return aidInsert;
     }
 
@@ -805,49 +798,39 @@ public class EmvParamService {
         return emvAids;
     }
 
-    /**
-     * Drops the in-memory copy and loads every EMV/CLSS parameter from the database again. Call
-     * it after the database changed (parameter download, onboarding): otherwise
-     * {@link #getCachedEmvParam} keeps returning what it loaded before, until the app restarts.
-     */
+    /** Drops the in-memory copy and loads every EMV/CLSS parameter from the database again. */
     public EmvProcessParam reloadFromDatabase() {
-        cachedBuilder = new EmvProcessParam.Builder();
+        invalidate();
         return getCachedEmvParam();
     }
 
     /**
-     * Gets cached emv param
-     *
-     * @return cached emv param
+     * The parameters the kernels use: the in-memory copy, loaded from the database the first
+     * time (and after {@link #invalidate()}). Call it off the main thread: a load reads every
+     * table.
      */
     public EmvProcessParam getCachedEmvParam() {
-        EmvProcessParam emvProcessParam = cachedBuilder.create();
-        if (emvProcessParam.getCapkParam() != null
-                && emvProcessParam.getCapkParam().getCapkList() != null
-                && emvProcessParam.getCapkParam().getCapkRevokeList() != null
-                && emvProcessParam.getEmvAidList() != null
-                && emvProcessParam.getTermConfig() != null && emvProcessParam.getAmexParam() != null
-                && emvProcessParam.getDpasParam() != null && emvProcessParam.getEftParam() != null
-                && emvProcessParam.getJcbParam() != null && emvProcessParam.getMirParam() != null
-                && emvProcessParam.getPayPassParam() != null
-                && emvProcessParam.getPayWaveParam() != null && emvProcessParam.getPbocParam() != null
-                && emvProcessParam.getPureParam() != null && emvProcessParam.getRuPayParam() != null
-        ){
-            LogUtils.d(TAG, "Use cached EMV param");
-            return emvProcessParam;
+        synchronized (EmvParamService.class) {
+            if (cache == null) {
+                LogUtils.d(TAG, "Load EMV param data from database");
+                cache = loadFromDatabase();
+            } else {
+                LogUtils.d(TAG, "Use cached EMV param");
+            }
+            return cache;
         }
-        LogUtils.d(TAG, "Reload EMV param data from database");
-        //App Restart,need to reFetch data
+    }
+
+    private EmvProcessParam loadFromDatabase() {
+        EmvProcessParam.Builder cachedBuilder = new EmvProcessParam.Builder();
         List<EmvAid> emvAids = GreendaoHelper.getEmvAidHelper().loadAll();
-        if (emvAids != null && emvAids.size() > 0){
-            cachedBuilder.setEmvAidList(emvAidConvert(emvAids));
-        }
+        // Always a list, empty when there are none (a package may bring no contact AIDs).
+        cachedBuilder.setEmvAidList(emvAidConvert(emvAids != null ? emvAids : new ArrayList<>()));
         List<EmvCapk> emvCapks = GreendaoHelper.getEmvCapkHelper().loadAll();
         List<CapkRevokeBean> capkRevokeBeans = CapkRevokeDbHelper.getInstance().loadAll();
         CapkParamBean capkParamBean = new CapkParamBean();
         capkParamBean.setCapkList(emvCapks);
         capkParamBean.setCapkRevokeList(capkRevokeBeans);
-        cachedBuilder.setCapkParam(capkConvert(capkParamBean));
         cachedBuilder.setTermConfig(getTerminalConfig());
 
         List<AmexAidBean> amexAidBeans = AmexAidDbHelper.getInstance().loadAll();
@@ -855,52 +838,42 @@ public class EmvParamService {
         AmexParamBean amexParam = new AmexParamBean();
         amexParam.setAid(amexAidBeans);
         amexParam.setProgramID(amexDrlBeans);
-        cachedBuilder.setAmexParam(aemxConvert(amexParam));
 
         List<PayPassAidBean> payPassAidBeans = PaypassAidDbHelper.getInstance().loadAll();
         PayPassParamBean payPassParamBean = new PayPassParamBean();
         payPassParamBean.setAid(payPassAidBeans);
-        cachedBuilder.setPassParam(paypassConvert(payPassParamBean));
 
         List<PaywaveAidBean> paywaveAidBeans = PaywaveAidDbHelper.getInstance().loadAll();
         PayWaveParamBean payWaveParamBean = new PayWaveParamBean();
         payWaveParamBean.setAid(paywaveAidBeans);
-        cachedBuilder.setPayWaveParam(paywaveConvert(payWaveParamBean));
 
         List<DpasAidBean> dpasAidBeans = DpasAidDbHelper.getInstance().loadAll();
         DpasParamBean dpasParamBean = new DpasParamBean();
         dpasParamBean.setAid(dpasAidBeans);
-        cachedBuilder.setDpasParam(dpasConvert(dpasParamBean));
 
         List<EFTAidBean> eftAidBeans = EFTAidDbHelper.getInstance().loadAll();
         EFTParamBean eftParamBean = new EFTParamBean();
         eftParamBean.setAid(eftAidBeans);
-        cachedBuilder.setEFTParam(eftConvert(eftParamBean));
 
         List<JcbAidBean> jcbAidBeans = JcbAidDbHelper.getInstance().loadAll();
         JcbParamBean jcbParamBean = new JcbParamBean();
         jcbParamBean.setAid(jcbAidBeans);
-        cachedBuilder.setJcbParam(jcbConvert(jcbParamBean));
 
         List<MirAidBean> mirAidBeans = MirAidDbHelper.getInstance().loadAll();
         MirParamBean mirParamBean = new MirParamBean();
         mirParamBean.setAid(mirAidBeans);
-        cachedBuilder.setMirParam(mirConvert(mirParamBean));
 
         List<PBOCAidBean> pbocAidBeans = PBOCAidDbHelper.getInstance().loadAll();
         PBOCParamBean pbocParamBean = new PBOCParamBean();
         pbocParamBean.setAid(pbocAidBeans);
-        cachedBuilder.setPbocParam(pbocConvert(pbocParamBean));
 
         List<PureAidBean> pureAidBeans = PureAidDbHelper.getInstance().loadAll();
         PureParamBean pureParamBean = new PureParamBean();
         pureParamBean.setAid(pureAidBeans);
-        cachedBuilder.setPureParam(pureConvert(pureParamBean));
 
         List<RupayAidBean> rupayAidBeans = RupayAidDbHelper.getInstance().loadAll();
         RupayParamBean rupayParamBean = new RupayParamBean();
         rupayParamBean.setAid(rupayAidBeans);
-        cachedBuilder.setRuPayParam(rupayConvert(rupayParamBean));
         return cachedBuilder.create();
     }
 
@@ -953,7 +926,11 @@ public class EmvParamService {
     private CapkParam capkConvert(CapkParamBean emvCapkList) {
         List<EmvCapk> capkList = emvCapkList.getCapkList();
         List<CapkRevokeBean> capkRevokeList = emvCapkList.getCapkRevokeList();
+        // Both lists always set, empty when there are none: the kernels read their size (a null
+        // revocation list failed every transaction at terminal initialization).
         CapkParam capkParam = new CapkParam();
+        capkParam.setCapkList(new ArrayList<>());
+        capkParam.setCapkRevokeList(new ArrayList<>());
         if (capkList != null && capkList.size() > 0){
             ArrayList<Capk> capks = new ArrayList<>();
             for (EmvCapk item: capkList){

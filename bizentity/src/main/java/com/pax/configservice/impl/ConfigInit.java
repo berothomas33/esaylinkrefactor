@@ -41,22 +41,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * init all required parameters by application
+ * Seeds the database from the bundled JSON assets (config, acquirer, EMV parameters).
+ * Synchronous: it returns once the database is seeded, so the caller knows when it is done —
+ * run it off the main thread. Then the kernels' parameters reload
+ * ({@link EmvParamService#invalidate()}).
  */
 public class ConfigInit {
 
     private static final String TAG = "ConfigInit";
 
     public void init() {
-        new Thread(this::runInit, "ConfigInit").start();
-    }
-
-    private void runInit() {
         try {
             loadConfigParams();
-            // Terminal config depends on both config params and acquirer/issuer data being present.
             loadAcquirerData();
-            new EmvParamService().insertTerminalConfig();
         } catch (Exception e) {
             LogUtils.e(TAG, "Config/acquirer/terminal config init failed", e);
         }
@@ -69,6 +66,7 @@ public class ConfigInit {
         } catch (Exception e) {
             LogUtils.e(TAG, "EMV param init failed", e);
         }
+        EmvParamService.invalidate();
     }
 
     private void loadConfigParams() {

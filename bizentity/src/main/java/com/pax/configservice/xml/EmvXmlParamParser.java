@@ -214,10 +214,17 @@ public final class EmvXmlParamParser {
         Element capkList = XmlDomUtils.firstChild(root, "CAPKLIST");
         List<EmvCapk> capks = new ArrayList<>();
         for (Element capkEl : XmlDomUtils.children(capkList, "CAPK")) {
+            String rid = XmlDomUtils.text(capkEl, "RID", "");
+            int keyId = strictHexToInt(XmlDomUtils.text(capkEl, "KeyID", ""));
+            if (rid.isEmpty() || keyId < 0) {
+                // A CAPK is found by RID + KeyID: without them it would load as key 0.
+                LogUtils.w(TAG, "CAPK without a valid RID/KeyID (RID '" + rid + "') — skipped");
+                continue;
+            }
             capks.add(new EmvCapk(
                     null,
-                    XmlDomUtils.text(capkEl, "RID", ""),
-                    hexToInt(XmlDomUtils.text(capkEl, "KeyID", "0")),
+                    rid,
+                    keyId,
                     hexToInt(XmlDomUtils.text(capkEl, "HashArithmeticIndex", "0")),
                     hexToInt(XmlDomUtils.text(capkEl, "RSAArithmeticIndex", "0")),
                     XmlDomUtils.text(capkEl, "Module"),
@@ -229,11 +236,16 @@ public final class EmvXmlParamParser {
         Element revocationList = XmlDomUtils.firstChild(root, "REVOCATIONLIST");
         List<CapkRevokeBean> revoked = new ArrayList<>();
         for (Element revokedEl : XmlDomUtils.children(revocationList, "REVOKEDCERTIFICATE")) {
-            revoked.add(new CapkRevokeBean(
-                    null,
-                    XmlDomUtils.text(revokedEl, "RID", ""),
-                    XmlDomUtils.text(revokedEl, "KeyID", ""),
-                    XmlDomUtils.text(revokedEl, "CertificateSN", "")));
+            String rid = XmlDomUtils.text(revokedEl, "RID", "");
+            String keyId = XmlDomUtils.text(revokedEl, "KeyID", "");
+            String serial = XmlDomUtils.text(revokedEl, "CertificateSN", "");
+            if (rid.isEmpty() || strictHexToInt(keyId) < 0 || serial.isEmpty()) {
+                // Loading one without a KeyID threw at every cache load (strToBcd("")[0]).
+                LogUtils.w(TAG, "Revoked certificate without RID/KeyID/CertificateSN (RID '" + rid
+                        + "') — skipped");
+                continue;
+            }
+            revoked.add(new CapkRevokeBean(null, rid, keyId, serial));
         }
 
         CapkParamBean bean = new CapkParamBean();
@@ -246,7 +258,18 @@ public final class EmvXmlParamParser {
         try {
             return Integer.parseInt(hex, 16);
         } catch (NumberFormatException e) {
+            XmlDomUtils.notANumber("hex", hex, 0);
             return 0;
+        }
+    }
+
+    /** A one-byte hex value (a key index), or -1 when it is missing or not hex. */
+    private static int strictHexToInt(String hex) {
+        try {
+            int value = Integer.parseInt(hex, 16);
+            return value >= 0 && value <= 0xFF ? value : -1;
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 }

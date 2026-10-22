@@ -151,14 +151,21 @@ public class PaxTerminal extends PosTerminal {
         LogUtils.i(TAG, "PAX terminal initialized (ICardReaderHelper)");
     }
 
+    /**
+     * First start only: seeds the database from the bundled JSON, off the main thread (this runs
+     * from Application.onCreate). Marked done only once the seed has finished, so a crash in the
+     * middle seeds again next start.
+     */
     private void ensureEmvConfigInitialized() {
         SharedPrefUtil prefs = new SharedPrefUtil(BaseApplication.getAppContext());
         if (prefs.getBoolean(KEY_EMV_CONFIG_INITIALIZED)) {
             LogUtils.i(TAG, "EMV config already initialized, skipping");
             return;
         }
-        new ConfigInit().init();
-        prefs.putBoolean(KEY_EMV_CONFIG_INITIALIZED, true);
+        new Thread(() -> {
+            new ConfigInit().init();
+            prefs.putBoolean(KEY_EMV_CONFIG_INITIALIZED, true);
+        }, "ConfigInit").start();
     }
 
     @Nullable

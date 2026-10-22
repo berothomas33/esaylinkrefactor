@@ -45,13 +45,24 @@ public class MainActivity extends AppCompatActivity {
 
         EmvParams params = terminal.emvParams();
         show(binding.btnShowEmvParam, params != null);
-        show(binding.btnInsertEmvParam, params != null);
+        // Seeding the bundled JSON over the host's parameters is a debug tool only (rule 7).
+        show(binding.btnInsertEmvParam, params != null && BuildConfig.DEBUG);
         if (params != null) {
             binding.btnShowEmvParam.setOnClickListener(
                     v -> startActivity(new Intent(this, EmvParamActivity.class)));
             binding.btnInsertEmvParam.setOnClickListener(v -> {
-                new Thread(params::seedDefaults, "EmvParamSeed").start();
                 Toast.makeText(this, "Inserting EMV param data…", Toast.LENGTH_SHORT).show();
+                new Thread(() -> {
+                    String done;
+                    try {
+                        params.seedDefaults();
+                        done = "EMV param data inserted";
+                    } catch (IllegalStateException busy) {
+                        done = busy.getMessage();
+                    }
+                    String message = done;
+                    runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
+                }, "EmvParamSeed").start();
             });
         }
 
