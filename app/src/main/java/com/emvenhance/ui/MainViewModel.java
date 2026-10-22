@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.terminal.PosTerminal;
+import com.emvenhance.core.terminal.TerminalBusyException;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.util.ApduTrace;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -79,9 +80,13 @@ public class MainViewModel extends ViewModel {
      *         started, so tell the user (see {@link PosTerminal#startTransaction})
      */
     public boolean acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
-        boolean started = terminal.acceptCard(type, amountMinor, referenceNumber);
-        startedTransaction |= started;
-        return started;
+        try {
+            terminal.acceptCard(type, amountMinor, referenceNumber);
+        } catch (TerminalBusyException busy) {
+            return false;
+        }
+        startedTransaction = true;
+        return true;
     }
 
     public void cancel() {

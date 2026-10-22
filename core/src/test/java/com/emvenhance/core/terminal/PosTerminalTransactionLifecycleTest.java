@@ -16,11 +16,13 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
@@ -29,7 +31,8 @@ import org.junit.Test;
 
 /**
  * One transaction at a time: a start while the previous one hasn't finished — even cancelled, with
- * its search still stopping — is refused as "terminal busy", never queued. And a search that
+ * its search still stopping — is refused as "terminal busy" at once, never queued; a transaction
+ * cancelled before it ran still frees the terminal. And a search that
  * outlives its transaction can't fail, or start EMV for, the next one.
  */
 public class PosTerminalTransactionLifecycleTest {
@@ -82,7 +85,7 @@ public class PosTerminalTransactionLifecycleTest {
         terminal.cancelTransaction();
         events.clear();
 
-        assertFalse("busy", terminal.acceptCard(TransactionType.SALE, 2000));
+        assertFalse("busy", starts(2000));
         assertTrue("busy is not reported on the old transaction's steps: " + events,
                 events.isEmpty());
 
@@ -100,13 +103,32 @@ public class PosTerminalTransactionLifecycleTest {
         Search first = terminal.nextSearch();
         events.clear();
 
-        assertFalse("busy", terminal.acceptCard(TransactionType.SALE, 2000));
+        assertFalse("busy", starts(2000));
 
         assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS));
         assertTrue("first transaction got " + events, events.isEmpty());
         assertTrue(terminal.engine.isRunning());
         first.listener.onChipDetected(CardPresence.chip());
         assertEquals(Collections.singletonList(1000L), emvStartedWithAmount);
+    }
+
+    @Test
+    public void aTransactionCancelledBeforeItRanStillFreesTheTerminal() throws Exception {
+        CountDownLatch hold = new CountDownLatch(1);
+        transactionExecutor().execute(() -> {
+            try {
+                hold.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        terminal.cancelTransaction(); // its work is still queued behind the held thread
+
+        hold.countDown();
+
+        Search next = startWhenFree(2000);
+        assertEquals("the cancelled one never searched", 2000L, next.config.getAmountMinor());
     }
 
     @Test
@@ -138,8 +160,24 @@ public class PosTerminalTransactionLifecycleTest {
     /** Starts a sale as soon as the terminal stops being busy, and returns its search. */
     private Search startWhenFree(long amount) throws InterruptedException {
         assertTrue("terminal stayed busy",
-                awaitTrue(() -> terminal.acceptCard(TransactionType.SALE, amount)));
+                awaitTrue(() -> starts(amount)));
         return terminal.nextSearch();
+    }
+
+    private Executor transactionExecutor() throws ReflectiveOperationException {
+        Field field = PosTerminal.class.getDeclaredField("transactionExecutor");
+        field.setAccessible(true);
+        return (Executor) field.get(terminal);
+    }
+
+    /** Starts a sale; {@code false}: refused as busy, at once, on this thread. */
+    private boolean starts(long amount) {
+        try {
+            terminal.acceptCard(TransactionType.SALE, amount);
+            return true;
+        } catch (TerminalBusyException busy) {
+            return false;
+        }
     }
 
     private static boolean awaitTrue(java.util.function.BooleanSupplier condition)
