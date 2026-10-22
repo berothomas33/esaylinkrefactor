@@ -28,6 +28,7 @@ public class MainViewModel extends ViewModel {
             new MutableLiveData<>(TransactionStepEvent.idle());
     private final MutableLiveData<Event<EmvStepEvent>> emvStep = new MutableLiveData<>();
     private final MutableLiveData<String> apduTrace;
+    private final MutableLiveData<Event<Boolean>> terminalBusy = new MutableLiveData<>();
 
     /**
      * The transaction this screen started, to cancel it — that one only, never another's. A
@@ -40,6 +41,7 @@ public class MainViewModel extends ViewModel {
         this.terminal = terminal;
         this.apduTrace = new MutableLiveData<>(terminal.apduTrace().text());
 
+        // Nothing replayed: only steps published from now on.
         disposables.add(terminal.transactionSteps()
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(transactionStep::setValue));
@@ -62,6 +64,11 @@ public class MainViewModel extends ViewModel {
         return transactionStep;
     }
 
+    /** A start this screen asked for was refused: the previous transaction hasn't finished. */
+    public LiveData<Event<Boolean>> getTerminalBusy() {
+        return terminalBusy;
+    }
+
     public LiveData<Event<EmvStepEvent>> getEmvStep() {
         return emvStep;
     }
@@ -77,19 +84,20 @@ public class MainViewModel extends ViewModel {
     }
 
     /**
-     * Preferred: accept chip / tap / swipe — vendor terminal decides.
+     * Preferred: accept chip / tap / swipe — vendor terminal decides. Its steps arrive on
+     * {@link #getTransactionStep()}; a refused start (the POS terminal is busy with the previous
+     * transaction, see {@link PosTerminal#startTransaction}) on {@link #getTerminalBusy()}.
      *
      * @param referenceNumber the original sale's reference number, for a refund; else {@code null}
-     * @return {@code false} when the POS terminal is busy with the previous transaction: nothing
-     *         started, so tell the user (see {@link PosTerminal#startTransaction})
      */
-    public boolean acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
+    public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
+        // A screen observing from here on sees this transaction only, not the last one's outcome.
+        transactionStep.setValue(TransactionStepEvent.idle());
         try {
             transaction = terminal.acceptCard(type, amountMinor, referenceNumber);
         } catch (TerminalBusyException busy) {
-            return false;
+            terminalBusy.setValue(new Event<>(true));
         }
-        return true;
     }
 
     /** Cancels this screen's transaction: CANCELLING, then ERROR "Transaction cancelled". */
@@ -116,8 +124,8 @@ public class MainViewModel extends ViewModel {
     @Override
     protected void onCleared() {
         // The screen that started the transaction is gone (Cancel, Done, or Back): don't leave its
-        // search holding the reader, or its EMV running, for the next transaction. A screen whose
-        // start was refused (terminal busy) never had one, and leaves the other alone.
+        // search holding the reader, or its EMV running, for the next transaction. Only its own:
+        // a refused (busy) start never had one, and a finished one ignores the cancel.
         cancel();
         disposables.clear();
         super.onCleared();
