@@ -21,6 +21,7 @@ include ':app'
 include ':core'
 include ':vendor-fake'
 include ':vendor-pax'
+include ':vendor-ingenico'
 include ':emvflow'
 include ':network'
 
