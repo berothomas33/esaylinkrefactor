@@ -3,7 +3,6 @@ package com.emvenhance.vendor.fake;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
@@ -20,14 +19,13 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     private AuthResult lastAuth;
 
     @Override
-    public void onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
+    public void onTerminalInitialization(TransactionConfig config) {
         lastAuth = null;
         // Stop here — PosTerminal.searchCard runs next. Do NOT goToStep.
     }
 
     @Override
-    public void onApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onApplicationSelection(TransactionConfig config, CardPresence card) {
         if (card.isContactless()) {
             // Abbreviated CLSS: skip wait/final/ODA/… → read → complete offline
             goToStep(EmvStep.READ_APPLICATION_DATA, "contactless");
@@ -37,21 +35,18 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.FINAL_APPLICATION_SELECTION);
     }
 
     @Override
-    public void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
         publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
         goToStep(EmvStep.READ_APPLICATION_DATA);
     }
 
     @Override
-    public void onReadApplicationData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onReadApplicationData(TransactionConfig config, CardPresence card) {
         if (card.isChip()) {
             publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, "4111111111111111")
@@ -98,32 +93,27 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onSetTransactionData(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.OFFLINE_DATA_AUTHENTICATION);
     }
 
     @Override
-    public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onOfflineDataAuthentication(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.PROCESS_RESTRICTIONS);
     }
 
     @Override
-    public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onProcessRestrictions(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.CARDHOLDER_VERIFICATION);
     }
 
     @Override
-    public void onCardholderVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onCardholderVerification(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.OFFLINE_PIN_VERIFICATION);
     }
 
     @Override
-    public void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
         publish(TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, true)
                 .put(TransactionStepEvent.KEY_PIN_BYPASS, true)
@@ -133,20 +123,17 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onTerminalRiskManagement(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.TERMINAL_ACTION_ANALYSIS);
     }
 
     @Override
-    public void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onTerminalActionAnalysis(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.START_ONLINE_PROCESS);
     }
 
     @Override
-    public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
         lastAuth = authorizeOnline(); // a cancelled transaction never runs this step
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
@@ -176,20 +163,17 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onIssuerAuthentication(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.SCRIPT_PROCESSING);
     }
 
     @Override
-    public void onScriptProcessing(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onScriptProcessing(TransactionConfig config, CardPresence card) {
         goToStep(EmvStep.TRANSACTION_COMPLETION);
     }
 
     @Override
-    public void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
         if (card.isContactless() && lastAuth == null) {
             finishApproved("OFFLINE APPROVED");
             return;

@@ -428,7 +428,7 @@ public class PosTerminalTransactionLifecycleTest {
                         return Boolean.TRUE;
                     }
                     if (method.getName().equals("start")) {
-                        emvStartedWithAmount.add(((TransactionConfig) args[1]).getAmountMinor());
+                        emvStartedWithAmount.add(((TransactionConfig) args[0]).getAmountMinor());
                     }
                     return method.getReturnType() == boolean.class ? false : null;
                 });

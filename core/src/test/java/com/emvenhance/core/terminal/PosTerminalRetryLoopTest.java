@@ -41,6 +41,8 @@ public class PosTerminalRetryLoopTest {
     private final AtomicReference<java.util.function.BiConsumer<EmvEngine, PosTerminal.Transaction>>
             onStart = new AtomicReference<>();
     private final AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
+    /** The engine the terminal attached to the behavior. */
+    private final AtomicReference<EmvEngine> attached = new AtomicReference<>();
 
     @Test
     public void aRetryIsTheNextTurnOfTheLoopNotASearchInsideTheLastOne() throws Exception {
@@ -152,8 +154,11 @@ public class PosTerminalRetryLoopTest {
                     if (method.getName().equals("prepare")) {
                         return Boolean.TRUE;
                     }
+                    if (method.getName().equals("attach")) {
+                        attached.set((EmvEngine) args[0]);
+                    }
                     if (method.getName().equals("start")) {
-                        onStart.get().accept((EmvEngine) args[0], (PosTerminal.Transaction) args[3]);
+                        onStart.get().accept(attached.get(), (PosTerminal.Transaction) args[2]);
                     }
                     return method.getReturnType() == boolean.class ? false : null;
                 });

@@ -292,37 +292,37 @@ public class EmvStepObserverTest {
             return null;
         }
 
-        @Override public void onSearchCard(EmvEngine e, TransactionConfig c, CardPresence p) {
+        @Override public void onSearchCard(TransactionConfig c, CardPresence p) {
             ran(EmvStep.SEARCH_CARD);
         }
-        @Override public void onTerminalInitialization(EmvEngine e, TransactionConfig c) {
+        @Override public void onTerminalInitialization(TransactionConfig c) {
             ran(EmvStep.TERMINAL_INITIALIZATION);
         }
-        @Override public void onApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) {
+        @Override public void onApplicationSelection(TransactionConfig c, CardPresence p) {
             ran(EmvStep.APPLICATION_SELECTION);
             goToStep(afterApplicationSelection);
         }
-        @Override public void onReadApplicationData(EmvEngine e, TransactionConfig c, CardPresence p) {
+        @Override public void onReadApplicationData(TransactionConfig c, CardPresence p) {
             ran(EmvStep.READ_APPLICATION_DATA);
             goToStep(EmvStep.TRANSACTION_COMPLETION);
         }
-        @Override public void onTransactionCompletion(EmvEngine e, TransactionConfig c, CardPresence p) {
+        @Override public void onTransactionCompletion(TransactionConfig c, CardPresence p) {
             ran(EmvStep.TRANSACTION_COMPLETION);
             if (approveOnCompletion) {
                 finishApproved("APPROVED");
             }
         }
-        @Override public void onWaitApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onFinalApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onSetTransactionData(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onOfflineDataAuthentication(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onProcessRestrictions(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onCardholderVerification(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onOfflinePinVerification(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onTerminalRiskManagement(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onTerminalActionAnalysis(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onStartOnlineProcess(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onIssuerAuthentication(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override public void onScriptProcessing(EmvEngine e, TransactionConfig c, CardPresence p) { }
+        @Override public void onWaitApplicationSelection(TransactionConfig c, CardPresence p) { }
+        @Override public void onFinalApplicationSelection(TransactionConfig c, CardPresence p) { }
+        @Override public void onSetTransactionData(TransactionConfig c, CardPresence p) { }
+        @Override public void onOfflineDataAuthentication(TransactionConfig c, CardPresence p) { }
+        @Override public void onProcessRestrictions(TransactionConfig c, CardPresence p) { }
+        @Override public void onCardholderVerification(TransactionConfig c, CardPresence p) { }
+        @Override public void onOfflinePinVerification(TransactionConfig c, CardPresence p) { }
+        @Override public void onTerminalRiskManagement(TransactionConfig c, CardPresence p) { }
+        @Override public void onTerminalActionAnalysis(TransactionConfig c, CardPresence p) { }
+        @Override public void onStartOnlineProcess(TransactionConfig c, CardPresence p) { }
+        @Override public void onIssuerAuthentication(TransactionConfig c, CardPresence p) { }
+        @Override public void onScriptProcessing(TransactionConfig c, CardPresence p) { }
     }
 }

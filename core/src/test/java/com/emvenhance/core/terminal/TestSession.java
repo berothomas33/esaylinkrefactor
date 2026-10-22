@@ -44,11 +44,11 @@ final class TestSession {
     }
 
     boolean prepare(TransactionConfig config) {
-        return behavior.prepare(engine, config, transaction);
+        return behavior.prepare(config, transaction);
     }
 
     void start(TransactionConfig config, CardPresence card) {
-        behavior.start(engine, config, card, transaction);
+        behavior.start(config, card, transaction);
     }
 
     /** As the screen's Cancel: {@link PosTerminal.Transaction#cancel()}. */

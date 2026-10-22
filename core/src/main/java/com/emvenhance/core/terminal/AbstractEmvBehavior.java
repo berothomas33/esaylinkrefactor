@@ -42,7 +42,7 @@ import io.reactivex.rxjava3.observers.DisposableObserver;
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
-    @Nullable
+    /** The terminal's engine, from {@link #attach}: given once, when the terminal is built. */
     protected EmvEngine engine;
     @Nullable
     protected TransactionConfig activeConfig;
@@ -56,11 +56,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     private final CompositeDisposable disposables = new CompositeDisposable();
 
     @Override
-    public boolean prepare(EmvEngine engine, TransactionConfig config,
-            PosTerminal.Transaction transaction) {
+    public final void attach(EmvEngine engine) {
         this.engine = engine;
+    }
+
+    @Override
+    public boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
         this.transaction = transaction;
-        initEmvObserver(engine);
+        initEmvObserver();
         this.activeConfig = config;
         this.activeCard = null;
 
@@ -70,11 +73,10 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     @Override
-    public void start(EmvEngine engine, TransactionConfig config, CardPresence card,
+    public void start(TransactionConfig config, CardPresence card,
             PosTerminal.Transaction transaction) {
-        this.engine = engine;
         this.transaction = transaction;
-        initEmvObserver(engine);
+        initEmvObserver();
         this.activeConfig = config;
         this.activeCard = card;
 
@@ -88,7 +90,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * Subscribes {@link EmvStepObserver} to {@code engine}'s EmvStep observable, replacing any
+     * Subscribes {@link EmvStepObserver} to the engine's EmvStep observable, replacing any
      * earlier subscription.
      *
      * <p>Called at the start of every {@link #prepare} and {@link #start}, not once: the observer
@@ -102,7 +104,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * publishes no step, so a step still published by code unwinding never runs a step method;
      * the next {@link #prepare} subscribes again.
      */
-    protected final void initEmvObserver(EmvEngine engine) {
+    protected final void initEmvObserver() {
         disposables.clear();
         // No subscribeOn / observeOn: see EmvStepObserver.
         disposables.add(engine.emvSteps().subscribeWith(new EmvStepObserver()));
@@ -127,7 +129,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             unknownStep(null);
             return false;
         }
-        if (engine == null || activeConfig == null) {
+        if (activeConfig == null) {
             return false;
         }
         return enterStep(step, detail);
@@ -158,11 +160,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         // was choosing): the kernel gets the fail-closed value, never a choice nobody waits for.
         boolean ended = !isRunning();
         if (!answer.answered || ended) {
-            if (engine != null) {
-                engine.apduTrace().note("EMV", (answer.answered
-                        ? step.getTitle() + " answered after the transaction ended"
-                        : "no answer for " + step.getTitle()) + " — answering " + failClosed);
-            }
+            engine.apduTrace().note("EMV", (answer.answered
+                    ? step.getTitle() + " answered after the transaction ended"
+                    : "no answer for " + step.getTitle()) + " — answering " + failClosed);
             return failClosed;
         }
         return answer.value;
@@ -249,7 +249,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * online (the PAX kernel's {@code startOnlineProcess} callback, or {@code onStartOnlineProcess}).
      */
     protected final AuthResult authorizeOnline() {
-        if (engine == null || activeConfig == null) {
+        if (activeConfig == null) {
             return AuthResult.failed("Online failed: no active transaction");
         }
         if (isCancelled()) {
@@ -280,9 +280,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 : activeCard.isContactless() ? "contactless" : "contact";
         String summary = field55.describe(source);
         EmvLog.d(summary);
-        if (engine != null) {
-            engine.apduTrace().note("EMV", summary);
-        }
+        engine.apduTrace().note("EMV", summary);
         return field55.hex();
     }
 
@@ -327,7 +325,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     // They are protected, not on EmvBehavior: only dispatchStepMethod runs them, for a step
     // published on the EmvStep observable. Nothing holding the engine's EmvBehavior can run one.
 
-    protected abstract void onTerminalInitialization(EmvEngine engine, TransactionConfig config);
+    protected abstract void onTerminalInitialization(TransactionConfig config);
 
     /**
      * The one step method that stays optional. {@link PosTerminal#searchCard} is the real,
@@ -335,53 +333,40 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * PosTerminal, with its prompt — and has nothing left to do. Requiring a body here would
      * force an empty one in every vendor for no benefit.
      */
-    protected void onSearchCard(EmvEngine engine, TransactionConfig config, CardPresence card) {
+    protected void onSearchCard(TransactionConfig config, CardPresence card) {
     }
 
-    protected abstract void onApplicationSelection(EmvEngine engine, TransactionConfig config,
+    protected abstract void onApplicationSelection(TransactionConfig config, CardPresence card);
+
+    protected abstract void onWaitApplicationSelection(TransactionConfig config, CardPresence card);
+
+    protected abstract void onFinalApplicationSelection(TransactionConfig config,
             CardPresence card);
 
-    protected abstract void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
+    protected abstract void onReadApplicationData(TransactionConfig config, CardPresence card);
+
+    protected abstract void onSetTransactionData(TransactionConfig config, CardPresence card);
+
+    protected abstract void onOfflineDataAuthentication(TransactionConfig config,
             CardPresence card);
 
-    protected abstract void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onProcessRestrictions(TransactionConfig config, CardPresence card);
 
-    protected abstract void onReadApplicationData(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onCardholderVerification(TransactionConfig config, CardPresence card);
 
-    protected abstract void onSetTransactionData(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onOfflinePinVerification(TransactionConfig config, CardPresence card);
 
-    protected abstract void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onTerminalRiskManagement(TransactionConfig config, CardPresence card);
 
-    protected abstract void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onTerminalActionAnalysis(TransactionConfig config, CardPresence card);
 
-    protected abstract void onCardholderVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onStartOnlineProcess(TransactionConfig config, CardPresence card);
 
-    protected abstract void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onIssuerAuthentication(TransactionConfig config, CardPresence card);
 
-    protected abstract void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onScriptProcessing(TransactionConfig config, CardPresence card);
 
-    protected abstract void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
-
-    protected abstract void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
-
-    protected abstract void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
-
-    protected abstract void onScriptProcessing(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
-
-    protected abstract void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
-            CardPresence card);
+    protected abstract void onTransactionCompletion(TransactionConfig config, CardPresence card);
 
     // ─── Field 55 — every vendor writes this ──────────────────────────────
 
@@ -462,61 +447,61 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * published there, through {@link EmvStepObserver}.
      */
     private void dispatchStepMethod(EmvStep step) {
-        if (engine == null || activeConfig == null) {
+        if (activeConfig == null) {
             return;
         }
 
         switch (step) {
             case TERMINAL_INITIALIZATION:
-                onTerminalInitialization(engine, activeConfig);
+                onTerminalInitialization(activeConfig);
                 break;
             case SEARCH_CARD:
-                onSearchCard(engine, activeConfig, activeCard);
+                onSearchCard(activeConfig, activeCard);
                 break;
             case APPLICATION_SELECTION:
-                onApplicationSelection(engine, activeConfig, activeCard);
+                onApplicationSelection(activeConfig, activeCard);
                 break;
             case WAIT_APPLICATION_SELECTION:
-                onWaitApplicationSelection(engine, activeConfig, activeCard);
+                onWaitApplicationSelection(activeConfig, activeCard);
                 break;
             case FINAL_APPLICATION_SELECTION:
-                onFinalApplicationSelection(engine, activeConfig, activeCard);
+                onFinalApplicationSelection(activeConfig, activeCard);
                 break;
             case READ_APPLICATION_DATA:
-                onReadApplicationData(engine, activeConfig, activeCard);
+                onReadApplicationData(activeConfig, activeCard);
                 break;
             case SET_TRANSACTION_DATA:
-                onSetTransactionData(engine, activeConfig, activeCard);
+                onSetTransactionData(activeConfig, activeCard);
                 break;
             case OFFLINE_DATA_AUTHENTICATION:
-                onOfflineDataAuthentication(engine, activeConfig, activeCard);
+                onOfflineDataAuthentication(activeConfig, activeCard);
                 break;
             case PROCESS_RESTRICTIONS:
-                onProcessRestrictions(engine, activeConfig, activeCard);
+                onProcessRestrictions(activeConfig, activeCard);
                 break;
             case CARDHOLDER_VERIFICATION:
-                onCardholderVerification(engine, activeConfig, activeCard);
+                onCardholderVerification(activeConfig, activeCard);
                 break;
             case OFFLINE_PIN_VERIFICATION:
-                onOfflinePinVerification(engine, activeConfig, activeCard);
+                onOfflinePinVerification(activeConfig, activeCard);
                 break;
             case TERMINAL_RISK_MANAGEMENT:
-                onTerminalRiskManagement(engine, activeConfig, activeCard);
+                onTerminalRiskManagement(activeConfig, activeCard);
                 break;
             case TERMINAL_ACTION_ANALYSIS:
-                onTerminalActionAnalysis(engine, activeConfig, activeCard);
+                onTerminalActionAnalysis(activeConfig, activeCard);
                 break;
             case START_ONLINE_PROCESS:
-                onStartOnlineProcess(engine, activeConfig, activeCard);
+                onStartOnlineProcess(activeConfig, activeCard);
                 break;
             case ISSUER_AUTHENTICATION:
-                onIssuerAuthentication(engine, activeConfig, activeCard);
+                onIssuerAuthentication(activeConfig, activeCard);
                 break;
             case SCRIPT_PROCESSING:
-                onScriptProcessing(engine, activeConfig, activeCard);
+                onScriptProcessing(activeConfig, activeCard);
                 break;
             case TRANSACTION_COMPLETION:
-                onTransactionCompletion(engine, activeConfig, activeCard);
+                onTransactionCompletion(activeConfig, activeCard);
                 break;
             default:
                 unknownStep(step);

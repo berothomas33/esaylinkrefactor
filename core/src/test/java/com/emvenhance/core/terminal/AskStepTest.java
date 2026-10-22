@@ -127,7 +127,7 @@ public class AskStepTest {
         int selectionRuns;
         Thread answeredOn;
 
-        @Override protected void onApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) {
+        @Override protected void onApplicationSelection(TransactionConfig c, CardPresence p) {
             if (cancelBeforeAsking) {
                 session.cancel();
             }
@@ -140,7 +140,7 @@ public class AskStepTest {
             callbackGot = askStep(EmvStep.WAIT_APPLICATION_SELECTION, null, USER_CANCEL);
         }
 
-        @Override protected void onWaitApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) {
+        @Override protected void onWaitApplicationSelection(TransactionConfig c, CardPresence p) {
             selectionRuns++;
             if (throwInSelection) {
                 throw new IllegalStateException("dialog failed");
@@ -154,7 +154,7 @@ public class AskStepTest {
             }
         }
 
-        @Override protected void onFinalApplicationSelection(EmvEngine e, TransactionConfig c, CardPresence p) {
+        @Override protected void onFinalApplicationSelection(TransactionConfig c, CardPresence p) {
             answerStep(7);
         }
 
@@ -162,18 +162,18 @@ public class AskStepTest {
             return null;
         }
 
-        @Override protected void onTerminalInitialization(EmvEngine e, TransactionConfig c) { }
-        @Override protected void onReadApplicationData(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onSetTransactionData(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onOfflineDataAuthentication(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onProcessRestrictions(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onCardholderVerification(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onOfflinePinVerification(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onTerminalRiskManagement(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onTerminalActionAnalysis(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onStartOnlineProcess(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onIssuerAuthentication(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onScriptProcessing(EmvEngine e, TransactionConfig c, CardPresence p) { }
-        @Override protected void onTransactionCompletion(EmvEngine e, TransactionConfig c, CardPresence p) { }
+        @Override protected void onTerminalInitialization(TransactionConfig c) { }
+        @Override protected void onReadApplicationData(TransactionConfig c, CardPresence p) { }
+        @Override protected void onSetTransactionData(TransactionConfig c, CardPresence p) { }
+        @Override protected void onOfflineDataAuthentication(TransactionConfig c, CardPresence p) { }
+        @Override protected void onProcessRestrictions(TransactionConfig c, CardPresence p) { }
+        @Override protected void onCardholderVerification(TransactionConfig c, CardPresence p) { }
+        @Override protected void onOfflinePinVerification(TransactionConfig c, CardPresence p) { }
+        @Override protected void onTerminalRiskManagement(TransactionConfig c, CardPresence p) { }
+        @Override protected void onTerminalActionAnalysis(TransactionConfig c, CardPresence p) { }
+        @Override protected void onStartOnlineProcess(TransactionConfig c, CardPresence p) { }
+        @Override protected void onIssuerAuthentication(TransactionConfig c, CardPresence p) { }
+        @Override protected void onScriptProcessing(TransactionConfig c, CardPresence p) { }
+        @Override protected void onTransactionCompletion(TransactionConfig c, CardPresence p) { }
     }
 }

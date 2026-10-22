@@ -41,9 +41,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [returns its Transaction at once]
  *          └── transaction thread: process(transaction)
- *          └── behavior.prepare(engine, config, transaction) + searchCard(config, listener) ← vendor SDK
+ *          └── behavior.prepare(config, transaction) + searchCard(config, listener) ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
- *                        └── behavior.start(engine, config, card, transaction) ← vendor EMV, from inside the callback
+ *                        └── behavior.start(config, card, transaction) ← vendor EMV, from inside the callback
  *                               └── behavior → engine.authorize → PosTerminal.authorize → host
  * </pre>
  *
@@ -84,7 +84,7 @@ public abstract class PosTerminal {
      */
     private final AtomicReference<Transaction> current = new AtomicReference<>();
 
-    /** @param behavior the vendor's EMV, run by this terminal for each attempt */
+    /** @param behavior the vendor's EMV: given this terminal's engine once, run for each attempt */
     protected PosTerminal(EmvBehavior behavior,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
@@ -92,6 +92,7 @@ public abstract class PosTerminal {
         this.communication = communication;
         this.printer = printer;
         this.engine = new EmvEngine(this::authorize);
+        behavior.attach(engine);
         initializeVendor();
     }
 
@@ -505,7 +506,7 @@ public abstract class PosTerminal {
      */
     @Nullable
     private TransactionConfig attempt(Transaction transaction, TransactionConfig config) {
-        if (!behavior.prepare(engine, config, transaction)) {
+        if (!behavior.prepare(config, transaction)) {
             // Dropped if it already ended.
             transaction.publish(errorEvent("Terminal initialization failed"));
             return null;
@@ -633,7 +634,7 @@ public abstract class PosTerminal {
                     .put("entryMethod", card.getEntryMethod().name())
                     .build());
 
-            behavior.start(engine, config, card, transaction);
+            behavior.start(config, card, transaction);
         }
     }
 

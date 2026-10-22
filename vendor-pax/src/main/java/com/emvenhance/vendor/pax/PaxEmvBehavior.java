@@ -158,18 +158,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Lifecycle ───────────────────────────────────────────────────────
 
     @Override
-    public boolean prepare(EmvEngine engine, TransactionConfig config,
-            PosTerminal.Transaction transaction) {
+    public boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
         // A fresh state per attempt: nothing from an earlier sale carries over — its online PIN
         // block (and RSA-wrapped key) sent again with this sale, flagged as online PIN; or its
         // kernel result read as this one's.
         tx = new PaxTransactionState();
-        super.prepare(engine, config, transaction);
+        super.prepare(config, transaction);
         return tx.initOk && isRunning();
     }
 
     @Override
-    public void onTerminalInitialization(EmvEngine engine, TransactionConfig config) {
+    public void onTerminalInitialization(TransactionConfig config) {
         // The kernel calls EmvDeviceImpl directly, so hand it this transaction's APDU trace.
         EmvDeviceImpl.getInstance().setApduTrace(engine.apduTrace());
         if (!prepareKernel(config)) {
@@ -186,8 +185,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── Step methods (goToStep / kernel start) ──────────────────────────
 
     @Override
-    public void onApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onApplicationSelection(TransactionConfig config, CardPresence card) {
         if (card.isChip()) {
             runContactAppSelect();
             return;
@@ -201,8 +199,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onReadApplicationData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onReadApplicationData(TransactionConfig config, CardPresence card) {
         if (card.isManual()) {
             String pan = card.getManualPan() != null ? card.getManualPan() : "";
             if (pan.isEmpty()) {
@@ -246,8 +243,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onStartOnlineProcess(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
         // Mag / manual sync path
         if (isSynchronousEntry(card)) {
             tx.lastAuth = authorizeOnline();
@@ -262,8 +258,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onTransactionCompletion(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
         // Mag / manual sync path
         if (isSynchronousEntry(card)) {
             if (tx.lastAuth != null && tx.lastAuth.isApproved()) {
@@ -289,8 +284,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // for the full chain.
 
     @Override
-    public void onOfflineDataAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onOfflineDataAuthentication(TransactionConfig config, CardPresence card) {
         if (card.isChip()) {
             // Reached via runContactSetTransactionData's goToStep(OFFLINE_DATA_AUTHENTICATION).
             runContactCardAuth();
@@ -303,8 +297,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onProcessRestrictions(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onProcessRestrictions(TransactionConfig config, CardPresence card) {
         if (card.isChip()) {
             // Reached via runContactCardAuth's goToStep(PROCESS_RESTRICTIONS) — the entry point
             // into runContactStartTransaction's bundled EMVStartTrans call (see class doc).
@@ -336,15 +329,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // forgetting a phase and inheriting a silent no-op.
 
     @Override
-    public void onWaitApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
         // Asked by IContactCallback#onWaitAppSelect below: the kernel waits on this answer.
         answerApplicationSelection();
     }
 
     @Override
-    public void onFinalApplicationSelection(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
         // Same as onWaitApplicationSelection: the kernel's retry after a failed final select.
         answerApplicationSelection();
     }
@@ -384,8 +375,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onSetTransactionData(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onSetTransactionData(TransactionConfig config, CardPresence card) {
         if (card.isChip()) {
             // Reached via runContactReadAppData's goToStep(SET_TRANSACTION_DATA): the contact
             // kernel takes the data after reading the card.
@@ -401,8 +391,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onCardholderVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onCardholderVerification(TransactionConfig config, CardPresence card) {
         // Asked by onCardHolderPwd below for an online PIN; for an offline PIN this step only
         // announces CVM and OFFLINE_PIN_VERIFICATION is the one asked.
         PinRequest request = tx.pinRequest;
@@ -412,8 +401,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onOfflinePinVerification(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
         // Asked by onCardHolderPwd below for an offline PIN: show the pad, answer CONTACT_OK —
         // the kernel then verifies the PIN with the card itself.
         PinRequest request = tx.pinRequest;
@@ -423,20 +411,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onTerminalRiskManagement(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onTerminalRiskManagement(TransactionConfig config, CardPresence card) {
         // Kernel-internal — no callback exists, so it is never published on its own.
     }
 
     @Override
-    public void onTerminalActionAnalysis(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onTerminalActionAnalysis(TransactionConfig config, CardPresence card) {
         // Kernel-internal — no callback exists, so it is never published on its own.
     }
 
     @Override
-    public void onIssuerAuthentication(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onIssuerAuthentication(TransactionConfig config, CardPresence card) {
         // Asked by runIssuerAuthentication with the host's answer: the card's 2nd GENERATE AC
         // (contact) or the 2nd-tap check (contactless). With no ARQC to complete, or a
         // contactless sale the host didn't approve, the card has nothing to do: no step.
@@ -446,8 +431,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onScriptProcessing(EmvEngine engine, TransactionConfig config,
-            CardPresence card) {
+    public void onScriptProcessing(TransactionConfig config, CardPresence card) {
         // Contactless 2nd tap: asked by runIssuerScriptProcessing — the kernel's script call
         // (PayWave's Clss_IssScriptProc_Wave). Contact: EMVCompleteTrans already applied them,
         // and completeApproved() announces the step with nothing to run.
@@ -463,7 +447,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── CONTACTLESS ONLY — ClssProcess / ClssKernelProcess runners ──────
 
     private void runContactlessAppSelect() {
-        requireEngine();
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
@@ -524,7 +507,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private int reselectApplication() {
         LogUtils.d(TAG, "CLSS_RESELECT_APP — selecting the next candidate");
-        requireEngine().apduTrace().note("EMV", "kernel asked to reselect — next application");
+        engine.apduTrace().note("EMV", "kernel asked to reselect — next application");
         tx.clsTransResult = kernel.contactless.reselectApplication();
         int ret = tx.clsTransResult.getResultCode();
         LogUtils.d(TAG, "reselectApplication ret=" + ret);
@@ -706,7 +689,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * requested it. Always terminal — always reports via {@link #finishContactlessStage}.
      */
     private void runContactlessStartTransaction() {
-        requireEngine();
         try {
             LogUtils.d(TAG, "============ Contactless EMV: Start Transaction ============");
             int ret = startContactlessTransProcess();
@@ -773,7 +755,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 // No PIN (cancelled, timed out, PIN pad error): an error, not a card decline. The
                 // end is this ERROR; the decline recorded below (so nothing goes online) is
                 // dropped by the end guard.
-                requireEngine().apduTrace().note("PICC", "online PIN not entered (" + ret + ")");
+                engine.apduTrace().note("PICC", "online PIN not entered (" + ret + ")");
                 finishError("Online PIN not entered — cancelled or timed out");
                 tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
                 return ret;
@@ -837,7 +819,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         tx.scriptsProcessed = true;
         goToStep(EmvStep.SCRIPT_PROCESSING, null);
         if (tx.pendingScripts != null) {
-            requireEngine().apduTrace().note("EMV",
+            engine.apduTrace().note("EMV",
                     "script processing step did not run — running the scripts anyway");
             processIssuerScripts();
         }
@@ -872,7 +854,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void noteOnlineWithoutArqc(TransResultEnum cardResult) {
         String why = isRefund() ? "refund" : "kernel approved offline";
         LogUtils.i(TAG, "Going online without an ARQC (" + why + ", card result " + cardResult + ")");
-        requireEngine().apduTrace().note("EMV", why + " — card result " + cardResult
+        engine.apduTrace().note("EMV", why + " — card result " + cardResult
                 + ", sending to the host (online-only terminal)");
     }
 
@@ -902,7 +884,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // The cap is tryAgain()'s: it declines once MAX_TAP_RETRIES taps were tried, whichever
         // way the try-again was reported (here, or by the kernel itself: JCB, Mir, RuPay).
         LogUtils.w(TAG, "Contactless communication error ret=" + ret + " — asking to tap again");
-        requireEngine().apduTrace().note("PICC",
+        engine.apduTrace().note("PICC",
                 "card communication error " + ret + " — tap again");
         tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_TRY_AGAIN,
                 CvmResultEnum.CVM_NO_CVM);
@@ -931,7 +913,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** Cancelled: the readers are closed, and the card's result is not turned into an outcome. */
     private void noteResultNotReported() {
         LogUtils.i(TAG, "Cancelled — the card's result is not reported");
-        requireEngine().apduTrace().note("EMV", "cancelled — the card's result is not reported");
+        engine.apduTrace().note("EMV", "cancelled — the card's result is not reported");
     }
 
     /** Advances to {@code next}; see {@link #advanceContactStage} for why a step that didn't run still cleans up. */
@@ -1062,7 +1044,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // ─── CONTACT ONLY — ContactProcess runners ────────────────────────────
 
     private void runContactAppSelect() {
-        requireEngine();
         boolean proceed = false;
         try {
             DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
@@ -1229,7 +1210,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * Always terminal — always reports via {@link #finishContactStage}.
      */
     private void runContactStartTransaction() {
-        requireEngine();
         try {
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
             // CVM is published separately from onCardHolderPwd below when the kernel actually
@@ -1475,12 +1455,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             kernel.contact = new ContactProcess();
             long setUpStart = SystemClock.elapsedRealtime();
             byte adjusted = runPreTransProcess(config, requested);
-            requireEngine().apduTrace().note("EMV", "kernel set-up for this transaction: "
+            engine.apduTrace().note("EMV", "kernel set-up for this transaction: "
                     + (SystemClock.elapsedRealtime() - setUpStart) + " ms");
             kernel.contactReady = SearchMode.isSupportIcc(adjusted);
             kernel.contactlessReady = SearchMode.isWave(adjusted);
             if (config.allowsContactless() && !kernel.contactlessReady) {
-                requireEngine().apduTrace().note("PICC",
+                engine.apduTrace().note("PICC",
                         "contactless disabled for this transaction: pre-processing failed");
             }
             if (adjusted == 0) {
@@ -1508,7 +1488,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         long start = SystemClock.elapsedRealtime();
         kernel.params.getCachedEmvParam();
-        requireEngine().apduTrace().note("EMV", "terminal initialization (EMV parameters loaded"
+        engine.apduTrace().note("EMV", "terminal initialization (EMV parameters loaded"
                 + " from the database): " + (SystemClock.elapsedRealtime() - start) + " ms");
     }
 
@@ -1892,7 +1872,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             tx.onlineRequested = false;
         }
         if (tx.lastAuth == null) {
-            requireEngine().apduTrace().note("EMV", "online step did not run — online failed");
+            engine.apduTrace().note("EMV", "online step did not run — online failed");
         }
         return toOnlineResultWrapper(tx.lastAuth);
     }
@@ -1917,7 +1897,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         tx.issuerResponse = online;
         goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail());
         if (tx.issuerResponse != null) {
-            requireEngine().apduTrace().note("EMV",
+            engine.apduTrace().note("EMV",
                     "issuer authentication step did not run — completing with the card anyway");
             completeIssuerAuthentication();
         }
@@ -2080,7 +2060,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Visa issuer update needs the same card tapped a second time — show the card UI again
         // with the reason, like every other re-presentment (KEY_RETRY_PROMPT).
         String prompt = "Tap the same card again to finish";
-        requireEngine().apduTrace().note("PICC", "2nd tap requested — " + prompt);
+        engine.apduTrace().note("PICC", "2nd tap requested — " + prompt);
         publish(TransactionStepEvent.builder(
                 TransactionStep.WAITING_FOR_CARD).message(prompt)
                 .put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt).build());
@@ -2107,7 +2087,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     // report online failed, never approved.
     public void offlineApproved(boolean needSignature) {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
-        requireEngine().apduTrace().note("EMV", "offline approval without the host — online failed");
+        engine.apduTrace().note("EMV", "offline approval without the host — online failed");
         finishWithOutcome(TransactionStep.ERROR, "Online Failed",
                 "Online Failed: not sent to the host");
     }
@@ -2157,14 +2137,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     // [CONTACTLESS — only checkContactlessResult() calls this; no CDCVM concept in contact]
     public void seePhone() {
-        int retries = requireEngine().getRetryCount();
+        int retries = engine.getRetryCount();
         if (retries >= MAX_TAP_RETRIES) {
-            requireEngine().apduTrace().note("PICC", "SEE PHONE again after " + retries
+            engine.apduTrace().note("PICC", "SEE PHONE again after " + retries
                     + " retries — declining");
             completeDeclined("See Phone: verification on the phone not completed");
             return;
         }
-        requireEngine().apduTrace().note("PICC", "SEE PHONE — verify on the phone, then tap again");
+        engine.apduTrace().note("PICC", "SEE PHONE — verify on the phone, then tap again");
         retryWithMode(EntryMethod.CONTACTLESS, "See Phone: waiting for the re-tap",
                 "See phone — verify on your phone, then tap again");
     }
@@ -2179,11 +2159,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
     // [CONTACTLESS — only checkContactlessResult() calls this]
     public void tryAgain() {
-        int retries = requireEngine().getRetryCount();
+        int retries = engine.getRetryCount();
         if (retries >= MAX_TAP_RETRIES) {
             // A card that always fails ends in a decline, not an endless "tap again".
             LogUtils.w(TAG, "Try Again after " + retries + " retries — declining");
-            requireEngine().apduTrace().note("PICC", "card not read after " + retries
+            engine.apduTrace().note("PICC", "card not read after " + retries
                     + " retries — declining");
             completeDeclined("Card not read — tried " + (retries + 1) + " times");
             return;
@@ -2211,7 +2191,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         LogUtils.i(TAG, reason);
-        requireEngine().requestRetry(activeConfig.withMode(mode), prompt);
+        engine.requestRetry(activeConfig.withMode(mode), prompt);
     }
 
     // [SHARED — both checkContactResult() and checkContactlessResult() call this]
@@ -2315,13 +2295,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return value.length == 0 ? null : ConvertUtils.bcd2Str(value, value.length);
     }
 
-    @NonNull
-    private EmvEngine requireEngine() {
-        if (engine == null) {
-            throw new IllegalStateException("PaxEmvBehavior used without an active engine");
-        }
-        return engine;
-    }
 
     @NonNull
     private static OnlineResultWrapper toOnlineResultWrapper(@Nullable AuthResult auth) {
