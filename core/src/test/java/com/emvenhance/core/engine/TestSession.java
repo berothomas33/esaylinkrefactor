@@ -18,7 +18,7 @@ public final class TestSession {
                 cancelled::get);
     }
 
-    /** As {@code PosTerminal.cancelTransaction}: cancelled, and so ended — no step runs after it. */
+    /** As {@code PosTerminal.Transaction.cancel}: cancelled, and so ended — no step runs after it. */
     public void cancel() {
         cancelled.set(true);
         running.set(false);

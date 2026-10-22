@@ -201,7 +201,8 @@ public abstract class PosTerminal {
      * or errored) arrives as a {@link CardSearchListener} callback there, which is also what
      * starts EMV once a card is actually found (see {@link EngineReportingListener#handleCardFound}).
      *
-     * @return this transaction
+     * @return this transaction, to {@link Transaction#cancel() cancel} it — that one only, never
+     *         another's
      * @throws TerminalBusyException at once, on the calling thread, nothing queued: the previous
      *         transaction hasn't finished — still searching or running EMV, or cancelled but not
      *         yet done with the reader (a PAX poll takes a moment to stop). It is not reported on
@@ -217,21 +218,12 @@ public abstract class PosTerminal {
         return transaction;
     }
 
-    /**
-     * Cancels the current transaction: ends it with ERROR "Transaction cancelled" (once — a cancel
-     * after its end, or a second cancel, does nothing), stops its search, and its EMV winds down
-     * at its next check; or it returns at once if it hadn't begun yet.
-     */
-    public void cancelTransaction() {
-        Transaction transaction = current.get();
-        if (transaction != null && transaction.end.compareAndSet(null, transaction.cancelled)) {
-            engine.notifyTransactionStep(transaction.cancelled);
-        }
-        cancelCardSearch();
-    }
-
+    /** Cancels the transaction still on this terminal, if any; the terminal is going away. */
     public void dispose() {
-        cancelTransaction();
+        Transaction transaction = current.get();
+        if (transaction != null) {
+            transaction.cancel();
+        }
     }
 
     /** Whether the search calling this should stop: its transaction was cancelled. */
@@ -307,9 +299,27 @@ public abstract class PosTerminal {
                 .message("Transaction cancelled")
                 .put(TransactionStepEvent.KEY_ERROR, "Transaction cancelled")
                 .build();
+        private final TransactionStepEvent cancelling = TransactionStepEvent.of(
+                TransactionStep.CANCELLING, "Cancelling — finishing with the card");
 
         private Transaction(TransactionConfig config) {
             this.config = config;
+        }
+
+        /**
+         * Cancels this transaction: CANCELLING at once, then ERROR "Transaction cancelled"; its
+         * search stops and its EMV winds down at its next check (or it never starts if it hadn't
+         * yet). Never interrupts the transaction thread: the terminal stays busy until that is
+         * done with the reader — a host call already sent is waited for. Does nothing once it has
+         * ended — a finished sale, or a second cancel.
+         */
+        public void cancel() {
+            if (!end.compareAndSet(null, cancelled)) {
+                return;
+            }
+            engine.notifyTransactionStep(cancelling);
+            engine.notifyTransactionStep(cancelled); // A4 moves the end to run()'s finally
+            cancelCardSearch();
         }
 
         boolean isRunning() {

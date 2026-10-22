@@ -18,6 +18,8 @@ import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -25,6 +27,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -80,9 +83,9 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Test
     public void aStartWhileTheCancelledSearchIsStillStoppingIsRefusedAsBusy() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
-        terminal.cancelTransaction();
+        sale.cancel();
         events.clear();
 
         assertFalse("busy", starts(2000));
@@ -122,8 +125,8 @@ public class PosTerminalTransactionLifecycleTest {
                 Thread.currentThread().interrupt();
             }
         });
-        terminal.acceptCard(TransactionType.SALE, 1000);
-        terminal.cancelTransaction(); // its work is still queued behind the held thread
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
+        sale.cancel(); // its work is still queued behind the held thread
 
         hold.countDown();
 
@@ -133,17 +136,20 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Test
     public void aCancelEndsTheTransactionOnceAndNothingAfterChangesThatEnd() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         Search search = terminal.nextSearch();
         events.clear();
 
-        terminal.cancelTransaction();
-        terminal.cancelTransaction(); // a second cancel does nothing
+        sale.cancel();
+        sale.cancel(); // a second cancel does nothing
         terminal.engine.notifyCompleted(); // nor does an end reported after it
 
-        assertEquals(TransactionStep.ERROR, events.get(0).getStep());
-        assertEquals("Transaction cancelled", events.get(0).getMessage());
+        assertEquals(Arrays.asList(TransactionStep.CANCELLING, TransactionStep.ERROR),
+                steps().subList(0, 2));
+        assertEquals("Transaction cancelled", events.get(1).getMessage());
+        assertEquals("one CANCELLING: " + events, 1, count(TransactionStep.CANCELLING));
         assertEquals("one cancel ERROR: " + events, 1, count(TransactionStep.ERROR));
+        assertEquals("its search is stopped once", 1, terminal.searchCancels.get());
         assertFalse(terminal.engine.isRunning());
         assertTrue("still ended by the cancel", terminal.engine.isCancelled());
         search.release.countDown();
@@ -151,17 +157,37 @@ public class PosTerminalTransactionLifecycleTest {
 
     @Test
     public void theFirstEndEndsTheTransactionAndALaterCancelDoesNothing() throws Exception {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         Search search = terminal.nextSearch();
         events.clear();
 
         terminal.engine.notifyError("Reader error");
-        terminal.cancelTransaction();
+        sale.cancel();
 
+        assertEquals("no CANCELLING after the end: " + events, 0, count(TransactionStep.CANCELLING));
         assertEquals("no cancel ERROR after the end: " + events, 1, count(TransactionStep.ERROR));
+        assertEquals("nothing to stop", 0, terminal.searchCancels.get());
         assertFalse(terminal.engine.isRunning());
         assertFalse("ended by the error, not the cancel", terminal.engine.isCancelled());
         search.release.countDown();
+    }
+
+    @Test
+    public void aCancelOnAnEarlierTransactionNeverCancelsTheNextOne() throws Exception {
+        PosTerminal.Transaction first = terminal.acceptCard(TransactionType.SALE, 1000);
+        Search firstSearch = terminal.nextSearch();
+        first.cancel();
+        firstSearch.release.countDown();
+        startWhenFree(2000);
+        events.clear();
+        int searchCancels = terminal.searchCancels.get();
+
+        first.cancel(); // e.g. the old screen going away late
+
+        assertTrue("the next transaction got " + events, events.isEmpty());
+        assertTrue(terminal.engine.isRunning());
+        assertFalse(terminal.engine.isCancelled());
+        assertEquals("the next search kept going", searchCancels, terminal.searchCancels.get());
     }
 
     /**
@@ -169,9 +195,9 @@ public class PosTerminalTransactionLifecycleTest {
      * late, from its own thread), then the next transaction for 2000, searching.
      */
     private Search cancelledSearchThenNextTransaction() throws InterruptedException {
-        terminal.acceptCard(TransactionType.SALE, 1000);
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
-        terminal.cancelTransaction();
+        sale.cancel();
         first.release.countDown();
         Search second = startWhenFree(2000);
         terminal.searches.add(second); // hand it back for tests that need it
@@ -224,6 +250,14 @@ public class PosTerminalTransactionLifecycleTest {
         return n;
     }
 
+    private List<TransactionStep> steps() {
+        List<TransactionStep> steps = new ArrayList<>();
+        for (TransactionStepEvent e : events) {
+            steps.add(e.getStep());
+        }
+        return steps;
+    }
+
     private boolean hasStep(TransactionStep step) {
         for (TransactionStepEvent e : events) {
             if (e.getStep() == step) {
@@ -250,6 +284,7 @@ public class PosTerminalTransactionLifecycleTest {
     private final class TestTerminal extends PosTerminal {
 
         final LinkedBlockingQueue<Search> searches = new LinkedBlockingQueue<>();
+        final AtomicInteger searchCancels = new AtomicInteger();
         private final List<Search> all = new CopyOnWriteArrayList<>();
 
         TestTerminal() {
@@ -285,6 +320,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         @Override
         protected void cancelCardSearch() {
+            searchCancels.incrementAndGet();
         }
     }
 

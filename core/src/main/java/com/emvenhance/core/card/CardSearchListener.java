@@ -31,7 +31,7 @@ public interface CardSearchListener {
     /** No card presented before the vendor timeout. */
     void onSearchTimeout();
 
-    /** Search aborted by {@link PosTerminal#cancelTransaction()}. */
+    /** Search aborted by {@link PosTerminal.Transaction#cancel()}. */
     void onSearchCancelled();
 
     /** Hardware / reader failure. */

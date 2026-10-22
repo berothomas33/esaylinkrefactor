@@ -17,7 +17,8 @@ public class TransactionStepTest {
             }
         }
 
-        // APPROVED and DECLINED are outcomes, not the end: COMPLETED follows them.
+        // APPROVED and DECLINED are outcomes, not the end: COMPLETED follows them. CANCELLING is
+        // not the end either: ERROR "Transaction cancelled" follows it.
         assertEquals(EnumSet.of(TransactionStep.ERROR, TransactionStep.COMPLETED), ends);
     }
 }
