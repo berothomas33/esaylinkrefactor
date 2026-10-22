@@ -55,9 +55,9 @@ public class PosTerminalHostTest {
         assertTrue(result.isApproved());
         assertEquals(1, sentToHost.size());
         assertSame(CONFIG, sentToHost.get(0));
-        assertEquals(Arrays.asList(TransactionStep.ONLINE_REQUIRED,
+        assertEquals(Arrays.asList(TransactionStep.TRANSACTION_STARTED, TransactionStep.ONLINE_REQUIRED,
                 TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED),
-                steps.subList(0, 3));
+                steps.subList(0, 4));
     }
 
     @Test
