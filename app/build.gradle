@@ -129,15 +129,10 @@ dependencies {
     implementation project(':commonutils')
     implementation project(':network')
 
-    // PAX only: IngenicoTerminal/FakeTerminal never touch the PAX SDK, so the ingenico/fake
-    // flavors don't need it on their classpath at all.
-    paxImplementation project(':emvflow')
-    paxImplementation project(':emvservice')
-    paxImplementation project(':bizentity')
-    paxImplementation project(':bizlib')
-
     // Each vendor is its own module: its code can't reach the app, and the app reaches it only
-    // through com.emvenhance.vendor.TerminalFactory / VendorApplication.
+    // through com.emvenhance.vendor.TerminalFactory / VendorApplication. vendor-pax brings the PAX
+    // SDK modules (api) for the pax debug screens; ingenico/fake builds never see them.
+    paxImplementation project(':vendor-pax')
     fakeImplementation project(':vendor-fake')
 
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"

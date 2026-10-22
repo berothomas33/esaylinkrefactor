@@ -5,7 +5,6 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.emvenhance.BuildConfig;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
