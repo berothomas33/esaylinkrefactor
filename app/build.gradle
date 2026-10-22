@@ -126,7 +126,6 @@ android {
 
 dependencies {
     implementation project(':core')
-    implementation project(':commonutils')
     implementation project(':network')
 
     // Each vendor is its own module: its code can't reach the app, and the app reaches it only
