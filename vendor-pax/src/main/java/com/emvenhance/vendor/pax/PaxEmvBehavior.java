@@ -15,6 +15,7 @@ import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.terminal.AbstractAppSelectDialog;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
@@ -39,6 +40,8 @@ import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.EmvTransParam;
+import com.emvenhance.vendor.pax.PaxTransactionState.Outcome;
+import com.emvenhance.vendor.pax.PaxTransactionState.PinRequest;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.contact.IContactCallback;
 import com.pax.emvbase.process.contactless.IContactlessCallback;
@@ -93,12 +96,12 @@ import java.util.Locale;
  *
  * <p><b>Experiment branch:</b> talks to {@link ContactProcess} (emvlib:dpas) directly — no
  * {@code EmvContactService} service layer. Everything that used to live there — per-transaction
- * state ({@link TransactionState#transResult}, {@link TransactionState#cachedTrack2Data}), the online-processing decision inside
+ * state ({@link PaxTransactionState#transResult}, {@link PaxTransactionState#cachedTrack2Data}), the online-processing decision inside
  * {@link #startContactTransProcess}, PAN/track2 derivation ({@link #getContactPan}), and the
  * result-to-callback mapping in {@link #checkContactResult()} — now lives here instead. The
  * contactless path got the same treatment: talks to {@link ClssProcess} (emvlib) directly — no
  * {@code ContactlessService} layer — with its own mirrored state
- * ({@link TransactionState#clsTransResult}/{@link TransactionState#clsCachedTrack2Data}/{@link #clsLastNeedSeePhone}), online
+ * ({@link PaxTransactionState#clsTransResult}/{@link PaxTransactionState#clsCachedTrack2Data}/{@link #clsLastNeedSeePhone}), online
  * decision ({@link #startContactlessTransProcess}), PAN derivation
  * ({@link #getContactlessPan}), and result mapping ({@link #checkContactlessResult()}). See the
  * structure diagram (panel 10/11) for why this was tried and what it cost.
@@ -140,101 +143,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /**
      * See Phone on a tap: the kernel asks for it ({@link #needSeePhone}) on the next tap, which is
-     * a retry — a new attempt — so unlike {@link TransactionState} it carries over.
+     * a retry — a new attempt — so unlike {@link PaxTransactionState} it carries over.
      */
     private boolean clsLastNeedSeePhone;
 
-    /**
-     * What this behavior learns during one attempt (a retry is a new attempt), replaced by a fresh
-     * one in {@link #prepare}. The behavior outlives transactions: kept in plain fields, each had
-     * to be reset by hand, and the kernel results never were — so a stage that failed before
-     * recording its own result had the previous sale's result read as this one's.
-     */
-    private volatile TransactionState tx = new TransactionState();
-
-    private static final class TransactionState {
-
-        boolean initOk = true;
-
-        @Nullable
-        AuthResult lastAuth;
-
-        @Nullable
-        TransResult transResult;
-        @Nullable
-        String cachedTrack2Data;
-
-        @Nullable
-        TransResult clsTransResult;
-        @Nullable
-        String clsCachedTrack2Data;
-
-        /**
-         * Encrypted online PIN block from the most recent {@link PaxEmvBehavior#onCardHolderPwd}, attached to
-         * {@code activeConfig} in {@link PaxEmvBehavior#startOnlineProcess()} for the authorization message.
-         */
-        @Nullable
-        byte[] lastOnlinePinBlock;
-
-        /**
-         * The online PIN key (PEK) that encrypted {@link #lastOnlinePinBlock}, RSA-wrapped with the
-         * host's public key — see {@link PaxEmvBehavior#provisionOnlinePinKey()}.
-         */
-        @Nullable
-        String lastOnlinePinKeyEncrypted;
-
-        /** The dialog raised by the most recent {@link PaxEmvBehavior#onCardHolderPwd}, for a defensive dismiss
-         * in {@link PaxEmvBehavior#finishContactStage()} if none of {@link PaxPinPad}'s own terminal callbacks fire. */
-        @Nullable
-        PaxPinPad activePinPad;
-
-        /**
-         * How a chip/contactless transaction ends, decided by checkContactResult /
-         * checkContactlessResult and reported by {@link PaxEmvBehavior#onTransactionCompletion}.
-         */
-        @Nullable
-        Outcome outcome;
-
-        /** True while {@link PaxEmvBehavior#startOnlineProcess} waits for the host step. */
-        boolean onlineRequested;
-
-        /**
-         * The host's answer waiting for the card's 2nd GENERATE AC (contact) or the 2nd-tap
-         * check (contactless), run by {@link PaxEmvBehavior#onIssuerAuthentication}.
-         */
-        @Nullable
-        OnlineResultWrapper issuerResponse;
-
-        /** The issuer's scripts waiting for {@link PaxEmvBehavior#onScriptProcessing} (contactless). */
-        @Nullable
-        IssuerRspData pendingScripts;
-
-        /** SCRIPT_PROCESSING already ran in its own step: completeApproved doesn't announce it. */
-        boolean scriptsProcessed;
-
-        /** What {@link PaxEmvBehavior#onCardHolderPwd} is asking, while it waits for the PIN step. */
-        @Nullable
-        PinRequest pinRequest;
-
-        /** The kernel's candidate list from {@link PaxEmvBehavior#onWaitAppSelect}, for its step. */
-        @Nullable
-        List<CandidateAID> candidates;
-
-        // ─── Transaction result summary — PAN/TVR/TAC/IAC/Field 55, captured by
-        // captureTransactionSummary() while the kernel session is still open, attached to the
-        // APPROVED/DECLINED event by completeApproved()/completeDeclined(). null for mag/manual
-        // (no ICC session) or before a chip/contactless transaction reaches that point.
-        @Nullable
-        String lastPan;
-        @Nullable
-        String lastTvr;
-        @Nullable
-        String lastTacDenial;
-        @Nullable
-        String lastIacDenial;
-        @Nullable
-        String lastIccData;
-    }
+    /** What this behavior learns during one attempt — see {@link PaxTransactionState}. */
+    private volatile PaxTransactionState tx = new PaxTransactionState();
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
@@ -247,7 +161,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // A fresh state per attempt: nothing from an earlier sale carries over — its online PIN
         // block (and RSA-wrapped key) sent again with this sale, flagged as online PIN; or its
         // kernel result read as this one's.
-        tx = new TransactionState();
+        tx = new PaxTransactionState();
         super.prepare(engine, config);
         return tx.initOk && engine.isRunning();
     }
@@ -434,7 +348,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * The cardholder's choice among the kernel's candidates ({@link TransactionState#candidates}),
+     * The cardholder's choice among the kernel's candidates ({@link PaxTransactionState#candidates}),
      * answered to {@link #onWaitAppSelect}'s {@code askStep}: index 0 with nothing to choose
      * between, else the dialog's choice.
      */
@@ -448,8 +362,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             answerStep(EmvConstant.ContactCallbackStatus.CONTACT_OK);
             return;
         }
-        int index = new AppSelectDialog(candList).selectBlocking(() -> !requireEngine().isRunning());
-        if (index == AppSelectDialog.NO_ANSWER) {
+        int index = new PaxAppSelectDialog().selectBlocking(
+                PaxAppSelectDialog.labels(candList), () -> !requireEngine().isRunning());
+        if (index == AbstractAppSelectDialog.NO_ANSWER) {
             // Not answered: askStep gives the kernel USER_CANCEL and notes it in the trace.
             LogUtils.i(TAG, "Application not selected (timed out, cancelled or no screen)");
             return;
@@ -1028,7 +943,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link TransactionState#clsTransResult} to the matching result method on {@code this} —
+     * Maps the recorded {@link PaxTransactionState#clsTransResult} to the matching result method on {@code this} —
      * ported from {@code ContactlessService#checkClsResult}.
      */
     private void checkContactlessResult() {
@@ -1426,7 +1341,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link TransactionState#transResult} to the matching result method on {@code this} —
+     * Maps the recorded {@link PaxTransactionState#transResult} to the matching result method on {@code this} —
      * ported from {@code EmvContactService#checkContactResult}.
      */
     private void checkContactResult() {
@@ -1784,111 +1699,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    /** What {@link #onCardHolderPwd} was asked, for the step method that collects the PIN. */
-    private static final class PinRequest {
-        final boolean online;
-        final boolean supportPinBypass;
-        final int leftTimes;
-
-        PinRequest(boolean online, boolean supportPinBypass, int leftTimes) {
-            this.online = online;
-            this.supportPinBypass = supportPinBypass;
-            this.leftTimes = leftTimes;
-        }
-    }
-
-    /**
-     * The PIN step's work, answered to {@link #onCardHolderPwd}'s {@code askStep}: online PIN
-     * from {@link #onCardholderVerification}, offline PIN from {@link #onOfflinePinVerification}.
-     */
-    private int enterPin(PinRequest request) {
-        boolean isOnlinePin = request.online;
-        boolean supportPINByPass = request.supportPinBypass;
-        int leftTimes = request.leftTimes;
-        requireEngine().notifyTransactionStep(TransactionStepEvent.builder(
-                TransactionStep.CARDHOLDER_VERIFIED)
-                .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
-                .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass && (isOnlinePin
-                        ? pinBypass.isOnlinePinBypassEnabled()
-                        : pinBypass.isOfflinePinBypassEnabled()))
-                .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
-                .build());
-
-        PinService pinService = new PinService();
-
-        if (!isOnlinePin) {
-            // Offline PIN never produces a PIN block for the host — nothing goes in encPinBlock.
-            clearOnlinePin();
-            // Offline PIN is the kernel's job, not ours: once we say CONTACT_OK, it calls
-            // EmvDeviceImpl#pedVerifyPlainPin / #pedVerifyCipherPin (the native IDevice
-            // callback) directly, which is already fully wired to IPed#verifyPlainPin /
-            // #verifyCipherPin — the real secure PIN pad, real verification against the ICC.
-            // What's missing without the two lines below is only the on-screen feedback: PAX's
-            // own demo (OfflinePinTask) always wires setInputPinListener + EmvDeviceImpl's
-            // pinCallback and shows a dialog before returning CONTACT_OK, fire-and-forget —
-            // the dialog is dismissed by whichever of PinCallback's terminal callbacks
-            // EmvDeviceImpl invokes (onCancel/onTimeout/onError), or defensively in
-            // finishContactStage() if none of those fire.
-            if (tx.activePinPad != null) {
-                tx.activePinPad.dismiss(); // the kernel asks again (wrong PIN): one pad on screen
-            }
-            tx.activePinPad = new PaxPinPad("Enter Offline PIN (" + leftTimes + " left)");
-            tx.activePinPad.showForOfflinePin();
-            pinService.setInputPinListener(tx.activePinPad);
-            EmvDeviceImpl.getInstance().setPinCallback(tx.activePinPad);
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        }
-
-        // Online PIN never touches the card, so nothing in the native kernel collects it for
-        // us — show the secure pad ourselves, matching PAX's own demo (OnlinePinTask): a dialog
-        // shown and waited on via ConditionVariable before the blocking collect call, so the
-        // key-event listener always has a live dialog to update. Uses PinService directly
-        // (same object for both the listener and the actual collection) instead of duplicating
-        // its already-correct getPinBlock(keyIndex, pinLenCsv, panBytes, mode, timeoutMs) call.
-        //
-        // Bypass needs the terminal setting, and for contact the selected AID too
-        // (supportPINByPass); contactless passes the setting itself.
-        boolean bypassAllowed = supportPINByPass && pinBypass.isOnlinePinBypassEnabled();
-        tx.lastOnlinePinBlock = null;
-        provisionOnlinePinKey();
-
-        PaxPinPad pad = new PaxPinPad(bypassAllowed
-                ? "Enter Online PIN (Enter to skip)" : "Enter Online PIN");
-        tx.activePinPad = pad;
-        pad.showForOnlinePin();
-        pinService.setInputPinListener(pad);
-        try {
-            IPed ped = PedHelper.getPed();
-            ped.setIntervalTime(1, 1);
-            String pan = activeCard != null && activeCard.isContactless()
-                    ? getContactlessPan() : getContactPan();
-            byte[] pinBlock = pinService.getEncryptedPinData(safe(pan), bypassAllowed, false);
-            if (pinBlock == null || pinBlock.length == 0) {
-                // Enter with no digits: the PIN pad only allows it when bypass is allowed.
-                clearOnlinePin();
-                return bypassAllowed ? EmvConstant.ContactCallbackStatus.NO_PASSWORD
-                        : EmvConstant.ContactCallbackStatus.USER_CANCEL;
-            }
-            tx.lastOnlinePinBlock = pinBlock;
-            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
-        } catch (PinException e) {
-            // No PIN block, so no PIN key either — the host must not expect one.
-            clearOnlinePin();
-            if (bypassAllowed && NO_PIN_INPUT.equals(e.getErrCode())) {
-                return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
-            }
-            LogUtils.e(TAG, "online PIN entry failed", e);
-            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
-        } catch (PedDevException e) {
-            LogUtils.e(TAG, "online PIN entry failed", e);
-            clearOnlinePin();
-            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
-        } finally {
-            pinService.setInputPinListener(null);
-            pad.dismiss();
-        }
-    }
-
     /** {@code PinException#getErrCode} when the PIN pad's Enter was pressed with no digits. */
     private static final String NO_PIN_INPUT =
             String.valueOf(EPedDevException.PED_ERR_NO_PIN_INPUT.getErrCodeFromBasement());
@@ -1934,7 +1744,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * cycle, currently dormant — {@code OnboardingClient#runOnlineCycle} — which would need an AES
      * counterpart if it's ever turned on for this key hierarchy too). If the write fails (no TLK)
      * or no public key has been onboarded yet, this logs and leaves
-     * {@link TransactionState#lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
+     * {@link PaxTransactionState#lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
      * this method's predecessor's behavior), it just won't have a key the host can decrypt with.
      */
     private void provisionOnlinePinKey() {
@@ -2339,28 +2149,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void completeDeclined(String reason) {
         finishWithOutcome(TransactionStep.DECLINED, reason, reason);
-    }
-
-    /** A chip/contactless transaction's end: APPROVED, DECLINED or ERROR, and its message. */
-    private static final class Outcome {
-        final TransactionStep step;
-        final String message;
-
-        Outcome(TransactionStep step, String message) {
-            this.step = step;
-            this.message = message;
-        }
-    }
-
-    /**
-     * Ends a chip/contactless transaction through its TRANSACTION_COMPLETION step:
-     * {@link #onTransactionCompletion} reports the outcome. A transaction that has already ended
-     * (an error earlier in the chain) drops the step, so it never reports a second outcome.
-     */
-    private void finishWithOutcome(TransactionStep step, String stepDetail, String message) {
-        tx.outcome = new Outcome(step, message);
-        goToStep(EmvStep.TRANSACTION_COMPLETION, stepDetail);
-        tx.outcome = null;
     }
 
     private void reportOutcome(Outcome outcome) {

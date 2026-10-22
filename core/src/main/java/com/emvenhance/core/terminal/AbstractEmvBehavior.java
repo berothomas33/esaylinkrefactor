@@ -143,18 +143,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         } finally {
             stepAnswer = outer;
         }
-        if (!answer.answered) {
+        // No answer, or one that came after the transaction ended (a cancel while the cardholder
+        // was choosing): the kernel gets the fail-closed value, never a choice nobody waits for.
+        boolean ended = engine == null || !engine.isRunning();
+        if (!answer.answered || ended) {
             if (engine != null) {
-                engine.apduTrace().note("EMV", "no answer for " + step.getTitle()
-                        + " — answering " + failClosed);
+                engine.apduTrace().note("EMV", (answer.answered
+                        ? step.getTitle() + " answered after the transaction ended"
+                        : "no answer for " + step.getTitle()) + " — answering " + failClosed);
             }
-            return failClosed;
-        }
-        if (engine != null && !engine.isRunning()) {
-            // Answered, but the transaction ended (cancelled) while the cardholder was choosing:
-            // the kernel gets the fail-closed value, not a choice nobody is waiting for.
-            engine.apduTrace().note("EMV", step.getTitle() + " answered after the transaction ended"
-                    + " — answering " + failClosed);
             return failClosed;
         }
         return answer.value;
