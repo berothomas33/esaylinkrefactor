@@ -20,6 +20,7 @@ rootProject.name = "EmvEnhanceRefactor"
 include ':app'
 include ':core'
 include ':vendor-fake'
+include ':vendor-ingenico'
 include ':vendor-pax'
 include ':emvflow'
 include ':network'

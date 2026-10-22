@@ -133,6 +133,7 @@ dependencies {
     // through com.emvenhance.vendor.TerminalFactory / VendorApplication. vendor-pax brings the PAX
     // SDK modules (api) for the pax debug screens; ingenico/fake builds never see them.
     paxImplementation project(':vendor-pax')
+    ingenicoImplementation project(':vendor-ingenico')
     fakeImplementation project(':vendor-fake')
 
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
