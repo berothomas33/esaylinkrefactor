@@ -1694,6 +1694,97 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    /**
+     * The PIN step's work, answered to {@link #onCardHolderPwd}'s {@code askStep}: online PIN
+     * from {@link #onCardholderVerification}, offline PIN from {@link #onOfflinePinVerification}.
+     */
+    private int enterPin(PinRequest request) {
+        boolean isOnlinePin = request.online;
+        boolean supportPINByPass = request.supportPinBypass;
+        int leftTimes = request.leftTimes;
+        publish(TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
+                .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
+                .put(TransactionStepEvent.KEY_PIN_BYPASS, supportPINByPass && (isOnlinePin
+                        ? pinBypass.isOnlinePinBypassEnabled()
+                        : pinBypass.isOfflinePinBypassEnabled()))
+                .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, leftTimes)
+                .build());
+
+        PinService pinService = new PinService();
+
+        if (!isOnlinePin) {
+            // Offline PIN never produces a PIN block for the host — nothing goes in encPinBlock.
+            clearOnlinePin();
+            // Offline PIN is the kernel's job, not ours: once we say CONTACT_OK, it calls
+            // EmvDeviceImpl#pedVerifyPlainPin / #pedVerifyCipherPin (the native IDevice
+            // callback) directly, which is already fully wired to IPed#verifyPlainPin /
+            // #verifyCipherPin — the real secure PIN pad, real verification against the ICC.
+            // What's missing without the two lines below is only the on-screen feedback: PAX's
+            // own demo (OfflinePinTask) always wires setInputPinListener + EmvDeviceImpl's
+            // pinCallback and shows a dialog before returning CONTACT_OK, fire-and-forget —
+            // the dialog is dismissed by whichever of PinCallback's terminal callbacks
+            // EmvDeviceImpl invokes (onCancel/onTimeout/onError), or defensively in
+            // finishContactStage() if none of those fire.
+            if (tx.activePinPad != null) {
+                tx.activePinPad.dismiss(); // the kernel asks again (wrong PIN): one pad on screen
+            }
+            tx.activePinPad = new PaxPinPad("Enter Offline PIN (" + leftTimes + " left)");
+            tx.activePinPad.showForOfflinePin();
+            pinService.setInputPinListener(tx.activePinPad);
+            EmvDeviceImpl.getInstance().setPinCallback(tx.activePinPad);
+            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
+        }
+
+        // Online PIN never touches the card, so nothing in the native kernel collects it for
+        // us — show the secure pad ourselves, matching PAX's own demo (OnlinePinTask): a dialog
+        // shown and waited on via ConditionVariable before the blocking collect call, so the
+        // key-event listener always has a live dialog to update. Uses PinService directly
+        // (same object for both the listener and the actual collection) instead of duplicating
+        // its already-correct getPinBlock(keyIndex, pinLenCsv, panBytes, mode, timeoutMs) call.
+        //
+        // Bypass needs the terminal setting, and for contact the selected AID too
+        // (supportPINByPass); contactless passes the setting itself.
+        boolean bypassAllowed = supportPINByPass && pinBypass.isOnlinePinBypassEnabled();
+        tx.lastOnlinePinBlock = null;
+        provisionOnlinePinKey();
+
+        PaxPinPad pad = new PaxPinPad(bypassAllowed
+                ? "Enter Online PIN (Enter to skip)" : "Enter Online PIN");
+        tx.activePinPad = pad;
+        pad.showForOnlinePin();
+        pinService.setInputPinListener(pad);
+        try {
+            IPed ped = PedHelper.getPed();
+            ped.setIntervalTime(1, 1);
+            String pan = activeCard != null && activeCard.isContactless()
+                    ? getContactlessPan() : getContactPan();
+            byte[] pinBlock = pinService.getEncryptedPinData(safe(pan), bypassAllowed, false);
+            if (pinBlock == null || pinBlock.length == 0) {
+                // Enter with no digits: the PIN pad only allows it when bypass is allowed.
+                clearOnlinePin();
+                return bypassAllowed ? EmvConstant.ContactCallbackStatus.NO_PASSWORD
+                        : EmvConstant.ContactCallbackStatus.USER_CANCEL;
+            }
+            tx.lastOnlinePinBlock = pinBlock;
+            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
+        } catch (PinException e) {
+            // No PIN block, so no PIN key either — the host must not expect one.
+            clearOnlinePin();
+            if (bypassAllowed && NO_PIN_INPUT.equals(e.getErrCode())) {
+                return EmvConstant.ContactCallbackStatus.NO_PASSWORD;
+            }
+            LogUtils.e(TAG, "online PIN entry failed", e);
+            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
+        } catch (PedDevException e) {
+            LogUtils.e(TAG, "online PIN entry failed", e);
+            clearOnlinePin();
+            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
+        } finally {
+            pinService.setInputPinListener(null);
+            pad.dismiss();
+        }
+    }
+
     /** {@code PinException#getErrCode} when the PIN pad's Enter was pressed with no digits. */
     private static final String NO_PIN_INPUT =
             String.valueOf(EPedDevException.PED_ERR_NO_PIN_INPUT.getErrCodeFromBasement());
@@ -2139,6 +2230,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void completeDeclined(String reason) {
         finishWithOutcome(TransactionStep.DECLINED, reason, reason);
+    }
+
+    /**
+     * Ends a chip/contactless transaction through its TRANSACTION_COMPLETION step:
+     * {@link #onTransactionCompletion} reports the outcome. A transaction that has already ended
+     * (an error earlier in the chain) drops the step, so it never reports a second outcome.
+     */
+    private void finishWithOutcome(TransactionStep step, String stepDetail, String message) {
+        tx.outcome = new Outcome(step, message);
+        goToStep(EmvStep.TRANSACTION_COMPLETION, stepDetail);
+        tx.outcome = null;
     }
 
     private void reportOutcome(Outcome outcome) {
