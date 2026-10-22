@@ -10,6 +10,7 @@ import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.engine.TestSession;
 import com.emvenhance.core.host.AuthResult;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,10 +66,13 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
 
     /** An engine for {@code vendor} whose host records each request and approves it. */
     private EmvEngine engineFor(VendorBehavior vendor) {
-        return new EmvEngine(vendor, config -> {
+        TestSession session = new TestSession();
+        EmvEngine engine = session.engine(vendor, config -> {
             sentToHost.add(config);
             return AuthResult.approved("123456", "00", null, null);
         });
+        session.begin(engine);
+        return engine;
     }
 
     /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */

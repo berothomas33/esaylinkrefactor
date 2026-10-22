@@ -41,7 +41,7 @@ public class EmvEngineConcurrentStepsTest {
                 TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING)), "transaction");
         transaction.start();
         assertTrue(firstInside.await(5, TimeUnit.SECONDS));
-        engine.notifyError("Transaction cancelled"); // what cancel() does, from this thread
+        engine.notifyError("Transaction cancelled"); // what a cancel publishes, from this thread
         cancelReported.countDown();
         transaction.join(5_000);
 
@@ -55,6 +55,9 @@ public class EmvEngineConcurrentStepsTest {
         EmvBehavior behavior = (EmvBehavior) Proxy.newProxyInstance(
                 EmvBehavior.class.getClassLoader(), new Class<?>[] {EmvBehavior.class},
                 (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null);
-        return new EmvEngine(behavior, config -> AuthResult.failed("no host"));
+        TestSession session = new TestSession();
+        EmvEngine engine = session.engine(behavior, config -> AuthResult.failed("no host"));
+        session.begin(engine);
+        return engine;
     }
 }

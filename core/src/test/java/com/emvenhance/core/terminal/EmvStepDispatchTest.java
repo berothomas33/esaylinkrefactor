@@ -9,6 +9,7 @@ import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.engine.TestSession;
 import com.emvenhance.core.event.EmvStep;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
@@ -31,6 +32,7 @@ public class EmvStepDispatchTest {
     private static final TransactionConfig CONFIG =
             new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP);
 
+    private final TestSession session = new TestSession();
     private EmvEngine engine;
     private VendorBehavior vendor;
     private final List<TransactionStepEvent> transaction = new ArrayList<>();
@@ -38,13 +40,13 @@ public class EmvStepDispatchTest {
     @Before
     public void setUp() {
         vendor = new VendorBehavior();
-        engine = new EmvEngine(vendor, config -> AuthResult.failed("no host"));
+        engine = session.engine(vendor, config -> AuthResult.failed("no host"));
         engine.transactionSteps().skip(1).subscribe(transaction::add);
     }
 
     @Test
     public void enteredStepsRunTheirMethodOnce() {
-        engine.begin();
+        session.begin(engine);
         engine.prepare(CONFIG);
         engine.start(CONFIG, CardPresence.chip());
 
@@ -55,7 +57,7 @@ public class EmvStepDispatchTest {
     @Test
     public void announcedStepsReachTheObservableOnly() {
         List<EmvStep> seen = record(engine);
-        engine.begin();
+        session.begin(engine);
         engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
@@ -70,7 +72,7 @@ public class EmvStepDispatchTest {
     @Test
     public void subscribersSeeNestedStepsInOrder() {
         List<EmvStep> seen = record(engine);
-        engine.begin();
+        session.begin(engine);
 
         engine.start(CONFIG, CardPresence.chip());
 
@@ -80,12 +82,12 @@ public class EmvStepDispatchTest {
 
     @Test
     public void subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
-        engine.begin();
+        session.begin(engine);
         engine.start(CONFIG, CardPresence.chip());
         engine.notifyCompleted();
         List<EmvStep> seen = record(engine); // e.g. a new MainViewModel
 
-        engine.begin();
+        session.begin(engine);
         engine.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
@@ -94,11 +96,11 @@ public class EmvStepDispatchTest {
 
     @Test
     public void cancelledStepsAreNotRun() {
-        engine.begin();
+        session.begin(engine);
         engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
-        vendor.cancel();
+        session.cancel();
         vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
         assertTrue(vendor.ran.isEmpty());
@@ -110,7 +112,7 @@ public class EmvStepDispatchTest {
     public void afterACompletedTransactionNothingIsPublishedOrRun() {
         vendor.approveOnCompletion = true;
         List<EmvStep> seen = record(engine);
-        engine.begin();
+        session.begin(engine);
         engine.start(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(TransactionStep.APPROVED, TransactionStep.COMPLETED), steps());
@@ -127,7 +129,7 @@ public class EmvStepDispatchTest {
 
     @Test
     public void aThrowingStepEndsTheTransactionNothingRunsAfterItAndTheNextOneRuns() {
-        engine.begin();
+        session.begin(engine);
         vendor.failOn = EmvStep.READ_APPLICATION_DATA;
 
         engine.start(CONFIG, CardPresence.chip());
@@ -141,7 +143,7 @@ public class EmvStepDispatchTest {
         vendor.go(EmvStep.TRANSACTION_COMPLETION);
         assertTrue("ran " + vendor.ran, vendor.ran.isEmpty());
 
-        engine.begin();
+        session.begin(engine);
         engine.start(CONFIG, CardPresence.chip());
         assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
                 EmvStep.TRANSACTION_COMPLETION), vendor.ran);
@@ -150,7 +152,7 @@ public class EmvStepDispatchTest {
     @Test
     public void aStepFromCodeStillUnwindingAfterTheEndIsNeitherPublishedNorRun() {
         List<EmvStep> seen = record(engine);
-        engine.begin();
+        session.begin(engine);
         vendor.errorOn = EmvStep.APPLICATION_SELECTION; // finishError, then carries on to READ
 
         engine.start(CONFIG, CardPresence.chip());
@@ -164,7 +166,7 @@ public class EmvStepDispatchTest {
     @Test
     public void anUnknownStepEndsTheTransactionAndNothingIsPublishedOrRunAfterIt() {
         List<EmvStep> seen = record(engine);
-        engine.begin();
+        session.begin(engine);
         vendor.afterApplicationSelection = null; // a step with no method to run
 
         engine.start(CONFIG, CardPresence.chip());
@@ -180,7 +182,7 @@ public class EmvStepDispatchTest {
 
     @Test
     public void aRetryInTheSameTransactionKeepsRunningSteps() {
-        engine.begin();
+        session.begin(engine);
         engine.start(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 

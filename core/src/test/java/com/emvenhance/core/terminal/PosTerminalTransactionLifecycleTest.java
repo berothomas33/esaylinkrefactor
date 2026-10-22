@@ -132,14 +132,36 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
-    public void engineRefusesASecondBeginWithoutEndingTheFirst() {
-        assertTrue(terminal.engine.begin());
+    public void aCancelEndsTheTransactionOnceAndNothingAfterChangesThatEnd() throws Exception {
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        Search search = terminal.nextSearch();
         events.clear();
 
-        assertFalse(terminal.engine.begin());
+        terminal.cancelTransaction();
+        terminal.cancelTransaction(); // a second cancel does nothing
+        terminal.engine.notifyCompleted(); // nor does an end reported after it
 
-        assertTrue(terminal.engine.isRunning());
-        assertTrue("got " + events, events.isEmpty());
+        assertEquals(TransactionStep.ERROR, events.get(0).getStep());
+        assertEquals("Transaction cancelled", events.get(0).getMessage());
+        assertEquals("one cancel ERROR: " + events, 1, count(TransactionStep.ERROR));
+        assertFalse(terminal.engine.isRunning());
+        assertTrue("still ended by the cancel", terminal.engine.isCancelled());
+        search.release.countDown();
+    }
+
+    @Test
+    public void theFirstEndEndsTheTransactionAndALaterCancelDoesNothing() throws Exception {
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        Search search = terminal.nextSearch();
+        events.clear();
+
+        terminal.engine.notifyError("Reader error");
+        terminal.cancelTransaction();
+
+        assertEquals("no cancel ERROR after the end: " + events, 1, count(TransactionStep.ERROR));
+        assertFalse(terminal.engine.isRunning());
+        assertFalse("ended by the error, not the cancel", terminal.engine.isCancelled());
+        search.release.countDown();
     }
 
     /**
@@ -190,6 +212,16 @@ public class PosTerminalTransactionLifecycleTest {
             Thread.sleep(10);
         }
         return false;
+    }
+
+    private int count(TransactionStep step) {
+        int n = 0;
+        for (TransactionStepEvent e : events) {
+            if (e.getStep() == step) {
+                n++;
+            }
+        }
+        return n;
     }
 
     private boolean hasStep(TransactionStep step) {

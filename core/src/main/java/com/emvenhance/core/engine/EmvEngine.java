@@ -16,19 +16,22 @@ import io.reactivex.rxjava3.subjects.BehaviorSubject;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import io.reactivex.rxjava3.subjects.Subject;
 import java.util.Locale;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /**
- * The EMV side of one terminal: owns the vendor's {@link EmvBehavior}, the running flag, and the
- * {@link #transactionSteps()} / {@link #emvSteps()} observables. No vendor logic.
+ * The EMV side of one terminal: owns the vendor's {@link EmvBehavior} and the
+ * {@link #transactionSteps()} / {@link #emvSteps()} observables. No vendor logic, and no
+ * transaction state: whether the transaction runs or was cancelled is {@code PosTerminal}'s,
+ * read through the hooks it gives the constructor ({@link #isRunning()}, {@link #isCancelled()}).
  *
  * <p>{@code PosTerminal} owns everything outside EMV — card search, the host, the printer — and
- * reaches the behavior only through this class ({@link #prepare}, {@link #start},
- * {@link #cancel}). It also subscribes to its own {@link #transactionSteps()} to run
- * {@code dispatchTransactionStepMethod} — the one place engine-side bookkeeping tied to a specific
- * step (e.g. clearing the running flag on ERROR/COMPLETED) lives, instead of scattering it across
- * the {@code notifyXxx} methods.
+ * reaches the behavior only through this class ({@link #prepare}, {@link #start}). It also
+ * subscribes to its own {@link #transactionSteps()} to run {@code dispatchTransactionStepMethod} —
+ * the one place engine-side bookkeeping tied to a specific step (handing ERROR/COMPLETED to
+ * {@code PosTerminal}, which ends the transaction) lives, instead of scattering it across the
+ * {@code notifyXxx} methods.
  *
  * <p>The one way back out is {@link #authorize}: a behavior goes online from inside the kernel,
  * so the engine hands that request to the {@link Authorizer} {@code PosTerminal} gave it —
@@ -54,24 +57,36 @@ public final class EmvEngine {
 
     private final PublishSubject<EmvStepEvent> emvSteps = PublishSubject.create();
 
-    private final AtomicBoolean running = new AtomicBoolean(false);
-
     private final EmvBehavior behavior;
 
     private final Authorizer authorizer;
+
+    /** {@code PosTerminal}'s: the first ERROR/COMPLETED ends the current transaction. */
+    private final Consumer<TransactionStepEvent> ended;
+
+    /** {@code PosTerminal}'s: the current transaction hasn't ended. */
+    private final BooleanSupplier running;
+
+    /** {@code PosTerminal}'s: the current transaction was cancelled. */
+    private final BooleanSupplier cancelled;
 
     /** How the engine goes online for its behavior — {@code PosTerminal#authorize}. */
     public interface Authorizer {
         AuthResult authorize(TransactionConfig config);
     }
 
-    public EmvEngine(EmvBehavior behavior, Authorizer authorizer) {
+    public EmvEngine(EmvBehavior behavior, Authorizer authorizer,
+            Consumer<TransactionStepEvent> ended, BooleanSupplier running,
+            BooleanSupplier cancelled) {
         this.behavior = behavior;
         this.authorizer = authorizer;
+        this.ended = ended;
+        this.running = running;
+        this.cancelled = cancelled;
         // notify → onNext → this observer: the single dispatch point for engine-side bookkeeping.
         // Subscribing here, first, means this runs before any external subscriber
         // (PosTerminal/MainViewModel) sees the same event.
-        transactionSteps.subscribe(event -> dispatchTransactionStepMethod(event.getStep()));
+        transactionSteps.subscribe(this::dispatchTransactionStepMethod);
     }
 
     public Observable<TransactionStepEvent> transactionSteps() {
@@ -86,25 +101,22 @@ public final class EmvEngine {
         return transactionSteps.getValue();
     }
 
+    /** The current transaction hasn't ended (no ERROR/COMPLETED, not cancelled). */
     public boolean isRunning() {
-        return running.get();
+        return running.getAsBoolean();
     }
 
-    /**
-     * Claims the engine for a new transaction; {@code false} if one is already running. That one
-     * is left alone — reporting the refusal as an ERROR would end it too, since ERROR clears the
-     * running flag ({@link #dispatchTransactionStepMethod}).
-     */
-    public boolean begin() {
-        if (!running.compareAndSet(false, true)) {
-            EmvLog.d("begin() refused: a transaction is already running");
-            return false;
-        }
+    /** The current transaction was cancelled (and so has ended). */
+    public boolean isCancelled() {
+        return cancelled.getAsBoolean();
+    }
+
+    /** A new transaction: a fresh trace, no retry. {@code PosTerminal} has already claimed it. */
+    public void begin() {
         retryCount.set(0);
         retryPrompt = null;
         pendingRetryConfig = null;
         apduTrace.beginTransaction();
-        return true;
     }
 
     /**
@@ -126,21 +138,14 @@ public final class EmvEngine {
         behavior.start(this, config, card);
     }
 
-    public void cancel() {
-        behavior.cancel();
-        if (running.get()) {
-            notifyError("Transaction cancelled");
-        }
-    }
-
     /**
      * Publishes {@code step} — only while a transaction is running. Once it has ended (ERROR or
      * COMPLETED, however it got there) a step from code still unwinding is dropped: it never
-     * reaches the UI. The next {@link #begin()} publishes again.
+     * reaches the UI. The next transaction publishes again.
      */
     public void notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);
-        if (!running.get()) {
+        if (!isRunning()) {
             EmvLog.d("EmvStep dropped, no transaction running: " + event);
             apduTrace.note("EMV", "step dropped, the transaction has ended: " + event);
             return;
@@ -187,9 +192,9 @@ public final class EmvEngine {
      * subscription above, exactly like {@code AbstractEmvBehavior#dispatchStepMethod} centralizes
      * per-{@link EmvStep} handling instead of scattering it across call sites.
      */
-    private void dispatchTransactionStepMethod(TransactionStep step) {
-        if (step.isEnd()) {
-            running.set(false);
+    private void dispatchTransactionStepMethod(TransactionStepEvent event) {
+        if (event.getStep().isEnd()) {
+            ended.accept(event);
         }
     }
 

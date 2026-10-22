@@ -10,7 +10,6 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Vendor base: each step method does vendor work, then calls {@link #goToStep} to
@@ -29,8 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
-    protected final AtomicBoolean cancelled = new AtomicBoolean(false);
-
     @Nullable
     protected EmvEngine engine;
     @Nullable
@@ -43,12 +40,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         this.engine = engine;
         this.activeConfig = config;
         this.activeCard = null;
-        cancelled.set(false);
 
         engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION);
-        return !cancelled.get() && engine.isRunning();
+        return !isCancelled() && engine.isRunning();
     }
 
     @Override
@@ -56,15 +52,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         this.engine = engine;
         this.activeConfig = config;
         this.activeCard = card;
-        cancelled.set(false);
 
         // First post-search step — vendor methods chain via goToStep from here.
         goToStep(firstStepAfterSearch(card));
-    }
-
-    @Override
-    public void cancel() {
-        cancelled.set(true);
     }
 
     /**
@@ -80,10 +70,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             unknownStep(null);
             return;
         }
-        if (cancelled.get()) {
-            if (engine != null && engine.isRunning()) {
-                engine.notifyError("Transaction cancelled");
-            }
+        if (isCancelled()) { // a cancel has already ended the transaction
             return;
         }
         if (engine == null || activeConfig == null) {
@@ -135,8 +122,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         engine.notifyError(message);
     }
 
+    /** The transaction was cancelled — {@code PosTerminal}'s, read through the engine. */
     protected final boolean isCancelled() {
-        return cancelled.get();
+        return engine != null && engine.isCancelled();
     }
 
     /**
@@ -304,7 +292,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     private void enterStep(EmvStep step, @Nullable String detail) {
         engine.notifyEmvStep(step, detail); // EmvStep observable → UI
         // Ended (TransactionStep#isEnd): the engine dropped the step, and its method doesn't run.
-        if (cancelled.get() || !engine.isRunning()) {
+        if (isCancelled() || !engine.isRunning()) {
             return;
         }
         try {

@@ -87,7 +87,8 @@ public abstract class PosTerminal {
             PrinterBehavior printer) {
         this.communication = communication;
         this.printer = printer;
-        this.engine = new EmvEngine(behavior, this::authorize);
+        this.engine = new EmvEngine(behavior, this::authorize, this::transactionEnded,
+                this::isTransactionRunning, this::isTransactionCancelled);
         initializeVendor();
     }
 
@@ -216,14 +217,17 @@ public abstract class PosTerminal {
         return transaction;
     }
 
-    /** Cancels the current transaction: it winds down, or returns at once if it hadn't begun yet. */
+    /**
+     * Cancels the current transaction: ends it with ERROR "Transaction cancelled" (once — a cancel
+     * after its end, or a second cancel, does nothing), stops its search, and its EMV winds down
+     * at its next check; or it returns at once if it hadn't begun yet.
+     */
     public void cancelTransaction() {
         Transaction transaction = current.get();
-        if (transaction != null) {
-            transaction.cancelled = true;
+        if (transaction != null && transaction.end.compareAndSet(null, transaction.cancelled)) {
+            engine.notifyTransactionStep(transaction.cancelled);
         }
         cancelCardSearch();
-        engine.cancel();
     }
 
     public void dispose() {
@@ -234,6 +238,26 @@ public abstract class PosTerminal {
     public final boolean isSearchCancelled() {
         Transaction transaction = current.get();
         return transaction != null && transaction.isOver();
+    }
+
+    /** The engine's {@link EmvEngine#isRunning()}: the current transaction hasn't ended. */
+    private boolean isTransactionRunning() {
+        Transaction transaction = current.get();
+        return transaction != null && transaction.isRunning();
+    }
+
+    /** The engine's {@link EmvEngine#isCancelled()}: the current transaction was cancelled. */
+    private boolean isTransactionCancelled() {
+        Transaction transaction = current.get();
+        return transaction != null && transaction.isCancelled();
+    }
+
+    /** An ERROR/COMPLETED the engine published: the first one ends the current transaction. */
+    private void transactionEnded(TransactionStepEvent event) {
+        Transaction transaction = current.get();
+        if (transaction != null && !transaction.end.compareAndSet(null, event)) {
+            EmvLog.d("Transaction had already ended (" + transaction.end.get() + "): " + event);
+        }
     }
 
     /**
@@ -266,37 +290,54 @@ public abstract class PosTerminal {
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted {@link #startTransaction}: its config, and whether it was cancelled. The
-     * terminal outlives every transaction, so what belongs to one transaction lives here — a
-     * search still running for an earlier transaction can then tell it is over, instead of
-     * acting on the next one.
+     * One accepted {@link #startTransaction}: its config and its end. The terminal outlives every
+     * transaction, so what belongs to one transaction lives here — a search still running for an
+     * earlier transaction can then tell it is over, instead of acting on the next one.
+     *
+     * <p>{@link #end} is its whole state: {@code null} while it runs; the first ERROR/COMPLETED
+     * (or the cancel's ERROR) once it has ended. One compare-and-set decides it, so a cancel
+     * racing the end, or two ends from two threads, end it exactly once.
      */
     public final class Transaction {
 
         final TransactionConfig config;
-        volatile boolean cancelled;
+        final AtomicReference<TransactionStepEvent> end = new AtomicReference<>();
+        /** The cancel's own end event: {@link #isCancelled()} is "ended by this one". */
+        final TransactionStepEvent cancelled = TransactionStepEvent.builder(TransactionStep.ERROR)
+                .message("Transaction cancelled")
+                .put(TransactionStepEvent.KEY_ERROR, "Transaction cancelled")
+                .build();
 
         private Transaction(TransactionConfig config) {
             this.config = config;
         }
 
-        /** Cancelled, or no longer the terminal's transaction: nothing it reports reaches the engine. */
+        boolean isRunning() {
+            return end.get() == null;
+        }
+
+        boolean isCancelled() {
+            return end.get() == cancelled;
+        }
+
+        /** Ended, or no longer the terminal's transaction: nothing it reports reaches the engine. */
         boolean isOver() {
-            return cancelled || current.get() != this;
+            return !isRunning() || current.get() != this;
         }
 
         /**
          * Runs on {@link #transactionExecutor} — always, even for a transaction cancelled before it
          * got here (it then returns at once), so it always frees the terminal. One
-         * {@link EmvEngine#begin()} guards the whole transaction, including any retries a behavior
+         * {@link EmvEngine#begin()} starts the whole transaction, including any retries a behavior
          * requests via {@link EmvEngine#requestRetry} (PAX fallback / try-another-interface /
          * try-again). Never throws.
          */
         private void run() {
             try {
-                if (isOver() || !engine.begin()) {
+                if (isOver()) {
                     return;
                 }
+                engine.begin();
                 triggerSearch(this, config);
             } catch (Throwable t) {
                 //noinspection CallToPrintStackTrace
