@@ -6,13 +6,17 @@ import com.emvenhance.core.card.CardSearchListener
 import com.emvenhance.core.card.TransactionConfig
 import com.emvenhance.core.host.CommunicationBehavior
 import com.emvenhance.core.host.PrinterBehavior
+import com.emvenhance.core.param.EmvParams
 import com.emvenhance.core.terminal.PosTerminal
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime
 import com.emvenhance.network.SaleCommunicationBehavior
 import com.pax.commonlib.application.BaseApplication
+import com.pax.commonlib.currency.CurrencyConverter
 import com.pax.commonlib.sp.SharedPrefUtil
 import com.pax.commonlib.utils.LogUtils
+import com.pax.configservice.export.ConfigKeyConstant
 import com.pax.configservice.impl.ConfigInit
+import com.pax.configservice.impl.ConfigParamService
 import com.pax.dal.ICardReaderHelper
 import com.pax.dal.IDAL
 import com.pax.dal.entity.EPiccType
@@ -24,6 +28,8 @@ import com.pax.dal.exceptions.MagDevException
 import com.pax.dal.exceptions.PiccDevException
 import com.pax.emvbase.param.EmvProcessParam
 import com.pax.poslib.model.ModelInfo
+import java.util.Currency
+import java.util.Locale
 
 /**
  * PAX POS terminal — uses [ICardReaderHelper] for card search and creates [PaxEmvBehavior] for
@@ -60,12 +66,46 @@ class PaxTerminal private constructor(
 
     /**
      * The EMV parameters the kernel uses — its in-memory cache, loaded from the database once
-     * (see EmvParamService#getCachedEmvParam). For the EMV params screen; call it off the main
-     * thread, since an empty cache loads from the database here.
+     * (see EmvParamService#getCachedEmvParam). For [PaxEmvParams]; call it off the main thread,
+     * since an empty cache loads from the database here.
      */
-    fun kernelParams(): EmvProcessParam = kernel.params.cachedEmvParam
+    internal fun kernelParams(): EmvProcessParam = kernel.params.cachedEmvParam
+
+    override fun serialNumber(): String = ModelInfo.getInstance().sn
+
+    /** The PAX Neptune hardware permissions — see [PaxHardwarePermissions]. */
+    override fun requiredPermissions(): Array<String> = PaxHardwarePermissions.all()
+
+    /** Every country/currency PAX's [CurrencyConverter] knows, by display name. */
+    override fun countries(): List<String> {
+        val countries = ArrayList<String>()
+        CurrencyConverter.getSupportedLocaleList(countries)
+        return countries
+    }
+
+    /**
+     * Saves `country` as the terminal's currency setting (EDC_CURRENCY_LIST, read back on every
+     * call) and applies it at once for the next amount formatted.
+     */
+    override fun setCountry(country: String): String {
+        ConfigParamService().putString(ConfigKeyConstant.EDC_CURRENCY_LIST, country)
+        CurrencyConverter.setDefCurrency(country)
+        for (locale in CurrencyConverter.getSupportedLocale()) {
+            if (locale.getDisplayName(Locale.US) == country) {
+                return try {
+                    Currency.getInstance(locale).currencyCode
+                } catch (e: IllegalArgumentException) {
+                    "?"
+                }
+            }
+        }
+        return "?"
+    }
+
+    override fun emvParams(): EmvParams = PaxEmvParams(this)
 
     override fun initializeVendor() {
+        PaxHardwarePermissions.logGrantState()
         ensureEmvConfigInitialized()
         LogUtils.i(TAG, "PAX terminal initialized (ICardReaderHelper)")
     }

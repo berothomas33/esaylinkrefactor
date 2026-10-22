@@ -13,6 +13,7 @@ import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
 import com.emvenhance.core.host.CommunicationBehavior
 import com.emvenhance.core.host.PrinterBehavior
+import com.emvenhance.core.param.EmvParams
 import com.emvenhance.core.util.ApduTrace
 import com.emvenhance.core.util.EmvLog
 import kotlinx.coroutines.CoroutineScope
@@ -281,6 +282,28 @@ abstract class PosTerminal protected constructor(
     }
 
     fun isApduLoggingEnabled(): Boolean = engine.apduTrace().isEnabled()
+
+    // ─── Terminal setup (a vendor overrides what it has) ─────────────────
+
+    /** This terminal's serial number, which the host identifies it by; empty if the vendor has none. */
+    open fun serialNumber(): String = ""
+
+    /** Runtime permissions the vendor's hardware needs (a screen asks for them); none by default. */
+    open fun requiredPermissions(): Array<String> = emptyArray()
+
+    /** The countries the terminal can be set to (its currency); empty: the vendor has no setting. */
+    open fun countries(): List<String> = emptyList()
+
+    /**
+     * Makes `country`, one of [countries], the terminal's country.
+     *
+     * @return its currency code, e.g. "EGP"
+     */
+    open fun setCountry(country: String): String =
+        throw UnsupportedOperationException("This terminal has no country setting")
+
+    /** The vendor's EMV parameters, for the EMV params screen; `null`: none to show. */
+    open fun emvParams(): EmvParams? = null
 
     // ─── Vendor must implement ───────────────────────────────────────────
 

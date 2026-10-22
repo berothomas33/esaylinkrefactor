@@ -9,6 +9,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.emvenhance.EmvEnhanceApp
 import com.emvenhance.R
 import com.emvenhance.network.HostHeaders
 import com.emvenhance.network.HostSettings
@@ -17,7 +18,6 @@ import com.emvenhance.network.onboarding.OnboardingState
 import com.emvenhance.settings.PinBypassSettings
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
-import com.pax.poslib.model.ModelInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,9 +31,9 @@ import java.util.Locale
  * Runs the offline onboarding cycle ([OnboardingClient.runOfflineCycle]: handshake → onboard →
  * confirm → createToken) — just a button, nothing else needed. A full captured onboarding run
  * confirmed every request in that cycle needs only [HostHeaders.build]'s fixed values plus this
- * terminal's own serial number; no technician-entered credentials appear anywhere in it. (An
- * earlier version of this screen had Account ID / Token fields, added before that was known —
- * removed now that they're confirmed to feed nothing real.)
+ * terminal's own serial number (`PosTerminal.serialNumber()`); no technician-entered credentials
+ * appear anywhere in it. (An earlier version of this screen had Account ID / Token fields, added
+ * before that was known — removed now that they're confirmed to feed nothing real.)
  *
  * Below the button: the PIN bypass switches ([PinBypassSettings]), then the `mToken` sent on
  * `orchestration/sale`, editable — it shows the fixed build value until a new one is saved here
@@ -101,7 +101,7 @@ class OnboardingActivity : AppCompatActivity() {
         mTokenSourceText.text = if (expiry != null) source + "\n" + expiry else source
 
         val accessToken = OnboardingState(this).getAccessToken()
-        val headers = HostHeaders.describeAll(ModelInfo.getInstance().sn, accessToken, mToken)
+        val headers = HostHeaders.describeAll(serialNumber(), accessToken, mToken)
         val sb = StringBuilder()
         for ((key, value) in headers) {
             if (sb.isNotEmpty()) {
@@ -120,8 +120,7 @@ class OnboardingActivity : AppCompatActivity() {
         setOnboardingBusy(true)
         onboardingStatusText.setText(R.string.onboarding_in_progress)
 
-        val sn = ModelInfo.getInstance().sn
-        val headers = HostHeaders.build(sn)
+        val headers = HostHeaders.build(serialNumber())
         val state = OnboardingState(this)
 
         lifecycleScope.launch {
@@ -139,6 +138,9 @@ class OnboardingActivity : AppCompatActivity() {
             refreshHeaderInfo()
         }
     }
+
+    /** This terminal's serial number, which the host identifies it by. */
+    private fun serialNumber(): String = (application as EmvEnhanceApp).terminal.serialNumber()
 
     private fun setOnboardingBusy(busy: Boolean) {
         btnStartOnboarding.isEnabled = !busy

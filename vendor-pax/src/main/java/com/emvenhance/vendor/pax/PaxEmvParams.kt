@@ -1,21 +1,9 @@
-package com.emvenhance.ui
+package com.emvenhance.vendor.pax
 
-import android.graphics.Typeface
-import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.ArrayAdapter
-import android.widget.ListView
-import android.widget.ProgressBar
-import android.widget.ScrollView
-import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
-import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
-import com.emvenhance.EmvEnhanceApp
-import com.emvenhance.R
-import com.emvenhance.vendor.pax.PaxTerminal
+import com.emvenhance.core.param.EmvParams
+import com.emvenhance.network.HostHeaders
+import com.emvenhance.network.onboarding.OnboardingClient
+import com.emvenhance.network.onboarding.OnboardingState
 import com.pax.bizentity.db.helper.AmexAidDbHelper
 import com.pax.bizentity.db.helper.DpasAidDbHelper
 import com.pax.bizentity.db.helper.EFTAidDbHelper
@@ -43,104 +31,72 @@ import com.pax.commonlib.utils.ConvertUtils
 import com.pax.emvbase.param.EmvProcessParam
 import com.pax.emvbase.param.clss.BaseAid
 import com.pax.emvbase.param.clss.BaseParam
-import kotlinx.coroutines.CancellationException
+import com.pax.commonlib.application.BaseApplication
+import com.pax.configservice.impl.ConfigInit
+import com.pax.configservice.impl.EmvParamUpdater
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
- * Shows one EMV param category as a plain list — its own [Category] decides how to load and
- * render it. Loads only when this fragment's view is created, only its own category, never the
- * whole `EmvProcessParam` at once.
- *
- * The database reads run on `Dispatchers.IO` in the view's `lifecycleScope`: leaving the screen
- * (or switching category) cancels them, so nothing is shown on a view that's gone.
+ * PAX's [EmvParams]: the GreenDAO parameter database, the kernel's parameter cache
+ * ([PaxTerminal.kernelParams]), and the host's parameter package ([PaxEmvParamUpdateService]).
+ * Every row is rendered here, so the screen never sees a PAX type.
  */
-class EmvParamListFragment : Fragment() {
+internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?,
-    ): View = inflater.inflate(R.layout.fragment_emv_param_list, container, false)
+    override fun categories(): List<String> = Category.values().map { it.label }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        val category = Category.valueOf(arguments?.getString(ARG_CATEGORY) ?: Category.AID.name)
-
-        val progress = view.findViewById<ProgressBar>(R.id.progress)
-        val list = view.findViewById<ListView>(R.id.list)
-        val emptyText = view.findViewById<TextView>(R.id.emptyText)
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            val loaded: Pair<List<Any>, List<String>>? = withContext(Dispatchers.IO) {
-                try {
-                    val items = category.loader().filterNotNull()
-                    items to items.map(category.renderer)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    null
-                }
-            }
-            progress.visibility = View.GONE
-            when {
-                loaded == null -> {
-                    emptyText.setText(R.string.emv_param_load_failed)
-                    emptyText.visibility = View.VISIBLE
-                }
-                loaded.second.isEmpty() -> {
-                    emptyText.setText(R.string.emv_param_empty)
-                    emptyText.visibility = View.VISIBLE
-                }
-                else -> {
-                    val (items, rows) = loaded
-                    list.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, rows)
-                    list.setOnItemClickListener { _, _, position, _ -> showCached(category, items[position]) }
-                }
-            }
-        }
+    override fun rows(category: String): List<EmvParams.Row> {
+        val c = Category.of(category)
+        return c.loader().filterNotNull().map { PaxRow(c, it) }
     }
 
     /**
-     * What the kernel will use for this row: its entry in the terminal's parameter cache
-     * (PaxTerminal#kernelParams), every field. A row that isn't cached yet — the database changed
-     * since — shows its database values and says so.
+     * Refreshes the saved access token first if it is near or past expiry (rather than handing
+     * the host whatever token onboarding first minted), then downloads with the authenticated
+     * headers — the confirmed post-onboarding contract. A download that changed the database
+     * makes the next transaction load it again. Main-safe: runs on `Dispatchers.IO`.
      */
-    private fun showCached(category: Category, item: Any) {
-        val terminal = (requireActivity().application as EmvEnhanceApp).terminal as PaxTerminal
-        val cachedLabel = getString(R.string.emv_param_cached)
-        val notCachedLabel = getString(R.string.emv_param_not_cached)
-        viewLifecycleOwner.lifecycleScope.launch {
-            val title = category.renderer(item)
-            val text = withContext(Dispatchers.IO) {
-                try {
-                    val cached = category.cache(terminal.kernelParams(), item)
-                    if (cached != null) {
-                        cachedLabel + "\n\n" + ParamDump.describe(cached)
-                    } else {
-                        notCachedLabel + "\n\n" + ParamDump.describe(item)
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    e.toString()
-                }
+    override suspend fun download(): String = withContext(Dispatchers.IO) {
+        val state = OnboardingState(BaseApplication.getAppContext())
+        val sn = terminal.serialNumber()
+        val accessToken = OnboardingClient().ensureValidAccessToken(HostHeaders.build(sn), state)
+        val result = PaxEmvParamUpdateService()
+            .downloadAndApply(HostHeaders.buildAuthenticated(sn, accessToken), POS_TYPE)
+        if (result.changedDatabase()) {
+            // Rows applied or removed, even if a later section failed.
+            state.requireTerminalInitialization()
+        }
+        result.summarize()
+    }
+
+    override fun seedDefaults() {
+        ConfigInit().init()
+        OnboardingState(BaseApplication.getAppContext()).requireTerminalInitialization()
+    }
+
+    override fun downloadedFiles(): List<String> =
+        listOf(EmvParamUpdater.CONTACT_FILE, EmvParamUpdater.CONTACTLESS_FILE)
+
+    override fun downloadedFile(name: String): File? {
+        val dir = EmvParamUpdater.diagnosisDir() ?: return null
+        return File(dir, name).takeIf { it.isFile }
+    }
+
+    /** One database row; its details are its entry in the kernel's cache, looked up on demand. */
+    private inner class PaxRow(private val category: Category, private val item: Any) : EmvParams.Row {
+
+        override fun title(): String = category.renderer(item)
+
+        override fun details(): String {
+            val cached = category.cache(terminal.kernelParams(), item)
+            return if (cached != null) {
+                "In the kernel's cache — what the next transaction uses:\n\n" + ParamDump.describe(cached)
+            } else {
+                "Not in the kernel's cache yet (it reloads at the next transaction after a download). " +
+                    "Database values:\n\n" + ParamDump.describe(item)
             }
-            val view = TextView(requireContext())
-            view.text = text
-            view.setTextIsSelectable(true)
-            view.typeface = Typeface.MONOSPACE
-            view.textSize = 11f
-            val pad = (12 * resources.displayMetrics.density).toInt()
-            view.setPadding(pad, pad, pad, pad)
-            val scroll = ScrollView(requireContext())
-            scroll.addView(view)
-            AlertDialog.Builder(requireContext())
-                .setTitle(title)
-                .setView(scroll)
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
         }
     }
 
@@ -148,11 +104,11 @@ class EmvParamListFragment : Fragment() {
      * One EMV param category: how to load it from the database, how to render each row, and how
      * to find that row's entry in the kernel's parameter cache (what a transaction uses).
      */
-    enum class Category(
-        @JvmField val label: String,
-        internal val loader: () -> List<*>,
-        internal val renderer: (Any) -> String,
-        internal val cache: (EmvProcessParam, Any) -> Any?,
+    private enum class Category(
+        val label: String,
+        val loader: () -> List<*>,
+        val renderer: (Any) -> String,
+        val cache: (EmvProcessParam, Any) -> Any?,
     ) {
         AID(
             "AID",
@@ -234,19 +190,23 @@ class EmvParamListFragment : Fragment() {
             { item -> row((item as RupayAidBean).appName, item.aid) },
             { cache, item -> clss(cache.ruPayParam, (item as RupayAidBean).aid) },
         ),
+        ;
+
+        companion object {
+            fun of(label: String): Category =
+                values().firstOrNull { it.label == label }
+                    ?: throw IllegalArgumentException("No EMV param category $label")
+        }
     }
 
-    companion object {
-        private const val ARG_CATEGORY = "category"
-
-        @JvmStatic
-        fun newInstance(category: Category): EmvParamListFragment {
-            val fragment = EmvParamListFragment()
-            val args = Bundle()
-            args.putString(ARG_CATEGORY, category.name)
-            fragment.arguments = args
-            return fragment
-        }
+    private companion object {
+        /**
+         * The tmsFileDownload POS type: always "pax" for this vendor. Not
+         * ModelInfo#getTerminalModel() — a captured old-app call hit foundation/tmsFileDownload/pax
+         * (200, real zip back) whatever the model; the per-device model ("A920Pro" etc.) 500'd on
+         * the host.
+         */
+        const val POS_TYPE = "pax"
 
         /** The cached entry whose key matches `key`; null when the cache doesn't have it. */
         private fun <T> find(cached: List<T>?, keyOf: (T) -> String, key: String?): T? {
