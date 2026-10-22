@@ -1,0 +1,35 @@
+// The fake vendor: a PosTerminal with no hardware, for running the app and the core contract
+// without a terminal. Depends on core only — the proof that core is vendor-free (rule 14).
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.emvenhance.vendor.fake'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    api project(':core')
+    implementation 'androidx.annotation:annotation:1.7.1'
+
+    testImplementation "junit:junit:$rootProject.junit"
+}
