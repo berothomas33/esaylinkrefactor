@@ -1,22 +1,11 @@
-package com.emvenhance.ui;
+package com.emvenhance.vendor.pax;
 
-import android.graphics.Typeface;
-import android.os.Bundle;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
-import android.widget.ListView;
-import android.widget.ProgressBar;
-import android.widget.ScrollView;
-import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
-import androidx.fragment.app.Fragment;
-import com.emvenhance.EmvEnhanceApp;
-import com.emvenhance.R;
-import com.emvenhance.vendor.pax.PaxTerminal;
+import com.emvenhance.core.param.EmvParams;
+import com.emvenhance.network.HostHeaders;
+import com.emvenhance.network.onboarding.OnboardingClient;
+import com.emvenhance.network.onboarding.OnboardingState;
 import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.DpasAidDbHelper;
 import com.pax.bizentity.db.helper.EFTAidDbHelper;
@@ -40,132 +29,126 @@ import com.pax.bizentity.entity.clss.paywave.PaywaveAidBean;
 import com.pax.bizentity.entity.clss.pboc.PBOCAidBean;
 import com.pax.bizentity.entity.clss.pure.PureAidBean;
 import com.pax.bizentity.entity.clss.rupay.RupayAidBean;
+import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.ConvertUtils;
+import com.pax.configservice.impl.ConfigInit;
+import com.pax.configservice.impl.EmvParamUpdater;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.clss.BaseAid;
 import com.pax.emvbase.param.clss.BaseParam;
+import io.reactivex.rxjava3.core.Single;
+import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
- * Shows one EMV param category as a plain list — its own {@link Category} decides how to load
- * and render it. Loads only when this fragment's view is created, only its own category, never
- * the whole {@code EmvProcessParam} at once.
+ * PAX's {@link EmvParams}: the GreenDAO parameter database, the kernel's parameter cache
+ * ({@link PaxTerminal#kernelParams()}), and the host's parameter package
+ * ({@link PaxEmvParamUpdateService}). Every row is rendered here, so the screen never sees a PAX
+ * type.
  */
-public class EmvParamListFragment extends Fragment {
+final class PaxEmvParams implements EmvParams {
 
-    private static final String ARG_CATEGORY = "category";
+    /**
+     * The tmsFileDownload POS type: always "pax" for this vendor. Not ModelInfo#getTerminalModel()
+     * — a captured old-app call hit foundation/tmsFileDownload/pax (200, real zip back) whatever
+     * the model; the per-device model ("A920Pro" etc.) 500'd on the host.
+     */
+    private static final String POS_TYPE = "pax";
 
-    public static EmvParamListFragment newInstance(Category category) {
-        EmvParamListFragment fragment = new EmvParamListFragment();
-        Bundle args = new Bundle();
-        args.putString(ARG_CATEGORY, category.name());
-        fragment.setArguments(args);
-        return fragment;
+    private final PaxTerminal terminal;
+
+    PaxEmvParams(PaxTerminal terminal) {
+        this.terminal = terminal;
+    }
+
+    @Override
+    public List<String> categories() {
+        List<String> labels = new ArrayList<>();
+        for (Category category : Category.values()) {
+            labels.add(category.label);
+        }
+        return labels;
+    }
+
+    @Override
+    public List<Row> rows(String category) {
+        Category c = Category.of(category);
+        List<Row> rows = new ArrayList<>();
+        for (Object item : c.loader.load()) {
+            rows.add(new PaxRow(c, item));
+        }
+        return rows;
+    }
+
+    /**
+     * Refreshes the saved access token first if it is near or past expiry (rather than handing
+     * the host whatever token onboarding first minted), then downloads with the authenticated
+     * headers — the confirmed post-onboarding contract. A download that changed the database
+     * makes the next transaction load it again.
+     */
+    @Override
+    public Single<String> download() {
+        OnboardingState state = new OnboardingState(BaseApplication.getAppContext());
+        String sn = terminal.serialNumber();
+        return new OnboardingClient()
+                .ensureValidAccessToken(HostHeaders.build(sn), state)
+                .flatMap(accessToken -> new PaxEmvParamUpdateService()
+                        .downloadAndApply(HostHeaders.buildAuthenticated(sn, accessToken), POS_TYPE))
+                .map(result -> {
+                    if (result.changedDatabase()) {
+                        // Rows applied or removed, even if a later section failed.
+                        state.requireTerminalInitialization();
+                    }
+                    return result.summarize();
+                });
+    }
+
+    @Override
+    public void seedDefaults() {
+        new ConfigInit().init();
+        new OnboardingState(BaseApplication.getAppContext()).requireTerminalInitialization();
+    }
+
+    @Override
+    public List<String> downloadedFiles() {
+        return Arrays.asList(EmvParamUpdater.CONTACT_FILE, EmvParamUpdater.CONTACTLESS_FILE);
     }
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
-            @Nullable Bundle savedInstanceState) {
-        return inflater.inflate(R.layout.fragment_emv_param_list, container, false);
+    public File downloadedFile(String name) {
+        File dir = EmvParamUpdater.diagnosisDir();
+        File file = dir == null ? null : new File(dir, name);
+        return file != null && file.isFile() ? file : null;
     }
 
-    @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        super.onViewCreated(view, savedInstanceState);
+    /** One database row; its details are its entry in the kernel's cache, looked up on demand. */
+    private final class PaxRow implements Row {
 
-        Bundle args = getArguments();
-        Category category = Category.valueOf(
-                args != null ? args.getString(ARG_CATEGORY) : Category.AID.name());
+        private final Category category;
+        private final Object item;
 
-        ProgressBar progress = view.findViewById(R.id.progress);
-        ListView list = view.findViewById(R.id.list);
-        TextView emptyText = view.findViewById(R.id.emptyText);
+        PaxRow(Category category, Object item) {
+            this.category = category;
+            this.item = item;
+        }
 
-        List<Object> items = new ArrayList<>();
-        list.setOnItemClickListener((parent, row, position, id) ->
-                showCached(category, items.get(position)));
+        @NonNull
+        @Override
+        public String title() {
+            return category.renderer.render(item);
+        }
 
-        new Thread(() -> {
-            List<String> rows;
-            try {
-                rows = new ArrayList<>();
-                for (Object item : category.loader.load()) {
-                    items.add(item);
-                    rows.add(category.renderer.render(item));
-                }
-            } catch (Exception e) {
-                //noinspection CallToPrintStackTrace
-                e.printStackTrace();
-                rows = null;
-            }
-            List<String> finalRows = rows;
-            if (!isAdded()) {
-                return;
-            }
-            requireActivity().runOnUiThread(() -> {
-                if (!isAdded()) {
-                    return;
-                }
-                progress.setVisibility(View.GONE);
-                if (finalRows == null) {
-                    emptyText.setText(R.string.emv_param_load_failed);
-                    emptyText.setVisibility(View.VISIBLE);
-                } else if (finalRows.isEmpty()) {
-                    emptyText.setText(R.string.emv_param_empty);
-                    emptyText.setVisibility(View.VISIBLE);
-                } else {
-                    list.setAdapter(new ArrayAdapter<>(requireContext(),
-                            android.R.layout.simple_list_item_1, finalRows));
-                }
-            });
-        }, "EmvParamList-" + category.name()).start();
-    }
-
-    /**
-     * What the kernel will use for this row: its entry in the terminal's parameter cache
-     * (PaxTerminal#kernelParams), every field. A row that isn't cached yet — the database
-     * changed since — shows its database values and says so.
-     */
-    private void showCached(Category category, Object item) {
-        PaxTerminal terminal = (PaxTerminal) ((EmvEnhanceApp) requireActivity().getApplication())
-                .getTerminal();
-        new Thread(() -> {
-            String title = category.renderer.render(item);
-            String text;
-            try {
-                Object cached = category.cache.find(terminal.kernelParams(), item);
-                text = cached != null
-                        ? getString(R.string.emv_param_cached) + "\n\n" + ParamDump.describe(cached)
-                        : getString(R.string.emv_param_not_cached) + "\n\n" + ParamDump.describe(item);
-            } catch (Exception e) {
-                text = String.valueOf(e);
-            }
-            String finalText = text;
-            if (!isAdded()) {
-                return;
-            }
-            requireActivity().runOnUiThread(() -> {
-                if (!isAdded()) {
-                    return;
-                }
-                TextView view = new TextView(requireContext());
-                view.setText(finalText);
-                view.setTextIsSelectable(true);
-                view.setTypeface(Typeface.MONOSPACE);
-                view.setTextSize(11);
-                int pad = (int) (12 * getResources().getDisplayMetrics().density);
-                view.setPadding(pad, pad, pad, pad);
-                ScrollView scroll = new ScrollView(requireContext());
-                scroll.addView(view);
-                new AlertDialog.Builder(requireContext())
-                        .setTitle(title)
-                        .setView(scroll)
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
-            });
-        }, "EmvParamCached-" + category.name()).start();
+        @Override
+        public String details() {
+            Object cached = category.cache.find(terminal.kernelParams(), item);
+            return cached != null
+                    ? "In the kernel's cache — what the next transaction uses:\n\n" + ParamDump.describe(cached)
+                    : "Not in the kernel's cache yet (it reloads at the next transaction after a "
+                            + "download). Database values:\n\n" + ParamDump.describe(item);
+        }
     }
 
     private interface Loader {
@@ -185,7 +168,7 @@ public class EmvParamListFragment extends Fragment {
      * One EMV param category: how to load it from the database, how to render each row, and
      * how to find that row's entry in the kernel's parameter cache (what a transaction uses).
      */
-    public enum Category {
+    private enum Category {
         AID("AID",
                 () -> GreendaoHelper.getEmvAidHelper().loadAll(),
                 item -> row(((EmvAid) item).getAppName(), ((EmvAid) item).getAid()),
@@ -238,16 +221,25 @@ public class EmvParamListFragment extends Fragment {
                 item -> row(((RupayAidBean) item).getAppName(), ((RupayAidBean) item).getAid()),
                 (cache, item) -> clss(cache.getRuPayParam(), ((RupayAidBean) item).getAid()));
 
-        public final String label;
-        private final Loader loader;
-        private final Renderer renderer;
-        private final CacheLookup cache;
+        final String label;
+        final Loader loader;
+        final Renderer renderer;
+        final CacheLookup cache;
 
         Category(String label, Loader loader, Renderer renderer, CacheLookup cache) {
             this.label = label;
             this.loader = loader;
             this.renderer = renderer;
             this.cache = cache;
+        }
+
+        static Category of(String label) {
+            for (Category category : values()) {
+                if (category.label.equals(label)) {
+                    return category;
+                }
+            }
+            throw new IllegalArgumentException("No EMV param category " + label);
         }
     }
 

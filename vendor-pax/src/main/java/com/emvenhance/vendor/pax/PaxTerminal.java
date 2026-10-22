@@ -7,14 +7,18 @@ import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.TransactionConfig;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
+import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.RetrofitCommunicationBehavior;
 import com.emvenhance.network.SaleCommunicationBehavior;
 import com.pax.commonlib.application.BaseApplication;
+import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.sp.SharedPrefUtil;
 import com.pax.commonlib.utils.LogUtils;
+import com.pax.configservice.export.ConfigKeyConstant;
 import com.pax.configservice.impl.ConfigInit;
+import com.pax.configservice.impl.ConfigParamService;
 import com.pax.dal.ICardReaderHelper;
 import com.pax.dal.IDAL;
 import com.pax.dal.entity.EPiccType;
@@ -26,6 +30,10 @@ import com.pax.dal.exceptions.MagDevException;
 import com.pax.dal.exceptions.PiccDevException;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.poslib.model.ModelInfo;
+import java.util.ArrayList;
+import java.util.Currency;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * PAX POS terminal — uses {@link ICardReaderHelper} for card search and
@@ -85,15 +93,60 @@ public class PaxTerminal extends PosTerminal {
 
     /**
      * The EMV parameters the kernel uses — its in-memory cache, loaded from the database once
-     * (see EmvParamService#getCachedEmvParam). For the EMV params screen; call it off the main
+     * (see EmvParamService#getCachedEmvParam). For {@link PaxEmvParams}; call it off the main
      * thread, since an empty cache loads from the database here.
      */
-    public EmvProcessParam kernelParams() {
+    EmvProcessParam kernelParams() {
         return kernel.params.getCachedEmvParam();
     }
 
     @Override
+    public String serialNumber() {
+        return ModelInfo.getInstance().getSN();
+    }
+
+    /** The PAX Neptune hardware permissions — see {@link PaxHardwarePermissions}. */
+    @Override
+    public String[] requiredPermissions() {
+        return PaxHardwarePermissions.all();
+    }
+
+    /** Every country/currency PAX's {@link CurrencyConverter} knows, by display name. */
+    @Override
+    public List<String> countries() {
+        List<String> countries = new ArrayList<>();
+        CurrencyConverter.getSupportedLocaleList(countries);
+        return countries;
+    }
+
+    /**
+     * Saves {@code country} as the terminal's currency setting (EDC_CURRENCY_LIST, read back on
+     * every call) and applies it at once for the next amount formatted.
+     */
+    @Override
+    public String setCountry(String country) {
+        new ConfigParamService().putString(ConfigKeyConstant.EDC_CURRENCY_LIST, country);
+        CurrencyConverter.setDefCurrency(country);
+        for (Locale locale : CurrencyConverter.getSupportedLocale()) {
+            if (locale.getDisplayName(Locale.US).equals(country)) {
+                try {
+                    return Currency.getInstance(locale).getCurrencyCode();
+                } catch (IllegalArgumentException e) {
+                    return "?";
+                }
+            }
+        }
+        return "?";
+    }
+
+    @Override
+    public EmvParams emvParams() {
+        return new PaxEmvParams(this);
+    }
+
+    @Override
     protected void initializeVendor() {
+        PaxHardwarePermissions.logGrantState();
         ensureEmvConfigInitialized();
         LogUtils.i(TAG, "PAX terminal initialized (ICardReaderHelper)");
     }

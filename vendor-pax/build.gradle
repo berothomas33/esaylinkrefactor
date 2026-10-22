@@ -1,6 +1,6 @@
 // The PAX vendor: PaxTerminal, PaxEmvBehavior, PaxKernel and the rest of the PAX A920 code, over
-// the PAX SDK modules. Only this module (and the app's pax debug screens, through it) sees the
-// PAX SDK; core and app/src/main never do (rule 14).
+// the PAX SDK modules. Only this module sees the PAX SDK; core and the app never do (rule 14) -
+// the app reaches PAX only through PosTerminal.
 plugins {
     id 'com.android.library'
 }
@@ -30,13 +30,14 @@ android {
 
 dependencies {
     api project(':core')
-    api project(':network')
-    // api: the app's pax debug screens (EMV params, onboarding, country) use the PAX SDK too.
-    api project(':emvflow')
-    api project(':emvservice')
-    api project(':bizentity')
-    api project(':bizlib')
+    // api: VendorApplication extends its BaseApplication, so the app needs it to compile
+    // EmvEnhanceApp. Nothing else of the PAX SDK reaches the app.
     api project(':commonutils')
+    implementation project(':network')
+    implementation project(':emvflow')
+    implementation project(':emvservice')
+    implementation project(':bizentity')
+    implementation project(':bizlib')
 
     implementation 'androidx.annotation:annotation:1.7.1'
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"

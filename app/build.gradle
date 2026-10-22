@@ -30,10 +30,9 @@ android {
         }
     }
 
-    // Each "vendor" flavor compiles only its own vendor sources (src/pax, src/ingenico,
-    // src/fake) and pulls in only the module dependencies that vendor actually needs — an
-    // ingenico/fake build never touches the PAX SDK modules (emvlib/emvservice/bizentity/
-    // bizlib/emvflow) at all.
+    // Each "vendor" flavor picks one vendor module (:vendor-pax / :vendor-ingenico /
+    // :vendor-fake, see dependencies) — an ingenico/fake build never touches the PAX SDK modules
+    // (emvlib/emvservice/bizentity/bizlib/emvflow) at all.
     //
     // "environment" selects which host BuildConfig.baseUrl gets baked in — read by
     // EnvironmentProvider.setBaseUrl(BuildConfig.baseUrl) in EmvEnhanceApp.onCreate(), same
@@ -129,8 +128,8 @@ dependencies {
     implementation project(':network')
 
     // Each vendor is its own module: its code can't reach the app, and the app reaches it only
-    // through com.emvenhance.vendor.TerminalFactory / VendorApplication. vendor-pax brings the PAX
-    // SDK modules (api) for the pax debug screens; ingenico/fake builds never see them.
+    // through com.emvenhance.vendor.TerminalFactory / VendorApplication and PosTerminal. Every
+    // screen is in src/main; the vendor flavors only pick the module.
     paxImplementation project(':vendor-pax')
     ingenicoImplementation project(':vendor-ingenico')
     fakeImplementation project(':vendor-fake')

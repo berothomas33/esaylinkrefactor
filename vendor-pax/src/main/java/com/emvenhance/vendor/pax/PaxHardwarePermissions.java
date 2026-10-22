@@ -1,10 +1,8 @@
 package com.emvenhance.vendor.pax;
 
 import android.content.pm.PackageManager;
-import androidx.fragment.app.FragmentActivity;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
-import com.pax.commonlib.utils.PermissionUtils;
 
 /**
  * Neptune Lite hardware permissions required before {@code dal.getIcc()/getMag()/getPicc()}.
@@ -27,16 +25,9 @@ public final class PaxHardwarePermissions {
     private PaxHardwarePermissions() {
     }
 
-    public static void request(FragmentActivity activity) {
-        logGrantState();
-        PermissionUtils.getInstance().request(activity, ALL, denyList -> {
-            if (denyList.isEmpty()) {
-                LogUtils.i(TAG, "PAX hardware permissions granted");
-            } else {
-                LogUtils.w(TAG, "PAX hardware permissions denied: " + denyList
-                        + " — card search will hit ICC#101 / MAG / PICC no-permission");
-            }
-        });
+    /** All of them, for {@code PosTerminal#requiredPermissions()}: a screen asks for them. */
+    static String[] all() {
+        return ALL.clone();
     }
 
     public static void logGrantState() {

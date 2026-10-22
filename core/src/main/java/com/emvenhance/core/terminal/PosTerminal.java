@@ -14,6 +14,7 @@ import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
+import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Observable;
@@ -21,6 +22,7 @@ import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
@@ -296,6 +298,38 @@ public abstract class PosTerminal {
 
     public final boolean isApduLoggingEnabled() {
         return engine.apduTrace().isEnabled();
+    }
+
+    // ─── Terminal setup (a vendor overrides what it has) ─────────────────
+
+    /** This terminal's serial number, which the host identifies it by; empty if the vendor has none. */
+    public String serialNumber() {
+        return "";
+    }
+
+    /** Runtime permissions the vendor's hardware needs (a screen asks for them); none by default. */
+    public String[] requiredPermissions() {
+        return new String[0];
+    }
+
+    /** The countries the terminal can be set to (its currency); empty: the vendor has no setting. */
+    public List<String> countries() {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Makes {@code country}, one of {@link #countries()}, the terminal's country.
+     *
+     * @return its currency code, e.g. "EGP"
+     */
+    public String setCountry(String country) {
+        throw new UnsupportedOperationException("This terminal has no country setting");
+    }
+
+    /** The vendor's EMV parameters, for the EMV params screen; {@code null}: none to show. */
+    @Nullable
+    public EmvParams emvParams() {
+        return null;
     }
 
     // ─── Vendor must implement ───────────────────────────────────────────

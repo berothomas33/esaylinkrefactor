@@ -8,6 +8,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
 import com.emvenhance.network.HostHeaders;
 import com.emvenhance.network.HostSettings;
@@ -17,7 +18,6 @@ import com.emvenhance.network.onboarding.model.CreateTokenResult;
 import com.emvenhance.settings.PinBypassSettings;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
-import com.pax.poslib.model.ModelInfo;
 
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -38,9 +38,10 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * Runs the offline onboarding cycle ({@link OnboardingClient#runOfflineCycle}: handshake →
  * onboard → confirm → createToken) — just a button, nothing else needed. A full captured
  * onboarding run confirmed every request in that cycle needs only {@link HostHeaders#build}'s
- * fixed values plus this terminal's own serial number; no technician-entered credentials appear
- * anywhere in it. (An earlier version of this screen had Account ID / Token fields, added before
- * that was known — removed now that they're confirmed to feed nothing real.)
+ * fixed values plus this terminal's own serial number ({@code PosTerminal#serialNumber()}); no
+ * technician-entered credentials appear anywhere in it. (An earlier version of this screen had
+ * Account ID / Token fields, added before that was known — removed now that they're confirmed to
+ * feed nothing real.)
  *
  * <p>Below the button: the PIN bypass switches ({@link PinBypassSettings}), then the
  * {@code mToken} sent on {@code orchestration/sale}, editable — it
@@ -110,7 +111,7 @@ public class OnboardingActivity extends AppCompatActivity {
 
         String accessToken = new OnboardingState(this).getAccessToken();
         Map<String, String> headers = HostHeaders.describeAll(
-                ModelInfo.getInstance().getSN(), accessToken, mToken);
+                serialNumber(), accessToken, mToken);
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, String> header : headers.entrySet()) {
             if (sb.length() > 0) {
@@ -159,8 +160,7 @@ public class OnboardingActivity extends AppCompatActivity {
         setOnboardingBusy(true);
         onboardingStatusText.setText(R.string.onboarding_in_progress);
 
-        String sn = ModelInfo.getInstance().getSN();
-        Map<String, String> headers = HostHeaders.build(sn);
+        Map<String, String> headers = HostHeaders.build(serialNumber());
 
         OnboardingState state = new OnboardingState(this);
         Single<CreateTokenResult> cycle = new OnboardingClient().runOfflineCycle(headers, state);
@@ -179,6 +179,11 @@ public class OnboardingActivity extends AppCompatActivity {
                             onboardingStatusText.setText(
                                     getString(R.string.onboarding_failed, message(throwable)));
                         }));
+    }
+
+    /** This terminal's serial number, which the host identifies it by. */
+    private String serialNumber() {
+        return ((EmvEnhanceApp) getApplication()).getTerminal().serialNumber();
     }
 
     private void setOnboardingBusy(boolean busy) {
