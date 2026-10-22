@@ -174,6 +174,14 @@ public class ClssProcess extends EmvBase {
         return clssKernelProcess != null && clssKernelProcess.supportsGranularSteps();
     }
 
+    /** EMV "Set Transaction Data" — only called when {@link #supportsGranularSteps()} is true. */
+    public TransResult setTransactionData() {
+        if (clssKernelProcess == null) {
+            return noKernelSelectedResult("setTransactionData");
+        }
+        return clssKernelProcess.setTransactionData();
+    }
+
     /** EMV "Read Application Data" — only called when {@link #supportsGranularSteps()} is true. */
     public TransResult readApplicationData() {
         if (clssKernelProcess == null) {

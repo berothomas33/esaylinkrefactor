@@ -95,17 +95,22 @@ public class ClssPayPassProcess extends ClssKernelProcess<PayPassParam> {
         return true;
     }
 
-    /** EMV "Read Application Data" (kernel init/config + Initiate Application + Read Data). */
+    /** EMV "Set Transaction Data" (kernel init/config + transaction, limits and terminal TLVs). */
     @Override
-    public TransResult readApplicationData() {
+    public TransResult setTransactionData() {
         int ret = coreInit();
         if(ret != RetCode.EMV_OK){
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
 
         setPayPassParam();
+        return new TransResult(RetCode.EMV_OK);
+    }
 
-        ret = ClssPassApi.Clss_InitiateApp_MC();
+    /** EMV "Read Application Data" (Initiate Application + Read Data), after setTransactionData. */
+    @Override
+    public TransResult readApplicationData() {
+        int ret = ClssPassApi.Clss_InitiateApp_MC();
         if(ret != RetCode.EMV_OK){
             LogUtils.e(TAG, "Clss_InitiateApp_MC ret :" + ret);
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
