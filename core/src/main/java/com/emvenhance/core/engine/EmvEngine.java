@@ -113,18 +113,25 @@ public final class EmvEngine {
     /**
      * Publishes {@code step} — only while a transaction is running. Once it has ended (ERROR or
      * COMPLETED, however it got there) a step from code still unwinding is dropped: it never
-     * reaches the UI. The next transaction publishes again.
+     * reaches the UI or the behavior's step methods. The next transaction publishes again.
+     *
+     * <p>This is the one cancel check at a step boundary: a cancel ends the transaction at once
+     * ({@code PosTerminal.Transaction.cancel}), so after it no step runs.
+     *
+     * @return whether it was published (and so, for the behavior's steps, ran)
      */
-    public void notifyEmvStep(EmvStep step, @Nullable String detail) {
+    public boolean notifyEmvStep(EmvStep step, @Nullable String detail) {
         EmvStepEvent event = new EmvStepEvent(step, detail);
         if (!isRunning()) {
-            EmvLog.d("EmvStep dropped, no transaction running: " + event);
-            apduTrace.note("EMV", "step dropped, the transaction has ended: " + event);
-            return;
+            String why = isCancelled() ? "cancelled" : "the transaction has ended";
+            EmvLog.d("EmvStep dropped, " + why + ": " + event);
+            apduTrace.note("EMV", "step dropped, " + why + ": " + event);
+            return false;
         }
         EmvLog.d("EmvStep: " + event);
         apduTrace.kernelStep(event.toString());
         emvSteps.onNext(event);
+        return true;
     }
 
     public void notifyEmvStep(EmvStep step) {
