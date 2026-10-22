@@ -1574,6 +1574,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void initializeTerminalIfNeeded() {
         OnboardingState state = new OnboardingState(BaseApplication.getAppContext());
         if (state.isTerminalInitialized()) {
+            // After an app restart the in-memory cache is empty: load it here, in step 0, not
+            // after the card search (runPreTransProcess). A no-op while the cache is full.
+            kernel.params.getCachedEmvParam();
             return;
         }
         long start = SystemClock.elapsedRealtime();
