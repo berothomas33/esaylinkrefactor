@@ -20,7 +20,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -49,9 +48,9 @@ import java.util.concurrent.atomic.AtomicReference
  * ```
  *
  * This class owns the transaction's whole life: [startTransaction] starts it (or refuses it,
- * [TerminalBusyException]) and returns its [Transaction], the handle a screen cancels; its steps
- * are on [transactionSteps], and its end (COMPLETED / ERROR) is published once, after the
- * terminal is free. The transaction thread stays inside this class.
+ * [TerminalBusyException]) and returns its [Transaction] — its state, its steps, its cancel and
+ * its end. The end (COMPLETED, ERROR or CANCELLED) is published once, after the terminal is
+ * free. The transaction thread stays inside this class.
  *
  * Threads: one dedicated transaction thread (card search, kernel, kernel callbacks, the host
  * call through `runBlocking`), never the main thread and never `Dispatchers.Default`/`IO` — a
@@ -82,23 +81,6 @@ abstract class PosTerminal protected constructor(
      * the terminal; an executor's task always runs.
      */
     private val transactionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-
-    /**
-     * Every transaction's steps, from now on: nothing is replayed, and it never completes — a
-     * transaction's end is a step on it (COMPLETED / ERROR), not the end of the flow. Not a
-     * `StateFlow`: `APPROVED` and `COMPLETED` are published back to back and a `StateFlow`
-     * collector could see only the second, so the result panel would never show. A slow
-     * collector loses the oldest buffered step, never the latest; `tryEmit` never waits.
-     *
-     * Also the one lock: every emit, the cancel's [end + CANCELLING] and [process]'s [end + free +
-     * emit] hold it, so no two emits run at once and a cancel's CANCELLING can never land after
-     * the end — one atomic can't order an emit across two threads. A collector that throws fails
-     * its own coroutine, never the emitter or the transaction thread.
-     */
-    private val _transactionSteps = MutableSharedFlow<TransactionStepEvent>(
-        extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
 
     /**
      * Where receipts print: one thread (a blocking printer driver never touches a shared pool)
@@ -189,14 +171,10 @@ abstract class PosTerminal protected constructor(
 
     // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
-    /** Every transaction's steps from now on; see [_transactionSteps]. */
-    fun transactionSteps(): SharedFlow<TransactionStepEvent> = _transactionSteps.asSharedFlow()
-
     fun emvSteps(): SharedFlow<EmvStepEvent> = engine.emvSteps
 
     /**
-     * The current transaction's APDU trace — owned by the engine, alongside [transactionSteps]
-     * and [emvSteps]: collect [ApduTrace.changes] and read [ApduTrace.text].
+     * The current transaction's APDU trace — owned by the engine, alongside [emvSteps]: collect [ApduTrace.changes] and read [ApduTrace.text].
      */
     fun apduTrace(): ApduTrace = engine.apduTrace()
 
@@ -214,17 +192,18 @@ abstract class PosTerminal protected constructor(
      * Start with an explicit reader mode: card search, EMV and the host run on the transaction
      * thread and this returns at once. Every outcome (card found, search cancelled, timed out,
      * or errored) arrives as a [CardSearchListener] callback there, and the transaction's steps
-     * on [transactionSteps], ending with COMPLETED or ERROR once the terminal is free.
+     * on [Transaction.steps], ending with COMPLETED, ERROR or CANCELLED once the terminal is
+     * free.
      *
      * Not `suspend`, and never called inside `withContext` / `flowOn`: the busy check runs here,
      * on the calling thread, so two quick taps never queue a second sale.
      *
-     * @return this transaction, to [cancel][Transaction.cancel] it — that one only, never
-     *      another's
+     * @return this transaction: its [steps][Transaction.steps], and the handle to
+     *      [cancel][Transaction.cancel] it — that one only, never another's
      * @throws TerminalBusyException at once, on the calling thread, nothing queued: the previous
      *      transaction hasn't finished — still searching or running EMV, or cancelled but not yet
-     *      done with the reader (a PAX poll takes a moment to stop). It is not reported on
-     *      [transactionSteps], which belongs to the transaction still there.
+     *      done with the reader (a PAX poll takes a moment to stop). Nothing is reported on
+     *      the steps of the transaction still there.
      */
     open fun startTransaction(config: TransactionConfig): Transaction {
         val transaction = Transaction(config)
@@ -248,15 +227,19 @@ abstract class PosTerminal protected constructor(
 
     /**
      * Every transaction step comes through here ([EmvEngine.notifyTransactionStep] hands the
-     * behavior's ones over). Published only while the current transaction is running; the first
-     * ERROR/COMPLETED ends it ([Transaction.end]) and is published by [process] once the terminal
-     * is free; anything after it is dropped.
+     * behavior's ones over). Published only while the current transaction is running, on that
+     * transaction's [Transaction.steps]; the first end ends it ([Transaction.end]) and is
+     * published by [process] once the terminal is free; anything after it is dropped.
      */
     private fun publish(event: TransactionStepEvent) {
-        synchronized(_transactionSteps) {
-            val transaction = current.get()
-            if (transaction == null || !transaction.isRunning()) {
-                EmvLog.d("TransactionStep dropped, no transaction running: $event")
+        val transaction = current.get()
+        if (transaction == null) {
+            EmvLog.d("TransactionStep dropped, no transaction: $event")
+            return
+        }
+        synchronized(transaction.steps) {
+            if (!transaction.isRunning()) {
+                EmvLog.d("TransactionStep dropped, the transaction has ended: $event")
                 engine.apduTrace().note("EMV", "transaction step dropped, the transaction has ended: $event")
                 return
             }
@@ -264,19 +247,7 @@ abstract class PosTerminal protected constructor(
                 transaction.end(event)
                 return
             }
-            publishNow(event)
-        }
-    }
-
-    /** Emits `event`, holding the one lock ([_transactionSteps]). */
-    private fun publishNow(event: TransactionStepEvent) {
-        synchronized(_transactionSteps) {
-            EmvLog.d("TransactionStep: $event")
-            traceTransactionStep(event)
-            if (!_transactionSteps.tryEmit(event)) {
-                EmvLog.d("TransactionStep not delivered, the buffer refused it: $event")
-                engine.apduTrace().note("EMV", "transaction step not delivered, the buffer refused it: $event")
-            }
+            transaction.publishNow(event)
         }
     }
 
@@ -328,43 +299,57 @@ abstract class PosTerminal protected constructor(
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted [startTransaction]: its config and its end. The terminal outlives every
-     * transaction, so what belongs to one transaction lives here — a search still running for an
+     * One accepted [startTransaction]: everything about it, in one place. The terminal outlives
+     * every transaction, so what belongs to one lives here — a search still running for an
      * earlier transaction can then tell it is over, instead of acting on the next.
      *
-     * [end] is its whole state: `null` while it runs; the first ERROR/COMPLETED (or the cancel's
-     * ERROR) once it has ended. One compare-and-set decides it, so a cancel racing the end, or two
-     * ends from two threads, end it exactly once.
+     * - [end] is its whole state: `null` while it runs (and the terminal is busy with it); the
+     *   first COMPLETED / ERROR, or the cancel's CANCELLED, once it has ended. One
+     *   compare-and-set decides it, so a cancel racing the end, or two ends from two threads, end
+     *   it exactly once.
+     * - [steps] is what it reports, for a screen: its own flow, so a new transaction never shows
+     *   the last one's outcome. It replays all its steps to a collector that starts late or again
+     *   (a rotation): APPROVED's data is still there after COMPLETED, and nothing is missed
+     *   between the start and the collect. Not a `StateFlow` (it would conflate APPROVED into
+     *   COMPLETED). It never completes — the end is a step on it. It is also the lock of its
+     *   reporting: every emit holds it, so a cancel's CANCELLING never lands after the end — one
+     *   atomic can't order an emit across two threads. `tryEmit` never waits (the replay buffer
+     *   has no limit), and a collector that throws fails its own coroutine, never the emitter or
+     *   the transaction thread.
      */
     inner class Transaction internal constructor(internal val config: TransactionConfig) {
 
         internal val end = AtomicReference<TransactionStepEvent?>(null)
 
-        /** The cancel's own end event: [isCancelled] is "ended by this one". */
-        private val cancelled = errorEvent("Transaction cancelled")
+        internal val steps = MutableSharedFlow<TransactionStepEvent>(replay = Int.MAX_VALUE)
 
-        private val cancelling =
-            TransactionStepEvent.of(TransactionStep.CANCELLING, "Cancelling — finishing with the card")
+        /**
+         * This transaction's steps, from its first, ending with COMPLETED, ERROR or CANCELLED once
+         * the terminal is free.
+         */
+        fun steps(): SharedFlow<TransactionStepEvent> = steps.asSharedFlow()
 
         /**
          * Cancels this transaction: CANCELLING at once, then its search stops and its EMV winds
          * down, or it never starts if it hadn't yet. Never interrupts the transaction thread: the
-         * terminal stays busy until that is done with the reader, then reports ERROR "Transaction
-         * cancelled". Does nothing once it has ended — a finished sale, or a second cancel.
+         * terminal stays busy until that is done with the reader — a host call already sent is
+         * waited for — then reports CANCELLED. Does nothing once it has ended — a finished sale,
+         * or a second cancel.
          */
         fun cancel() {
-            synchronized(_transactionSteps) {
-                if (!end.compareAndSet(null, cancelled)) {
+            synchronized(steps) {
+                if (!end.compareAndSet(null, TransactionStepEvent.of(TransactionStep.CANCELLED))) {
                     return
                 }
-                publishNow(cancelling)
+                // Under the lock: before the end, whichever thread is first.
+                publishNow(TransactionStepEvent.of(TransactionStep.CANCELLING, "Cancelling — finishing with the card"))
             }
             cancelCardSearch()
         }
 
         internal fun isRunning(): Boolean = end.get() == null
 
-        internal fun isCancelled(): Boolean = end.get() === cancelled
+        internal fun isCancelled(): Boolean = end.get()?.step == TransactionStep.CANCELLED
 
         /** Ended, or no longer the terminal's transaction: nothing it reports reaches the UI. */
         internal fun isOver(): Boolean = !isRunning() || current.get() !== this
@@ -373,6 +358,15 @@ abstract class PosTerminal protected constructor(
         internal fun end(event: TransactionStepEvent) {
             if (!end.compareAndSet(null, event)) {
                 EmvLog.d("TransactionStep dropped, the transaction has ended: $event")
+            }
+        }
+
+        /** Emits `event` on [steps], holding its lock. */
+        internal fun publishNow(event: TransactionStepEvent) {
+            synchronized(steps) {
+                EmvLog.d("TransactionStep: $event")
+                traceTransactionStep(event)
+                steps.tryEmit(event)
             }
         }
     }
@@ -385,8 +379,8 @@ abstract class PosTerminal protected constructor(
      * nothing above it would catch it.
      *
      * Its `finally` is the one place a transaction's end is published: frees the terminal first,
-     * then publishes the end, so a screen that sees COMPLETED/ERROR can start the next sale at
-     * once.
+     * then publishes the end, so a screen that sees COMPLETED/ERROR/CANCELLED can start the next
+     * sale at once.
      */
     private fun process(transaction: Transaction) {
         try {
@@ -403,11 +397,11 @@ abstract class PosTerminal protected constructor(
             t.printStackTrace()
             transaction.end(errorEvent(t.message ?: "Transaction failed"))
         } finally {
-            synchronized(_transactionSteps) {
+            synchronized(transaction.steps) { // a cancel's CANCELLING can't land after the end
                 // A search that stopped with no outcome still ends its transaction.
                 transaction.end.compareAndSet(null, errorEvent("Transaction ended without an outcome"))
                 current.compareAndSet(transaction, null)
-                publishNow(transaction.end.get()!!)
+                transaction.publishNow(transaction.end.get()!!)
             }
         }
     }

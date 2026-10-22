@@ -3,16 +3,15 @@ package com.emvenhance.core.event
 import java.util.Collections
 
 /**
- * Immutable event published on the engine's transaction steps.
+ * Immutable event published on `PosTerminal.Transaction.steps()`.
  *
  * Every emission is a new instance carrying the new [TransactionStep] plus an optional bag of
  * contextual data — PAN, issuer name, authorization result, error reason, etc. Using a `Map`
  * rather than individual fields keeps this class stable when new data needs arise: the vendor
  * implementation just puts a new key, and only the consumer that cares about that key reads it.
  *
- * The engine's `transactionSteps` flow replays the latest one, so a late collector (or one
- * reattaching after rotation) immediately receives the most recent event, which is exactly the
- * behaviour the UI needs.
+ * Each transaction replays its own steps to a screen that collects again (a rotation); no step
+ * of an earlier transaction is ever replayed.
  */
 class TransactionStepEvent private constructor(
     val step: TransactionStep,

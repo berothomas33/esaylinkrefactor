@@ -8,10 +8,10 @@ import java.util.EnumSet
 class TransactionStepTest {
 
     @Test
-    fun onlyErrorAndCompletedEndATransaction() {
+    fun onlyErrorCompletedAndCancelledEndATransaction() {
         val ends = TransactionStep.values().filterTo(EnumSet.noneOf(TransactionStep::class.java)) { it.isEnd }
 
         // APPROVED and DECLINED are outcomes, not the end: COMPLETED follows them.
-        assertEquals(EnumSet.of(TransactionStep.ERROR, TransactionStep.COMPLETED), ends)
+        assertEquals(EnumSet.of(TransactionStep.ERROR, TransactionStep.COMPLETED, TransactionStep.CANCELLED), ends)
     }
 }

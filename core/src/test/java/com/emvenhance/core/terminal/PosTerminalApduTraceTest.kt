@@ -47,7 +47,7 @@ class PosTerminalApduTraceTest {
         val terminal = TestTerminal() // its prepare() fails: the sale ends at once
         val trace = terminal.apduTrace()
         assumeTrue("trace records in debug builds only", trace.isEnabled())
-        val steps = terminal.transactionSteps().recordIn(backgroundScope)
+        val steps = terminal.allSteps.flow.recordIn(backgroundScope)
 
         terminal.acceptCard(TransactionType.SALE, 1000)
 
@@ -57,6 +57,12 @@ class PosTerminalApduTraceTest {
 
     private class TestTerminal : PosTerminal(stubBehavior(), stub(), stub()) {
         fun engine() = engine
+
+        /** Every transaction's steps, for the test: each transaction has its own flow. */
+        val allSteps = AllSteps()
+
+        override fun startTransaction(config: TransactionConfig): Transaction =
+            allSteps.relay(super.startTransaction(config))
 
         override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? = null
 

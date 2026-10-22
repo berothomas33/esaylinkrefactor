@@ -33,9 +33,10 @@ class PosTerminalConcurrentStepsTest {
         val firstInside = CountDownLatch(1)
         val releaseFirst = CountDownLatch(1)
         val delivered = CopyOnWriteArrayList<String>()
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000)
         // Collects on the publishing thread, like an Rx subscriber with no observeOn.
         backgroundScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            terminal.transactionSteps().collect { event ->
+            sale.steps().collect { event ->
                 maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max)
                 delivered.add(event.step.toString() + " on " + Thread.currentThread().name)
                 if (event.step == TransactionStep.ONLINE_PROCESSING) {
@@ -45,7 +46,6 @@ class PosTerminalConcurrentStepsTest {
                 inFlight.decrementAndGet()
             }
         }
-        terminal.acceptCard(TransactionType.SALE, 1000)
         assertTrue(terminal.searching.await(5, TimeUnit.SECONDS))
 
         val first = Thread(

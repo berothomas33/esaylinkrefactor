@@ -36,7 +36,7 @@ class PosTerminalRetryPromptTest {
     fun setUp() {
         terminal = CapturingTerminal()
         engine = terminal.engine()
-        events = terminal.transactionSteps().recordIn(scope)
+        events = terminal.allSteps.flow.recordIn(scope)
         terminal.acceptCard(TransactionType.SALE, 1000)
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS))
         events.values.clear()
@@ -92,6 +92,12 @@ class PosTerminalRetryPromptTest {
 
     /** Holds card search open and hands the test the terminal's own listener. */
     private class CapturingTerminal : PosTerminal(stubBehavior(prepared = true), stub(), stub()) {
+
+        /** Every transaction's steps, for the test: each transaction has its own flow. */
+        val allSteps = AllSteps()
+
+        override fun startTransaction(config: TransactionConfig): Transaction =
+            allSteps.relay(super.startTransaction(config))
 
         val searching = CountDownLatch(1)
         val release = CountDownLatch(1)

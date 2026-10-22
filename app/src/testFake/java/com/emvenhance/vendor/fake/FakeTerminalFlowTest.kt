@@ -19,8 +19,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * The converted core contract driven end to end by a second vendor: a fake chip sale publishes
- * its steps on the terminal's stream, from TRANSACTION_STARTED to COMPLETED, the end once the
- * terminal is free; a second sale while it runs is refused as busy.
+ * its own steps, from TRANSACTION_STARTED to COMPLETED, the end once the terminal is free; a
+ * second sale while it runs is refused as busy.
  */
 class FakeTerminalFlowTest {
 
@@ -30,15 +30,16 @@ class FakeTerminalFlowTest {
         val steps = CopyOnWriteArrayList<TransactionStep>()
         val emvSteps = CopyOnWriteArrayList<EmvStep>()
         val ended = CountDownLatch(1)
+        val emv = record(terminal.emvSteps()) { emvSteps.add(it.step) }
+
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000)
         val handles = listOf(
-            record(terminal.transactionSteps()) {
+            emv,
+            record(sale.steps()) {
                 steps.add(it.step)
                 if (it.step.isEnd) ended.countDown()
             },
-            record(terminal.emvSteps()) { emvSteps.add(it.step) },
         )
-
-        terminal.acceptCard(TransactionType.SALE, 1000)
         assertTrue("the sale never ended", ended.await(10, TimeUnit.SECONDS))
         handles.forEach { it.close() }
 
@@ -59,10 +60,10 @@ class FakeTerminalFlowTest {
         val steps = CopyOnWriteArrayList<TransactionStep>()
         val ended = CountDownLatch(1)
         var refused: Throwable? = null
-        // Started from inside a step, so the first sale is certainly still running.
-        val handle = record(terminal.transactionSteps()) { event ->
-            steps.add(event.step)
-            if (event.step == TransactionStep.TRANSACTION_STARTED) {
+        // Started from inside an EMV step, on the transaction thread: the first sale is certainly
+        // still running.
+        val emv = record(terminal.emvSteps()) { event ->
+            if (event.step == EmvStep.TERMINAL_INITIALIZATION) {
                 try {
                     terminal.acceptCard(TransactionType.SALE, 2000)
                     fail("the second sale started")
@@ -70,18 +71,22 @@ class FakeTerminalFlowTest {
                     refused = e // expected: refused at once, nothing queued
                 }
             }
-            if (event.step.isEnd) ended.countDown()
         }
 
-        terminal.acceptCard(TransactionType.SALE, 1000)
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000)
+        val handle = record(sale.steps()) { event ->
+            steps.add(event.step)
+            if (event.step.isEnd) ended.countDown()
+        }
         assertTrue("the sale never ended", ended.await(10, TimeUnit.SECONDS))
         handle.close()
+        emv.close()
 
         assertTrue("the second sale was not refused", refused is TerminalBusyException)
         assertEquals(TransactionStep.COMPLETED, steps.last())
     }
 
-    /** Collects `flow` on the publishing thread, from now on. */
+    /** Collects `flow` on the publishing thread (a transaction's steps: from its first). */
     private fun <T> record(flow: Flow<T>, into: (T) -> Unit): AutoCloseable {
         val job = CoroutineScope(Dispatchers.Unconfined).launch(start = CoroutineStart.UNDISPATCHED) {
             flow.collect { into(it) }

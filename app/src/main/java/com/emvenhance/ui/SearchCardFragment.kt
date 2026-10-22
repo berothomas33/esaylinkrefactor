@@ -23,6 +23,7 @@ import com.emvenhance.core.card.TransactionType
 import com.emvenhance.core.event.TransactionStep
 import com.emvenhance.core.event.TransactionStepEvent
 import com.google.android.material.checkbox.MaterialCheckBox
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
@@ -156,7 +157,7 @@ class SearchCardFragment : Fragment() {
                     showOutcome(view, false, event.get<Any>(TransactionStepEvent.KEY_ERROR))
                     btnCancelSearch.visibility = View.GONE
                 }
-                TransactionStep.ERROR -> {
+                TransactionStep.ERROR, TransactionStep.CANCELLED -> {
                     showOutcome(view, false, event.message ?: event.get<Any>(TransactionStepEvent.KEY_ERROR))
                     btnCancelSearch.visibility = View.GONE
                 }
@@ -188,10 +189,19 @@ class SearchCardFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch { viewModel.emvStep.collect { emvStepBanner.text = it.toString() } }
-                // Nothing replayed from the previous transaction: the terminal replays no step, and
-                // MainViewModel resets to IDLE on each start.
-                launch { viewModel.transactionStep.collect { render(it) } }
-                // After the step collector: a refused start sets IDLE, then BUSY — BUSY is drawn last.
+                // This screen's transaction: its own steps, so nothing of the previous one shows,
+                // and all of them again after a rotation (the result panel comes back with
+                // APPROVED's data). None (a refused start): the card choices, idle.
+                launch {
+                    viewModel.transaction.collectLatest { transaction ->
+                        if (transaction == null) {
+                            render(TransactionStepEvent.idle())
+                        } else {
+                            transaction.steps().collect { render(it) }
+                        }
+                    }
+                }
+                // After the transaction collector: a refused start shows idle, then BUSY — drawn last.
                 launch { viewModel.terminalBusy.collect { showBusy(view) } }
                 if (traceText != null) {
                     launch { viewModel.apduTrace.collect { traceText.setText(it) } }

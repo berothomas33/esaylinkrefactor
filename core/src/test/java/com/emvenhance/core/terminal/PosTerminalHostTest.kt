@@ -49,7 +49,7 @@ class PosTerminalHostTest {
             sentToHost.add(config)
             AuthResult.approved("123456", "00", null, null)
         })
-        val steps = terminal.transactionSteps().recordIn(scope)
+        val steps = terminal.allSteps.flow.recordIn(scope)
 
         val result = terminal.authorizeInsideATransaction()
 
@@ -86,7 +86,7 @@ class PosTerminalHostTest {
             }
         })
         terminal.onlineTimeoutMs = 200
-        val steps = terminal.transactionSteps().recordIn(scope)
+        val steps = terminal.allSteps.flow.recordIn(scope)
 
         val started = System.currentTimeMillis()
         val result = terminal.authorizeInsideATransaction()
@@ -188,7 +188,14 @@ class PosTerminalHostTest {
 
         var onlineTimeoutMs = 90_000L
         private val online = LinkedBlockingQueue<AuthResult>()
-        private val ends = transactionSteps().recordIn(scope)
+
+        /** Every transaction's steps, for the test: each transaction has its own flow. */
+        val allSteps = AllSteps()
+
+        override fun startTransaction(config: TransactionConfig): Transaction =
+            allSteps.relay(super.startTransaction(config))
+
+        private val ends = allSteps.flow.recordIn(scope)
 
         fun engine() = engine
 

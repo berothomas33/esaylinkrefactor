@@ -3,10 +3,6 @@
     <string name="app_name">EMV Enhance Refactor</string>
     <string name="subtitle">PosTerminal accepts any card; vendor owns search + EMV</string>
     <string name="vendor_label">VENDOR = %1$s</string>
-    <string name="label_step">EMV step</string>
-    <string name="label_pan">PAN</string>
-    <string name="label_issuer">Issuer</string>
-    <string name="label_result">Result</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_insert_emv_param">Insert EMV param data</string>
     <string name="action_show_emv_param">Show cached EMV param</string>

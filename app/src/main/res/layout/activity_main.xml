@@ -30,79 +30,12 @@
             android:layout_marginTop="16dp"
             android:textStyle="bold" />
 
-        <ProgressBar
-            android:id="@+id/progress"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:visibility="gone" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/label_step" />
-
-        <TextView
-            android:id="@+id/stepText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/placeholder"
-            android:textSize="16sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/label_pan" />
-
-        <TextView
-            android:id="@+id/panText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/placeholder"
-            android:textSize="16sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/label_issuer" />
-
-        <TextView
-            android:id="@+id/issuerText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/placeholder"
-            android:textSize="16sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/label_result" />
-
-        <TextView
-            android:id="@+id/resultText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/placeholder"
-            android:textSize="16sp" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnStartTransaction"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/action_start_transaction" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnCancel"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/action_cancel" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnInsertEmvParam"

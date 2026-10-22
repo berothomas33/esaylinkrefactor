@@ -49,8 +49,8 @@ class PosTerminalTransactionLifecycleTest {
     @Before
     fun setUp() {
         terminal = TestTerminal()
-        events = terminal.transactionSteps().recordIn(scope)
-        ends = terminal.transactionSteps().recordIn(scope)
+        events = terminal.allSteps.flow.recordIn(scope)
+        ends = terminal.allSteps.flow.recordIn(scope)
     }
 
     @After
@@ -135,8 +135,7 @@ class PosTerminalTransactionLifecycleTest {
         first.listener.onSearchCancelled() // what the vendor reports as its poll stops
         first.release.countDown()
         val end = awaitEnd()
-        assertEquals(TransactionStep.ERROR, end.step)
-        assertEquals("Transaction cancelled", end.message)
+        assertEquals(TransactionStep.CANCELLED, end.step)
         assertEquals("one end", 1, events.values.count { it.step.isEnd })
     }
 
@@ -159,7 +158,7 @@ class PosTerminalTransactionLifecycleTest {
         val startOnEnd = CopyOnWriteArrayList<Throwable>()
         // On the publishing thread, like a screen's "Retry" right away.
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            terminal.transactionSteps().first { it.step.isEnd }
+            terminal.allSteps.flow.first { it.step.isEnd }
             try {
                 sale(2000)
             } catch (t: Throwable) {
@@ -297,6 +296,12 @@ class PosTerminalTransactionLifecycleTest {
         private val all = CopyOnWriteArrayList<Search>()
 
         fun engine(): EmvEngine = engine
+
+        /** Every transaction's steps, for the test: each transaction has its own flow. */
+        val allSteps = AllSteps()
+
+        override fun startTransaction(config: TransactionConfig): Transaction =
+            allSteps.relay(super.startTransaction(config))
 
         /** The terminal's one transaction thread, to hold it busy from a test. */
         fun transactionExecutor(): ExecutorService {
