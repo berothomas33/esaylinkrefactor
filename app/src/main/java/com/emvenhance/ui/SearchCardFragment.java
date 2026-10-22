@@ -23,6 +23,8 @@ import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.google.android.material.checkbox.MaterialCheckBox;
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.disposables.Disposable;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +49,9 @@ public class SearchCardFragment extends Fragment {
     /** Characters per printed line: 384-dot head with PaxPrinter's 12x24 font. */
     private static final int PRINT_WIDTH = 32;
 
+    /** This view's subscription to its transaction's steps; disposed with the view. */
+    private Disposable steps = Disposable.disposed();
+
     /** @param referenceNumber the original sale's reference number, for a refund; else {@code null} */
     public static SearchCardFragment newInstance(TransactionType type, long amountMinor,
             @Nullable String referenceNumber) {
@@ -64,6 +69,12 @@ public class SearchCardFragment extends Fragment {
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
             @Nullable Bundle savedInstanceState) {
         return inflater.inflate(R.layout.fragment_search_card, container, false);
+    }
+
+    @Override
+    public void onDestroyView() {
+        steps.dispose();
+        super.onDestroyView();
     }
 
     @Override
@@ -145,9 +156,7 @@ public class SearchCardFragment extends Fragment {
         // captureTransactionSummary), so their rows just read "—".
         View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
         TextView retryPromptText = view.findViewById(R.id.retryPromptText);
-        // Nothing replayed from the previous transaction: the engine replays no step, and
-        // MainViewModel resets to IDLE on each start.
-        viewModel.getTransactionStep().observe(getViewLifecycleOwner(), event -> {
+        java.util.function.Consumer<TransactionStepEvent> render = event -> {
             TransactionStep step = event.getStep();
             boolean stillChoosing = step == TransactionStep.IDLE
                     || step == TransactionStep.TRANSACTION_STARTED
@@ -179,6 +188,7 @@ public class SearchCardFragment extends Fragment {
                     btnCancelSearch.setVisibility(View.GONE);
                     break;
                 case ERROR:
+                case CANCELLED:
                     showOutcome(view, false, event.getMessage() != null
                             ? event.getMessage() : event.get(TransactionStepEvent.KEY_ERROR));
                     btnCancelSearch.setVisibility(View.GONE);
@@ -207,9 +217,22 @@ public class SearchCardFragment extends Fragment {
             } else if (stillChoosing) {
                 resultGroup.setVisibility(View.GONE);
             }
+        };
+
+        // This screen's transaction: its own steps, so nothing of the previous one shows, and all
+        // of them again after a rotation (the result panel comes back with APPROVED's data). None (a refused start): the card choices, idle.
+        viewModel.getTransaction().observe(getViewLifecycleOwner(), transaction -> {
+            steps.dispose();
+            if (transaction == null) {
+                render.accept(TransactionStepEvent.idle());
+                return;
+            }
+            steps = transaction.steps()
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(render::accept);
         });
 
-        // After the step observer: a refused start sets IDLE, then BUSY — BUSY must be drawn last.
+        // After the transaction observer: a refused start shows idle, then BUSY — drawn last.
         viewModel.getTerminalBusy().observe(getViewLifecycleOwner(), event -> {
             if (event.consume() != null) {
                 showBusy(view);

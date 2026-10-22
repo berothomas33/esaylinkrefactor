@@ -1,5 +1,6 @@
 package com.emvenhance.core.terminal;
 
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -49,7 +50,7 @@ public class PosTerminalTransactionLifecycleTest {
     @Before
     public void setUp() {
         terminal = new TestTerminal();
-        terminal.transactionSteps().subscribe(events::add);
+        terminal.allSteps.subscribe(events::add);
     }
 
     @After
@@ -137,9 +138,8 @@ public class PosTerminalTransactionLifecycleTest {
         first.listener.onSearchCancelled(); // what the vendor reports as its poll stops
         first.release.countDown();
         TransactionStepEvent end = terminal.awaitEnd();
-        assertEquals(TransactionStep.ERROR, end.getStep());
-        assertEquals("Transaction cancelled", end.getMessage());
-        assertEquals(java.util.Arrays.asList(TransactionStep.CANCELLING, TransactionStep.ERROR),
+        assertEquals(TransactionStep.CANCELLED, end.getStep());
+        assertEquals(java.util.Arrays.asList(TransactionStep.CANCELLING, TransactionStep.CANCELLED),
                 steps());
     }
 
@@ -154,9 +154,9 @@ public class PosTerminalTransactionLifecycleTest {
             search.release.countDown(); // the transaction ends on its own...
             canceller.start();          // ...while the screen cancels it
             canceller.join(5_000);
-            assertTrue("no end", awaitTrue(() -> count(TransactionStep.ERROR) == 1));
+            assertTrue("no end", awaitTrue(() -> count(TransactionStep.ERROR) + count(TransactionStep.CANCELLED) == 1));
             List<TransactionStep> steps = steps();
-            assertEquals("ends last: " + steps, TransactionStep.ERROR, steps.get(steps.size() - 1));
+            assertTrue("ends last: " + steps, steps.get(steps.size() - 1).isEnd());
             assertTrue("at most one CANCELLING: " + steps, count(TransactionStep.CANCELLING) <= 1);
             assertTrue("terminal stayed busy", awaitTrue(() -> terminal.engineFree()));
         }
@@ -185,7 +185,7 @@ public class PosTerminalTransactionLifecycleTest {
     @Test
     public void theEndIsPublishedOnceTheTerminalIsFree() throws Exception {
         List<Throwable> startOnEnd = new CopyOnWriteArrayList<>();
-        terminal.transactionSteps().filter(e -> e.getStep().isEnd()).take(1).subscribe(end -> {
+        terminal.allSteps.filter(e -> e.getStep().isEnd()).take(1).subscribe(end -> {
             try {
                 terminal.acceptCard(TransactionType.SALE, 2000); // a screen's "Retry" right away
             } catch (Throwable t) {
@@ -352,6 +352,16 @@ public class PosTerminalTransactionLifecycleTest {
 
     private final class TestTerminal extends PosTerminal {
 
+        /** Every transaction's steps, for the test: each transaction has its own stream. */
+        final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
+
+        @Override
+        public Transaction startTransaction(TransactionConfig config) {
+            Transaction transaction = super.startTransaction(config);
+            transaction.steps().subscribe(allSteps::onNext);
+            return transaction;
+        }
+
         final LinkedBlockingQueue<Search> searches = new LinkedBlockingQueue<>();
         final LinkedBlockingQueue<TransactionStepEvent> ends = new LinkedBlockingQueue<>();
         final AtomicInteger searchCancels = new AtomicInteger();
@@ -359,7 +369,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         TestTerminal() {
             super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
-            transactionSteps().filter(e -> e.getStep().isEnd()).subscribe(ends::add);
+            allSteps.filter(e -> e.getStep().isEnd()).subscribe(ends::add);
         }
 
         /** The terminal is free (its current transaction is gone). */

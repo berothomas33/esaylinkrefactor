@@ -1,5 +1,7 @@
 package com.emvenhance.core.terminal;
 
+import com.emvenhance.core.event.TransactionStepEvent;
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
@@ -50,11 +52,11 @@ public class PosTerminalApduTraceTest {
 
     @Test
     public void aTransactionsStepsAndItsEndReachTheTrace() throws InterruptedException {
-        PosTerminal terminal = new TestTerminal(); // its prepare() fails: the sale ends at once
+        TestTerminal terminal = new TestTerminal(); // its prepare() fails: the sale ends at once
         ApduTrace trace = terminal.apduTrace();
         assumeTrue("trace records in debug builds only", trace.isEnabled());
         CountDownLatch ended = new CountDownLatch(1);
-        terminal.transactionSteps().filter(e -> e.getStep().isEnd()).subscribe(e -> ended.countDown());
+        terminal.allSteps.filter(e -> e.getStep().isEnd()).subscribe(e -> ended.countDown());
 
         terminal.acceptCard(TransactionType.SALE, 1000);
 
@@ -63,6 +65,16 @@ public class PosTerminalApduTraceTest {
     }
 
     private static final class TestTerminal extends PosTerminal {
+
+        /** Every transaction's steps, for the test: each transaction has its own stream. */
+        final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
+
+        @Override
+        public Transaction startTransaction(TransactionConfig config) {
+            Transaction transaction = super.startTransaction(config);
+            transaction.steps().subscribe(allSteps::onNext);
+            return transaction;
+        }
 
         TestTerminal() {
             super(stub(EmvBehavior.class), stub(CommunicationBehavior.class),

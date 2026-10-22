@@ -8,7 +8,6 @@ import androidx.lifecycle.ViewModel;
 import com.emvenhance.core.card.TransactionType;
 import com.emvenhance.core.event.EmvStepEvent;
 import com.emvenhance.core.terminal.PosTerminal;
-import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.terminal.TerminalBusyException;
 import com.emvenhance.core.util.ApduTrace;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -24,27 +23,22 @@ public class MainViewModel extends ViewModel {
     private final PosTerminal terminal;
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    private final MutableLiveData<TransactionStepEvent> transactionStep =
-            new MutableLiveData<>(TransactionStepEvent.idle());
     private final MutableLiveData<Event<EmvStepEvent>> emvStep = new MutableLiveData<>();
     private final MutableLiveData<String> apduTrace;
     private final MutableLiveData<Event<Boolean>> terminalBusy = new MutableLiveData<>();
 
     /**
-     * The transaction this screen started, to cancel it — that one only, never another's. A
-     * finished one ignores the cancel; a refused (busy) start leaves the earlier one here.
+     * The transaction this screen started: the one thing it keeps about it. A screen reads its
+     * steps ({@link PosTerminal.Transaction#steps()}, replayed from its first after a rotation)
+     * and cancels it — that one only, never another's. {@code null}: none, or the last start was
+     * refused (busy) — a refused screen shows nothing of, and cancels nothing of, the transaction
+     * still there.
      */
-    @Nullable
-    private PosTerminal.Transaction transaction;
+    private final MutableLiveData<PosTerminal.Transaction> transaction = new MutableLiveData<>();
 
     public MainViewModel(@NonNull PosTerminal terminal) {
         this.terminal = terminal;
         this.apduTrace = new MutableLiveData<>(terminal.apduTrace().text());
-
-        // Nothing replayed: only steps published from now on.
-        disposables.add(terminal.transactionSteps()
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(transactionStep::setValue));
 
         disposables.add(terminal.emvSteps()
                 .observeOn(AndroidSchedulers.mainThread())
@@ -60,8 +54,8 @@ public class MainViewModel extends ViewModel {
                 .subscribe(apduTrace::setValue));
     }
 
-    public LiveData<TransactionStepEvent> getTransactionStep() {
-        return transactionStep;
+    public LiveData<PosTerminal.Transaction> getTransaction() {
+        return transaction;
     }
 
     /** A start this screen asked for was refused: the previous transaction hasn't finished. */
@@ -84,26 +78,26 @@ public class MainViewModel extends ViewModel {
     }
 
     /**
-     * Preferred: accept chip / tap / swipe — vendor terminal decides. Its steps arrive on
-     * {@link #getTransactionStep()}; a refused start (the POS terminal is busy with the previous
+     * Preferred: accept chip / tap / swipe — vendor terminal decides. The transaction arrives on
+     * {@link #getTransaction()}; a refused start (the POS terminal is busy with the previous
      * transaction, see {@link PosTerminal#startTransaction}) on {@link #getTerminalBusy()}.
      *
      * @param referenceNumber the original sale's reference number, for a refund; else {@code null}
      */
     public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
-        // A screen observing from here on sees this transaction only, not the last one's outcome.
-        transactionStep.setValue(TransactionStepEvent.idle());
         try {
-            transaction = terminal.acceptCard(type, amountMinor, referenceNumber);
+            transaction.setValue(terminal.acceptCard(type, amountMinor, referenceNumber));
         } catch (TerminalBusyException busy) {
+            transaction.setValue(null);
             terminalBusy.setValue(new Event<>(true));
         }
     }
 
-    /** Cancels this screen's transaction; it reports ERROR "Transaction cancelled" once stopped. */
+    /** Cancels this screen's transaction: CANCELLING at once, CANCELLED once stopped. */
     public void cancel() {
-        if (transaction != null) {
-            transaction.cancel();
+        PosTerminal.Transaction current = transaction.getValue();
+        if (current != null) {
+            current.cancel();
         }
     }
 

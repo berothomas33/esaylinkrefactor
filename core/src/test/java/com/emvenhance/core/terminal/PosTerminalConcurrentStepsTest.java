@@ -1,5 +1,6 @@
 package com.emvenhance.core.terminal;
 
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -35,7 +36,7 @@ public class PosTerminalConcurrentStepsTest {
         CountDownLatch firstInside = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         List<String> delivered = new CopyOnWriteArrayList<>();
-        terminal.transactionSteps().subscribe(event -> {
+        terminal.allSteps.subscribe(event -> {
             maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
             delivered.add(event.getStep() + " on " + Thread.currentThread().getName());
             if (event.getStep() == TransactionStep.ONLINE_PROCESSING) {
@@ -72,7 +73,8 @@ public class PosTerminalConcurrentStepsTest {
         TestTerminal terminal = new TestTerminal();
         List<TransactionStep> seen = new CopyOnWriteArrayList<>();
         CountDownLatch ended = new CountDownLatch(1);
-        terminal.transactionSteps().subscribe(new io.reactivex.rxjava3.core.Observer<TransactionStepEvent>() {
+        PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
+        sale.steps().subscribe(new io.reactivex.rxjava3.core.Observer<TransactionStepEvent>() {
             @Override public void onSubscribe(io.reactivex.rxjava3.disposables.Disposable d) { }
             @Override public void onNext(TransactionStepEvent e) {
                 throw new IllegalStateException("a screen's bug");
@@ -80,13 +82,12 @@ public class PosTerminalConcurrentStepsTest {
             @Override public void onError(Throwable e) { }
             @Override public void onComplete() { }
         });
-        terminal.transactionSteps().subscribe(e -> {
+        sale.steps().subscribe(e -> {
             seen.add(e.getStep());
             if (e.getStep().isEnd()) {
                 ended.countDown();
             }
         });
-        terminal.acceptCard(TransactionType.SALE, 1000);
         assertTrue(terminal.searching.await(5, TimeUnit.SECONDS));
 
         terminal.engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
@@ -100,6 +101,16 @@ public class PosTerminalConcurrentStepsTest {
 
     /** prepare() succeeds; the search is held open until released. */
     private static final class TestTerminal extends PosTerminal {
+
+        /** Every transaction's steps, for the test: each transaction has its own stream. */
+        final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
+
+        @Override
+        public Transaction startTransaction(TransactionConfig config) {
+            Transaction transaction = super.startTransaction(config);
+            transaction.steps().subscribe(allSteps::onNext);
+            return transaction;
+        }
 
         final CountDownLatch searching = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);

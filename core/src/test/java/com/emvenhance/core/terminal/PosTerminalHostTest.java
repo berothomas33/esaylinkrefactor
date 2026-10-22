@@ -1,5 +1,7 @@
 package com.emvenhance.core.terminal;
 
+import com.emvenhance.core.event.TransactionStepEvent;
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
@@ -48,7 +50,7 @@ public class PosTerminalHostTest {
             return Single.just(AuthResult.approved("123456", "00", null, null));
         });
         List<TransactionStep> steps = new CopyOnWriteArrayList<>();
-        terminal.transactionSteps().subscribe(event -> steps.add(event.getStep()));
+        terminal.allSteps.subscribe(event -> steps.add(event.getStep()));
 
         AuthResult result = terminal.authorizeInsideATransaction();
 
@@ -78,7 +80,7 @@ public class PosTerminalHostTest {
                 config -> Single.<AuthResult>never().doOnDispose(requestsCancelled::incrementAndGet));
         terminal.onlineTimeoutMs = 200;
         List<TransactionStep> steps = new CopyOnWriteArrayList<>();
-        terminal.transactionSteps().subscribe(event -> steps.add(event.getStep()));
+        terminal.allSteps.subscribe(event -> steps.add(event.getStep()));
 
         long started = System.currentTimeMillis();
         AuthResult result = terminal.authorizeInsideATransaction();
@@ -133,6 +135,16 @@ public class PosTerminalHostTest {
 
     private final class TestTerminal extends PosTerminal {
 
+        /** Every transaction's steps, for the test: each transaction has its own stream. */
+        final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
+
+        @Override
+        public Transaction startTransaction(TransactionConfig config) {
+            Transaction transaction = super.startTransaction(config);
+            transaction.steps().subscribe(allSteps::onNext);
+            return transaction;
+        }
+
         long onlineTimeoutMs = 90_000;
 
         TestTerminal(CommunicationBehavior host) {
@@ -148,7 +160,7 @@ public class PosTerminalHostTest {
 
         TestTerminal(CommunicationBehavior host, PrinterBehavior printer) {
             super(preparingBehavior(), host, printer);
-            transactionSteps().filter(e -> e.getStep().isEnd()).subscribe(e -> ended.countDown());
+            allSteps.filter(e -> e.getStep().isEnd()).subscribe(e -> ended.countDown());
         }
 
         /** A sale whose "card search" is the vendor going online, as EMV does mid-transaction. */

@@ -1,5 +1,6 @@
 package com.emvenhance.core.terminal;
 
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -105,9 +106,19 @@ public class PosTerminalRetryLoopTest {
     /** A search that finds a chip at once (or swipes, on a magstripe retry), on the transaction thread. */
     private final class TestTerminal extends PosTerminal {
 
+        /** Every transaction's steps, for the test: each transaction has its own stream. */
+        final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
+
+        @Override
+        public Transaction startTransaction(TransactionConfig config) {
+            Transaction transaction = super.startTransaction(config);
+            transaction.steps().subscribe(allSteps::onNext);
+            return transaction;
+        }
+
         TestTerminal() {
             super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
-            transactionSteps().subscribe(e -> {
+            allSteps.subscribe(e -> {
                 events.add(e);
                 if (e.getStep().isEnd()) {
                     ended.countDown();

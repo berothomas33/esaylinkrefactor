@@ -43,11 +43,13 @@ public enum TransactionStep {
     ONLINE_COMPLETED("Online authorization completed"),
 
     /**
-     * Cancel asked for: the search stops and the EMV winds down. Not the end — ERROR
-     * "Transaction cancelled" follows once the terminal is free (a host call already sent is
-     * still waited for).
+     * Cancel asked for: the search stops and the EMV winds down. Not the end — CANCELLED
+     * follows once the terminal is free (a host call already sent is still waited for).
      */
     CANCELLING("Cancelling"),
+
+    /** Cancelled, and the terminal is free again: the end of a cancelled transaction. */
+    CANCELLED("Transaction cancelled"),
 
     /** Transaction approved (online or offline). */
     APPROVED("Approved"),
@@ -72,12 +74,12 @@ public enum TransactionStep {
     }
 
     /**
-     * Whether this step ends the transaction — ERROR or COMPLETED, however it got there
-     * (approved, declined, failed, cancelled). The one definition of the end: {@code PosTerminal}
+     * Whether this step ends the transaction — COMPLETED, ERROR or CANCELLED, however it got
+     * there (approved, declined, failed, cancelled). The one definition of the end: {@code PosTerminal}
      * publishes it once per transaction, after the terminal is free; nothing is published after
      * it.
      */
     public boolean isEnd() {
-        return this == COMPLETED || this == ERROR;
+        return this == COMPLETED || this == ERROR || this == CANCELLED;
     }
 }

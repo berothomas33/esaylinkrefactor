@@ -9,7 +9,7 @@ import org.junit.Test;
 public class TransactionStepTest {
 
     @Test
-    public void onlyErrorAndCompletedEndATransaction() {
+    public void onlyErrorCompletedAndCancelledEndATransaction() {
         EnumSet<TransactionStep> ends = EnumSet.noneOf(TransactionStep.class);
         for (TransactionStep step : TransactionStep.values()) {
             if (step.isEnd()) {
@@ -18,6 +18,7 @@ public class TransactionStepTest {
         }
 
         // APPROVED and DECLINED are outcomes, not the end: COMPLETED follows them.
-        assertEquals(EnumSet.of(TransactionStep.ERROR, TransactionStep.COMPLETED), ends);
+        assertEquals(EnumSet.of(TransactionStep.ERROR, TransactionStep.COMPLETED,
+                TransactionStep.CANCELLED), ends);
     }
 }

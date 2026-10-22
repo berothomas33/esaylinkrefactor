@@ -1,5 +1,6 @@
 package com.emvenhance.core.terminal;
 
+import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -38,7 +39,7 @@ public class PosTerminalRetryPromptTest {
     public void setUp() throws Exception {
         terminal = new CapturingTerminal();
         engine = terminal.engine;
-        terminal.transactionSteps().subscribe(events::add);
+        terminal.allSteps.subscribe(events::add);
         terminal.acceptCard(TransactionType.SALE, 1000);
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS));
         events.clear();
@@ -96,6 +97,16 @@ public class PosTerminalRetryPromptTest {
 
     /** Holds card search open and hands the test the terminal's own listener. */
     private static final class CapturingTerminal extends PosTerminal {
+
+        /** Every transaction's steps, for the test: each transaction has its own stream. */
+        final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
+
+        @Override
+        public Transaction startTransaction(TransactionConfig config) {
+            Transaction transaction = super.startTransaction(config);
+            transaction.steps().subscribe(allSteps::onNext);
+            return transaction;
+        }
 
         final CountDownLatch searching = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);
