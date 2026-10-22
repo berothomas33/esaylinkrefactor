@@ -466,8 +466,10 @@ public class ContactProcess extends BaseContactProcess {
         mckParam.extmParam.ucBypassAllFlg = (selectedAid.getSubsequentBypassPINEntry() == 0) ? (byte) 0 : 1;
         mckParam.extmParam.ucUseTermAIPFlg = 1;
 
-        int ret = EMVCallback.EMVGetMCKParam(mckParam);
-        LogUtils.d(TAG, "resetParam EMVGetMCKParam ret=" + ret);
+        // Set, not Get: a Get here overwrote the bypass settings just made with the kernel's old
+        // ones, so the selected AID's PIN bypass never reached the kernel.
+        int ret = EMVCallback.EMVSetMCKParam(mckParam);
+        LogUtils.d(TAG, "resetParam EMVSetMCKParam ret=" + ret);
 
 
     }
@@ -492,7 +494,14 @@ public class ContactProcess extends BaseContactProcess {
                 candidateAIDS.add(candidateAID);
             }
             if (emvProcessListener != null) {
-                int index = emvProcessListener.onWaitAppSelect(tryCnt <= 0, candidateAIDS);
+                int index;
+                try {
+                    index = emvProcessListener.onWaitAppSelect(tryCnt <= 0, candidateAIDS);
+                } catch (Throwable t) {
+                    // Thrown here it would reach the native EMVAppSelect with no answer set.
+                    LogUtils.e(TAG, "emvWaitAppSel: listener threw — failing closed", t);
+                    index = RetCode.EMV_USER_CANCEL;
+                }
                 emvCallback.setCallBackResult(index);
             } else {
                 // Not calling setCallBackResult would leave the kernel waiting for a reply
@@ -561,11 +570,19 @@ public class ContactProcess extends BaseContactProcess {
                 // No listener registered — fail closed instead of NPE-ing mid native call.
                 LogUtils.e(TAG, "emvGetHolderPwd: no listener registered — failing closed");
                 result = RetCode.EMV_DATA_ERR;
-            } else if (isOnline) {
-                result = emvProcessListener.onCardHolderPwd(true, isSelectedAIDSupportPINByPass, remainCnt, null);
             } else {
-                result = emvProcessListener.onCardHolderPwd(false, isSelectedAIDSupportPINByPass, this.tmpRemainCount, pinData);
-                this.tmpRemainCount--;
+                try {
+                    if (isOnline) {
+                        result = emvProcessListener.onCardHolderPwd(true, isSelectedAIDSupportPINByPass, remainCnt, null);
+                    } else {
+                        result = emvProcessListener.onCardHolderPwd(false, isSelectedAIDSupportPINByPass, this.tmpRemainCount, pinData);
+                        this.tmpRemainCount--;
+                    }
+                } catch (Throwable t) {
+                    // Thrown here it would reach the native EMVStartTrans with no answer set.
+                    LogUtils.e(TAG, "emvGetHolderPwd: listener threw — failing closed", t);
+                    result = RetCode.EMV_USER_CANCEL;
+                }
             }
             LogUtils.w(TAG, "emvGetHolderPwd,result:" + result);
             emvCallback.setCallBackResult(result);
@@ -583,6 +600,16 @@ public class ContactProcess extends BaseContactProcess {
 
         @Override
         public int emvUnknowTLVData(short tag, ByteArray data) {
+            try {
+                return unknownTlvData(tag, data);
+            } catch (Throwable t) {
+                // Thrown here it would reach the native call with no value: the tag is unknown.
+                LogUtils.e(TAG, "emvUnknowTLVData " + Integer.toHexString(tag) + " threw — no value", t);
+                return -1;
+            }
+        }
+
+        private int unknownTlvData(short tag, ByteArray data) {
             if (enableDebugLog) {
                 LogUtils.i(TAG, "emvUnknowTLVData, tag: " + Integer.toHexString(tag) + " length:" + data.data.length);
             }
@@ -621,13 +648,29 @@ public class ContactProcess extends BaseContactProcess {
             return RetCode.EMV_OK;
         }
 
+        /**
+         * PBOC cardholder credential (ID document) verification, which this terminal doesn't
+         * support. The native side waits for {@code setCallBackResult}: answer "not verified"
+         * (fail closed), never nothing — no answer hangs the terminal.
+         */
         @Override
         public void certVerify() {
-            //            Cardholder credential verify(PBOC)
+            LogUtils.w(TAG, "certVerify: cardholder credential verification not supported — not verified");
+            emvCallback.setCallBackResult(RetCode.EMV_DATA_ERR);
         }
 
         @Override
         public int emvSetParam() {
+            try {
+                return setAidParam();
+            } catch (Throwable t) {
+                // Not EMV_OK makes the kernel abort the transaction: fail closed.
+                LogUtils.e(TAG, "emvSetParam threw — aborting the transaction", t);
+                return RetCode.EMV_DATA_ERR;
+            }
+        }
+
+        private int setAidParam() {
             //          This function is used to set some AID specific parameter after performing application selection and before GPO. Application can call EMVSetTLVData in this function to set these parameters.
             //          When the return value of this function is not EMV_OK, kernel will abort the current transaction.
             ByteArray byteArray = new ByteArray();
@@ -647,9 +690,16 @@ public class ContactProcess extends BaseContactProcess {
             return RetCode.EMV_OK;
         }
 
+        /**
+         * The kernel's offline PIN verification failed; it decides itself whether to ask again.
+         * The native side waits for {@code setCallBackResult}: acknowledge, never nothing — no
+         * answer hangs the terminal.
+         */
         @Override
         public int emvVerifyPINfailed(byte[] reserved) {
-            return 0;
+            LogUtils.i(TAG, "emvVerifyPINfailed: offline PIN wrong — the kernel decides what's next");
+            emvCallback.setCallBackResult(RetCode.EMV_OK);
+            return RetCode.EMV_OK;
         }
 
         @Override

@@ -10,6 +10,7 @@ import com.emvenhance.core.terminal.PinKey;
 import com.emvenhance.emvflow.pin.IPinTask;
 import com.pax.commonlib.application.ActivityStack;
 import com.pax.commonlib.application.BaseApplication;
+import com.pax.commonlib.utils.LogUtils;
 import com.pax.emvservice.export.pin.PinInputCallback;
 
 /**
@@ -41,6 +42,8 @@ final class PaxPinPad extends AbstractPinPadBehavior
     @Nullable
     private TextView dots;
 
+    private static final String TAG = "PaxPinPad";
+
     PaxPinPad(String title) {
         this.title = title;
     }
@@ -61,8 +64,14 @@ final class PaxPinPad extends AbstractPinPadBehavior
             createDialog();
             cv.open();
         });
-        cv.block();
+        if (!cv.block(SHOW_TIMEOUT_MS)) {
+            // The UI thread didn't get to it: PIN entry goes on without the dots, never stuck here.
+            LogUtils.w(TAG, "online PIN pad not shown within " + SHOW_TIMEOUT_MS + " ms");
+        }
     }
+
+    /** How long the online PIN path waits for the UI thread to put the pad on screen. */
+    private static final long SHOW_TIMEOUT_MS = 5_000L;
 
     // [OFFLINE PIN PATH — fire-and-forget; the native kernel collects/verifies the PIN itself
     // via EmvDeviceImpl#pedVerifyPlainPin/CipherPin, this dialog is UI feedback only]

@@ -495,6 +495,10 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     }
 
     private static AuthResult toAuthResult(SaleResponse response) {
+        if (response.getResponseCode() == null) {
+            // Fail closed: an answer without a response code is no approval.
+            return AuthResult.failed("Online failed: the host's answer has no response code");
+        }
         if (response.getResponseCode() != 0) {
             String message = response.getResponseMessage() != null ? response.getResponseMessage() : "Declined";
             return AuthResult.declined(String.valueOf(response.getResponseCode()), message);

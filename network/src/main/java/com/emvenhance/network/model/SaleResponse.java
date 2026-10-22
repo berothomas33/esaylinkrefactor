@@ -15,8 +15,10 @@ import androidx.annotation.Nullable;
 public final class SaleResponse {
 
     /** {@code 0} on success — anything else is a decline/error, see {@code SaleCommunicationBehavior}. */
+    /** {@code null} when the host's answer has none: never read as 0, which means approved. */
+    @Nullable
     @SerializedName("responseCode")
-    private int responseCode;
+    private Integer responseCode;
 
     @SerializedName("responseMessage")
     @Nullable
@@ -91,7 +93,8 @@ public final class SaleResponse {
     @Nullable
     private String targetBank;
 
-    public int getResponseCode() {
+    @Nullable
+    public Integer getResponseCode() {
         return responseCode;
     }
 
