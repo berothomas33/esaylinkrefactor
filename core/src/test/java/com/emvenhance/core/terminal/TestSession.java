@@ -12,13 +12,12 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Stands in for {@code PosTerminal.process} when a test drives a behavior on its own, on the
- * test's thread: a real {@link PosTerminal.Transaction} of a terminal that never searches, handed
- * to the behavior as {@code process} hands it. Unlike {@code process}, the end is listed at once
- * in {@link #steps()} (there is no transaction thread to free first).
+ * Stands in for {@code Transaction.run} when a test drives a behavior on its own, on the test's
+ * thread: a real {@link PosTerminal.Transaction} of a terminal that never searches, handed to the
+ * behavior as {@code run} hands it. Unlike {@code run}, the end is listed at once in
+ * {@link #steps()} (there is no transaction thread to free first).
  */
 final class TestSession {
 
@@ -34,7 +33,7 @@ final class TestSession {
         this.engine = behavior.engine();
     }
 
-    /** A new transaction, as {@code PosTerminal.process} begins one. */
+    /** A new transaction, as {@code Transaction.run} begins one. */
     PosTerminal.Transaction begin(TransactionConfig config) {
         published.clear();
         transaction = newTransaction(config);
@@ -84,12 +83,11 @@ final class TestSession {
     }
 
     @Nullable
-    @SuppressWarnings("unchecked")
     private static TransactionStepEvent endOf(PosTerminal.Transaction transaction) {
         try {
             Field end = PosTerminal.Transaction.class.getDeclaredField("end");
             end.setAccessible(true);
-            return ((AtomicReference<TransactionStepEvent>) end.get(transaction)).get();
+            return (TransactionStepEvent) end.get(transaction);
         } catch (ReflectiveOperationException e) {
             throw new AssertionError(e);
         }

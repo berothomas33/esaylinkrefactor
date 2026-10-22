@@ -27,7 +27,7 @@ import org.junit.Test;
 
 /**
  * A retry the behavior asks for (fallback, try another interface, try again, See Phone) is the
- * next turn of {@code PosTerminal.process}'s loop: a new search after the previous one
+ * next turn of {@code Transaction.run}'s loop: a new search after the previous one
  * returned, never one started from inside its callback, and TRANSACTION_STARTED only once.
  */
 public class PosTerminalRetryLoopTest {
