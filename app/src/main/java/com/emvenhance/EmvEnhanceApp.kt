@@ -1,12 +1,12 @@
 package com.emvenhance
 
+import android.util.Log
 import com.emvenhance.core.terminal.PosTerminal
 import com.emvenhance.network.env.EnvironmentProvider
 import com.emvenhance.network.onboarding.OnboardingClient
 import com.emvenhance.network.onboarding.OnboardingState
 import com.emvenhance.vendor.TerminalFactory
-import com.pax.commonlib.application.BaseApplication
-import com.pax.commonlib.utils.LogUtils
+import com.emvenhance.vendor.VendorApplication
 
 /**
  * Boots one vendor-agnostic [PosTerminal]. UI never sees Pax/Ingenico/Fake types.
@@ -22,8 +22,11 @@ import com.pax.commonlib.utils.LogUtils
  * check its status — onboarding isn't auto-run at startup or gated on here, since real onboarding
  * is a one-time provisioning action a technician drives, not something that should fire network
  * calls unconditionally on every launch.
+ *
+ * Its base, [VendorApplication], is the vendor's (PAX: `BaseApplication`, which the PAX SDK
+ * needs), so this class imports nothing of any vendor.
  */
-class EmvEnhanceApp : BaseApplication() {
+class EmvEnhanceApp : VendorApplication() {
 
     lateinit var terminal: PosTerminal
         private set
@@ -37,7 +40,7 @@ class EmvEnhanceApp : BaseApplication() {
     override fun onCreate() {
         super.onCreate()
 
-        LogUtils.i(TAG, "vendor=" + BuildConfig.VENDOR + " baseUrl=" + BuildConfig.baseUrl)
+        Log.i(TAG, "vendor=" + BuildConfig.VENDOR + " baseUrl=" + BuildConfig.baseUrl)
         EnvironmentProvider.setBaseUrl(BuildConfig.baseUrl)
         onboarding = OnboardingClient()
         onboardingState = OnboardingState(this)
