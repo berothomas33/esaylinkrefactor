@@ -211,8 +211,8 @@ sequenceDiagram
 | `tryAgain()` | نفس الـ mode | Card not read — tap again… |
 | `seePhone()` | `CONTACTLESS` | See phone — verify on your phone, then tap again |
 
-`seePhone` و `markTryAgainOnCommunicationError` بيشاركوا `MAX_TAP_RETRIES = 3` — بعدهم decline.
-⚠ `tryAgain()` نفسها مفيهاش cap (BACKLOG 0.14). ⚠ الـ retry state عايش في الـ engine مش في الـ `Transaction`.
+`seePhone` و `tryAgain` (ومعاهم `markTryAgainOnCommunicationError` اللي بيطلب `tryAgain`) بيشاركوا `MAX_TAP_RETRIES = 3` على `engine.getRetryCount()` — بعدهم decline.
+⚠ الـ retry state (العدد، الـ config، الـ prompt) عايش في الـ engine مش في الـ `Transaction`.
 
 ### 2.6 الـ TransactionSteps ومين بينشرها
 
@@ -303,7 +303,45 @@ vendor code: goToStep(EmvStep.X, detail)
 - **`goToStep` بيرجّع `false` بعد الـ cancel**: الـ stage اللي ماسك resource (الـ ICC reader) بيقفله بنفسه (`advanceContactStage` → `finishContactStage`).
 - ⚠ subscriber يتضاف في نص الـ transaction بيشوف الـ steps بترتيب غلط (لأنه بعد الـ observer).
 
-### 3.4 إزاي الـ transaction بتخلص
+### 3.4 ليه الـ dispatch لازم يفضل synchronous (مفيش `observeOn` ولا serialize)
+
+`observeOn(X)` معناه إن الـ `onNext` يتحط في queue ويشتغل بعدين على thread تاني، و`goToStep` يرجع على طول. لو اتعمل ده على الـ `EmvStepObserver`، الـ `onXxx` هيشتغل بره الـ transaction thread. مثال الـ PIN:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant NK as native EMVStartTrans
+  participant TX as tx thread: onCardHolderPwd / askStep
+  participant BUS as emvSteps (with observeOn)
+  participant IO as other thread: onCardholderVerification
+  NK->>TX: emvGetHolderPwd → onCardHolderPwd
+  TX->>BUS: askStep → goToStep → emvSteps.onNext
+  BUS-->>TX: queued only — goToStep returns at once
+  TX->>TX: askStep: nobody called answerStep → USER_CANCEL
+  TX->>NK: setCallBackResult(USER_CANCEL) — kernel goes on with no PIN
+  BUS->>IO: later: onCardholderVerification
+  IO->>IO: PIN pad opens for a kernel call that already ended
+```
+
+```text
+[tx]  native EMVStartTrans → emvGetHolderPwd → onCardHolderPwd → askStep(CARDHOLDER_VERIFICATION)
+[tx]    goToStep → emvSteps.onNext → (observeOn) الـ step اتحط في queue وخلاص، goToStep رجع
+[tx]    askStep: محدش عمل answerStep → يرجّع USER_CANCEL
+[tx]  setCallBackResult(USER_CANCEL) → الـ kernel كمّل من غير PIN
+[io]  بعدين: onCardholderVerification بيفتح الـ PIN pad لـ kernel call خلص خلاص
+```
+
+| لو عملنا | إيه اللي هيحصل | ليه |
+|---|---|---|
+| `observeOn` على الـ observer | `askStep` يرجّع `USER_CANCEL` قبل ما الـ PIN pad أو الـ dialog يفتح | الـ step بيشتغل بعد ما `goToStep` رجع، فمحدش جاوب في الوقت ده |
+| `observeOn` على الـ observer | تداخل على الـ kernel: `onXxx` بينادي native (`EMVReadAppData`، `EMVCardAuth`) والـ transaction thread لسه جوه native call، أو بيقفل الـ readers في `finishContactStage` | الـ PAX kernel والـ reader مش thread-safe: كل حاجة لازم على thread واحد بالترتيب |
+| `observeOn` على الـ observer | الترتيب يبوظ: `runContactAppSelect` يكمل على أساس إن الـ READ خلص ونتيجته في `tx.transResult`، وهي لسه مخلصتش | كل stage بيقرا نتيجة اللي قبله بعد ما `goToStep` يرجع |
+| `emvSteps.toSerialized()` | الـ step الجاي ميشتغلش جوه الحالي: يتحط في queue لحد ما الـ `onNext` الحالي يخلص | كل `onXxx` بينادي `goToStep(NEXT)` من جوه `onNext`، والـ serialize بيأجّل الـ `onNext` المتداخل. فـ `askStep` يرجّع fail-closed والـ stage يلاقي النتيجة ناقصة |
+
+من غير الاتنين، الـ dispatch بيبقى زي نداء method عادي: `goToStep` → `onNext` → `onXxx`، كله على الـ transaction thread وبيخلص قبل ما `goToStep` يرجع.
+**الـ UI عادي تعمل `observeOn(main)`** (`MainViewModel` على `emvSteps`)، لأنها بتعرض الـ banner بس: مبتشغّلش EMV ومحدش مستني منها رد. الشرط ده على الـ `EmvStepObserver` بس.
+
+### 3.5 إزاي الـ transaction بتخلص
 
 | من فين | بيعمل إيه |
 |---|---|
@@ -316,7 +354,7 @@ vendor code: goToStep(EmvStep.X, detail)
 
 أول end → `Transaction.end` → أي step بعده dropped (الـ EmvStep والـ TransactionStep الاتنين)، والنهاية بتتنشر مرة واحدة من الـ `finally`.
 
-### 3.5 جدول الـ 17 EmvStep في PAX
+### 3.6 جدول الـ 17 EmvStep في PAX
 
 | # | EmvStep | مين بينشره | Contact (`onXxx` بيعمل) | Contactless granular (EFT/PayPass/PayWave) | Contactless atomic | Mag / Manual |
 |---|---|---|---|---|---|---|
@@ -533,22 +571,61 @@ proceed  → advanceContactStage(NEXT)   = goToStep(NEXT)، ولو مرجعش tr
 
 ## 6. Contactless flow
 
-### 6.1 قبل الـ tap: الـ entry point
+نفس الـ dispatch (§3) ونفس الـ `askStep` (§4). الفرق إن الـ kernel بيتختار بعد الـ application selection (`ClssKernelProcessFactory`). فيه نوعين (`ClssKernelProcess.supportsGranularSteps()`):
+- **granular: EFT، PayPass، PayWave.** الـ SDK بتاعهم فيه native call لكل phase، فكل phase step لوحده.
+- **atomic: Amex، JCB، Mir، PBOC، Pure، RuPay، DPAS.** الـ transaction كلها call واحد (`startTransProcess`). الـ steps بتتنشر من الـ callbacks (`onReadCardOk` → READ_APPLICATION_DATA، `confirmCard` → SET_TRANSACTION_DATA)، والـ `onXxx` بتاعها فاضي.
+
+### 6.1 الرسمة: الـ stages
+
+```mermaid
+flowchart TD
+  INIT["TERMINAL_INITIALIZATION<br/>ClssProcess.preTransProcess<br/>Clss_CoreInit_Entry · DelAllAidList · addApp · SetMCVersion(3) · Clss_PreTransProc_Entry"]
+  SEL["APPLICATION_SELECTION · runContactlessAppSelect<br/>Clss_AppSlt_Entry → Clss_FinalSelect_Entry loop<br/>→ GetFinalSelectData → ClssKernelProcessFactory.build"]
+  Q{"supportsGranularSteps()?"}
+  SET["SET_TRANSACTION_DATA<br/>runContactlessSetTransactionData"]
+  READ["READ_APPLICATION_DATA<br/>runContactlessReadAppData"]
+  Q2{"restrictionsBeforeOfflineDataAuth()?<br/>(PayWave)"}
+  ODA1["OFFLINE_DATA_AUTHENTICATION<br/>runContactlessCardAuth"]
+  PR1["PROCESS_RESTRICTIONS<br/>runContactlessProcessRestrictions"]
+  PR2["PROCESS_RESTRICTIONS<br/>runContactlessProcessRestrictions"]
+  ODA2["OFFLINE_DATA_AUTHENTICATION<br/>runContactlessCardAuth"]
+  APR["PROCESS_RESTRICTIONS (atomic)<br/>no call of its own"]
+  ST["runContactlessStartTransaction<br/>startContactlessTransProcess<br/>kernel bundle: CVM … 1st GAC"]
+  RES["CLSS_RESELECT_APP from any granular stage<br/>→ reselectApplication → start again at SET"]
+  INIT --> SEL --> Q
+  Q -- "granular: EFT / PayPass / PayWave" --> SET --> READ --> Q2
+  Q2 -- "no: PayPass / EFT" --> ODA1 --> PR1 --> ST
+  Q2 -- "yes: PayWave" --> PR2 --> ODA2 --> ST
+  Q -- "atomic: the other 7" --> APR --> ST
+  SET -.-> RES
+  READ -.-> RES
+  ODA1 -.-> RES
+  PR2 -.-> RES
+```
+
+### 6.2 قبل الـ tap: الـ entry point
 
 `prepareKernel` → `runPreTransProcess` → `ClssProcess.preTransProcess`:
 `Clss_CoreInit_Entry` → `Clss_DelAllAidList_Entry` / `DelAllPreProcInfo` → `ClssEntryAddAid.addApp()` (AIDs كل kernel عنده rows؛ kernel اتمسح = مفيش AIDs = مش بيتختار) → `Clss_SetMCVersion_Entry(3)` → `Clss_PreTransProc_Entry` (limits per AID).
-لو فشل → `kernel.contactlessReady = false` → `PaxTerminal` مش هيسمع على الـ PICC خالص في الـ transaction دي.
+لو فشل → `kernel.contactlessReady = false` → `PaxTerminal` مش هيسمع على الـ PICC خالص في الـ transaction دي ("contactless disabled for this transaction").
 
-### 6.2 Application selection (`runContactlessAppSelect`)
+### 6.3 Application selection (`runContactlessAppSelect`)
 
-`ClssProcess.selectApplication`: `Clss_AppSlt_Entry` → loop على `Clss_FinalSelect_Entry` (`EMV_RSP_ERR`/`APP_BLOCK`/`ICC_BLOCK`/`CLSS_RESELECT_APP` → `Clss_DelCurCandApp_Entry` والـ candidate الجاي) → `Clss_GetPreProcInterFlg_Entry` + `Clss_GetFinalSelectData_Entry` → `ClssKernelProcessFactory(kernType).build()` بالـ params والـ listener.
+`kernel.contactless.registerClssProcessListener(this)` → `ClssProcess.selectApplication`: `Clss_AppSlt_Entry` → loop على `Clss_FinalSelect_Entry` (`EMV_RSP_ERR` / `APP_BLOCK` / `ICC_BLOCK` / `CLSS_RESELECT_APP` → `Clss_DelCurCandApp_Entry` والـ candidate الجاي) → `Clss_GetPreProcInterFlg_Entry` + `Clss_GetFinalSelectData_Entry` → `ClssKernelProcessFactory(kernType).build()` بالـ params والـ listener.
 بعدها: `firstStageAfterAppSelect()` → granular: `SET_TRANSACTION_DATA`؛ atomic: `PROCESS_RESTRICTIONS`.
 
-### 6.3 Granular vs Atomic
+كل runner contactless بنفس شكل الـ contact (§5.2)، وزيادة عليه:
 
-`ClssKernelProcess.supportsGranularSteps()`:
-- **granular (true): EFT، PayPass، PayWave** — الـ SDK بتاعهم فيه native call لكل phase، فكل phase step لوحده.
-- **atomic (false): Amex، JCB، Mir، PBOC، Pure، RuPay، DPAS** — الـ transaction كلها call واحد (`startTransProcess`)؛ الـ steps بتتنشر من الـ callbacks (`onReadCardOk` → READ_APPLICATION_DATA، `confirmCard` → SET_TRANSACTION_DATA) والـ `onXxx` بتاعها فاضي.
+```text
+tx.clsTransResult = kernel.contactless.xxx()
+ret == CLSS_RESELECT_APP → reselectApplication() (Clss_DelCurCandApp_Entry + select تاني) → firstStageAfterAppSelect()
+markTryAgainOnCommunicationError(ret)   ICC_CMD_ERR / ICC_RESET_ERR / CLSS_TRY_AGAIN → RESULT_TRY_AGAIN
+proceed = ret == EMV_OK && !isContactlessTransactionFinished()
+!proceed → unregisterClssProcessListener + captureSummaryAfterCardRead (بعد الـ READ) + finishContactlessStage
+proceed  → advanceContactlessStage(NEXT)
+```
+
+الـ atomic بيعمل نفس الـ reselect loop جوه `ClssProcess.startTransProcess`.
 
 ### 6.4 ترتيب كل kernel (= ترتيب الـ kernel نفسه)
 
@@ -560,58 +637,84 @@ proceed  → advanceContactStage(NEXT)   = goToStep(NEXT)، ولو مرجعش tr
 | OFFLINE_DATA_AUTHENTICATION | تحميل CAPK + revocation بس (M/Chip) — الـ ODA نفسه جوه `TransProc` | `Clss_CardAuth_Wave` (لو TC ومش refund، أو TTQ byte1 bit1) | `PreTAAProc` + CAPK + `Clss_CardAuth_EFT` |
 | PROCESS_RESTRICTIONS | ولا حاجة (مفيش call) | `Clss_ProcRestric_Wave` (qVSDC/Wave2) | `Clss_ProcRestrict_EFT` |
 | الـ bundle (`startTransProcess`) | `Clss_TransProc_MC_MChip`/`_Mag` = ODA+PR+CVM+TRM+TAA+GAC، ثم see phone (UIRD 0x20 أو DF4B)، `outcomeParamSet` → `genTransResult` | `genTransResult`: `Clss_GetCvmType_Wave` + الـ AC type (AAC من READ → decline) | `Clss_CVMProc_EFT` + `Clss_PostTAAProc_EFT` |
-| 2nd tap / completion | `completeTransProcess` | FinalSelect + `Clss_IssuerAuth_Wave` | `Clss_CompleteOnlineTrans_EFT` — ⚠ مبيتناداش: `isNeedSecondTap` بيرجع false لـ EFT (وAmex/JCB/Pure/PBOC)، فالـ approve بيفضل زي ما هو (BACKLOG 2.3) |
+| 2nd tap / completion | `completeTransProcess` | FinalSelect + `Clss_IssuerAuth_Wave` | `Clss_CompleteOnlineTrans_EFT` — ⚠ مبيتناداش: `isNeedSecondTap` بيرجع false لـ EFT (و Amex / JCB / Pure / PBOC)، فالـ approve بيفضل زي ما هو (BACKLOG 2.3) |
 | SCRIPT_PROCESSING | default (OK) | `Clss_IssScriptProc_Wave` + `onRemoveCard` | default |
 
-> **9F33**: Visa/contact = قيمة واحدة 3 bytes. PayPass = tags منفصلة (DF8117 card data input، DF8118 CVM required، DF8119 no CVM، DF811F security) والـ kernel هو اللي بيبني 9F33. متجمعهمش في قيمة واحدة.
+> **9F33**: Visa / contact = قيمة واحدة 3 bytes. PayPass = tags منفصلة (DF8117 card data input، DF8118 CVM required، DF8119 no CVM، DF811F security) والـ kernel هو اللي بيبني 9F33. متجمعهمش في قيمة واحدة.
 
-مسار الـ runners (granular):
+### 6.5 بعد الـ stages: `startContactlessTransProcess`
 
-```text
-runContactlessAppSelect ─► SET ─► runContactlessSetTransactionData
-                                   └► READ ─► runContactlessReadAppData
-       PayPass/EFT: ─► ODA ─► runContactlessCardAuth ─► PR ─► runContactlessProcessRestrictions ─┐
-       PayWave:     ─► PR  ─► runContactlessProcessRestrictions ─► ODA ─► runContactlessCardAuth ─┤
-                                                                                              ▼
-                                                              runContactlessStartTransaction (مش step جديد)
-atomic: runContactlessAppSelect ─► PR ─► runContactlessProcessRestrictions ─► runContactlessStartTransaction
+```mermaid
+sequenceDiagram
+  autonumber
+  participant B as PaxEmvBehavior
+  participant P as ClssProcess / ClssXxxProcess
+  participant K as native clss kernel
+  participant H as PosTerminal.authorize → host
+  B->>P: startTransProcess()
+  P->>K: the kernel's remaining call (atomic: the whole transaction)
+  K-->>B: onReadCardOk (atomic → READ_APPLICATION_DATA) · APPLICATION_SELECTED
+  alt ret != EMV_OK
+    B->>B: markTryAgainOnCommunicationError → TRY_AGAIN
+  else SEE_PHONE or TRY_AGAIN (PayPass reports them with EMV_OK)
+    B->>B: return → checkContactlessResult asks for the re-tap
+  else card done
+    B->>B: confirmCard (atomic → SET_TRANSACTION_DATA) · 9F1C = TID · CARD_READ
+    opt CVM = online PIN
+      B->>B: onCardHolderPwd(true …) → askStep CARDHOLDER_VERIFICATION
+    end
+    alt refund or offline approved (needsHostWithoutArqc)
+      B->>H: host without an ARQC — the host's answer is the result
+    else ARQC
+      B->>H: startOnlineProcess → START_ONLINE_PROCESS → authorizeOnline
+      H-->>B: AuthResult
+      opt host approved
+        B->>P: ISSUER_AUTHENTICATION → isNeedSecondTap(issuerRsp)?
+        opt 2nd tap (Visa issuer update)
+          B->>B: onDetect2ndTap → WAITING_FOR_CARD "Tap the same card again" + SEARCH_CARD
+          B->>P: completeTransProcess → FinalSelect + Clss_IssuerAuth_Wave
+          B->>P: SCRIPT_PROCESSING → issuerScriptProcessing (Clss_IssScriptProc_Wave)
+        end
+      end
+    end
+  end
+  B->>B: finishContactlessStage → closeReaders → checkContactlessResult → outcome / retry
 ```
-
-أي stage يرجّع `CLSS_RESELECT_APP` → `reselectApplication()` (`Clss_DelCurCandApp_Entry` + select تاني) → يبدأ الـ candidate الجديد من `firstStageAfterAppSelect()`. الـ atomic بيعمل نفس الـ loop جوه `ClssProcess.startTransProcess`.
-
-### 6.5 `startContactlessTransProcess` (بعد الـ stages)
 
 ```text
 tx.clsTransResult = kernel.contactless.startTransProcess()
-ret != OK → markTryAgainOnCommunicationError (ICC_CMD_ERR/ICC_RESET_ERR/CLSS_TRY_AGAIN → TRY_AGAIN لو retries < 3)
+ret != OK → markTryAgainOnCommunicationError (ICC_CMD_ERR / ICC_RESET_ERR / CLSS_TRY_AGAIN → TRY_AGAIN)؛ return
+SEE_PHONE / TRY_AGAIN مع EMV_OK (PayPass) → return (الـ retry في checkContactlessResult)
 confirmCard()               ← بننادي الـ callback بنفسنا: SET_TRANSACTION_DATA (atomic بس)،
                               9F1C = TID من الـ cache، CARD_READ
-CVM online PIN؟ → onCardHolderPwd(true, ...)  (NO_PASSWORD = bypass → online من غير PIN)
-refund / offline approved → host من غير ARQC → رد الـ host هو النتيجة
+CVM online PIN؟ → onCardHolderPwd(true, bypass, 0, null)
+        NO_PASSWORD = bypass → online من غير PIN؛ أي رد تاني غير OK → ERROR "Online PIN not entered"
+refund / offline approved → needsHostWithoutArqc → startOnlineProcess → hostOutcome (رد الـ host هو النتيجة)
 ARQC → startOnlineProcess()
-        host مش approved → announceIssuerAuthentication → النتيجة = رد الـ host
+        host مش approved → النتيجة = رد الـ host (onlineDenied / onlineFailed بيعلنوا ISSUER_AUTHENTICATION)
         approved → runIssuerAuthentication → completeContactlessIssuerAuthentication:
-             isNeedSecondTap? → onDetect2ndTap (WAITING_FOR_CARD + SEARCH_CARD "Tap the same card again")
-                              → completeTransProcess → OK → runIssuerScriptProcessing → SCRIPT_PROCESSING
-                              ⚠ onDetect2ndTap بينشر الـ prompt بس — مفيش polling ولا استنا للكارت قبل
-                                Clss_FinalSelect_Entry (BACKLOG 1.4، form #12)
+             isNeedSecondTap? → onDetect2ndTap → completeTransProcess → OK → runIssuerScriptProcessing
              مش محتاج → ONLINE_APPROVED زي ما هو
 ```
+
+⚠ `onDetect2ndTap` بينشر الـ prompt بس — مفيش polling ولا استنا للكارت قبل `Clss_FinalSelect_Entry` (BACKLOG 1.4، form #12).
 
 ### 6.6 النتيجة (`checkContactlessResult`)
 
 | الحالة | method | النهاية |
 |---|---|---|
+| `RESULT_CLSS_SEE_PHONE` (أي ret) | `seePhone` (+ `clsLastNeedSeePhone = true` للـ tap الجاي) | retry CONTACTLESS، وبعد 3 decline |
+| `RESULT_TRY_AGAIN` (أي ret) | `tryAgain` | retry نفس الـ mode، وبعد 3 decline |
 | OK + ONLINE_APPROVED | `onlineApproved` | APPROVED |
 | OK + OFFLINE_APPROVED | `offlineApproved` → online failed | ERROR |
 | OK + SIMPLE_FLOW_END | `simpleFlowEnd` | APPROVED |
-| OK + غير كده | `offlineDenied(CLSS_DECLINE)` | DECLINED — ⚠ ده بيشمل SEE_PHONE / TRY_AGAIN / TRY_ANOTHER_INTERFACE لما الـ kernel يطلّعهم بـ `ret == EMV_OK` (PayPass، Mir، DPAS): retry بيتحول decline (BACKLOG 0.6، form #10) |
-| CLSS_SEE_PHONE | `seePhone` (+ `clsLastNeedSeePhone` للـ tap الجاي) | retry CONTACTLESS (≤3) |
+| OK + غير كده | `offlineDenied(CLSS_DECLINE)` | DECLINED |
 | TRY_ANOTHER_INTERFACE / `CLSS_USE_CONTACT` | `tryAnotherInterface` | retry CHIP |
-| TRY_AGAIN | `tryAgain` | retry نفس الـ mode (⚠ من غير cap، BACKLOG 0.14) |
-| ONLINE_DENIED / FAILED / CARD_DENIED / OFFLINE_DENIED | زي الـ contact | DECLINED / ERROR |
+| ONLINE_DENIED / CARD_DENIED / OFFLINE_DENIED | زي الـ contact | DECLINED |
+| ONLINE_FAILED | `onlineFailed` | ERROR |
 
-CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص = CVM ناجح عادي. بس `RESULT_CLSS_SEE_PHONE` هو اللي معناه "اعمل verify على الموبايل وتاب تاني".
+الـ See Phone والـ Try Again بيتشافوا قبل ما نبص على الـ result code، فلما PayPass أو Mir يرجّعوهم مع `EMV_OK` بيعملوا retry مش decline (كانت BACKLOG 0.6). `tryAgain` و `seePhone` الاتنين ليهم حد `MAX_TAP_RETRIES = 3` (كانت BACKLOG 0.14)، والعدّاد هو `engine.getRetryCount()` (بيعدّ أي retry، حتى الـ fallback).
+CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص = CVM ناجح عادي. `RESULT_CLSS_SEE_PHONE` بس هو اللي معناه "اعمل verify على الموبايل وتاب تاني".
 
 ### 6.7 الـ callbacks بتاعة `IContactlessCallback`
 
@@ -622,9 +725,11 @@ CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص 
 | `onWaitAppSelect` | shared مع الـ contact | askStep |
 | `onCardHolderPwd` | shared | askStep |
 | `startOnlineProcess` | shared | §5.5 |
-| `onRemoveCard` | PayPass/PayWave | log بس |
-| `onDetect2ndTap` | completion | prompt + SEARCH_CARD |
-| `needSeePhone` | الـ kernel في الـ tap الجاي — ⚠ Amex / Mir / Pure بس؛ PayPass وPayWave مبيقروهوش، والـ flag بيفضل من transaction للي بعدها (BACKLOG 2.1) | بيرجع `clsLastNeedSeePhone` ويصفّره |
+| `onRemoveCard` | PayPass / PayWave | log بس |
+| `onDetect2ndTap` | الـ completion | prompt + SEARCH_CARD |
+| `needSeePhone` | الـ kernel في الـ tap الجاي — Amex / Mir / Pure بس | بيرجّع `clsLastNeedSeePhone` ويصفّره |
+
+⚠ `clsLastNeedSeePhone` بيفضل من transaction للي بعدها، وPayPass و PayWave مبيقروهوش (BACKLOG 2.1). ⚠ `finishContactlessStage` بيقفل الـ readers بس، مبيقفلش أي dialog.
 
 > الـ contact والـ contactless **مفصولين عن قصد** (runners منفصلة، state منفصلة: `transResult` / `clsTransResult`). الحاجات الـ shared هي الـ callbacks اللي الـ interfaces الاتنين بيطلبوها بنفس الـ signature بس.
 
