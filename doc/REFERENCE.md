@@ -737,7 +737,9 @@ CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص 
 
 ## 7. EMV param apply flow
 
-الـ params ليها 4 أماكن: **JSON assets** (أول boot، احتياطي) → **GreenDAO DB** (الحقيقة) → **in-memory cache** (`EmvParamService.cache`، static، نسخة واحدة للـ process) → **الـ native kernel** (كل attempt).
+الـ params متخزنة في مكانين بس، والـ kernel مش واحد منهم:
+- **GreenDAO** هو الـ source of truth. بيتملي من الـ XML بتاع الـ host، ومن الـ **JSON assets** مرة واحدة في أول تشغيل كـ seed احتياطي.
+- **الـ cache** (`EmvParamService.cache`، static، نسخة واحدة للـ process) نسخة من الـ DB في الـ memory، وهو المصدر الوحيد اللي بيتعمل منه **apply على الـ kernel** في كل attempt (`runPreTransProcess`). الـ kernel مبيخزنش params: بيستلمها من الـ cache في `preTransProcess` وبتتمسح مع `CoreInit` الجاي.
 
 ```text
 download zip → parse XML (EmvXmlParamParser / ClssXmlParamParser)
