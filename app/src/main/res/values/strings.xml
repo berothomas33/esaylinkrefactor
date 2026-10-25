@@ -5,7 +5,9 @@
     <string name="vendor_label">VENDOR = %1$s</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_insert_emv_param">Insert EMV param data</string>
-    <string name="action_show_emv_param">Show cached EMV param</string>
+    <string name="action_show_emv_param">EMV params</string>
+    <string name="action_show_cached_emv_param">Cached EMV params</string>
+    <string name="action_show_db_emv_param">DB EMV params</string>
     <string name="action_start_transaction">Start transaction</string>
     <string name="label_amount">Amount</string>
     <string name="hint_amount">0.00</string>
@@ -15,6 +17,7 @@
     <string name="reference_number_required">Enter the original sale\'s reference number</string>
     <string name="emv_param_empty">No rows in this category</string>
     <string name="emv_param_load_failed">Failed to load — see logcat</string>
+    <string name="emv_param_cache_empty">The cache is empty — it loads at the first transaction</string>
     <string name="placeholder">—</string>
 
     <string name="search_card_waiting">Waiting to start…</string>

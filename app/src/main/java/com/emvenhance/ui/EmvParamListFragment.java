@@ -22,17 +22,21 @@ import java.util.List;
 
 /**
  * Shows one EMV param category as a plain list of the rows the terminal's {@link EmvParams} gives
- * for it; tap a row for every field. Loads only when this fragment's view is created, and only
- * its own category.
+ * for it — from the kernel's cache ({@link EmvParams#cachedRows}) or the database
+ * ({@link EmvParams#rows}); tap a row for every field. Loads only when this fragment's view is
+ * created, and only its own category.
  */
 public class EmvParamListFragment extends Fragment {
 
     private static final String ARG_CATEGORY = "category";
+    private static final String ARG_FROM_CACHE = "fromCache";
 
-    public static EmvParamListFragment newInstance(String category) {
+    /** @param fromCache the kernel's cache; {@code false}: the database */
+    public static EmvParamListFragment newInstance(String category, boolean fromCache) {
         EmvParamListFragment fragment = new EmvParamListFragment();
         Bundle args = new Bundle();
         args.putString(ARG_CATEGORY, category);
+        args.putBoolean(ARG_FROM_CACHE, fromCache);
         fragment.setArguments(args);
         return fragment;
     }
@@ -51,6 +55,7 @@ public class EmvParamListFragment extends Fragment {
         EmvParams params = ((EmvEnhanceApp) requireActivity().getApplication()).getTerminal().emvParams();
         Bundle args = getArguments();
         String category = args != null ? args.getString(ARG_CATEGORY) : null;
+        boolean fromCache = args != null && args.getBoolean(ARG_FROM_CACHE);
 
         ProgressBar progress = view.findViewById(R.id.progress);
         ListView list = view.findViewById(R.id.list);
@@ -60,19 +65,26 @@ public class EmvParamListFragment extends Fragment {
         list.setOnItemClickListener((parent, row, position, id) -> showDetails(rows.get(position)));
 
         new Thread(() -> {
-            List<String> titles;
+            List<String> titles = new ArrayList<>();
+            String failure = null;
             try {
-                titles = new ArrayList<>();
-                for (EmvParams.Row row : params.rows(category)) {
-                    rows.add(row);
-                    titles.add(row.title());
+                List<EmvParams.Row> loaded = fromCache
+                        ? params.cachedRows(category) : params.rows(category);
+                if (loaded == null) {
+                    titles = null; // the cache is empty: nothing loaded it yet
+                } else {
+                    for (EmvParams.Row row : loaded) {
+                        rows.add(row);
+                        titles.add(row.title());
+                    }
                 }
             } catch (Exception e) {
                 //noinspection CallToPrintStackTrace
                 e.printStackTrace();
-                titles = null;
+                failure = e.getMessage() != null ? e.getMessage() : e.toString();
             }
             List<String> finalTitles = titles;
+            String finalFailure = failure;
             if (!isAdded()) {
                 return;
             }
@@ -81,8 +93,11 @@ public class EmvParamListFragment extends Fragment {
                     return;
                 }
                 progress.setVisibility(View.GONE);
-                if (finalTitles == null) {
-                    emptyText.setText(R.string.emv_param_load_failed);
+                if (finalFailure != null) {
+                    emptyText.setText(getString(R.string.emv_param_load_failed) + "\n" + finalFailure);
+                    emptyText.setVisibility(View.VISIBLE);
+                } else if (finalTitles == null) {
+                    emptyText.setText(R.string.emv_param_cache_empty);
                     emptyText.setVisibility(View.VISIBLE);
                 } else if (finalTitles.isEmpty()) {
                     emptyText.setText(R.string.emv_param_empty);
@@ -95,7 +110,7 @@ public class EmvParamListFragment extends Fragment {
         }, "EmvParamList-" + category).start();
     }
 
-    /** Every field of one row, as the kernel gets it ({@link EmvParams.Row#details()}). */
+    /** Every field of one row, from its source ({@link EmvParams.Row#details()}). */
     private void showDetails(EmvParams.Row row) {
         new Thread(() -> {
             String text;

@@ -123,6 +123,12 @@ public class EmvParamService {
         return cache != null;
     }
 
+    /** The parameters in memory, without loading them: {@code null} until something loads them. */
+    @Nullable
+    public static synchronized EmvProcessParam loaded() {
+        return cache;
+    }
+
     /**
      * insert EmvCapk
      *

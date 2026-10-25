@@ -37,12 +37,14 @@ import com.pax.configservice.impl.EmvParamUpdater;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.clss.BaseAid;
 import com.pax.emvbase.param.clss.BaseParam;
+import com.pax.emvbase.param.common.Capk;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 import java.io.File;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -83,7 +85,27 @@ final class PaxEmvParams implements EmvParams {
         Category c = Category.of(category);
         List<Row> rows = new ArrayList<>();
         for (Object item : c.loader.load()) {
-            rows.add(new PaxRow(c, item));
+            rows.add(new PaxRow(c.renderer.render(item), item));
+        }
+        return rows;
+    }
+
+    /** {@inheritDoc} Read from {@link PaxTerminal#kernelParams()}, which never loads it. */
+    @Nullable
+    @Override
+    public List<Row> cachedRows(String category) {
+        EmvProcessParam cache = terminal.kernelParams();
+        if (cache == null) {
+            return null;
+        }
+        Category c = Category.of(category);
+        List<?> entries = c.cached.entries(cache);
+        if (entries == null) {
+            throw new IllegalStateException(c.label + " is not in the kernel's cache");
+        }
+        List<Row> rows = new ArrayList<>();
+        for (Object entry : entries) {
+            rows.add(new PaxRow(c.cachedRenderer.render(entry), entry));
         }
         return rows;
     }
@@ -136,30 +158,26 @@ final class PaxEmvParams implements EmvParams {
         return file != null && file.isFile() ? file : null;
     }
 
-    /** One database row; its details are its entry in the kernel's cache, looked up on demand. */
-    private final class PaxRow implements Row {
+    /** One entry — a database row or a cache entry — and every field of it. */
+    private static final class PaxRow implements Row {
 
-        private final Category category;
+        private final String title;
         private final Object item;
 
-        PaxRow(Category category, Object item) {
-            this.category = category;
+        PaxRow(String title, Object item) {
+            this.title = title;
             this.item = item;
         }
 
         @NonNull
         @Override
         public String title() {
-            return category.renderer.render(item);
+            return title;
         }
 
         @Override
         public String details() {
-            Object cached = category.cache.find(terminal.kernelParams(), item);
-            return cached != null
-                    ? "In the kernel's cache — what the next transaction uses:\n\n" + describe(cached)
-                    : "Not in the kernel's cache yet (it reloads at the next transaction after a "
-                            + "download). Database values:\n\n" + describe(item);
+            return describe(item);
         }
     }
 
@@ -171,78 +189,82 @@ final class PaxEmvParams implements EmvParams {
         String render(Object item);
     }
 
-    private interface CacheLookup {
+    /** A category's entries in the kernel's cache; {@code null} when the cache lacks it. */
+    private interface CacheEntries {
         @Nullable
-        Object find(EmvProcessParam cache, Object item);
+        List<?> entries(EmvProcessParam cache);
     }
 
     /**
-     * One EMV param category: how to load it from the database, how to render each row, and
-     * how to find that row's entry in the kernel's parameter cache (what a transaction uses).
+     * One EMV param category: how to load it from the database and render each row, and how to
+     * read its entries in the kernel's parameter cache (what a transaction uses) and render them.
      */
     private enum Category {
         AID("AID",
                 () -> GreendaoHelper.getEmvAidHelper().loadAll(),
                 item -> row(((EmvAid) item).getAppName(), ((EmvAid) item).getAid()),
-                (cache, item) -> find(cache.getEmvAidList(),
-                        aid -> hex(aid.getApplicationID()), ((EmvAid) item).getAid())),
+                EmvProcessParam::getEmvAidList,
+                entry -> hex(((com.pax.emvbase.param.contact.EmvAid) entry).getApplicationID())),
         CAPK("CAPK",
                 () -> GreendaoHelper.getEmvCapkHelper().loadAll(),
                 item -> "RID " + ((EmvCapk) item).getRID() + "   Key " + ((EmvCapk) item).getKeyID(),
-                (cache, item) -> cache.getCapkParam() == null ? null : find(cache.getCapkParam().getCapkList(),
-                        capk -> hex(capk.getRid()) + "/" + (capk.getKeyId() & 0xFF),
-                        ((EmvCapk) item).getRID() + "/" + ((EmvCapk) item).getKeyID())),
+                cache -> cache.getCapkParam() == null ? null : cache.getCapkParam().getCapkList(),
+                entry -> "RID " + hex(((Capk) entry).getRid())
+                        + "   Key " + (((Capk) entry).getKeyId() & 0xFF)),
         AMEX("Amex",
                 () -> AmexAidDbHelper.getInstance().loadAll(),
                 item -> row(((AmexAidBean) item).getAppName(), ((AmexAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getAmexParam(), ((AmexAidBean) item).getAid())),
+                cache -> clss(cache.getAmexParam()), PaxEmvParams::clssRow),
         PAYPASS("PayPass",
                 () -> PaypassAidDbHelper.getInstance().loadAll(),
                 item -> row(((PayPassAidBean) item).getAppName(), ((PayPassAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getPayPassParam(), ((PayPassAidBean) item).getAid())),
+                cache -> clss(cache.getPayPassParam()), PaxEmvParams::clssRow),
         PAYWAVE("PayWave",
                 () -> PaywaveAidDbHelper.getInstance().loadAll(),
                 item -> row(((PaywaveAidBean) item).getAppName(), ((PaywaveAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getPayWaveParam(), ((PaywaveAidBean) item).getAid())),
+                cache -> clss(cache.getPayWaveParam()), PaxEmvParams::clssRow),
         DPAS("Dpas",
                 () -> DpasAidDbHelper.getInstance().loadAll(),
                 item -> row(((DpasAidBean) item).getAppName(), ((DpasAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getDpasParam(), ((DpasAidBean) item).getAid())),
+                cache -> clss(cache.getDpasParam()), PaxEmvParams::clssRow),
         EFT("EFT",
                 () -> EFTAidDbHelper.getInstance().loadAll(),
                 item -> row(((EFTAidBean) item).getAppName(), ((EFTAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getEftParam(), ((EFTAidBean) item).getAid())),
+                cache -> clss(cache.getEftParam()), PaxEmvParams::clssRow),
         JCB("Jcb",
                 () -> JcbAidDbHelper.getInstance().loadAll(),
                 item -> row(((JcbAidBean) item).getAppName(), ((JcbAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getJcbParam(), ((JcbAidBean) item).getAid())),
+                cache -> clss(cache.getJcbParam()), PaxEmvParams::clssRow),
         MIR("Mir",
                 () -> MirAidDbHelper.getInstance().loadAll(),
                 item -> row(((MirAidBean) item).getAppName(), ((MirAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getMirParam(), ((MirAidBean) item).getAid())),
+                cache -> clss(cache.getMirParam()), PaxEmvParams::clssRow),
         PBOC("Pboc",
                 () -> PBOCAidDbHelper.getInstance().loadAll(),
                 item -> row(((PBOCAidBean) item).getAppName(), ((PBOCAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getPbocParam(), ((PBOCAidBean) item).getAid())),
+                cache -> clss(cache.getPbocParam()), PaxEmvParams::clssRow),
         PURE("Pure",
                 () -> PureAidDbHelper.getInstance().loadAll(),
                 item -> row(((PureAidBean) item).getAppName(), ((PureAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getPureParam(), ((PureAidBean) item).getAid())),
+                cache -> clss(cache.getPureParam()), PaxEmvParams::clssRow),
         RUPAY("RuPay",
                 () -> RupayAidDbHelper.getInstance().loadAll(),
                 item -> row(((RupayAidBean) item).getAppName(), ((RupayAidBean) item).getAid()),
-                (cache, item) -> clss(cache.getRuPayParam(), ((RupayAidBean) item).getAid()));
+                cache -> clss(cache.getRuPayParam()), PaxEmvParams::clssRow);
 
         final String label;
         final Loader loader;
         final Renderer renderer;
-        final CacheLookup cache;
+        final CacheEntries cached;
+        final Renderer cachedRenderer;
 
-        Category(String label, Loader loader, Renderer renderer, CacheLookup cache) {
+        Category(String label, Loader loader, Renderer renderer, CacheEntries cached,
+                Renderer cachedRenderer) {
             this.label = label;
             this.loader = loader;
             this.renderer = renderer;
-            this.cache = cache;
+            this.cached = cached;
+            this.cachedRenderer = cachedRenderer;
         }
 
         static Category of(String label) {
@@ -255,32 +277,22 @@ final class PaxEmvParams implements EmvParams {
         }
     }
 
-    /** The cached entry whose key matches {@code key}; null when the cache doesn't have it. */
+    /** A contactless kernel's cached AIDs; {@code null} when the cache lacks the kernel. */
     @Nullable
-    private static <T> T find(@Nullable List<T> cached, Key<T> keyOf, @Nullable String key) {
-        if (cached == null || key == null) {
-            return null;
-        }
-        for (T entry : cached) {
-            if (key.equalsIgnoreCase(keyOf.of(entry))) {
-                return entry;
-            }
-        }
-        return null;
+    private static List<?> clss(@Nullable BaseParam<? extends BaseAid> param) {
+        return param == null ? null : param.getAidList();
     }
 
-    /** A contactless kernel's cached AID entry, by AID. */
-    @Nullable
-    private static Object clss(@Nullable BaseParam<? extends BaseAid> param, @Nullable String aid) {
-        return param == null ? null : find(param.getAidList(), entry -> hex(entry.getAid()), aid);
+    /** A cached contactless AID, the way {@link #row} shows its database row. */
+    private static String clssRow(Object entry) {
+        BaseAid aid = (BaseAid) entry;
+        byte[] name = aid.getAppName();
+        return row(name == null ? "" : new String(name, StandardCharsets.US_ASCII).trim(),
+                hex(aid.getAid()));
     }
 
     private static String hex(@Nullable byte[] bytes) {
         return bytes == null ? "" : ConvertUtils.bcd2Str(bytes);
-    }
-
-    private interface Key<T> {
-        String of(T entry);
     }
 
     private static String row(String appName, String aid) {
