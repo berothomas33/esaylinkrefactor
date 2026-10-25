@@ -71,7 +71,8 @@ flowchart LR
   CP["ContactProcess<br/>EmvCallBackListener"]
   NK[("native kernel")]
   UI -- "acceptCard · cancel · steps()" --> PT --> TX
-  PT -. "behavior.attach(engine)" .-> AB --> EN
+  PT -- "owns" --> EN
+  TX -. "engine() for the behavior" .-> AB
   PB -- extends --> AB
   PB --> CP --> NK
   NK -- callbacks --> CP -- IContactCallback --> PB
@@ -81,10 +82,10 @@ flowchart LR
 | الكلاس | بيتعمل فين | بيملك | ممنوع عليه |
 |---|---|---|---|
 | `EmvEnhanceApp` | `Application.onCreate` | `PosTerminal` واحد طول عمر الـ process (`TerminalFactory.create`) | — |
-| `PosTerminal` | `TerminalFactory` | الـ transaction thread، الـ busy (`AtomicReference<Transaction> current`)، الـ host (`authorize` + الـ timeout)، الطابعة، والـ search (الـ vendor بيعمل `searchCard` / `cancelCardSearch`) | أي EMV logic |
+| `PosTerminal` | `TerminalFactory` | الـ transaction thread، الـ busy (`AtomicReference<Transaction> current`)، الـ host (`authorize` + الـ timeout)، الطابعة، الـ `EmvEngine` (بيعمله ويحتفظ بيه)، والـ search (الـ vendor بيعمل `searchCard` / `cancelCardSearch`) | أي EMV logic |
 | `PosTerminal.Transaction` | `startTransaction` | حالتها كلها: `end` (`null` = شغالة)، steps بتاعتها (`ReplaySubject`، وهو كمان الـ lock)، الـ cancel، الـ attempt loop | تنشر حاجة بعد النهاية |
-| `EmvEngine` | constructor بتاع `PosTerminal`، ويتسلّم مرة واحدة: `behavior.attach(engine)` | `emvSteps` (الـ dispatch bus)، `ApduTrace`، طلب الـ retry، والطريق للـ host (`Authorizer` = `PosTerminal::authorize`) | أي transaction state، أي transaction step |
-| `AbstractEmvBehavior` | super بتاع الـ vendor behavior | الـ engine (المكان الوحيد اللي بيتحفظ فيه؛ `PosTerminal` بيوصله بـ `behavior.engine()`)، `goToStep` (فحص الـ cancel الوحيد)، `askStep` / `answerStep`، `publish`، `finish*`، field 55 + `authorizeOnline` | threads، busy، host |
+| `EmvEngine` | field في `PosTerminal` (`final EmvEngine engine`)، والمكان الوحيد اللي متخزن فيه. الـ behavior بيوصله بـ `engine()` عن طريق الـ `Transaction` (`Transaction.engine()`) | `emvSteps` (الـ dispatch bus)، `ApduTrace`، طلب الـ retry، والطريق للـ host (`Authorizer` = `PosTerminal::authorize`) | أي transaction state، أي transaction step |
+| `AbstractEmvBehavior` | super بتاع الـ vendor behavior | `engine()` (بيقرا الـ engine من الـ `Transaction`، ومبيحتفظش بنسخة)، `goToStep` (فحص الـ cancel الوحيد)، `askStep` / `answerStep`، `publish`، `finish*`، field 55 + `authorizeOnline` | threads، busy، host |
 | `PaxEmvBehavior` | constructor بتاع `PaxTerminal` | الـ 16 `onXxx`، الـ `runContact*` / `runContactless*`، الـ kernel callbacks، `PaxTransactionState tx` (جديد كل attempt) | حد يناديه غير الـ dispatch |
 | `PaxKernel` | `PaxTerminal` | `EmvParamService params`، `ContactProcess contact` (جديد كل attempt)، `ClssProcess contactless`، `MagCardService mag` | — |
 | `ContactProcess` | `prepareKernel` | الـ wrapper على الـ native (`EMVAppSelect` … `EMVCompleteTrans`) و `EmvCallBackListener` (لازم يرد بـ `setCallBackResult` على كل طريق) | UI، انتظار شخص |
