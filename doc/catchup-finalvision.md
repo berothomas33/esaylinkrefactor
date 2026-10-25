@@ -2,11 +2,11 @@
 
 **Prompt to paste in the Finalvision thread:**
 
-> Read `doc/CLAUDE.md` and `doc/catchup-finalvision.md` (both on branch `transactionOwnsSteps`;
+> Read `doc/CLAUDE.md`, `doc/handoff-2026-10-23.md` and `doc/catchup-finalvision.md` (all on branch `transactionOwnsSteps`;
 > fetch it). Work on `Finalvision` only. Goal: Finalvision reaches the same stage as
 > `transactionOwnsSteps` — every fix and every simplification — in Finalvision's own style:
 > direct EMV step dispatch, no Rx in the transaction lifecycle (thread + one Atomic), Rx only
-> where a screen observes. Do the stages in order (A → B → P → S), one commit per step, commit
+> where a screen observes. Do the stages in order (A → B → P → S → T), skipping what `git log Finalvision` shows already done, one commit per step, commit
 > titles as given. For each step: read the source commit body and diff, show me what Finalvision
 > has today and what will change (native call order before/after for EMV steps), then wait for
 > my go. Port the idea, not the text. Never reorder native calls, never drop payment-safety code
@@ -17,7 +17,7 @@
 
 ## Where things are
 
-- **Finalvision** (`fbc1ebc`): device-tested base + Phase A steps A1–A6 done (thread + Atomic
+- **Finalvision** (`fbc1ebc` then; head `cdd056f` on 22/10 — check `git log`): device-tested base + Phase A steps A1–A6 done (thread + Atomic
   lifecycle, `Transaction.end`, CANCELLING, end in `finally`, steps owned by `PosTerminal`, engine
   without transaction state). Direct dispatch; no `askStep`; no rxSet EMV work.
 - **transactionOwnsSteps** (source of truth): rxSet EMV work + rxTx lifecycle + today's changes
@@ -26,7 +26,7 @@
   Finalvision's file equals the source's parent, the source diff applies as is; otherwise port
   by hand. Check with `git diff <source>^ Finalvision -- <file>` first.
 
-## Stage A — finish the lifecycle (doc/port-to-finalvision.md, A7–A9)
+## Stage A — finish the lifecycle (A7–A9; read the source commits' bodies)
 
 | Step | Source | What |
 |---|---|---|
@@ -59,7 +59,7 @@ the same. One commit per source commit, in this order; a device check after each
 
 Skip `2362df8` / `6c280f0` (rxSet's lifecycle — replaced by stage A) and the doc commits.
 
-## Stage P — the 2026-10-22 changes (doc/port-2026-10-22.md has the detail)
+## Stage P — the 2026-10-22 changes (read each commit's body)
 
 | Step | Source | What |
 |---|---|---|
@@ -90,6 +90,19 @@ seed refused while busy (`PosTerminal.isBusy()`); "Insert EMV param" debug only,
 synchronous; a package with neither file is failed; `PaxEmvParamUpdateService` removed.
 Item 12 (gate on host params) is **not** wanted: the terminal runs on the JSON seed until a
 download.
+
+## Stage T — after step2, up to `80f4ca9` (read each commit's body; `doc/handoff-2026-10-23.md` §1–§2 has the result)
+
+| Step | Source | What (keep direct dispatch: T5–T7 change who reports and who owns the engine, not how a step runs) |
+|---|---|---|
+| T1 | `2405518` | step3: UI layers (busy keeps the handle, outcome titles, Back = cancel) |
+| T2 | `ea9c9be` | `ParamDump` merged into `PaxEmvParams` |
+| T3 | `5afe77e` + `5b11e45` | `PaxTransactionState` in its own file; `AbstractAppSelectDialog` + PAX subclass; `askStep` one fail-closed branch. Take `5b11e45` with it: `5afe77e` lost `enterPin` / `finishWithOutcome` |
+| T4 | `9a974c6` | `announceIssuerAuthentication` removed |
+| T5 | `7d1c0b7` | Shape 4: `EmvEngine(authorizer)` without Consumer / suppliers; the behavior reports to the Transaction (`publish`, `isRunning`, `isCancelled`); `goToStep` is the one cancel check |
+| T6 | `cb7ad3b` + `87fbdf5` | The engine is handed once (`attach`) and kept only in the behavior (`engine()`); no `engine` parameter on the step methods |
+| T7 | `439a82d` | The Transaction runs itself (`transaction::run`); `volatile end` under the lock; `isOver()` / `end(event)` / the publish try/catch removed |
+| T8 | `0e12c79` | Ebram's small move in `PaxEmvBehavior` |
 
 ## Done when
 

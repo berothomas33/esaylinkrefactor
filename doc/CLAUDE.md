@@ -172,7 +172,7 @@ All start from `4a74277`. Keep shared fixes in sync where they apply.
 | `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
 | `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
 | `coroutineDesign` | rxSet + 7 | Kotlin | the whole app in Kotlin + coroutines, **built on `ae25378`** (the Observable detour) — lacks rxTx's lifecycle in `PosTerminal` (one owner, ends once). Not device-tested |
-| `rxTransactionDesign` | rxSet + 8 | Rx (UI only) | rxSet + the transaction owned by `PosTerminal`, no Rx in its lifecycle (**[rxTx]** below). **Not device-tested**. `doc/kotlin-rx-transaction.md` still describes the earlier `Observable` form (`ae25378`) |
+| `rxTransactionDesign` | rxSet + 8 | Rx (UI only) | rxSet + the transaction owned by `PosTerminal`, no Rx in its lifecycle (**[rxTx]** below). **Not device-tested**. |
 
 Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form. Old:
 `add-rsa-pin-key-injection`, many stale `claude/*` branches — don't merge blindly.

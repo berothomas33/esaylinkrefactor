@@ -2,10 +2,10 @@
 
 **Prompt to paste in the coroutineDesign thread:**
 
-> Read `doc/CLAUDE.md` and `doc/catchup-coroutine.md` (both on branch `transactionOwnsSteps`;
+> Read `doc/CLAUDE.md`, `doc/handoff-2026-10-23.md` and `doc/catchup-coroutine.md` (all on branch `transactionOwnsSteps`;
 > fetch it). Work on `coroutineDesign` only. Goal: coroutineDesign reaches the same stage as
 > `transactionOwnsSteps` — every fix and every simplification — in Kotlin + coroutines, no Rx.
-> Do the steps in order (P → S), one commit per step, commit titles as given. For each step: read
+> Do the steps in order (P → S → T), one commit per step, commit titles as given. For each step: read
 > the source commit body and diff, show me what coroutineDesign has today and what will change,
 > then wait for my go. Port the idea, not the text; Java modules (`emvlib`, `bizentity`,
 > `emvbase`…) stay Java and take the source diff as is when the file matches. Never reorder native
@@ -27,7 +27,7 @@
 - Java modules: check `git diff <source>^ coroutineDesign -- <file>`; if empty, apply the
   source's diff to that file as is.
 
-## Stage P — the 2026-10-22 changes (doc/port-2026-10-22.md has the detail)
+## Stage P — the 2026-10-22 changes (read each commit's body)
 
 | Step | Source | Kotlin notes |
 |---|---|---|
@@ -54,6 +54,19 @@ one rule, parsers, `ConfigInit` synchronous). Port to Kotlin: `OnboardingState` 
 inline, synchronous seed), `PaxTerminal` (first-start seed on its own thread), `PaxEmvBehavior`
 (`initializeTerminalIfNeeded` reads `EmvParamService.isLoaded()`), `MainActivity` (Insert EMV
 param debug only, busy message). Item 12 (gate on host params) is **not** wanted.
+
+## Stage T — after step2, up to `80f4ca9` (read each commit's body; `doc/handoff-2026-10-23.md` §1–§2 has the result)
+
+| Step | Source | What (Kotlin: keep callbacks plain, the transaction on its executor; `@Volatile var end`) |
+|---|---|---|
+| T1 | `2405518` | step3: UI layers (busy keeps the handle, outcome titles, Back = cancel) |
+| T2 | `ea9c9be` | `ParamDump` merged into `PaxEmvParams` |
+| T3 | `5afe77e` + `5b11e45` | `PaxTransactionState` in its own file; `AbstractAppSelectDialog` + PAX subclass; `askStep` one fail-closed branch. Take `5b11e45` with it: `5afe77e` lost `enterPin` / `finishWithOutcome` |
+| T4 | `9a974c6` | `announceIssuerAuthentication` removed |
+| T5 | `7d1c0b7` | Shape 4: `EmvEngine(authorizer)` without Consumer / suppliers; the behavior reports to the Transaction (`publish`, `isRunning`, `isCancelled`); `goToStep` is the one cancel check |
+| T6 | `cb7ad3b` + `87fbdf5` | The engine is handed once (`attach`) and kept only in the behavior (`engine()`); no `engine` parameter on the step methods |
+| T7 | `439a82d` | The Transaction runs itself (`transaction::run`); `volatile end` under the lock; `isOver()` / `end(event)` / the publish try/catch removed |
+| T8 | `0e12c79` | Ebram's small move in `PaxEmvBehavior` |
 
 ## Done when
 

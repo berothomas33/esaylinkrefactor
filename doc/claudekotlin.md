@@ -5,7 +5,7 @@ every rule there still applies (Egyptian Arabic, do only what was asked, one exp
 commit, the kernel's order wins, fail closed, never put credentials or card data in a file).
 
 This file is the plan; each phase is its own branch, its own commits, and its own device test.
-On `rxTransactionDesign`: `doc/kotlin-rx-transaction.md` maps the earlier `Observable` form of
+On `rxTransactionDesign`: the old kotlin-rx-transaction.md (deleted 25/10; in git history) mapped the earlier `Observable` form of
 that branch (`ae25378`) to Kotlin Flow and lists the traps it found in §3 below; the branch is now
 a `Completable`.
 
