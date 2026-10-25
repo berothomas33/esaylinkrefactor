@@ -13,6 +13,8 @@ public final class AuthResult {
     private final boolean approved;
     /** The host couldn't be reached or the request couldn't complete — see {@link #failed}. */
     private final boolean failed;
+    /** Failed before the host could approve anything — see {@link #notSent}. */
+    private final boolean notSent;
     private final String authCode;
     private final String responseCode;
     private final String message;
@@ -29,14 +31,15 @@ public final class AuthResult {
     private AuthResult(boolean approved, boolean failed, @Nullable String authCode,
             @Nullable String responseCode, @Nullable String message,
             @Nullable byte[] arpc, @Nullable byte[] issuerScript) {
-        this(approved, failed, authCode, responseCode, message, arpc, issuerScript, null);
+        this(approved, failed, false, authCode, responseCode, message, arpc, issuerScript, null);
     }
 
-    private AuthResult(boolean approved, boolean failed, @Nullable String authCode,
+    private AuthResult(boolean approved, boolean failed, boolean notSent, @Nullable String authCode,
             @Nullable String responseCode, @Nullable String message,
             @Nullable byte[] arpc, @Nullable byte[] issuerScript, @Nullable String asyncRequestId) {
         this.approved = approved;
         this.failed = failed;
+        this.notSent = notSent;
         this.authCode = authCode;
         this.responseCode = responseCode;
         this.message = message;
@@ -47,7 +50,7 @@ public final class AuthResult {
 
     /** Same result, carrying the {@code asyncRequestId} the host answered. */
     public AuthResult withAsyncRequestId(@Nullable String asyncRequestId) {
-        return new AuthResult(approved, failed, authCode, responseCode, message, arpc,
+        return new AuthResult(approved, failed, notSent, authCode, responseCode, message, arpc,
                 issuerScript, asyncRequestId);
     }
 
@@ -76,12 +79,28 @@ public final class AuthResult {
         return new AuthResult(false, true, null, null, message, null, null);
     }
 
+    /**
+     * Online failed before the host could approve anything: the sale/refund request was never
+     * sent (no token, the exchange failed, no connection), or the host refused who sent it
+     * (HTTP 401/403). Nothing to reverse. Use it only when that is certain — anything else is
+     * {@link #failed}, which is reversed in case the host approved it.
+     */
+    public static AuthResult notSent(String message) {
+        return new AuthResult(false, true, true, null, null, message, null, null, null);
+    }
+
     public boolean isApproved() {
         return approved;
     }
 
+    /** Online failed: {@link #failed} or {@link #notSent}. */
     public boolean isFailed() {
         return failed;
+    }
+
+    /** Failed before the host could approve anything ({@link #notSent}): nothing to reverse. */
+    public boolean isNotSent() {
+        return notSent;
     }
 
     @Nullable

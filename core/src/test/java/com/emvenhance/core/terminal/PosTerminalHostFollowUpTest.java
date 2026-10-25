@@ -13,6 +13,7 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.HostNotReachedException;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 import java.util.Arrays;
@@ -23,6 +24,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.Test;
 
@@ -39,13 +41,15 @@ public class PosTerminalHostFollowUpTest {
     private final List<Boolean> busyAtFollowUp = new CopyOnWriteArrayList<>();
     private final List<Thread> followUpThreads = new CopyOnWriteArrayList<>();
     private final BlockingQueue<AuthResult> answers = new LinkedBlockingQueue<>();
+    /** What the host fails with when no answer is queued. */
+    private volatile RuntimeException hostError = new RuntimeException("down");
 
     private final CommunicationBehavior host = new CommunicationBehavior() {
         @Override
         public Single<AuthResult> authorize(TransactionConfig config) {
             sent.add(config);
             AuthResult answer = answers.poll();
-            return answer != null ? Single.just(answer) : Single.error(new RuntimeException("down"));
+            return answer != null ? Single.just(answer) : Single.error(hostError);
         }
 
         @Override
@@ -135,6 +139,36 @@ public class PosTerminalHostFollowUpTest {
         terminal.runOne();
 
         assertEquals("REVERSE " + idSent(0), followUps.take());
+        assertNoMoreFollowUps();
+    }
+
+    @Test(timeout = 10_000)
+    public void hostNotReachedIsNotReversed() throws InterruptedException {
+        hostError = new HostNotReachedException("Exchange: HTTP 403 Forbidden");
+        AtomicReference<AuthResult> answer = new AtomicReference<>();
+        terminal = new TestTerminal(t -> {
+            answer.set(goOnline());
+            t.publish(PosTerminal.errorEvent("Online Failed"));
+        });
+
+        terminal.runOne();
+
+        assertTrue(answer.get().isFailed());
+        assertTrue(answer.get().isNotSent());
+        assertEquals("Exchange: HTTP 403 Forbidden", answer.get().getMessage());
+        assertNoMoreFollowUps();
+    }
+
+    @Test(timeout = 10_000)
+    public void aNotSentAnswerIsNotReversed() throws InterruptedException {
+        answers.add(AuthResult.notSent("Cash In isn't supported online yet"));
+        terminal = new TestTerminal(t -> {
+            goOnline();
+            t.publish(PosTerminal.errorEvent("Online Failed"));
+        });
+
+        terminal.runOne();
+
         assertNoMoreFollowUps();
     }
 

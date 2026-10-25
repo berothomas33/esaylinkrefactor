@@ -31,6 +31,7 @@ public class SaleRefundGuardTest {
         assertFalse(result.isApproved());
         assertTrue(result.isFailed());
         assertEquals("Refund needs the original sale's reference number", result.getMessage());
+        assertTrue("never sent: nothing to reverse", result.isNotSent());
     }
 
     @Test
@@ -41,6 +42,7 @@ public class SaleRefundGuardTest {
         assertFalse(result.isApproved());
         assertTrue(result.isFailed());
         assertEquals("Cash In isn't supported online yet", result.getMessage());
+        assertTrue("never sent: nothing to reverse", result.isNotSent());
     }
 
     @Test
