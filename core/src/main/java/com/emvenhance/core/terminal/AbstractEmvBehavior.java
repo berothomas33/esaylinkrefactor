@@ -59,12 +59,12 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    @Override
+    /** The EMV engine, given once by {@link PosTerminal}'s constructor; it never changes. */
     public final void attach(EmvEngine engine) {
         this.engine = engine;
     }
 
-    @Override
+    /** The engine {@link #attach} gave: the one place it is kept. */
     public final EmvEngine engine() {
         return engine;
     }

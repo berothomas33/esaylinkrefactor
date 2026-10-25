@@ -22,12 +22,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 final class TestSession {
 
     final EmvEngine engine;
-    private final EmvBehavior behavior;
+    private final AbstractEmvBehavior behavior;
     private final Terminal terminal;
     private final List<TransactionStepEvent> published = new CopyOnWriteArrayList<>();
     private PosTerminal.Transaction transaction;
 
-    TestSession(EmvBehavior behavior, EmvEngine.Authorizer authorizer) {
+    TestSession(AbstractEmvBehavior behavior, EmvEngine.Authorizer authorizer) {
         this.behavior = behavior;
         this.terminal = new Terminal(behavior, authorizer);
         this.engine = behavior.engine();
@@ -104,7 +104,7 @@ final class TestSession {
 
         private final EmvEngine.Authorizer authorizer;
 
-        Terminal(EmvBehavior behavior, EmvEngine.Authorizer authorizer) {
+        Terminal(AbstractEmvBehavior behavior, EmvEngine.Authorizer authorizer) {
             super(behavior, null, null);
             this.authorizer = authorizer;
         }

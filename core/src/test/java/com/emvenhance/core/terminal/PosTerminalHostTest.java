@@ -192,7 +192,7 @@ public class PosTerminalHostTest {
     }
 
     /** prepare() succeeds, so the terminal goes on to "search"; everything else is a no-op. */
-    private static EmvBehavior preparingBehavior() {
+    private static AbstractEmvBehavior preparingBehavior() {
         return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
                 ? Boolean.TRUE : method.getReturnType() == boolean.class ? false : null);
     }

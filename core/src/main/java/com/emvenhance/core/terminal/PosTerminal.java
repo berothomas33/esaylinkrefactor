@@ -35,9 +35,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * The only public hardware API for the app.
  *
  * <p>Owns card search, host communication, and printer. EMV after entry selection is the
- * vendor's {@link EmvBehavior}, run by this terminal for each attempt with the attempt's
+ * vendor's {@link AbstractEmvBehavior}, run by this terminal for each attempt with the attempt's
  * {@link Transaction}; the behavior keeps the {@link EmvEngine} (EMV steps, APDU trace, retry,
- * the way online), which this terminal reaches through {@link EmvBehavior#engine()}.
+ * the way online), which this terminal reaches through {@link AbstractEmvBehavior#engine()}.
  *
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [returns its Transaction at once]
@@ -57,9 +57,9 @@ public abstract class PosTerminal {
 
     /**
      * The vendor's EMV: this terminal runs it for each attempt, handing it the transaction, and
-     * reaches the EMV engine it keeps through {@link EmvBehavior#engine()}.
+     * reaches the EMV engine it keeps through {@link AbstractEmvBehavior#engine()}.
      */
-    protected final EmvBehavior behavior;
+    protected final AbstractEmvBehavior behavior;
 
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
@@ -87,7 +87,7 @@ public abstract class PosTerminal {
     private final AtomicReference<Transaction> current = new AtomicReference<>();
 
     /** @param behavior the vendor's EMV: given its engine once, run for each attempt */
-    protected PosTerminal(EmvBehavior behavior,
+    protected PosTerminal(AbstractEmvBehavior behavior,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
         this.behavior = behavior;

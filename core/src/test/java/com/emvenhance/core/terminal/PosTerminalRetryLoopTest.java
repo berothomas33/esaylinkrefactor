@@ -146,13 +146,13 @@ public class PosTerminalRetryLoopTest {
     }
 
     /** prepare() succeeds; start() does what the test set in {@link #onStart}. */
-    private EmvBehavior behavior() {
+    private AbstractEmvBehavior behavior() {
         return StubBehavior.of((proxy, method, args) -> {
             if (method.getName().equals("prepare")) {
                 return Boolean.TRUE;
             }
             if (method.getName().equals("start")) {
-                onStart.get().accept(((EmvBehavior) proxy).engine(), (PosTerminal.Transaction) args[2]);
+                onStart.get().accept(((AbstractEmvBehavior) proxy).engine(), (PosTerminal.Transaction) args[2]);
             }
             return method.getReturnType() == boolean.class ? false : null;
         });

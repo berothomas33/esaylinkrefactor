@@ -133,7 +133,7 @@ public class PosTerminalRetryPromptTest {
         }
 
         /** prepare() succeeds so the terminal goes on to search; everything else is a no-op. */
-        private static EmvBehavior behavior() {
+        private static AbstractEmvBehavior behavior() {
             return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
                     ? Boolean.TRUE : defaultValue(method.getReturnType()));
         }

@@ -134,7 +134,7 @@ public class PosTerminalConcurrentStepsTest {
         protected void cancelCardSearch() {
         }
 
-        private static EmvBehavior behavior() {
+        private static AbstractEmvBehavior behavior() {
             return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
                     ? Boolean.TRUE : method.getReturnType() == boolean.class ? false : null);
         }

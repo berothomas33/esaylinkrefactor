@@ -421,7 +421,7 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     /** prepare() succeeds; start() records the amount EMV ran for. */
-    private EmvBehavior behavior() {
+    private AbstractEmvBehavior behavior() {
         return StubBehavior.of((proxy, method, args) -> {
             if (method.getName().equals("prepare")) {
                 return Boolean.TRUE;

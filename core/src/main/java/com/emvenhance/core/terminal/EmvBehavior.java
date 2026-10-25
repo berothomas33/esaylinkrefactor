@@ -2,34 +2,25 @@ package com.emvenhance.core.terminal;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
 
 /**
  * What {@link PosTerminal} drives on a vendor's EMV kernel — and all it can call.
  *
- * <p>Lifecycle: {@link #attach} once, when the terminal is built (the {@link EmvEngine}, kept
- * only here — {@link PosTerminal} reaches it through {@link #engine()});
- * {@link #prepare} → (PosTerminal search) → {@link #start} once per attempt, each handed the
- * attempt's {@link PosTerminal.Transaction}; {@link #dispose} once, when the terminal itself goes
- * away. A cancel isn't a call into the behavior: it reads that transaction
+ * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} once per attempt, each
+ * handed the attempt's {@link PosTerminal.Transaction}; {@link #dispose} once, when the terminal
+ * itself goes away. The EMV engine isn't part of this contract: {@link AbstractEmvBehavior} keeps
+ * it ({@code attach} / {@code engine()}). A cancel isn't a call into the behavior: it reads that transaction
  * ({@link AbstractEmvBehavior#isCancelled()}) at each step.
  *
  * <p>A vendor doesn't implement this directly: it extends {@link AbstractEmvBehavior}, which
  * implements it and declares the EMV step methods ({@code onApplicationSelection}, …) every
  * vendor writes. Those are {@code protected} there, not part of this contract, so nothing
  * holding an {@code EmvBehavior} can run a step: steps run only through
- * {@link AbstractEmvBehavior#goToStep}. Tests stub this interface to drive the terminal with no
- * EMV behind it.
+ * {@link AbstractEmvBehavior#goToStep}.
  *
  * <p>EMV only — no host / printer logic here.
  */
 public interface EmvBehavior {
-
-    /** The EMV engine, given once by {@link PosTerminal}'s constructor; it never changes. */
-    void attach(EmvEngine engine);
-
-    /** The engine {@link #attach} gave: the one place it is kept. */
-    EmvEngine engine();
 
     /**
      * Terminal initialization for one attempt.

@@ -20,8 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>{@code PosTerminal} owns the transaction itself — its thread, busy, cancel, its steps and
  * its end — and runs the vendor's behavior for each attempt, handing it the transaction. The
- * behavior keeps this engine (given once, {@code EmvBehavior#attach}); {@code PosTerminal}
- * reaches it through {@code EmvBehavior#engine()}.
+ * behavior keeps this engine (given once, {@code AbstractEmvBehavior#attach}); {@code PosTerminal}
+ * reaches it through {@code AbstractEmvBehavior#engine()}.
  *
  * <p>The one way back out is {@link #authorize}: a behavior goes online from inside the kernel,
  * so the engine hands that request to the {@link Authorizer} {@code PosTerminal} gave it —
