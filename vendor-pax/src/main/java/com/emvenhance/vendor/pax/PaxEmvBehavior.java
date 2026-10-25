@@ -371,9 +371,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private static boolean showsAppSelectDialog(@Nullable List<CandidateAID> candList) {
         int candidates = candList == null ? 0 : candList.size();
-
-
-        return candidates >= 1;
+        return candidates >= 2 || (BuildConfig.DEBUG && candidates >= 1);
     }
 
     @Override
