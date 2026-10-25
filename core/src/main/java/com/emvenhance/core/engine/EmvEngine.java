@@ -19,9 +19,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code PosTerminal}'s card search).
  *
  * <p>{@code PosTerminal} owns the transaction itself — its thread, busy, cancel, its steps and
- * its end — and runs the vendor's behavior for each attempt, handing it the transaction. It
- * also makes and keeps this engine, the only reference to it; the behavior reaches it through
- * that transaction ({@code PosTerminal.Transaction#engine()}).
+ * its end — and runs the vendor's behavior for each attempt, handing it the transaction. The
+ * behavior keeps this engine (given once, {@code EmvBehavior#attach}); {@code PosTerminal}
+ * reaches it through {@code EmvBehavior#engine()}.
  *
  * <p>The one way back out is {@link #authorize}: a behavior goes online from inside the kernel,
  * so the engine hands that request to the {@link Authorizer} {@code PosTerminal} gave it —

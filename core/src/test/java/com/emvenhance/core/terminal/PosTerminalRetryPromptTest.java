@@ -38,7 +38,7 @@ public class PosTerminalRetryPromptTest {
     @Before
     public void setUp() throws Exception {
         terminal = new CapturingTerminal();
-        engine = terminal.engine;
+        engine = terminal.behavior.engine();
         terminal.allSteps.subscribe(events::add);
         terminal.acceptCard(TransactionType.SALE, 1000);
         assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS));
