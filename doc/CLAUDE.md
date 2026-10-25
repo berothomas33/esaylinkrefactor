@@ -2,7 +2,7 @@
 
 Project memory for Claude. Read it before touching code. When a fact here changes, update this
 file in the same commit. Never put credentials, tokens, keys, PANs, track data or serial
-numbers in it. Kotlin migration plan: `claudekotlin.md`. Full flow reference (architecture,
+numbers in it. Kotlin: `catchup-coroutine.md`. Full flow reference (architecture,
 EmvEngine/EmvStep/onXxx, contact, contactless, EMV params, UI → kernel callback):
 `doc/REFERENCE.md`. Everything missing / broken / risky, ranked: `doc/BACKLOG.md`.
 
@@ -373,7 +373,7 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
     `cancel()` wins; ERROR "Transaction cancelled" still comes from `process`'s `finally`. One
     lock (the subject) orders the two across threads; each subscriber is a `SafeObserver`, so
     one that throws can't stop the steps or the transaction thread.
-- Kotlin + coroutines migration: plan in `claudekotlin.md`; in progress on `coroutineDesign`.
+- Kotlin + coroutines migration: on `coroutineDesign`; rules and catch-up in `catchup-coroutine.md`.
 - Everything else found by the 2026-10-20 scan (PCI, fail-open host response, Back, DB
   encryption, receipt, tests…): `doc/BACKLOG.md`.
 
