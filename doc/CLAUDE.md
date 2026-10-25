@@ -267,7 +267,7 @@ ISSUER_AUTH (`EMVCompleteTrans`) → COMPLETION (reports the outcome once).
   −11; device-confirmed). `readIccTag` answers 9F03 as zeros. Sale transType `0x00`.
 - Online-only: `forceOnline=1`; nothing is approved offline. A kernel TC / offline approval
   after the 1st GAC goes to the host without an ARQC and the host's answer is the result
-  (`needsHostWithoutArqc`, REFERENCE §4.4); an OFFLINE_APPROVED outcome at the end = Online
+  (`needsHostWithoutArqc`, REFERENCE §5.5); an OFFLINE_APPROVED outcome at the end = Online
   Failed. A refund always goes online. (Decide if TC-to-host is the rule: BACKLOG 1.6.)
   [rxSet] a cancel before the host step sends nothing; the card still gets its 2nd GAC.
 - **Terminal Capabilities**: Visa/contact take one **9F33** (Visa: `TERMINALCAPABILITIES`

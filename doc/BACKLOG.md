@@ -43,7 +43,7 @@ to prove it. Nothing here is fixed yet. Read with `CLAUDE.md` (rules, §11 open 
 | 1.3 | M | `PaxEmvBehavior:1868-1871`, `EmvDeviceImpl.pedVerifyPlainPin:234-271` | Each offline PIN request makes a new `PaxPinPad`; the previous is orphaned; a correct PIN never dismisses its pad | no |
 | 1.4 | M, unverified | `PaxEmvBehavior:2221-2230`, `ClssPayWaveProcess:466` | Visa 2nd tap doesn't wait for a card: prompt, then `Clss_FinalSelect_Entry` at once → card-denied after host approve (form #12) | no |
 | 1.5 | M | `SearchCardFragment:186-190,273-274` | Every ERROR shows "TRANSACTION DECLINED" — incl. "host didn't answer" → operator retries a sale that may be approved (with 0.5: double charge) | no |
-| 1.6 | M | `PaxEmvBehavior:959-982` vs `CLAUDE.md §7` | A sale whose kernel gave **TC** goes to the host without ARQC and a host approve is accepted. `REFERENCE §4.4` = code; decide if that is the rule | no |
+| 1.6 | M | `PaxEmvBehavior:959-982` vs `CLAUDE.md §7` | A sale whose kernel gave **TC** goes to the host without ARQC and a host approve is accepted. `REFERENCE §5.5` = code; decide if that is the rule | no |
 | 1.7 | M | `ContactProcess:288-307`, `ClssPayPassProcess:267-271` | CVM mapping: contact 0x03/0x05 (offline PIN + sig) → `hasPin=false`; PayPass CDCVM → `CVM_OFFLINE_PIN` → `hasPin=true` to the host | no |
 | 1.8 | M, unverified | `PaxEmvBehavior:1985-1998` | Online PIN goes ahead with no host public key; missing TLK idx 0 shows as "cancelled"; PEK never wiped; `ped.setIntervalTime(1,1)` | no |
 | 1.9 | M | `ContactProcess:118-120`, `PaxEmvBehavior:1701-1729` | No contact AIDs → `setEmvAndMCKParam` throws → whole `prepareKernel` fails (contactless too). Catch per kernel | no |
@@ -59,7 +59,7 @@ to prove it. Nothing here is fixed yet. Read with `CLAUDE.md` (rules, §11 open 
 |---|---|---|---|---|
 | 2.1 | M | `PaxEmvBehavior:145,1079,2234` | `clsLastNeedSeePhone` survives across transactions; only Amex/Mir/Pure read it → a Visa/MC See Phone skips `Clss_CoreInit_AE` on a later Amex tap; Mir/Pure first See Phone always declines | no |
 | 2.2 | M | atomic kernels (Amex, JCB, Mir, PBOC, Pure, RuPay, DPAS) | No tests, no form rows; Pure TRY_AGAIN → RESELECT (deletes candidate); TODOs: PBOC torn (:71,:96), Mir/Pure/PayWave exception file; ODA never published | no |
-| 2.3 | L, unverified | `PaxEmvBehavior:914-923` | `isNeedSecondTap=false` → `completeTransProcess` never runs for EFT/Amex/JCB/Pure/PBOC (REFERENCE §5.4 says EFT does) | no |
+| 2.3 | L, unverified | `PaxEmvBehavior:914-923` | `isNeedSecondTap=false` → `completeTransProcess` never runs for EFT/Amex/JCB/Pure/PBOC (REFERENCE §6.4 says EFT does) | no |
 | 2.4 | L | `ClssProcess:237-246` | Atomic reselect loop can land on a granular kernel without its stages | no |
 | 2.5 | M | `PaxEmvBehavior:2449`, `TagsTable:39` | TAC Denial read from DF8121 (PayPass-only) → empty/wrong for contact & PayWave (display only) | yes |
 | 2.6 | — | #11 "tap again" | Code path looks right; no root cause. Suspect a return code outside {ICC_CMD_ERR, ICC_RESET_ERR, CLSS_TRY_AGAIN}, or no `PiccDevException` on a short tap — needs a device log | yes |
