@@ -42,12 +42,6 @@ import io.reactivex.rxjava3.observers.DisposableObserver;
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
-    /**
-     * The EMV engine, from {@link #attach}: given once, when the terminal is built. The one place
-     * it is kept, and only {@link #attach} writes it — {@code PosTerminal} and the vendor
-     * subclass both reach it through {@link #engine()}.
-     */
-    private EmvEngine engine;
     @Nullable
     protected TransactionConfig activeConfig;
     @Nullable
@@ -59,14 +53,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    @Override
-    public final void attach(EmvEngine engine) {
-        this.engine = engine;
-    }
-
-    @Override
-    public final EmvEngine engine() {
-        return engine;
+    /**
+     * The terminal's EMV engine — the steps bus, the APDU trace, the retry request and the way
+     * online — reached through the attempt's transaction ({@code PosTerminal.Transaction#engine()});
+     * {@code PosTerminal} keeps it, this class keeps no copy. {@code null} only before the first
+     * {@link #prepare}, when no step can run.
+     */
+    protected final EmvEngine engine() {
+        return transaction != null ? transaction.engine() : null;
     }
 
     @Override
@@ -120,7 +114,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected final void initEmvObserver() {
         disposables.clear();
         // No subscribeOn / observeOn: see EmvStepObserver.
-        disposables.add(engine.emvSteps().subscribeWith(new EmvStepObserver()));
+        disposables.add(engine().emvSteps().subscribeWith(new EmvStepObserver()));
     }
 
     /**
@@ -173,7 +167,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         // was choosing): the kernel gets the fail-closed value, never a choice nobody waits for.
         boolean ended = !isRunning();
         if (!answer.answered || ended) {
-            engine.apduTrace().note("EMV", (answer.answered
+            engine().apduTrace().note("EMV", (answer.answered
                     ? step.getTitle() + " answered after the transaction ended"
                     : "no answer for " + step.getTitle()) + " — answering " + failClosed);
             return failClosed;
@@ -279,7 +273,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return engine.authorize(config);
+        return engine().authorize(config);
     }
 
     /**
@@ -293,7 +287,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 : activeCard.isContactless() ? "contactless" : "contact";
         String summary = field55.describe(source);
         EmvLog.d(summary);
-        engine.apduTrace().note("EMV", summary);
+        engine().apduTrace().note("EMV", summary);
         return field55.hex();
     }
 
@@ -410,11 +404,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             EmvStepEvent event = new EmvStepEvent(step, detail);
             String why = isCancelled() ? "cancelled" : "the transaction has ended";
             EmvLog.d("EmvStep dropped, " + why + ": " + event);
-            engine.apduTrace().note("EMV", "step dropped, " + why + ": " + event);
+            engine().apduTrace().note("EMV", "step dropped, " + why + ": " + event);
             return false;
         }
         // EmvStep observable → UI, then EmvStepObserver → dispatchStepMethod → onXxx.
-        engine.notifyEmvStep(step, detail);
+        engine().notifyEmvStep(step, detail);
         return true;
     }
 

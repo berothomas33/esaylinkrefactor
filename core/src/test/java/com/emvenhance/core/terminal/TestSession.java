@@ -30,7 +30,7 @@ final class TestSession {
     TestSession(EmvBehavior behavior, EmvEngine.Authorizer authorizer) {
         this.behavior = behavior;
         this.terminal = new Terminal(behavior, authorizer);
-        this.engine = behavior.engine();
+        this.engine = terminal.engine;
     }
 
     /** A new transaction, as {@code Transaction.run} begins one. */

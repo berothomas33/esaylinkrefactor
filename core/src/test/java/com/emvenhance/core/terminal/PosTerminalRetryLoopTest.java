@@ -152,7 +152,8 @@ public class PosTerminalRetryLoopTest {
                 return Boolean.TRUE;
             }
             if (method.getName().equals("start")) {
-                onStart.get().accept(((EmvBehavior) proxy).engine(), (PosTerminal.Transaction) args[2]);
+                PosTerminal.Transaction transaction = (PosTerminal.Transaction) args[2];
+                onStart.get().accept(transaction.engine(), transaction);
             }
             return method.getReturnType() == boolean.class ? false : null;
         });

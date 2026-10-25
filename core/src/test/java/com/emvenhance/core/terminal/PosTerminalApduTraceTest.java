@@ -27,7 +27,7 @@ public class PosTerminalApduTraceTest {
     public void exposesTheEnginesTrace() {
         PosTerminal terminal = new TestTerminal();
 
-        assertSame(terminal.behavior.engine().apduTrace(), terminal.apduTrace());
+        assertSame(terminal.engine.apduTrace(), terminal.apduTrace());
     }
 
     @Test
@@ -38,7 +38,7 @@ public class PosTerminalApduTraceTest {
         assertTrue(terminal.isApduLoggingEnabled());
 
         terminal.setApduLoggingEnabled(false);
-        terminal.behavior.engine().begin();
+        terminal.engine.begin();
         trace.note("ICC", "not recorded");
 
         assertFalse(terminal.isApduLoggingEnabled());

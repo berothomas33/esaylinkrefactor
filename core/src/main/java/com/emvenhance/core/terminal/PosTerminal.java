@@ -34,10 +34,10 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * The only public hardware API for the app.
  *
- * <p>Owns card search, host communication, and printer. EMV after entry selection is the
- * vendor's {@link EmvBehavior}, run by this terminal for each attempt with the attempt's
- * {@link Transaction}; the behavior keeps the {@link EmvEngine} (EMV steps, APDU trace, retry,
- * the way online), which this terminal reaches through {@link EmvBehavior#engine()}.
+ * <p>Owns card search, host communication, printer and the {@link EmvEngine} (EMV steps, APDU
+ * trace, retry, the way online). EMV after entry selection is the vendor's {@link EmvBehavior},
+ * run by this terminal for each attempt with the attempt's {@link Transaction}, through which
+ * the behavior reaches the engine ({@link Transaction#engine()}).
  *
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [returns its Transaction at once]
@@ -55,11 +55,14 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public abstract class PosTerminal {
 
-    /**
-     * The vendor's EMV: this terminal runs it for each attempt, handing it the transaction, and
-     * reaches the EMV engine it keeps through {@link EmvBehavior#engine()}.
-     */
+    /** The vendor's EMV: this terminal runs it for each attempt, handing it the transaction. */
     protected final EmvBehavior behavior;
+
+    /**
+     * The terminal's EMV engine: made here, kept only here. The behavior reaches it through the
+     * transaction it is handed ({@link Transaction#engine()}). Package-private for the tests.
+     */
+    final EmvEngine engine = new EmvEngine(this::authorize);
 
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
@@ -86,14 +89,13 @@ public abstract class PosTerminal {
      */
     private final AtomicReference<Transaction> current = new AtomicReference<>();
 
-    /** @param behavior the vendor's EMV: given its engine once, run for each attempt */
+    /** @param behavior the vendor's EMV: run for each attempt */
     protected PosTerminal(EmvBehavior behavior,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
         this.behavior = behavior;
         this.communication = communication;
         this.printer = printer;
-        behavior.attach(new EmvEngine(this::authorize));
         initializeVendor();
     }
 
@@ -162,7 +164,7 @@ public abstract class PosTerminal {
     // ─── Public API (vendor-agnostic) ────────────────────────────────────
 
     public Observable<EmvStepEvent> emvSteps() {
-        return behavior.engine().emvSteps();
+        return engine.emvSteps();
     }
 
     /**
@@ -171,7 +173,7 @@ public abstract class PosTerminal {
      * {@link ApduTrace#changes()} and read {@link ApduTrace#text()}.
      */
     public ApduTrace apduTrace() {
-        return behavior.engine().apduTrace();
+        return engine.apduTrace();
     }
 
     /**
@@ -392,6 +394,11 @@ public abstract class PosTerminal {
             cancelCardSearch();
         }
 
+        /** The terminal's EMV engine, for the behavior running this transaction. */
+        EmvEngine engine() {
+            return engine;
+        }
+
         /** False once it has ended — an outcome or a cancel; the terminal is freed only after. */
         boolean isRunning() {
             return end == null;
@@ -446,7 +453,7 @@ public abstract class PosTerminal {
          */
         private void run() {
             try {
-                behavior.engine().begin();
+                engine.begin();
                 publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)); // once
                 // Each attempt: prepare, search, EMV. A retry the behavior asked for (fallback,
                 // try another interface, try again, See Phone) is the next turn of this loop —
@@ -489,7 +496,7 @@ public abstract class PosTerminal {
             }
             searchCard(config, new EngineReportingListener(config));
             // Consumed either way; run's loop drops it if the transaction is over (cancelled).
-            TransactionConfig retry = behavior.engine().consumePendingRetry();
+            TransactionConfig retry = engine.consumePendingRetry();
             if (retry != null && !isRunning()) {
                 EmvLog.d("Retry dropped: the transaction is over");
                 apduTrace().note("EMV", "retry dropped — the transaction is over");
@@ -523,7 +530,7 @@ public abstract class PosTerminal {
                 if (isStale("onSearchStarted")) {
                     return;
                 }
-                String prompt = behavior.engine().consumeRetryPrompt();
+                String prompt = engine.consumeRetryPrompt();
                 String msg = prompt != null ? prompt : waitingMessage(config);
                 TransactionStepEvent.Builder waiting = TransactionStepEvent
                         .builder(TransactionStep.WAITING_FOR_CARD).message(msg);
@@ -531,7 +538,7 @@ public abstract class PosTerminal {
                     waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt);
                 }
                 publish(waiting.build());
-                behavior.engine().notifyEmvStep(EmvStep.SEARCH_CARD, msg);
+                engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg);
             }
 
             @Override
@@ -594,7 +601,7 @@ public abstract class PosTerminal {
                 publish(TransactionStepEvent.builder(
                         TransactionStep.WAITING_FOR_CARD).message(message)
                         .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build());
-                behavior.engine().notifyEmvStep(EmvStep.SEARCH_CARD, message);
+                engine.notifyEmvStep(EmvStep.SEARCH_CARD, message);
             }
 
             /** Runs EMV right here; a retry it asks for is {@link #attempt}'s to return. */

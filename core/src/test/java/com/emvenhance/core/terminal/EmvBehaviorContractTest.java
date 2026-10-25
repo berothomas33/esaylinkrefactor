@@ -24,7 +24,7 @@ public class EmvBehaviorContractTest {
             names.add(method.getName());
         }
 
-        assertEquals(new TreeSet<>(Arrays.asList("attach", "dispose", "engine", "prepare", "start")), names);
+        assertEquals(new TreeSet<>(Arrays.asList("dispose", "prepare", "start")), names);
     }
 
     @Test

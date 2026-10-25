@@ -67,7 +67,7 @@ public class PosTerminalHostTest {
         TestTerminal terminal = new TestTerminal(
                 config -> Single.error(new RuntimeException("timeout")));
 
-        AuthResult result = terminal.behavior.engine().authorize(CONFIG);
+        AuthResult result = terminal.engine.authorize(CONFIG);
 
         assertTrue(result.isFailed());
         assertEquals("timeout", result.getMessage());
@@ -177,7 +177,7 @@ public class PosTerminalHostTest {
 
         @Override
         public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            online.add(behavior.engine().authorize(CONFIG));
+            online.add(engine.authorize(CONFIG));
             return null;
         }
 

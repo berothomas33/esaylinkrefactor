@@ -2,16 +2,14 @@ package com.emvenhance.core.terminal;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
 
 /**
  * What {@link PosTerminal} drives on a vendor's EMV kernel — and all it can call.
  *
- * <p>Lifecycle: {@link #attach} once, when the terminal is built (the {@link EmvEngine}, kept
- * only here — {@link PosTerminal} reaches it through {@link #engine()});
- * {@link #prepare} → (PosTerminal search) → {@link #start} once per attempt, each handed the
- * attempt's {@link PosTerminal.Transaction}; {@link #dispose} once, when the terminal itself goes
- * away. A cancel isn't a call into the behavior: it reads that transaction
+ * <p>Lifecycle: {@link #prepare} → (PosTerminal search) → {@link #start} once per attempt, each
+ * handed the attempt's {@link PosTerminal.Transaction} — which is also how the behavior reaches
+ * the terminal's EMV engine ({@code Transaction#engine()}); {@link #dispose} once, when the
+ * terminal itself goes away. A cancel isn't a call into the behavior: it reads that transaction
  * ({@link AbstractEmvBehavior#isCancelled()}) at each step.
  *
  * <p>A vendor doesn't implement this directly: it extends {@link AbstractEmvBehavior}, which
@@ -24,12 +22,6 @@ import com.emvenhance.core.engine.EmvEngine;
  * <p>EMV only — no host / printer logic here.
  */
 public interface EmvBehavior {
-
-    /** The EMV engine, given once by {@link PosTerminal}'s constructor; it never changes. */
-    void attach(EmvEngine engine);
-
-    /** The engine {@link #attach} gave: the one place it is kept. */
-    EmvEngine engine();
 
     /**
      * Terminal initialization for one attempt.
