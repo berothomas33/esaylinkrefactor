@@ -1,9 +1,12 @@
 package com.emvenhance.network;
 
+import com.emvenhance.network.model.AcknowledgementRequest;
+import com.emvenhance.network.model.AcknowledgementResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.model.PurchaseRequest;
 import com.emvenhance.network.model.PurchaseResponse;
+import com.emvenhance.network.model.ReverseRequest;
 
 import java.util.Map;
 
@@ -28,6 +31,13 @@ public interface HostApiConnection {
 
     @POST("orchestration/refund")
     Single<GeneralResponse> refund(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
+
+    @POST("orchestration/reverse")
+    Single<GeneralResponse> reverse(@HeaderMap Map<String, String> headers, @Body ReverseRequest request);
+
+    @POST("orchestration/acknowledgement")
+    Single<AcknowledgementResponse> acknowledgement(@HeaderMap Map<String, String> headers,
+            @Body AcknowledgementRequest request);
 
     @GET("foundation/tmsFileDownload/{posType}")
     Single<ResponseBody> emvFileDownload(@HeaderMap Map<String, String> headers,

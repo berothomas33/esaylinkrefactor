@@ -12,11 +12,13 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.network.crypto.AesEnvelopeCrypto;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
+import com.emvenhance.network.model.AcknowledgementRequest;
 import com.emvenhance.network.model.ExchangeRequest;
 import com.emvenhance.network.model.ExchangeResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.model.RefundRequest;
+import com.emvenhance.network.model.ReverseRequest;
 import com.emvenhance.network.model.SaleExtraData;
 import com.emvenhance.network.model.SaleRequest;
 import com.emvenhance.network.model.SaleResponse;
@@ -32,6 +34,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 
 public final class SaleCommunicationBehavior implements CommunicationBehavior {
@@ -74,17 +77,10 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
-        TransactionType type = config.getType();
-        if (type == TransactionType.REFUND) {
-            String reference = config.getReferenceNumber();
-            if (reference == null || reference.trim().isEmpty()) {
-                Log.w(TAG, "Refund without the original reference number — not sent to the host");
-                return Single.just(AuthResult.failed(
-                        "Refund needs the original sale's reference number"));
-            }
-        } else if (type != TransactionType.SALE) {
-            Log.w(TAG, type + " has no host request yet — not sent to the host");
-            return Single.just(AuthResult.failed(type.getLabel() + " isn't supported online yet"));
+        String notSent = whyNotSent(config);
+        if (notSent != null) {
+            Log.w(TAG, notSent + " — not sent to the host");
+            return Single.just(AuthResult.failed(notSent));
         }
         EmvTransactionResult emvResult = config.getEmvResult();
         if (emvResult == null) {
@@ -107,6 +103,67 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                         config, emvResult, hostPublicKey));
     }
 
+    @Nullable
+    private static String whyNotSent(TransactionConfig config) {
+        TransactionType type = config.getType();
+        if (type == TransactionType.REFUND) {
+            String reference = config.getReferenceNumber();
+            if (reference == null || reference.trim().isEmpty()) {
+                return "Refund needs the original sale's reference number";
+            }
+            return null;
+        }
+        if (type != TransactionType.SALE) {
+            return type.getLabel() + " isn't supported online yet";
+        }
+        return null;
+    }
+
+    @Override
+    public Completable acknowledge(TransactionConfig sent) {
+        return closeOnline(sent, "Acknowledgement", (headers, id, type) -> connection
+                .acknowledgement(headers, new AcknowledgementRequest(id, type))
+                .flatMapCompletable(response ->
+                        checkStatus("Acknowledgement", response.getStatusCode(), response.getMessage())));
+    }
+
+    @Override
+    public Completable reverse(TransactionConfig sent) {
+        return closeOnline(sent, "Reversal", (headers, id, type) -> connection
+                .reverse(headers, new ReverseRequest(id, type))
+                .flatMapCompletable(response ->
+                        checkStatus("Reversal", response.getStatusCode(), response.getMessage())));
+    }
+
+    interface FollowUpCall {
+        Completable send(Map<String, String> headers, String asyncRequestId, String transactionType);
+    }
+
+    private Completable closeOnline(TransactionConfig sent, String what, FollowUpCall call) {
+        String asyncRequestId = sent.getAsyncRequestId();
+        if (asyncRequestId == null || whyNotSent(sent) != null) {
+            Log.i(TAG, what + " not sent: the request never went to the host");
+            return Completable.complete();
+        }
+        String transactionType = sent.getType() == TransactionType.REFUND
+                ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;
+        return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
+                .flatMapCompletable(accessToken -> {
+                    Map<String, String> headers =
+                            new HashMap<>(HostHeaders.buildAuthenticated(sn, accessToken));
+                    headers.put("mToken", hostSettings.getMToken());
+                    return call.send(headers, asyncRequestId, transactionType);
+                });
+    }
+
+    static Completable checkStatus(String what, int statusCode, @Nullable String message) {
+        if (statusCode == SUCCESS_STATUS_CODE) {
+            return Completable.complete();
+        }
+        return Completable.error(new SaleException(what + " failed (" + statusCode + "): "
+                + (message != null ? message : "no message")));
+    }
+
     private Single<AuthResult> goOnline(Map<String, String> headers, TransactionConfig config,
             EmvTransactionResult emvResult, String hostPublicKey) {
         byte[] tek = new byte[TEK_LENGTH_BYTES];
@@ -118,7 +175,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException("Failed to RSA-encrypt the transaction key (TEK)", e));
         }
 
-        String asyncRequestId = UUID.randomUUID().toString();
+        String asyncRequestId = config.getAsyncRequestId() != null
+                ? config.getAsyncRequestId() : UUID.randomUUID().toString();
 
         boolean refund = config.getType() == TransactionType.REFUND;
         String exchangeType = refund ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;

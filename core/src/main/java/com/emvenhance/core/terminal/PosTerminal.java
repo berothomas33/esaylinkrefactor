@@ -17,14 +17,17 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +44,9 @@ public abstract class PosTerminal {
     private final Executor transactionExecutor = Executors.newSingleThreadExecutor();
 
     private final Scheduler printScheduler =
+            Schedulers.from(Executors.newSingleThreadExecutor());
+
+    private final Scheduler followUpScheduler =
             Schedulers.from(Executors.newSingleThreadExecutor());
 
     private final AtomicReference<Transaction> current = new AtomicReference<>();
@@ -66,15 +72,21 @@ public abstract class PosTerminal {
     public AuthResult authorize(TransactionConfig config) {
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        TransactionConfig sent = config.withAsyncRequestId(UUID.randomUUID().toString());
+        Transaction transaction = current.get();
+        OnlineRequest request = transaction != null ? transaction.wentOnline(sent) : null;
         AuthResult result;
         try {
-            result = communication.authorize(config)
+            result = communication.authorize(sent)
                     .timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
                     .blockingGet();
         } catch (Exception e) {
             result = AuthResult.failed(e.getCause() instanceof TimeoutException
                     ? "Online failed: the host didn't answer in time"
                     : e.getMessage() != null ? e.getMessage() : "Online failed");
+        }
+        if (request != null) {
+            request.answer = result;
         }
         publish(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
@@ -209,6 +221,8 @@ public abstract class PosTerminal {
         @Nullable
         private volatile TransactionStepEvent end;
         private final ReplaySubject<TransactionStepEvent> steps = ReplaySubject.create();
+        private final List<OnlineRequest> online = new ArrayList<>();
+        private boolean approvedReported;
 
         private Transaction(TransactionConfig config) {
             this.config = config;
@@ -251,6 +265,9 @@ public abstract class PosTerminal {
                     end = event;
                     return;
                 }
+                if (event.getStep() == TransactionStep.APPROVED) {
+                    approvedReported = true;
+                }
                 deliver(event);
             }
         }
@@ -273,14 +290,49 @@ public abstract class PosTerminal {
                 t.printStackTrace();
                 publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
+                List<Runnable> followUps;
                 synchronized (steps) {
                     if (end == null) {
                         end = errorEvent("Transaction ended without an outcome");
                     }
+                    followUps = closeOnline();
                     current.compareAndSet(this, null);
                     deliver(end);
                 }
+                for (Runnable followUp : followUps) {
+                    followUp.run();
+                }
             }
+        }
+
+        OnlineRequest wentOnline(TransactionConfig sent) {
+            OnlineRequest request = new OnlineRequest(sent);
+            online.add(request);
+            return request;
+        }
+
+        private List<Runnable> closeOnline() {
+            List<Runnable> followUps = new ArrayList<>();
+            boolean completedApproved = approvedReported
+                    && end.getStep() == TransactionStep.COMPLETED;
+            for (int i = 0; i < online.size(); i++) {
+                OnlineRequest request = online.get(i);
+                AuthResult answer = request.answer;
+                boolean last = i == online.size() - 1;
+                String id = request.sent.getAsyncRequestId();
+                if (answer != null && answer.isApproved() && last && completedApproved) {
+                    apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
+                    followUps.add(() -> sendFollowUp("Acknowledgement " + id,
+                            Completable.defer(() -> communication.acknowledge(request.sent))));
+                } else if (answer == null || answer.isApproved() || answer.isFailed()) {
+                    apduTrace().note("HOST", "REVERSAL for request " + id + ": "
+                            + (answer == null || answer.isFailed()
+                                    ? "no host answer" : "approved, not completed"));
+                    followUps.add(() -> sendFollowUp("Reversal " + id,
+                            Completable.defer(() -> communication.reverse(request.sent))));
+                }
+            }
+            return followUps;
         }
 
         @Nullable
@@ -405,6 +457,24 @@ public abstract class PosTerminal {
                 behavior.start(config, card, Transaction.this);
             }
         }
+    }
+
+    private static final class OnlineRequest {
+
+        final TransactionConfig sent;
+        @Nullable
+        volatile AuthResult answer;
+
+        OnlineRequest(TransactionConfig sent) {
+            this.sent = sent;
+        }
+    }
+
+    private void sendFollowUp(String what, Completable call) {
+        call.timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
+                .subscribeOn(followUpScheduler)
+                .subscribe(() -> EmvLog.d(what + " sent"),
+                        e -> EmvLog.d(what + " failed: " + e));
     }
 
     static TransactionStepEvent errorEvent(String error) {
