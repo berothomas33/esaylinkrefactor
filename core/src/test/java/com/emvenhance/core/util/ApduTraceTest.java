@@ -95,8 +95,30 @@ public class ApduTraceTest {
         assertTrue(text.contains("SW=63C2 wrong PIN, 2 tries left"));
         assertTrue(text.contains("=== EMV LEVEL: TERMINAL/CARD ACTION ANALYSIS (1st GENERATE AC) ==="));
         assertTrue(text.contains("CID=80 ARQC (go online)"));
-        assertTrue(text.contains("=== EMV LEVEL: COMPLETION (2nd GENERATE AC) ==="));
+        assertTrue(text.contains("=== EMV LEVEL: ISSUER AUTHENTICATION (2nd GENERATE AC) ==="));
         assertTrue(text.contains("CID=40 TC (approved offline)"));
+    }
+
+    @Test
+    public void aRetryStartsTheCardSessionOverButKeepsTheTrace() {
+        command("80A80000", hex("8300"), 256);
+        response("9000", "7700");
+        command("80AE8000", hex("0000000010000000"), 256); // 1st GAC, then the tap was too short
+        response("6F00", "");
+
+        trace.transactionEvent("RETRY #1");
+        trace.beginAttempt();
+        command("00B2010C", new byte[0], 256);               // directory, before this attempt's GPO
+        response("9000", "7000");
+        command("80AE8000", hex("0000000010000000"), 256);   // this attempt's 1st GAC
+        response("9000", "77299F2701809F360200019F2608AABBCCDDEEFF0011");
+
+        String text = trace.text();
+        assertEquals(2, count(text, "1st GENERATE AC request ARQC"));
+        assertFalse(text.contains("2nd GENERATE AC"));
+        assertTrue(text.contains("READ RECORD SFI 1 REC 1 (directory)"));
+        assertEquals(2, count(text, "=== EMV LEVEL: TERMINAL/CARD ACTION ANALYSIS (1st GENERATE AC) ==="));
+        assertTrue("the first attempt stays in the trace", text.indexOf("RETRY #1") > 0);
     }
 
     @Test

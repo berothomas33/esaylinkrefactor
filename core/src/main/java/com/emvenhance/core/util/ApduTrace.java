@@ -97,6 +97,23 @@ public final class ApduTrace {
         }
     }
 
+    /**
+     * A new attempt in the same transaction (a retry: tap again, See Phone, fallback, try another
+     * interface): the trace carries on, but the card session starts over — its next GENERATE AC
+     * is a 1st one again, and a READ RECORD before its GPO is application selection again.
+     */
+    public void beginAttempt() {
+        if (!isEnabled()) {
+            return;
+        }
+        synchronized (this) {
+            gpoSent = false;
+            generateAcCount = 0;
+            currentLevel = null;
+            lastCommandLevel = null;
+        }
+    }
+
     /** A kernel/engine EMV step change, e.g. "5. Read application data". */
     public void kernelStep(String step) {
         if (!isEnabled()) {
@@ -319,7 +336,9 @@ public final class ApduTrace {
                 return generateAcCount == 1
                         ? of("TERMINAL/CARD ACTION ANALYSIS (1st GENERATE AC)",
                                 "1st GENERATE AC request " + type + cda)
-                        : of("COMPLETION (2nd GENERATE AC)", "2nd GENERATE AC request " + type + cda);
+                        // Sent inside EMVCompleteTrans, the ISSUER_AUTHENTICATION step.
+                        : of("ISSUER AUTHENTICATION (2nd GENERATE AC)",
+                                "2nd GENERATE AC request " + type + cda);
             }
             case 0x82:
                 return of("ISSUER AUTHENTICATION", "EXTERNAL AUTHENTICATE");

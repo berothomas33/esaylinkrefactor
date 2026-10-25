@@ -132,6 +132,8 @@ public final class EmvEngine {
         if (config != null) {
             // Same transaction, so the trace carries on: the failed attempt stays above the new one.
             apduTrace.transactionEvent("RETRY #" + retryCount.incrementAndGet());
+            // ...but the card session starts over: the next GENERATE AC is a 1st one again.
+            apduTrace.beginAttempt();
         }
         return config;
     }

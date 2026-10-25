@@ -63,6 +63,23 @@ public class EmvEngineTraceTest {
     }
 
     @Test
+    public void aRetryNamesTheNextGenerateAcTheFirstAgain() {
+        assumeTrue("trace records in debug builds only", trace.isEnabled());
+        engine.begin();
+        generateAc(); // the failed attempt's 1st GENERATE AC
+
+        engine.requestRetry(config(), "Card not read — tap again");
+        assertNotNull(engine.consumePendingRetry());
+        generateAc(); // the retry's
+
+        assertFalse(trace.text().contains("2nd GENERATE AC"));
+    }
+
+    private void generateAc() {
+        trace.command("PICC", new byte[] {(byte) 0x80, (byte) 0xAE, (byte) 0x80, 0x00}, 0, null, 0);
+    }
+
+    @Test
     public void retryKeepsTheFailedAttemptAndMarksIt() {
         assumeTrue("trace records in debug builds only", trace.isEnabled());
         engine.begin();
