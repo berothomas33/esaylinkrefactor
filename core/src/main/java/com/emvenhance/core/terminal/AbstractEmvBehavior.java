@@ -44,9 +44,10 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     /**
      * The EMV engine, from {@link #attach}: given once, when the terminal is built. The one place
-     * it is kept — {@code PosTerminal} reaches it through {@link #engine()}.
+     * it is kept, and only {@link #attach} writes it — {@code PosTerminal} and the vendor
+     * subclass both reach it through {@link #engine()}.
      */
-    protected EmvEngine engine;
+    private EmvEngine engine;
     @Nullable
     protected TransactionConfig activeConfig;
     @Nullable
