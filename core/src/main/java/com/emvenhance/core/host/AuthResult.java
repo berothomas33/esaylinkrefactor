@@ -6,6 +6,7 @@ public final class AuthResult {
 
     private final boolean approved;
     private final boolean failed;
+    private final boolean notSent;
     private final String authCode;
     private final String responseCode;
     private final String message;
@@ -19,14 +20,15 @@ public final class AuthResult {
     private AuthResult(boolean approved, boolean failed, @Nullable String authCode,
             @Nullable String responseCode, @Nullable String message,
             @Nullable byte[] arpc, @Nullable byte[] issuerScript) {
-        this(approved, failed, authCode, responseCode, message, arpc, issuerScript, null);
+        this(approved, failed, false, authCode, responseCode, message, arpc, issuerScript, null);
     }
 
-    private AuthResult(boolean approved, boolean failed, @Nullable String authCode,
+    private AuthResult(boolean approved, boolean failed, boolean notSent, @Nullable String authCode,
             @Nullable String responseCode, @Nullable String message,
             @Nullable byte[] arpc, @Nullable byte[] issuerScript, @Nullable String asyncRequestId) {
         this.approved = approved;
         this.failed = failed;
+        this.notSent = notSent;
         this.authCode = authCode;
         this.responseCode = responseCode;
         this.message = message;
@@ -36,7 +38,7 @@ public final class AuthResult {
     }
 
     public AuthResult withAsyncRequestId(@Nullable String asyncRequestId) {
-        return new AuthResult(approved, failed, authCode, responseCode, message, arpc,
+        return new AuthResult(approved, failed, notSent, authCode, responseCode, message, arpc,
                 issuerScript, asyncRequestId);
     }
 
@@ -53,12 +55,20 @@ public final class AuthResult {
         return new AuthResult(false, true, null, null, message, null, null);
     }
 
+    public static AuthResult notSent(String message) {
+        return new AuthResult(false, true, true, null, null, message, null, null, null);
+    }
+
     public boolean isApproved() {
         return approved;
     }
 
     public boolean isFailed() {
         return failed;
+    }
+
+    public boolean isNotSent() {
+        return notSent;
     }
 
     @Nullable

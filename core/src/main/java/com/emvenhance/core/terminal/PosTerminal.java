@@ -13,6 +13,7 @@ import com.emvenhance.core.event.TransactionStep;
 import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
+import com.emvenhance.core.host.HostNotReachedException;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.util.ApduTrace;
@@ -81,7 +82,14 @@ public abstract class PosTerminal {
                     .timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
                     .blockingGet();
         } catch (Exception e) {
-            result = AuthResult.failed(e.getCause() instanceof TimeoutException
+            HostNotReachedException notReached = e instanceof HostNotReachedException
+                    ? (HostNotReachedException) e
+                    : e.getCause() instanceof HostNotReachedException
+                            ? (HostNotReachedException) e.getCause() : null;
+            result = notReached != null
+                    ? AuthResult.notSent(notReached.getMessage() != null
+                            ? notReached.getMessage() : "Online failed: not sent to the host")
+                    : AuthResult.failed(e.getCause() instanceof TimeoutException
                     ? "Online failed: the host didn't answer in time"
                     : e.getMessage() != null ? e.getMessage() : "Online failed");
         }
@@ -324,10 +332,15 @@ public abstract class PosTerminal {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
                     followUps.add(() -> sendFollowUp("Acknowledgement " + id,
                             Completable.defer(() -> communication.acknowledge(request.sent))));
+                } else if (answer != null && answer.isNotSent()) {
+                    apduTrace().note("HOST", "no reversal for request " + id
+                            + ": the host could not have approved it — " + answer.getMessage());
                 } else if (answer == null || answer.isApproved() || answer.isFailed()) {
                     apduTrace().note("HOST", "REVERSAL for request " + id + ": "
-                            + (answer == null || answer.isFailed()
-                                    ? "no host answer" : "approved, not completed"));
+                            + (answer == null ? "no host answer"
+                                    : answer.isFailed() ? "no usable host answer — "
+                                            + answer.getMessage()
+                                            : "approved, not completed"));
                     followUps.add(() -> sendFollowUp("Reversal " + id,
                             Completable.defer(() -> communication.reverse(request.sent))));
                 }
