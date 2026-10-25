@@ -530,7 +530,7 @@ proceed  → advanceContactStage(NEXT)   = goToStep(NEXT)، ولو مرجعش tr
 
 - `preTransProcess` (كل attempt، `ContactProcess` جديد): `EMVCoreInit` → `setEmvAndMCKParam` بـ **أول AID** كـ default (+ `forceOnline = 1`، وبيسجّل `EmvCallBackListener`) → `EMVSetPCIModeParam` → `EMVAddApp` لكل AID. الـ params جاية من `kernel.params.getCachedEmvParam()` (§7.3).
 - بعد اختيار الـ application: `emvSetParam` → `resetParam(aid)`: يدوّر على الـ AID (full أو partial) ويحط 9F33 / 9F40 / 9F35 بتوعه بـ `EMVSetParameter` **و** `EMVSetTLVData`.
-  ⚠ الـ PIN bypass بتاع الـ AID المختار **مبيوصلش للـ kernel**: `resetParam` بينادي `EMVGetMCKParam` مكان `EMVSetMCKParam` (BACKLOG 0.7).
+  ومعاهم الـ MCK بتاع الـ AID المختار (PIN bypass) بـ `EMVSetMCKParam` (كانت BACKLOG 0.7، اتصلحت).
 - **9F03 عمره ما يتكتب في الـ contact kernel**؛ `readIccTag` بيرد عليه zeros.
 
 ### 5.5 الـ online والـ 2nd GAC (`startContactTransProcess`)
@@ -856,7 +856,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 | thread لكل list في شاشة EMV Params | `rows` / `cachedRows` / `details` | — |
 
 الـ kernel وكل الـ callbacks على الـ transaction thread بس. الـ transaction thread **بيستنى** الـ main: `PaxAppSelectDialog.selectBlocking()` والـ PIN pad. عشان كده الـ dialog لازم يتقفل في كل نهاية (`finishContactStage` بيعمل `activePinPad.dismiss()`).
-⚠ (BACKLOG 1.2–1.3): الـ cancel مبيقطعش الـ online PIN (60 ثانية)؛ كل offline PIN بيعمل `PaxPinPad` جديد؛ `finishContactlessStage` مبيقفلش أي dialog.
+⚠ (BACKLOG 1.2): الـ cancel مبيقطعش الـ online PIN (60 ثانية)؛ `finishContactlessStage` مبيقفلش أي dialog. (الـ offline PIN pad القديم بيتقفل قبل الجديد: 1.3 اتصلحت.)
 
 ---
 

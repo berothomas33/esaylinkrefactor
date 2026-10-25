@@ -13,7 +13,7 @@ EmvEngine/EmvStep/onXxx, contact, contactless, EMV params, UI → kernel callbac
 An Android card-acceptance app ("EasyLink") for **PAX A920** terminals, talking to our own
 acquiring host in Egypt (currency EGP/818). It refactors PAX's EDC demo into a clean,
 vendor-neutral design: the UI and the transaction logic know nothing about PAX; PAX (and later
-Ingenico) plug in as a Gradle flavor.
+Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`).
 
 **The terminal's life:**
 1. **Install / first start** — `ConfigInit` seeds the database from JSON assets (`acquirer.json`,
@@ -29,13 +29,14 @@ Ingenico) plug in as a Gradle flavor.
    receipt.
 
 **Who does what (one sentence each):**
-- `PosTerminal` (core) — the only API the UI uses: start / cancel a transaction and its steps
-  (for the UI), card search, host, printer; one transaction at a time on one thread.
-- `EmvEngine` (core) — the EMV steps bus (for the behavior and the APDU trace), the trace, the
-  retry request. No EMV logic, no transaction state.
+- `PosTerminal` (core) — the only API the UI uses: start / cancel a transaction
+  (`PosTerminal.Transaction`: its steps, cancel and end), card search, host, printer; one
+  transaction at a time on one thread.
+- `EmvEngine` (core) — the EMV steps bus (the dispatch, the banner, the APDU trace), the trace,
+  the retry request, the way to the host. No EMV logic, no transaction state.
 - `AbstractEmvBehavior` (core) — the 16 EMV step hooks a vendor implements, `goToStep`,
-  `askStep`, field 55, `authorizeOnline`.
-- `PaxEmvBehavior` (app/src/pax) — PAX's implementation: drives `ContactProcess` /
+  `askStep`, field 55, `authorizeOnline`; keeps the engine (`attach` / `engine()`).
+- `PaxEmvBehavior` (`vendor-pax`) — PAX's implementation: drives `ContactProcess` /
   `ClssProcess` one native call per step.
 - `ContactProcess`, `Clss*Process` (emvlib) — PAX's wrappers over the certified native kernels.
 - `network` — host envelope (RSA/AES), Retrofit, onboarding, parameter download.
@@ -96,15 +97,16 @@ Ingenico) plug in as a Gradle flavor.
    one owner, never two `cancelled` flags; found twice already: two `cancelled` flags; two
    `TransactionStepEvent` streams). Owners today:
    busy = `PosTerminal.current`; a transaction's whole state (running / ended / cancelled) =
-   `PosTerminal.Transaction.end` (one `AtomicReference`, compare-and-set); transaction steps =
-   `PosTerminal.transactionSteps`; EMV steps = `EmvEngine.emvSteps`. A class that needs another's
-   state gets a narrow read (e.g. `EmvEngine.isRunning()` / `isCancelled()`, a
-   `BooleanSupplier`), never its own copy.
+   `PosTerminal.Transaction.end` (`volatile`, written only under the steps lock); transaction
+   steps = `Transaction.steps` (one `ReplaySubject` per transaction); EMV steps =
+   `EmvEngine.emvSteps`; the engine = `AbstractEmvBehavior.engine` (private, written once by
+   `attach`). A class that needs another's state gets a narrow read (e.g. the behavior asks its
+   `Transaction`: `isRunning()` / `isCancelled()`), never its own copy.
    Prefer removing redundant code over adding abstractions.
 10. **Separation of responsibilities.** `PosTerminal`: the transaction's whole life — thread,
     busy, cancel, its steps and its end — plus card search, host, printer. `EmvEngine`: the EMV
-    steps stream, the APDU trace, the retry request; it reads the transaction's state through
-    narrow hooks and hands its transaction steps to `PosTerminal`.
+    steps stream, the APDU trace, the retry request; no transaction state (whether a step may
+    still run is asked of the `Transaction` before it is published).
     `AbstractEmvBehavior` + vendor: EMV steps and kernel work, nothing about threads, busy or
     the host. UI: observes and asks, owns no transaction state. When a change makes a class do
     another's job, move the job, don't bridge it — remove the redundant copy rather than add a
@@ -117,7 +119,7 @@ Ingenico) plug in as a Gradle flavor.
     thin, plain (never `suspend`, never Rx), and on every path — including exceptions and
     cancel — they end with `setCallBackResult` and a fail-closed value (`askStep` does this for
     you). Anything that waits for a person has a timeout that answers `USER_CANCEL`, never
-    "pick the first". Open violations: BACKLOG 0.4, 1.1.
+    "pick the first". (BACKLOG 0.4 and 1.1 are fixed.)
 13. **Rx only where it earns its place, and safely.** The kernel and every callback stay on the
     one transaction thread; Rx never moves them. See the facts in §6 before touching
     `PosTerminal`, `EmvEngine` or `MainViewModel`. Anything about Rx behavior you haven't
@@ -141,7 +143,7 @@ Ingenico) plug in as a Gradle flavor.
 16. **Before saying "done"** (on top of §1): grep that nothing is duplicated (rule 9);
     each new guard has a test that fails when the guard is removed (mutation check), named in
     the commit; say what is not device-tested. Docs: at the daily 5 PM update (§1), not in the
-    same commit.
+    same commit — unless he asks for them now.
 
 ## 3. Where things are
 
@@ -150,32 +152,30 @@ Ingenico) plug in as a Gradle flavor.
 | Transaction thread, busy, cancel, host timeout, printing | `core/.../terminal/PosTerminal.java` |
 | Step bus, drop-after-end, APDU trace | `core/.../engine/EmvEngine.java`, `core/.../util/ApduTrace.java` |
 | Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../card/Field55.java` |
-| PAX flow (contact / contactless runners, callbacks, PIN, online) | `app/src/pax/.../vendor/pax/PaxEmvBehavior.java` |
-| Card search (polling, ICC retry) | `app/src/pax/.../vendor/pax/PaxTerminal.java` |
+| PAX flow (contact / contactless runners, callbacks, PIN, online) | `vendor-pax/.../vendor/pax/PaxEmvBehavior.java` |
+| Card search (polling, ICC retry) | `vendor-pax/.../vendor/pax/PaxTerminal.java` |
 | Contact kernel wrapper + callback adapter | `emvlib/dpas/.../contact/ContactProcess.java` |
 | Contactless dispatcher, reselect | `emvlib/.../contactless/ClssProcess.java` |
 | Per-kernel stages | `emvlib/.../contactless/Clss{PayPass,PayWave,EFT,...}Process.java`, base `ClssKernelProcess` |
 | Parameter cache, DB → kernel conversion, terminal config | `bizentity/.../configservice/impl/EmvParamService.java` |
 | XML parsing | `bizentity/.../configservice/xml/{EmvXmlParamParser,ClssXmlParamParser,XmlDomUtils}.java` |
 | Download apply / delete / result | `bizentity/.../configservice/impl/EmvParamUpdater.java`, `EmvParamUpdateResult.java` |
-| EMV Params screen (download, Downloaded XML, cached details) | `app/src/pax/.../ui/EmvParamActivity.java`, `EmvParamListFragment.java`, `ParamDump.java` |
+| EMV Params screen (Cached / DB, download, Downloaded XML) | `app/src/main/.../ui/EmvParamActivity.java`, `EmvParamListFragment.java`; PAX data: `vendor-pax/.../PaxEmvParams.java` (`core` contract `EmvParams`) |
 | Host envelope / sale / onboarding | `network/...` (`HostCommunicationBehavior`, `SaleCommunicationBehavior`, `OnboardingClient`) |
 | Seeds | `bizentity/src/main/assets/{acquirer,config,...}.json` |
 
-## 4. Branches (as of 2026-10-20)
+## 4. Branches (as of 2026-10-25)
 
-All start from `4a74277`. Keep shared fixes in sync where they apply.
-
-| Branch | Commits | Dispatch | Status |
-|---|---|---|---|
-| `Finalvision` | 8 | direct | end-of-transaction, contracts, 9F03 fix. Safest. Device-tested (form) |
-| `rxDispatchEmvSteps` | 12 | Rx observer | same + Rx dispatch. Device-tested (form) |
-| `rxSetTransactionData` | 29 | Rx | everything marked **[rxSet]** below. **Not device-tested** |
-| `coroutineDesign` | rxSet + 7 | Kotlin | the whole app in Kotlin + coroutines, **built on `ae25378`** (the Observable detour) — lacks rxTx's lifecycle in `PosTerminal` (one owner, ends once). Not device-tested |
-| `rxTransactionDesign` | rxSet + 8 | Rx (UI only) | rxSet + the transaction owned by `PosTerminal`, no Rx in its lifecycle (**[rxTx]** below). **Not device-tested**. |
-
-Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form. Old:
-`add-rsa-pin-key-injection`, many stale `claude/*` branches — don't merge blindly.
+- **`transactionOwnsSteps`** — the one working branch (decision 23/10: no ports, no parallel
+  design branches). Every commit goes here. Device-tested at `19cc019`: chip sale, tap again.
+  Its handoff: `doc/handoff-2026-10-23.md` (decision log §2, risks §4, SDK plan §5).
+- **`transactionOwnsSteps-clean`** — a code-only copy of `19cc019` for walkthroughs: no tests,
+  no comments, no `doc/` (tokens and `core` bytecode proven identical). Never merge it back;
+  remake it from `transactionOwnsSteps` when needed.
+- Older (history only, don't merge blindly): `Finalvision` (device-tested 15/10, direct
+  dispatch; catch-up in `catchup-finalvision.md`), `coroutineDesign` (Kotlin; built on the
+  discarded `ae25378`; `catchup-coroutine.md`), `rxDispatchEmvSteps`, `rxSetTransactionData`,
+  `rxTransactionDesign`, `add-rsa-pin-key-injection`, many `claude/*`.
 
 ## 5. Build & test
 
@@ -186,13 +186,16 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:bizentity:…`, or the green arrow in
-  Android Studio. Core (rxSet): 65; rxTx: 77 — `AskStepTest`, `EmvStepObserverTest`,
-  `EmvBehaviorContractTest`, `TransactionStepTest`, `Field55Test`, `OldAppSaleRequestTest`,
-  `PosTerminal*Test`. Bizentity: XML parser tests on the host's real sections
-  (`clss_param_paypass.xml`, `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`.
+  Android Studio. Core: 76 — `AskStepTest`, `EmvStepObserverTest`,
+  `EmvBehaviorContractTest`, `TransactionStepTest`, `Field55Test`, `PosTerminal*Test` (tests
+  drive a behavior as `PosTerminal` does: `TestSession.attempt` = `prepare` + `start`).
+  Bizentity: 25 — XML parser tests on the host's real sections (`clss_param_paypass.xml`,
+  `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`, `EmvParamServiceCacheTest`.
 - **Cloud container: no Android SDK → no Gradle.** Tests run with javac + JUnit + stub jars;
-  vendor code is checked by comparing the javac error set to a baseline (emvlib ≈ 2558 known
-  errors) plus a mutation check that the harness sees the file.
+  vendor code is checked by comparing the javac error set to a baseline (`vendor-pax` 205
+  errors, all missing Android / PAX SDK symbols; fake and ingenico 0) plus a mutation check that
+  the harness sees the file. The harness (stubs, jars) lives outside the repo and is rebuilt per
+  session.
 - Logcat: `EmvLog` (steps), `DeviceImplNeptune` (APDU, debug), `HostComm`, `SaleComm`,
   `ClssPayWaveProcess` (9F35 / 9F33 / TTQ / limits), `ClssXmlParamParser`, `EmvParamUpdater`.
 - GreenDAO `SCHEMA_VERSION = 1`, no migrations: a schema change needs **uninstall + install**
@@ -204,32 +207,32 @@ Mainline not chosen; the plan is `rxSetTransactionData` once it passes the form.
   (`emvflow emvbase emvlib emvlib:base emvlib:dpas emvservice poslib bizlib bizentity
   commonutils`). Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
   AGP 8 → `new X()`.
-- **`PosTerminal`** owns the transaction's whole life [rxTx]. One transaction thread (a plain
+- **`PosTerminal`** owns the transaction's whole life. One transaction thread (a plain
   single-thread `Executor`, never interrupted), one `AtomicReference<Transaction> current`
   (busy = non-empty). `startTransaction` / `acceptCard`: `current.compareAndSet` on the caller's
   thread — busy → `TerminalBusyException` at once, never queued — then
-  `transactionExecutor.execute(process)`; returns the `Transaction` (the handle a screen
-  cancels). `Transaction.end` (`AtomicReference<TransactionStepEvent>`) is its whole state:
-  `null` = running; the first ERROR/COMPLETED, or the cancel's ERROR, = ended; one
-  compare-and-set, so it ends exactly once and a second cancel / a cancel after the end does
-  nothing. `cancel()` = that CAS, then CANCELLING at once (a non-end step), then
-  `cancelCardSearch()`; the EMV winds down at its next check.
-  `process` always runs (even cancelled before it started) and its `finally` is the one place the
-  end is published — after `current` is freed, so COMPLETED/ERROR means "the terminal is free"; a
-  search with no outcome ends as "Transaction ended without an outcome". Steps:
-  `PosTerminal.transactionSteps` (plain `PublishSubject`, no replay, never completes), published
-  only while the current transaction runs. Every publish holds one lock (the subject): no two
-  `onNext` at once, and a cancel's CANCELLING can never land after the end — one atomic can't
-  order a publish across two threads. Each subscriber is a `SafeObserver`: one that throws is
-  cut off alone; the stream and the transaction thread carry on. Print: its own single thread, receipts in order. [rxSet] had
-  `scheduleDirect` + `boolean`; an rxTx detour had a `Completable` (`13e2b02`, `0bee281`) —
-  gone: it was a second "ended" signal next to the steps.
-- **`EmvEngine`**: `emvSteps` (PublishSubject, not serialized, no `observeOn`; dropped once the
-  transaction ended), `ApduTrace`, retry request. No transaction state of its own: it reads
-  `isRunning()` / `isCancelled()` and hands `notifyXxx` to `PosTerminal` (constructor hooks).
-- **Contracts**: `EmvBehavior` = `prepare/start` (+ `dispose`; [rxTx] no `cancel`). `AbstractEmvBehavior`:
-  16 `protected abstract onXxx`, optional `onSearchCard`, `readIccTag`, `goToStep`, [rxSet]
-  `askStep(step, detail, failClosed)` / `answerStep`. `TransactionStep.isEnd()` = "ended".
+  `transactionExecutor.execute(transaction::run)`; returns the `Transaction` (the handle a screen
+  cancels and observes). `PosTerminal.authorize` = the host call, 90 s, `ONLINE_*` steps around it.
+- **`PosTerminal.Transaction`**: `end` (`volatile`, written only under the lock) is its whole
+  state — `null` = running; the first COMPLETED / ERROR, or the cancel's CANCELLED, = ended.
+  `steps()`: its own `ReplaySubject` (replays everything to a late subscriber, never completes;
+  each subscriber a `SafeObserver`); the subject is also the lock, so a cancel's CANCELLING never
+  lands after the end. `cancel()` = CANCELLED as the end + CANCELLING at once +
+  `cancelCardSearch()`; the EMV winds down at its next `goToStep`. `run()`: `engine.begin()`,
+  TRANSACTION_STARTED, then the attempt loop (`attempt` = `behavior.prepare` → `searchCard` →
+  `behavior.start` on the card found; a retry is the next turn); its `finally` frees the
+  terminal and then publishes the end, once ("Transaction ended without an outcome" if none).
+- **`EmvEngine`**: `emvSteps` (PublishSubject, not serialized, no `observeOn`), `ApduTrace`,
+  retry request, `authorize` → `PosTerminal::authorize`. No transaction state. Made in
+  `PosTerminal`'s constructor and handed once to the behavior (`attach`); kept only in
+  `AbstractEmvBehavior` (private field); everyone reads it through `engine()`.
+- **Contracts**: `EmvBehavior` = `prepare` / `start` / `dispose` only (`EmvBehaviorContractTest`);
+  `attach` / `engine()` are `AbstractEmvBehavior`'s, so `PosTerminal.behavior` is an
+  `AbstractEmvBehavior`. `AbstractEmvBehavior`: 16 `protected abstract onXxx`, optional
+  `onSearchCard`, `readIccTag`, `goToStep` (the one cancel check), `askStep(step, detail,
+  failClosed)` / `answerStep`, `publish`, `finish*`. `initEmvObserver()` runs in `prepare` only
+  (it keeps the dispatch observer the last subscriber). `TransactionStep.isEnd()` = COMPLETED,
+  ERROR or CANCELLED.
 - **Threading**: kernel + callbacks on the transaction thread only. `askStep` works because
   the hook runs before `goToStep` returns — keep dispatch synchronous.
 - **Rx facts (proven by tests or the lifecycle tests)**: PublishSubject is synchronous and
@@ -282,10 +285,15 @@ ISSUER_AUTH (`EMVCompleteTrans`) → COMPLETION (reports the outcome once).
 
 ## 8. Parameters
 
-- **Cache**: `EmvParamService.getCachedEmvParam()` — loaded from the DB once, used by every
-  transaction ("Use cached EMV param"); reloaded on the first transaction after a download or
-  onboarding (`terminal_initialized` flag) and after a restart (empty cache). Correct design;
-  don't read the DB per transaction.
+- **Where parameters live**: GreenDAO is the source of truth (from the host XML; the JSON seed
+  once, at first start, as a fallback). The cache (`EmvParamService.cache`, static, one per
+  process) is its in-memory copy and the only thing applied to the kernel, in `preTransProcess`
+  on every attempt. The kernel stores nothing.
+- **Cache**: `getCachedEmvParam()` — `null` → `loadFromDatabase()` reads every table and
+  `toEmvProcessParam` sets all 13 parameters (an empty table = an empty list, never `null`;
+  `EmvParamServiceCacheTest`). Any DB write (download, seed) calls `invalidate()`; the next
+  transaction reloads (`initializeTerminalIfNeeded` → `isLoaded()`). Don't read the DB per
+  transaction.
 - **Download** (`EmvParamUpdater.applyFromZip`): contact XML → contact AIDs (ICS profile via
   `CARDSCHEMECONFIGRATION`) + CAPKs; contactless XML → PayPass (`PAYPASSCONFIGURATION` shared
   by all AIDs), PayWave (`TERMINALCAPABILITIES` shared; `INTERWARELIST` per transaction type;
@@ -299,8 +307,10 @@ ISSUER_AUTH (`EMVCompleteTrans`) → COMPLETION (reports the outcome once).
   name/address, conversion rate from `config.json`. Demo values today (TID 12345678, MCC
   0840); nothing updates them; the host's `SaleResponse` carries the real TID/MID. Open:
   onboarding vs a settings screen.
-- **Debug tools** [rxSet]: "Downloaded XML" button (the files as the host sent them); tap a
-  row in a category → that entry in the kernel's cache, every field (`ParamDump`).
+- **EMV Params screen**: two sources, no fallback between them — **Cached** (the kernel's cache
+  as it is, `EmvParams.cachedRows`; never loads it: "The cache is empty — it loads at the first
+  transaction") and **DB** (GreenDAO, `rows`). "Downloaded XML" (debug): the files as the host
+  sent them.
 
 ## 9. Host
 
@@ -316,6 +326,8 @@ app (`OldAppSaleRequestTest`): posEntryMode chip 051 / contactless 071 / swipe 9
 Columns: # / Case / Do / Expect / one Pass-Fail-Not run column per branch / Notes. Status
 below = Finalvision and rxDispatchEmvSteps (identical, 2026-10-15): 8 Pass, 2 Fail, 14 Not run.
 "Look at" = where the proof is.
+**`transactionOwnsSteps` @ `19cc019` (2026-10-25)**: chip sale — Pass; #11 tap again — **Pass**
+(it was Fail on the old branches). Every other row: not run on this branch yet.
 
 | # | Case | Code path | Look at | Status |
 |---|---|---|---|---|
@@ -355,27 +367,23 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 
 ## 11. Open
 
-- Device test of rxSet (§10).
-- Bugs: #10 See Phone, #11 tap again; PayPass try-again / See Phone OK → offline decline;
-  try-again has no cap; TAC Denial read as 8121 (contact); `resetParam` calls
-  `EMVGetMCKParam`; "Terminal initialization failed" twice ([rxTx]: fixed by the end guard);
-  UI shows "HTTP 403" not the server text; demo TID/MCC; `emvVerifyPINfailed`/`certVerify` don't call `setCallBackResult`.
-- Parameters: `deleteAll` + `insert` not in one transaction (a failed insert leaves the table
-  empty → `runInTx`); a bad number parses as 0 silently; CAPKs not validated (expiry,
-  checksum, duplicates); no AID/CAPK check before a transaction; no automatic update.
-- Reversal/ack, refund AAC at host, withdraw/deposit bodies, remove the hardcoded mToken, gate
-  secret logging before live, Ingenico, manual PAN, `ConfigInit` place, pick the mainline.
-- ~~Re-evaluate `startTransaction()` and the `Completable` design~~ — done on
-  `rxTransactionDesign`: the lifecycle and the transaction steps live in `PosTerminal`, no Rx in
-  the lifecycle (§6). Not device-tested.
-  - Last change (`40f080d`) — goal: a cancel the UI can see at once without breaking "the end
-    means the terminal is free". `CANCELLING` (a non-end step) is published the moment
-    `cancel()` wins; ERROR "Transaction cancelled" still comes from `process`'s `finally`. One
-    lock (the subject) orders the two across threads; each subscriber is a `SafeObserver`, so
-    one that throws can't stop the steps or the transaction thread.
-- Kotlin + coroutines migration: on `coroutineDesign`; rules and catch-up in `catchup-coroutine.md`.
-- Everything else found by the 2026-10-20 scan (PCI, fail-open host response, Back, DB
-  encryption, receipt, tests…): `doc/BACKLOG.md`.
+- Device form on `transactionOwnsSteps` (§10): everything but the chip sale and #11.
+- Next work, in order (handoff §6): Gradle build + device form → the SDK (handoff §5, after
+  §5.4 is answered) → release guards (risks 4–7) → payment safety around the host (risks 1–3).
+- Payment safety: cancel during the host call ends CANCELLED although the host may have
+  approved; no reversal / ack (BACKLOG 0.5); Retry is offered after "the host didn't answer"
+  (1.5); APPROVED then CANCELLED if a cancel lands between them.
+- Bugs still open: #10 See Phone not device-tested on this branch; the Visa 2nd tap doesn't wait
+  for the card (1.4); `clsLastNeedSeePhone` carries over (2.1); TAC Denial read as DF8121 (2.5);
+  "HTTP 403" instead of the server text (4.1); demo TID / MCC; `showsAppSelectDialog` shows the
+  dialog for one AID in release (`0e12c79`, not intended — revert pending).
+- Parameters: CAPKs not validated (expiry, checksum, duplicates; 76 / 88 seed CAPKs expired); no
+  AID / CAPK check before a transaction; no automatic update; a bad number parses as 0.
+- Release gate: full PAN / field 55 on screen and receipt, `Level.BODY` logging, a live mToken in
+  `HostAppKeys`, `RELEASE` hard-coded `false` (no DB encryption), no minify / signing — BACKLOG
+  §5 and its status table.
+- Kotlin + coroutines: on `coroutineDesign`; rules and catch-up in `catchup-coroutine.md`.
+- Everything else, ranked and re-checked on 25/10: `doc/BACKLOG.md` (status table at the top).
 
 ## 12. Never again
 
