@@ -19,6 +19,7 @@ package com.pax.configservice.impl;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import com.pax.bizentity.db.helper.AmexAidDbHelper;
 import com.pax.bizentity.db.helper.AmexDrlDbHelper;
 import com.pax.bizentity.db.helper.CapkRevokeDbHelper;
@@ -821,17 +822,14 @@ public class EmvParamService {
         }
     }
 
+    /** Reads every parameter table; {@link #toEmvProcessParam} puts the rows in the cache. */
     private EmvProcessParam loadFromDatabase() {
-        EmvProcessParam.Builder cachedBuilder = new EmvProcessParam.Builder();
         List<EmvAid> emvAids = GreendaoHelper.getEmvAidHelper().loadAll();
-        // Always a list, empty when there are none (a package may bring no contact AIDs).
-        cachedBuilder.setEmvAidList(emvAidConvert(emvAids != null ? emvAids : new ArrayList<>()));
         List<EmvCapk> emvCapks = GreendaoHelper.getEmvCapkHelper().loadAll();
         List<CapkRevokeBean> capkRevokeBeans = CapkRevokeDbHelper.getInstance().loadAll();
         CapkParamBean capkParamBean = new CapkParamBean();
         capkParamBean.setCapkList(emvCapks);
         capkParamBean.setCapkRevokeList(capkRevokeBeans);
-        cachedBuilder.setTermConfig(getTerminalConfig());
 
         List<AmexAidBean> amexAidBeans = AmexAidDbHelper.getInstance().loadAll();
         List<AmexDrlBean> amexDrlBeans = AmexDrlDbHelper.getInstance().loadAll();
@@ -874,7 +872,37 @@ public class EmvParamService {
         List<RupayAidBean> rupayAidBeans = RupayAidDbHelper.getInstance().loadAll();
         RupayParamBean rupayParamBean = new RupayParamBean();
         rupayParamBean.setAid(rupayAidBeans);
-        return cachedBuilder.create();
+        return toEmvProcessParam(emvAids, capkParamBean, getTerminalConfig(), amexParam,
+                payPassParamBean, payWaveParamBean, dpasParamBean, eftParamBean, jcbParamBean,
+                mirParamBean, pbocParamBean, pureParamBean, rupayParamBean);
+    }
+
+    /**
+     * The kernels' parameters from the database rows: every one of them is set, an empty table
+     * giving an empty list, never {@code null} — the kernels read them all at terminal
+     * initialization (a CAPK parameter left out failed every sale there).
+     */
+    @VisibleForTesting
+    EmvProcessParam toEmvProcessParam(@Nullable List<EmvAid> emvAids, CapkParamBean capk,
+            Config termConfig, AmexParamBean amex, PayPassParamBean payPass,
+            PayWaveParamBean payWave, DpasParamBean dpas, EFTParamBean eft, JcbParamBean jcb,
+            MirParamBean mir, PBOCParamBean pboc, PureParamBean pure, RupayParamBean rupay) {
+        EmvProcessParam.Builder builder = new EmvProcessParam.Builder();
+        // Always a list, empty when there are none (a package may bring no contact AIDs).
+        builder.setEmvAidList(emvAidConvert(emvAids != null ? emvAids : new ArrayList<>()));
+        builder.setCapkParam(capkConvert(capk));
+        builder.setTermConfig(termConfig);
+        builder.setAmexParam(aemxConvert(amex));
+        builder.setPassParam(paypassConvert(payPass));
+        builder.setPayWaveParam(paywaveConvert(payWave));
+        builder.setDpasParam(dpasConvert(dpas));
+        builder.setEFTParam(eftConvert(eft));
+        builder.setJcbParam(jcbConvert(jcb));
+        builder.setMirParam(mirConvert(mir));
+        builder.setPbocParam(pbocConvert(pboc));
+        builder.setPureParam(pureConvert(pure));
+        builder.setRuPayParam(rupayConvert(rupay));
+        return builder.create();
     }
 
     private Config getTerminalConfig() {
