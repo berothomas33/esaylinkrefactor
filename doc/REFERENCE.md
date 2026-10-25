@@ -1,6 +1,7 @@
 # EasyLink / EmvEnhance — مرجع المشروع
 
-> مكتوب من الكود على `transactionOwnsSteps` (`66a730c`، 2026-10-25). كل اسم method هنا موجود فعلاً.
+> مكتوب من الكود على `transactionOwnsSteps` (`19cc019`، 2026-10-25). كل اسم method هنا موجود فعلاً.
+> اتجرّب على الجهاز عند `19cc019`: chip، و tap again (form #11) — الاتنين شغالين. باقي الـ form لسه متجرّبش على الـ branch ده.
 > الرسومات نفسها (mermaid) موجودة كمان كصفحة: https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh
 > ⚠ = الكود لسه مش بيعمل اللي المفروض يعمله — الرقم بين قوسين في `doc/BACKLOG.md`.
 > لو الكود اتغير والمرجع لأ — الكود هو الصح، وحدّث المرجع.
@@ -83,8 +84,8 @@ flowchart LR
 | `EmvEnhanceApp` | `Application.onCreate` | `PosTerminal` واحد طول عمر الـ process (`TerminalFactory.create`) | — |
 | `PosTerminal` | `TerminalFactory` | الـ transaction thread، الـ busy (`AtomicReference<Transaction> current`)، الـ host (`authorize` + الـ timeout)، الطابعة، والـ search (الـ vendor بيعمل `searchCard` / `cancelCardSearch`) | أي EMV logic |
 | `PosTerminal.Transaction` | `startTransaction` | حالتها كلها: `end` (`null` = شغالة)، steps بتاعتها (`ReplaySubject`، وهو كمان الـ lock)، الـ cancel، الـ attempt loop | تنشر حاجة بعد النهاية |
-| `EmvEngine` | constructor بتاع `PosTerminal`، ويتسلّم مرة واحدة: `behavior.attach(engine)` | `emvSteps` (الـ dispatch bus)، `ApduTrace`، طلب الـ retry، والطريق للـ host (`Authorizer` = `PosTerminal::authorize`) | أي transaction state، أي transaction step |
-| `AbstractEmvBehavior` | super بتاع الـ vendor behavior | الـ engine (المكان الوحيد اللي بيتحفظ فيه؛ `PosTerminal` بيوصله بـ `behavior.engine()`)، `goToStep` (فحص الـ cancel الوحيد)، `askStep` / `answerStep`، `publish`، `finish*`، field 55 + `authorizeOnline` | threads، busy، host |
+| `EmvEngine` | constructor بتاع `PosTerminal`، ويتسلّم مرة واحدة: `behavior.attach(engine)` (`attach` في `AbstractEmvBehavior` بس، مش في `EmvBehavior`) | `emvSteps` (الـ dispatch bus)، `ApduTrace`، طلب الـ retry، والطريق للـ host (`Authorizer` = `PosTerminal::authorize`) | أي transaction state، أي transaction step |
+| `AbstractEmvBehavior` | super بتاع الـ vendor behavior | الـ engine (`private` field، المكان الوحيد اللي بيتحفظ فيه؛ `attach` بس اللي بيكتب فيه، والكل بيقراه بـ `engine()`: الـ vendor، و `PosTerminal` بـ `behavior.engine()`)، `goToStep` (فحص الـ cancel الوحيد)، `askStep` / `answerStep`، `publish`، `finish*`، field 55 + `authorizeOnline` | threads، busy، host |
 | `PaxEmvBehavior` | constructor بتاع `PaxTerminal` | الـ 16 `onXxx`، الـ `runContact*` / `runContactless*`، الـ kernel callbacks، `PaxTransactionState tx` (جديد كل attempt) | حد يناديه غير الـ dispatch |
 | `PaxKernel` | `PaxTerminal` | `EmvParamService params`، `ContactProcess contact` (جديد كل attempt)، `ClssProcess contactless`، `MagCardService mag` | — |
 | `ContactProcess` | `prepareKernel` | الـ wrapper على الـ native (`EMVAppSelect` … `EMVCompleteTrans`) و `EmvCallBackListener` (لازم يرد بـ `setCallBackResult` على كل طريق) | UI، انتظار شخص |
@@ -94,6 +95,7 @@ flowchart LR
 1. **الـ UI والـ core مش بيعرفوا PAX.** الـ vendor module بيتختار بالـ flavor، و`TerminalFactory` هو المكان الوحيد اللي فيه اسم `PaxTerminal`.
 2. **الـ `onXxx` protected ومحدش بيناديها مباشرة.** الطريق الوحيد: `goToStep` → `emvSteps` → `dispatchStepMethod` (§3). ده اللي بيخلي كل خطوة تتشاف في الـ UI والـ APDU trace.
 3. **الـ engine مبيعرفش الـ transaction**، والـ behavior بيكلم الـ `Transaction` اللي اتسلّمها في `prepare` / `start` (`publish`، `isRunning()`، `isCancelled()`).
+4. **`EmvBehavior` = الـ EMV lifecycle بس:** `prepare`، `start`، `dispose` (`EmvBehaviorContractTest` بيتأكد). الـ engine (`attach` / `engine()`) بتاع `AbstractEmvBehavior`، وعشان كده `PosTerminal.behavior` نوعه `AbstractEmvBehavior`.
 
 ---
 
@@ -869,7 +871,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 7. **الـ transaction state في الـ `Transaction` بس** — متعملش flag تاني (busy = `current`، النهاية/الـ cancel = `end`).
 8. **PAX SDK modules** (`emvbase`، `emvlib*`، `poslib`، `commonutils`): تتلمس بس لما الـ kernel نفسه يحتاج، وبنفس ترتيب الـ native calls.
 9. **schema** اتغيرت → DAO بإيدك (ordinal، DDL، bind، read) + uninstall على الجهاز.
-10. اختبر: `:core` (76)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx`.
+10. اختبر: `:core` (76)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
 
 ---
 
