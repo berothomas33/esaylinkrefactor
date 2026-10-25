@@ -375,8 +375,7 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
   (1.5); APPROVED then CANCELLED if a cancel lands between them.
 - Bugs still open: #10 See Phone not device-tested on this branch; the Visa 2nd tap doesn't wait
   for the card (1.4); `clsLastNeedSeePhone` carries over (2.1); TAC Denial read as DF8121 (2.5);
-  "HTTP 403" instead of the server text (4.1); demo TID / MCC; `showsAppSelectDialog` shows the
-  dialog for one AID in release (`0e12c79`, not intended — revert pending).
+  "HTTP 403" instead of the server text (4.1); demo TID / MCC.
 - Parameters: CAPKs not validated (expiry, checksum, duplicates; 76 / 88 seed CAPKs expired); no
   AID / CAPK check before a transaction; no automatic update; a bad number parses as 0.
 - Release gate: full PAN / field 55 on screen and receipt, `Level.BODY` logging, a live mToken in
