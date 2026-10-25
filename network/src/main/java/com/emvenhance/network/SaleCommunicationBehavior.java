@@ -12,11 +12,13 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.network.crypto.AesEnvelopeCrypto;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
+import com.emvenhance.network.model.AcknowledgementRequest;
 import com.emvenhance.network.model.ExchangeRequest;
 import com.emvenhance.network.model.ExchangeResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.model.RefundRequest;
+import com.emvenhance.network.model.ReverseRequest;
 import com.emvenhance.network.model.SaleExtraData;
 import com.emvenhance.network.model.SaleRequest;
 import com.emvenhance.network.model.SaleResponse;
@@ -32,6 +34,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 
 /**
@@ -55,8 +58,7 @@ import io.reactivex.rxjava3.core.Single;
  *       {@code PaxEmvBehavior#startOnlineProcess}.
  *   <li>Offline pending-transaction bookkeeping ({@code OfflineViewModel#addTransaction}/
  *       {@code #deleteTransaction}), the Mastercard-CLSS single-tap EasyLink retry, receipt
- *       printing, the reverse-on-failure call, the acknowledgement call, and the PENDING-status
- *       retry loop are all out of scope — a PENDING or failed envelope surfaces as a plain
+ *       printing, and the PENDING-status retry loop are all out of scope — a PENDING or failed envelope surfaces as a plain
  *       {@link Single#error}, once, with no retry.
  * </ul>
  *
@@ -76,8 +78,11 @@ import io.reactivex.rxjava3.core.Single;
  * inference, not independently confirmed.
  *
  * <p>The old project supplied a {@code paymentAsyncID} from whatever aggregator launched
- * {@code SaleActivity} — this codebase has no such caller, so a fresh {@link UUID} is generated
- * per {@link #authorize} call and reused across both the exchange and sale requests instead.
+ * {@code SaleActivity} — this codebase has no such caller, so {@code PosTerminal#authorize} names
+ * each request ({@link TransactionConfig#getAsyncRequestId()}) and both the exchange and the
+ * sale/refund go with that name ({@link UUID a fresh one} if it has none); {@link #acknowledge}
+ * and {@link #reverse} close the request by the same name once the transaction has ended
+ * ({@code orchestration/acknowledgement} / {@code orchestration/reverse}).
  */
 public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
@@ -146,19 +151,10 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
      */
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
-        TransactionType type = config.getType();
-        if (type == TransactionType.REFUND) {
-            String reference = config.getReferenceNumber();
-            if (reference == null || reference.trim().isEmpty()) {
-                Log.w(TAG, "Refund without the original reference number — not sent to the host");
-                return Single.just(AuthResult.failed(
-                        "Refund needs the original sale's reference number"));
-            }
-        } else if (type != TransactionType.SALE) {
-            // CASH_IN (POS-as-ATM deposit: atm/exchange + atm/deposit) has no request body yet —
-            // the old app's screen that built it wasn't shared.
-            Log.w(TAG, type + " has no host request yet — not sent to the host");
-            return Single.just(AuthResult.failed(type.getLabel() + " isn't supported online yet"));
+        String notSent = whyNotSent(config);
+        if (notSent != null) {
+            Log.w(TAG, notSent + " — not sent to the host");
+            return Single.just(AuthResult.failed(notSent));
         }
         EmvTransactionResult emvResult = config.getEmvResult();
         if (emvResult == null) {
@@ -181,6 +177,87 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                         config, emvResult, hostPublicKey));
     }
 
+    /**
+     * Why {@link #authorize} never sends {@code config} to the host — a type with no host request
+     * yet, a refund without the original reference number — or {@code null}: it goes online.
+     */
+    @Nullable
+    private static String whyNotSent(TransactionConfig config) {
+        TransactionType type = config.getType();
+        if (type == TransactionType.REFUND) {
+            String reference = config.getReferenceNumber();
+            if (reference == null || reference.trim().isEmpty()) {
+                return "Refund needs the original sale's reference number";
+            }
+            return null;
+        }
+        if (type != TransactionType.SALE) {
+            // CASH_IN (POS-as-ATM deposit: atm/exchange + atm/deposit) has no request body yet —
+            // the old app's screen that built it wasn't shared.
+            return type.getLabel() + " isn't supported online yet";
+        }
+        return null;
+    }
+
+    /**
+     * {@code orchestration/acknowledgement}: the sale or refund {@code sent} names is complete on
+     * the terminal. Plain JSON with the sale's headers; any status but 200 is an error.
+     */
+    @Override
+    public Completable acknowledge(TransactionConfig sent) {
+        return closeOnline(sent, "Acknowledgement", (headers, id, type) -> connection
+                .acknowledgement(headers, new AcknowledgementRequest(id, type))
+                .flatMapCompletable(response ->
+                        checkStatus("Acknowledgement", response.getStatusCode(), response.getMessage())));
+    }
+
+    /**
+     * {@code orchestration/reverse}: undo the sale or refund {@code sent} names. Plain JSON with
+     * the sale's headers; any status but 200 is an error.
+     */
+    @Override
+    public Completable reverse(TransactionConfig sent) {
+        return closeOnline(sent, "Reversal", (headers, id, type) -> connection
+                .reverse(headers, new ReverseRequest(id, type))
+                .flatMapCompletable(response ->
+                        checkStatus("Reversal", response.getStatusCode(), response.getMessage())));
+    }
+
+    /** One follow-up call: its headers, the request's name, its type as the exchange sent it. */
+    interface FollowUpCall {
+        Completable send(Map<String, String> headers, String asyncRequestId, String transactionType);
+    }
+
+    /**
+     * Sends a follow-up for a request {@link #authorize} sent — nothing for one it never sent
+     * ({@link #whyNotSent}) or that has no name. Headers as {@link #sale}'s: a valid token, then
+     * {@code mToken}.
+     */
+    private Completable closeOnline(TransactionConfig sent, String what, FollowUpCall call) {
+        String asyncRequestId = sent.getAsyncRequestId();
+        if (asyncRequestId == null || whyNotSent(sent) != null) {
+            Log.i(TAG, what + " not sent: the request never went to the host");
+            return Completable.complete();
+        }
+        String transactionType = sent.getType() == TransactionType.REFUND
+                ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;
+        return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
+                .flatMapCompletable(accessToken -> {
+                    Map<String, String> headers =
+                            new HashMap<>(HostHeaders.buildAuthenticated(sn, accessToken));
+                    headers.put("mToken", hostSettings.getMToken());
+                    return call.send(headers, asyncRequestId, transactionType);
+                });
+    }
+
+    static Completable checkStatus(String what, int statusCode, @Nullable String message) {
+        if (statusCode == SUCCESS_STATUS_CODE) {
+            return Completable.complete();
+        }
+        return Completable.error(new SaleException(what + " failed (" + statusCode + "): "
+                + (message != null ? message : "no message")));
+    }
+
     private Single<AuthResult> goOnline(Map<String, String> headers, TransactionConfig config,
             EmvTransactionResult emvResult, String hostPublicKey) {
         byte[] tek = new byte[TEK_LENGTH_BYTES];
@@ -192,7 +269,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return Single.error(new SaleException("Failed to RSA-encrypt the transaction key (TEK)", e));
         }
 
-        String asyncRequestId = UUID.randomUUID().toString();
+        String asyncRequestId = config.getAsyncRequestId() != null
+                ? config.getAsyncRequestId() : UUID.randomUUID().toString();
 
         boolean refund = config.getType() == TransactionType.REFUND;
         String exchangeType = refund ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;

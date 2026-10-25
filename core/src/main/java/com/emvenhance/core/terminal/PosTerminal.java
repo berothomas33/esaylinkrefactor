@@ -17,14 +17,17 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.util.ApduTrace;
 import com.emvenhance.core.util.EmvLog;
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -81,6 +84,14 @@ public abstract class PosTerminal {
             Schedulers.from(Executors.newSingleThreadExecutor());
 
     /**
+     * The one thread a transaction's acknowledgement or reversal goes to the host on, after its
+     * end is published: the screen doesn't wait for it, and the next sale's online request
+     * doesn't wait behind it on the transaction thread.
+     */
+    private final Scheduler followUpScheduler =
+            Schedulers.from(Executors.newSingleThreadExecutor());
+
+    /**
      * The transaction on the transaction thread, from its accepted start until it is done with
      * the reader; empty when the terminal is free (busy = non-empty). Only it may report steps.
      */
@@ -112,15 +123,24 @@ public abstract class PosTerminal {
      *
      * <p>Publishes {@code ONLINE_REQUIRED} / {@code ONLINE_PROCESSING} / {@code ONLINE_COMPLETED}
      * around the call, so a vendor gets the notify sequence for free instead of repeating it.
+     *
+     * <p>Names the request here, before it is sent ({@link TransactionConfig#getAsyncRequestId()}),
+     * and records it with its answer on the transaction going online: a request that never got
+     * an answer must still be reversed by that name once the transaction ends
+     * ({@link Transaction#closeOnline}).
      */
     public AuthResult authorize(TransactionConfig config) {
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
+        TransactionConfig sent = config.withAsyncRequestId(UUID.randomUUID().toString());
+        Transaction transaction = current.get();
+        OnlineRequest request = transaction != null ? transaction.wentOnline(sent) : null;
         AuthResult result;
         try {
             // Cancel doesn't cut this short: once sent, the sale may be approved at the host, and
-            // with no reversal yet the terminal waits for that answer — or the timeout.
-            result = communication.authorize(config)
+            // the answer decides whether it is acknowledged or reversed — so the terminal waits
+            // for it, or the timeout.
+            result = communication.authorize(sent)
                     .timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
                     .blockingGet();
         } catch (Exception e) {
@@ -129,6 +149,9 @@ public abstract class PosTerminal {
             result = AuthResult.failed(e.getCause() instanceof TimeoutException
                     ? "Online failed: the host didn't answer in time"
                     : e.getMessage() != null ? e.getMessage() : "Online failed");
+        }
+        if (request != null) {
+            request.answer = result;
         }
         publish(TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
@@ -358,6 +381,10 @@ public abstract class PosTerminal {
         @Nullable
         private volatile TransactionStepEvent end;
         private final ReplaySubject<TransactionStepEvent> steps = ReplaySubject.create();
+        /** What it sent the host, in order; written on the transaction thread only. */
+        private final List<OnlineRequest> online = new ArrayList<>();
+        /** Whether it reported APPROVED; written under the lock. */
+        private boolean approvedReported;
 
         private Transaction(TransactionConfig config) {
             this.config = config;
@@ -420,6 +447,9 @@ public abstract class PosTerminal {
                     end = event;
                     return;
                 }
+                if (event.getStep() == TransactionStep.APPROVED) {
+                    approvedReported = true;
+                }
                 deliver(event);
             }
         }
@@ -460,15 +490,69 @@ public abstract class PosTerminal {
                 t.printStackTrace();
                 publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
+                List<Runnable> followUps;
                 synchronized (steps) { // a cancel's CANCELLING can't land after the end
                     // A search that stopped with no outcome still ends its transaction.
                     if (end == null) {
                         end = errorEvent("Transaction ended without an outcome");
                     }
+                    followUps = closeOnline();
                     current.compareAndSet(this, null);
                     deliver(end);
                 }
+                for (Runnable followUp : followUps) {
+                    followUp.run();
+                }
             }
+        }
+
+        /** The request it is about to send the host: recorded before it goes. */
+        OnlineRequest wentOnline(TransactionConfig sent) {
+            OnlineRequest request = new OnlineRequest(sent);
+            online.add(request);
+            return request;
+        }
+
+        /**
+         * Closes the host's side of every request this transaction sent, now that it has ended;
+         * called under the lock, with {@link #end} set. Notes each in the APDU trace and returns
+         * the calls, which {@link #run} makes once the terminal is free.
+         *
+         * <ul>
+         *   <li>Its last request, approved by the host, and the transaction reported APPROVED and
+         *       ended COMPLETED: <b>acknowledge</b> — the sale is done.</li>
+         *   <li>Approved by the host, but the transaction didn't end that way (the card refused it
+         *       at the 2nd GENERATE AC, a cancel, an error) — or an earlier request superseded by
+         *       a later one: <b>reverse</b>.</li>
+         *   <li>Sent with no usable answer (failed, timed out): <b>reverse</b> — the host may
+         *       have approved it. Every failed answer counts, even one the host side failed
+         *       before sending (a reversal of a request the host never got does no harm; a
+         *       missing one charges the cardholder).</li>
+         *   <li>Declined by the host: nothing to close.</li>
+         * </ul>
+         */
+        private List<Runnable> closeOnline() {
+            List<Runnable> followUps = new ArrayList<>();
+            boolean completedApproved = approvedReported
+                    && end.getStep() == TransactionStep.COMPLETED;
+            for (int i = 0; i < online.size(); i++) {
+                OnlineRequest request = online.get(i);
+                AuthResult answer = request.answer;
+                boolean last = i == online.size() - 1;
+                String id = request.sent.getAsyncRequestId();
+                if (answer != null && answer.isApproved() && last && completedApproved) {
+                    apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
+                    followUps.add(() -> sendFollowUp("Acknowledgement " + id,
+                            Completable.defer(() -> communication.acknowledge(request.sent))));
+                } else if (answer == null || answer.isApproved() || answer.isFailed()) {
+                    apduTrace().note("HOST", "REVERSAL for request " + id + ": "
+                            + (answer == null || answer.isFailed()
+                                    ? "no host answer" : "approved, not completed"));
+                    followUps.add(() -> sendFollowUp("Reversal " + id,
+                            Completable.defer(() -> communication.reverse(request.sent))));
+                }
+            }
+            return followUps;
         }
 
         /**
@@ -610,6 +694,31 @@ public abstract class PosTerminal {
                 behavior.start(config, card, Transaction.this);
             }
         }
+    }
+
+    /** One request a transaction sent the host, and the host's answer to it once it came. */
+    private static final class OnlineRequest {
+
+        final TransactionConfig sent;
+        /** {@code null} until {@link #authorize} has it — a request still in flight. */
+        @Nullable
+        volatile AuthResult answer;
+
+        OnlineRequest(TransactionConfig sent) {
+            this.sent = sent;
+        }
+    }
+
+    /**
+     * Sends a transaction's acknowledgement or reversal on {@link #followUpScheduler}, at most
+     * {@link #onlineTimeoutMs()}, and returns at once. Nobody waits for it: a failure is logged,
+     * and not retried — the host reverses on its own a sale it never got acknowledged.
+     */
+    private void sendFollowUp(String what, Completable call) {
+        call.timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
+                .subscribeOn(followUpScheduler)
+                .subscribe(() -> EmvLog.d(what + " sent"),
+                        e -> EmvLog.d(what + " failed: " + e));
     }
 
     /** An ERROR step: the terminal's own, and its behavior's ({@link AbstractEmvBehavior#finishError}). */

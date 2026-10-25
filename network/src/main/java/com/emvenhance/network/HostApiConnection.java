@@ -1,9 +1,12 @@
 package com.emvenhance.network;
 
+import com.emvenhance.network.model.AcknowledgementRequest;
+import com.emvenhance.network.model.AcknowledgementResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.model.PurchaseRequest;
 import com.emvenhance.network.model.PurchaseResponse;
+import com.emvenhance.network.model.ReverseRequest;
 
 import java.util.Map;
 
@@ -52,6 +55,24 @@ public interface HostApiConnection {
      */
     @POST("orchestration/refund")
     Single<GeneralResponse> refund(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
+
+    /**
+     * Undoes a sale or refund the host may have approved, named by its {@code asyncRequestId} —
+     * the old project's {@code EmvApiConnection#reverse}. Plain JSON, no exchange or envelope;
+     * {@code SaleCommunicationBehavior#reverse} sends it with the sale's headers.
+     */
+    @POST("orchestration/reverse")
+    Single<GeneralResponse> reverse(@HeaderMap Map<String, String> headers, @Body ReverseRequest request);
+
+    /**
+     * Tells the host a sale or refund it approved is complete on the terminal, named by its
+     * {@code asyncRequestId} — the old project's {@code EmvApiConnection#acknowledgement}. Plain
+     * JSON, no exchange or envelope; {@code SaleCommunicationBehavior#acknowledge} sends it with
+     * the sale's headers. (The old app's POS-as-ATM {@code atm/acknowledgement} waits for cash-in.)
+     */
+    @POST("orchestration/acknowledgement")
+    Single<AcknowledgementResponse> acknowledgement(@HeaderMap Map<String, String> headers,
+            @Body AcknowledgementRequest request);
 
     /**
      * Downloads this terminal's EMV/CLSS parameter package (a zip of {@code emv_param.emv} /

@@ -3,6 +3,7 @@ package com.emvenhance.core.terminal;
 import com.emvenhance.core.event.TransactionStepEvent;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -56,7 +57,10 @@ public class PosTerminalHostTest {
 
         assertTrue(result.isApproved());
         assertEquals(1, sentToHost.size());
-        assertSame(CONFIG, sentToHost.get(0));
+        TransactionConfig sent = sentToHost.get(0);
+        assertEquals(CONFIG.getAmountMinor(), sent.getAmountMinor());
+        assertEquals(CONFIG.getMode(), sent.getMode());
+        assertNotNull("named before it is sent", sent.getAsyncRequestId());
         assertEquals(Arrays.asList(TransactionStep.TRANSACTION_STARTED, TransactionStep.ONLINE_REQUIRED,
                 TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED),
                 steps.subList(0, 4));

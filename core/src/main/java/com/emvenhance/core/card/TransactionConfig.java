@@ -56,14 +56,23 @@ public final class TransactionConfig {
     @Nullable
     private final String referenceNumber;
 
+    /**
+     * The host's id for this online request ({@code asyncRequestId}): made by
+     * {@code PosTerminal.authorize} before the request is sent, so a reversal or an
+     * acknowledgement can name it even when no answer came back. {@code null} until then. See
+     * {@link #withAsyncRequestId}.
+     */
+    @Nullable
+    private final String asyncRequestId;
+
     public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
-        this(type, amountMinor, mode, null, null, null, null, null, null);
+        this(type, amountMinor, mode, null, null, null, null, null, null, null);
     }
 
     private TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode,
             @Nullable String iccData, @Nullable String pan, @Nullable String onlinePinBlock,
             @Nullable String onlinePinKeyEncrypted, @Nullable EmvTransactionResult emvResult,
-            @Nullable String referenceNumber) {
+            @Nullable String referenceNumber, @Nullable String asyncRequestId) {
         this.type = type;
         this.amountMinor = amountMinor;
         this.mode = mode;
@@ -73,6 +82,7 @@ public final class TransactionConfig {
         this.onlinePinKeyEncrypted = onlinePinKeyEncrypted;
         this.emvResult = emvResult;
         this.referenceNumber = referenceNumber;
+        this.asyncRequestId = asyncRequestId;
     }
 
     public TransactionType getType() {
@@ -122,6 +132,11 @@ public final class TransactionConfig {
         return referenceNumber;
     }
 
+    @Nullable
+    public String getAsyncRequestId() {
+        return asyncRequestId;
+    }
+
     public boolean isContact() {
         return mode == EntryMethod.CHIP;
     }
@@ -157,42 +172,48 @@ public final class TransactionConfig {
     /** Same amount and proc code, different entry mode — for a kernel-requested retry. */
     public TransactionConfig withMode(EntryMethod mode) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
     }
 
     /** Same everything else, with Field 55 attached — see {@link #getIccData()}. */
     public TransactionConfig withIccData(@Nullable String iccData) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
     }
 
     /** Same everything else, with the PAN attached — see {@link #getPan()}. */
     public TransactionConfig withPan(@Nullable String pan) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
     }
 
     /** Same everything else, with the online PIN block attached — see {@link #getOnlinePinBlock()}. */
     public TransactionConfig withOnlinePinBlock(@Nullable String onlinePinBlock) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
     }
 
     /** Same everything else, with the RSA-wrapped PIN key attached — see {@link #getOnlinePinKeyEncrypted()}. */
     public TransactionConfig withOnlinePinKeyEncrypted(@Nullable String onlinePinKeyEncrypted) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
     }
 
     /** Same everything else, with the full EMV result attached — see {@link #getEmvResult()}. */
     public TransactionConfig withEmvResult(@Nullable EmvTransactionResult emvResult) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
     }
 
     /** Same everything else, with the original sale's reference number — see {@link #getReferenceNumber()}. */
     public TransactionConfig withReferenceNumber(@Nullable String referenceNumber) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber);
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+    }
+
+    /** Same everything else, with the host request's id — see {@link #getAsyncRequestId()}. */
+    public TransactionConfig withAsyncRequestId(@Nullable String asyncRequestId) {
+        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
+                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
     }
 }
