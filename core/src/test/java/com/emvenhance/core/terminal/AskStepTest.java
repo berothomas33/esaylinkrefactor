@@ -46,7 +46,7 @@ public class AskStepTest {
         engine.emvSteps().map(EmvStepEvent::getStep).subscribe(seen::add);
         vendor.selectionAnswer = 1;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(1, vendor.callbackGot);
         assertEquals(Thread.currentThread(), vendor.answeredOn);
@@ -57,7 +57,7 @@ public class AskStepTest {
     public void noAnswerGivesTheFailClosedValue() {
         vendor.selectionAnswer = null;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
     }
@@ -67,7 +67,7 @@ public class AskStepTest {
         assumeTrue("trace records in debug builds only", engine.apduTrace().isEnabled());
         vendor.selectionAnswer = null;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertTrue(engine.apduTrace().text().contains("no answer for"));
     }
@@ -77,7 +77,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.cancelBeforeAsking = true;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
         assertEquals(0, vendor.selectionRuns);
@@ -88,7 +88,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.throwInSelection = true;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
     }
@@ -98,7 +98,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.askFinalInsideSelection = true;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(7, vendor.innerGot);
         assertEquals(1, vendor.callbackGot);
@@ -109,7 +109,7 @@ public class AskStepTest {
         vendor.selectionAnswer = 1;
         vendor.goWithoutAsking = true;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(USER_CANCEL, vendor.callbackGot);
     }

@@ -299,7 +299,7 @@ vendor code: goToStep(EmvStep.X, detail)
 
 ليه كده:
 - **synchronous ومفيش `observeOn` / `subscribeOn`**: الـ kernel بينادي callback ومستني return value؛ لازم الـ step يكون خلص قبل ما الـ callback يرجع (§4). والـ step بيعمل APDU / PIN / host، يعني blocking.
-- **`initEmvObserver()` في كل `prepare` و `start`** عشان `EmvStepObserver` يفضل **آخر** subscriber. لو مكانش آخر، الـ subscribers اللي بعده كانوا هيشوفوا الـ step الجاي قبل الحالي (الجاي بيتنشر من جوه الحالي).
+- **`initEmvObserver()` في كل `prepare`** عشان `EmvStepObserver` يتعمله subscribe ويفضل **آخر** subscriber. لو مكانش آخر، الـ subscribers اللي بعده كانوا هيشوفوا الـ step الجاي قبل الحالي (الجاي بيتنشر من جوه الحالي). `start` مبيعيدهوش: `PosTerminal` دايماً بينادي `prepare` قبله في نفس الـ attempt (والـ retry attempt جديد)، والـ app بتعمل subscribe على `emvSteps` قبل الـ transaction مش وقت الـ search. ⚠ subscriber يدخل وقت الـ search هيشوف الـ steps المتداخلة بترتيب غلط.
 - **`goToStep` بيرجّع `false` بعد الـ cancel**: الـ stage اللي ماسك resource (الـ ICC reader) بيقفله بنفسه (`advanceContactStage` → `finishContactStage`).
 - ⚠ subscriber يتضاف في نص الـ transaction بيشوف الـ steps بترتيب غلط (لأنه بعد الـ observer).
 

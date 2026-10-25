@@ -50,6 +50,12 @@ final class TestSession {
         behavior.start(config, card, transaction);
     }
 
+    /** One attempt as {@code PosTerminal} runs it: {@link #prepare}, then {@link #start}. */
+    void attempt(TransactionConfig config, CardPresence card) {
+        prepare(config);
+        start(config, card);
+    }
+
     /** As the screen's Cancel: {@link PosTerminal.Transaction#cancel()}. */
     void cancel() {
         transaction.cancel();

@@ -71,6 +71,9 @@ public class EmvStepObserverTest {
     public void stepsRunOnThePublishingThreadBeforeStartReturns() {
         Thread caller = Thread.currentThread();
         session.begin(CONFIG);
+        session.prepare(CONFIG);
+        vendor.ran.clear();
+        vendor.threads.clear();
 
         session.start(CONFIG, CardPresence.chip());
 
@@ -93,7 +96,7 @@ public class EmvStepObserverTest {
     @Test
     public void disposeStopsTheObserver() {
         session.begin(CONFIG);
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
         vendor.dispose();
@@ -107,30 +110,30 @@ public class EmvStepObserverTest {
         List<EmvStep> seen = record(engine);
         session.begin(CONFIG);
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
-        assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
-                EmvStep.TRANSACTION_COMPLETION), seen);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
+                EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION), seen);
     }
 
     @Test
     public void subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
         session.begin(CONFIG);
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
         session.transaction().publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
         List<EmvStep> seen = record(engine); // e.g. a new MainViewModel
 
         session.begin(CONFIG);
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
-        assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
-                EmvStep.TRANSACTION_COMPLETION), seen);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
+                EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION), seen);
     }
 
     @Test
     public void cancelledStepsAreNotRun() {
         session.begin(CONFIG);
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
         session.cancel();
@@ -147,7 +150,7 @@ public class EmvStepObserverTest {
         vendor.approveOnCompletion = true;
         List<EmvStep> seen = record(engine);
         session.begin(CONFIG);
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(TransactionStep.APPROVED, TransactionStep.COMPLETED), steps());
         assertEquals(EmvStep.TRANSACTION_COMPLETION, seen.get(seen.size() - 1));
@@ -165,11 +168,11 @@ public class EmvStepObserverTest {
         session.begin(CONFIG);
         vendor.failOn = EmvStep.READ_APPLICATION_DATA;
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(Collections.singletonList(TransactionStep.ERROR), steps());
-        assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA),
-                vendor.ran);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
+                EmvStep.READ_APPLICATION_DATA), vendor.ran);
 
         vendor.failOn = null;
         vendor.ran.clear();
@@ -189,10 +192,12 @@ public class EmvStepObserverTest {
         session.begin(CONFIG);
         vendor.errorOn = EmvStep.APPLICATION_SELECTION; // finishError, then carries on to READ
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
 
-        assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), vendor.ran);
-        assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), seen);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION),
+                vendor.ran);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION),
+                seen);
         assertEquals(Collections.singletonList(TransactionStep.ERROR), steps());
         assertFalse(session.transaction().isRunning());
     }
@@ -203,13 +208,15 @@ public class EmvStepObserverTest {
         session.begin(CONFIG);
         vendor.afterApplicationSelection = null; // a step with no method to run
 
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
         vendor.go(EmvStep.TRANSACTION_COMPLETION); // code still unwinding
 
         assertEquals(Collections.singletonList(TransactionStep.ERROR), steps());
         assertEquals("Unknown EMV step: null", session.steps().get(0).getMessage());
-        assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), vendor.ran);
-        assertEquals(Collections.singletonList(EmvStep.APPLICATION_SELECTION), seen);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION),
+                vendor.ran);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION),
+                seen);
         assertFalse(session.transaction().isRunning());
     }
 
@@ -231,14 +238,15 @@ public class EmvStepObserverTest {
     @Test
     public void aRetryInTheSameTransactionKeepsObserving() {
         session.begin(CONFIG);
-        session.start(CONFIG, CardPresence.chip());
+        session.attempt(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
         engine.requestRetry(CONFIG, "Card not read — tap again"); // no ERROR, no COMPLETED
-        session.start(engine.consumePendingRetry(), CardPresence.chip()); // as PosTerminal does
+        // The retry is the next attempt, as PosTerminal runs it: prepare, then start.
+        session.attempt(engine.consumePendingRetry(), CardPresence.chip());
 
-        assertEquals(Arrays.asList(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA,
-                EmvStep.TRANSACTION_COMPLETION), vendor.ran);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
+                EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION), vendor.ran);
         assertTrue(steps().isEmpty());
     }
 

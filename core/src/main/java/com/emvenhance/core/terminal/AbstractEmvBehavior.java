@@ -85,7 +85,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     public void start(TransactionConfig config, CardPresence card,
             PosTerminal.Transaction transaction) {
         this.transaction = transaction;
-        initEmvObserver();
+        // No initEmvObserver here: prepare, which always runs first in the same attempt,
+        // subscribed it last; nothing in the app subscribes to emvSteps during a card search.
         this.activeConfig = config;
         this.activeCard = card;
 
@@ -102,12 +103,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * Subscribes {@link EmvStepObserver} to the engine's EmvStep observable, replacing any
      * earlier subscription.
      *
-     * <p>Called at the start of every {@link #prepare} and {@link #start}, not once: the observer
-     * must be the engine's <em>last</em> subscriber. A step method runs inside the observer and
-     * publishes the next step from there, so every subscriber after it would see that next step
-     * before the current one — the UI would end on the first step instead of the last.
-     * Re-subscribing moves it behind every subscriber that came first, such as a
-     * {@code MainViewModel} created after an earlier transaction.
+     * <p>Called at the start of every {@link #prepare}, not once: the observer must be the
+     * engine's <em>last</em> subscriber. A step method runs inside the observer and publishes the
+     * next step from there, so every subscriber after it would see that next step before the
+     * current one — the UI would end on the first step instead of the last. Re-subscribing moves
+     * it behind every subscriber that came first, such as a {@code MainViewModel} created after
+     * an earlier transaction. {@link #start} doesn't repeat it: {@code PosTerminal} always runs
+     * {@link #prepare} first in the same attempt (a retry is a new attempt), and the app
+     * subscribes to {@code emvSteps} before a transaction starts, never during the card search.
+     * A subscriber added during the search would see nested steps out of order.
      *
      * <p>Once a transaction has ended ({@link TransactionStep#isEnd()}) {@link #goToStep}
      * publishes no step, so a step still published by code unwinding never runs a step method;

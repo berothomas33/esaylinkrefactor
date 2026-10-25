@@ -85,7 +85,7 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
         AuthResult goOnline(TestSession session, CardPresence card) {
             TransactionConfig config = new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP);
             session.begin(config);
-            session.start(config, card);
+            session.attempt(config, card);
             return authorizeOnline();
         }
 
