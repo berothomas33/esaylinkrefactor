@@ -1,20 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210707 	        xieYb                  Create
- * ===========================================================================================
- *
- */
-
 package com.pax.bizentity.entity.clss.eft;
 
 import android.text.TextUtils;
@@ -40,11 +23,7 @@ public class EFTAidBean implements Serializable {
     private String aid;
     @Transient
     private byte[] aidBytes;
-    // Flag indicates whether the AID supports partial name selection or not.
-    // 1: Does Not Support.
-    // 0: Supports
     private byte selFlag;
-    // Reader contactless transaction limit (No On-device CVM)
     private long transLimit;
     @Transient
     private byte[] transLimitBytes;
@@ -53,38 +32,28 @@ public class EFTAidBean implements Serializable {
     @Transient
     private byte[] floorLimitBytes;
     private byte floorLimitFlag;
-    // Reader CVM required limit
     private long cvmLimit;
     @Transient
     private byte[] cvmLimitBytes;
     private byte cvmLimitFlag;
-    //tag DF8121, Terminal Action Code – Denial
     private String tacDenial;
     @Transient
     private byte[] tacDenialBytes;
-    //tag DF8122, Terminal Action Code – Online
     private String tacOnline;
     @Transient
     private byte[] tacOnlineBytes;
-    //tag DF8120, Terminal Action Code – Default
     private String tacDefault;
     @Transient
     private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
-    /**
-     * application version
-     */
     private String version;
     @Transient
     private byte[] versionBytes;
     private String terminalType;
     @Transient
     private byte terminalTypeByte;
-    /**
-     * tag: 9F33. Indicates the card data input, CVM, and security capabilities of the terminal
-     */
     private String terminalCapability;
     @Transient
     private byte[] terminalCapabilityBytes;

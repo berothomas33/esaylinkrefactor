@@ -4,7 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/** One Terminal Master Key block for one acquiring bank. */
 public final class OnboardingOnlineModel {
 
     @SerializedName("bankIndex")

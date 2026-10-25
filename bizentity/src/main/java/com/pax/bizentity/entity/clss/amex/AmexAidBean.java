@@ -1,20 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210707 	        xieYb                  Create
- * ===========================================================================================
- *
- */
-
 package com.pax.bizentity.entity.clss.amex;
 
 import android.text.TextUtils;
@@ -40,27 +23,19 @@ public class AmexAidBean implements Serializable {
     private String aid;
     @Transient
     private byte[] aidBytes;
-    // Flag indicates whether the AID supports partial name selection or not.
-    // 1: Does Not Support.
-    // 0: Supports
     private byte selFlag;
-    // Reader contactless transaction limit (No On-device CVM)
     private long transLimit;
     private byte transLimitFlag;
     private long floorLimit;
     private byte floorLimitFlag;
-    // Reader CVM required limit
     private long cvmLimit;
     private byte cvmLimitFlag;
-    //tag DF8121, Terminal Action Code – Denial
     private String tacDenial;
     @Transient
     private byte[] tacDenialBytes;
-    //tag DF8122, Terminal Action Code – Online
     private String tacOnline;
     @Transient
     private byte[] tacOnlineBytes;
-    //tag DF8120, Terminal Action Code – Default
     private String tacDefault;
     @Transient
     private byte[] tacDefaultBytes;
@@ -73,46 +48,32 @@ public class AmexAidBean implements Serializable {
     private String tDOL;
     @Transient
     private byte[] tDOLBytes;
-    /**
-     * application version
-     */
     private String version;
     @Transient
     private byte[] versionBytes;
     private String terminalType;
     @Transient
     private byte terminalTypeByte;
-    /**
-     * tag: 9F33. Indicates the card data input, CVM, and security capabilities of the terminal
-     */
     private String terminalCapability;
     @Transient
     private byte[] terminalCapabilityBytes;
-    //tag: 9F40. Indicates the data input and output capabilities of the terminal
     private String terminalAdditionalCapability;
     @Transient
     private byte[] terminalAdditionalCapabilityBytes;
-    //tag 9F6E, Terminal Transaction Capabilities
     private String termTransCap;
     @Transient
     private byte[] termTransCapBytes;
-    //Specifies the range in which the unpredictable number must be generated in
     private String unRange;
     @Transient
     private byte[] unRangeBytes;
-    //the terminal whether to support the optimization mode transaction flag
     private byte supportOptTrans;
-    //1: support Delayed Authorization; 0: not support Delayed Authorization
     private byte delayAuthSupport;
-    //tag 9F6D A proprietary data element with bits 8, 7, and 4 only used to indicate a terminal’s capability to support Kernel 4 mag-stripe or EMV contactless.
     private String exPayRdCap;
     @Transient
     private byte exPayRdCapByte;
-    //Data pointer of reader’s relative parameters.Current bytes in used:Byte 1,0:support AE 3.0 (default) ,1:support AE 3.1
     private String exFunction;
     @Transient
     private byte[] exFunctionBytes;
-    // support: 1, do not support: 0
     private byte supportFullOnline;
     private String aucRFU;
     @Transient

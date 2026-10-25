@@ -4,7 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/** {@code foundation/onboarding/offline} response — mirrors the old project's OnboardingResponse. */
 public final class OnboardingResponse {
 
     @SerializedName("statusCode")

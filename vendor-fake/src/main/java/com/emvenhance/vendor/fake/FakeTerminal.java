@@ -10,9 +10,6 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Demo terminal — simulates search events so the UI works without POS hardware.
- */
 public class FakeTerminal extends PosTerminal {
 
     private static final long SEARCH_DELAY_MS = 200L;
@@ -60,7 +57,6 @@ public class FakeTerminal extends PosTerminal {
             listener.onContactlessDetected(card);
             return card;
         }
-        // CONTACT and ANY → chip first (demo)
         if (config.allowsChip()) {
             CardPresence card = CardPresence.chip();
             listener.onChipDetected(card);

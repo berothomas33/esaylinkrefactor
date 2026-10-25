@@ -11,10 +11,6 @@ import com.emvenhance.R;
 import com.emvenhance.core.terminal.PosTerminal;
 import java.util.List;
 
-/**
- * Every country the terminal can be set to ({@link PosTerminal#countries()}); tap one to make it
- * the terminal's country and currency ({@link PosTerminal#setCountry}).
- */
 public class CountryListActivity extends AppCompatActivity {
 
     @Override

@@ -9,10 +9,6 @@ import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 
-/**
- * Fake vendor: each step does its work, then {@link #goToStep} publishes on the EmvStep
- * observable and runs the next vendor method.
- */
 public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Nullable
@@ -21,13 +17,11 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
         lastAuth = null;
-        // Stop here — PosTerminal.searchCard runs next. Do NOT goToStep.
     }
 
     @Override
     public void onApplicationSelection(TransactionConfig config, CardPresence card) {
         if (card.isContactless()) {
-            // Abbreviated CLSS: skip wait/final/ODA/… → read → complete offline
             goToStep(EmvStep.READ_APPLICATION_DATA, "contactless");
             return;
         }
@@ -134,7 +128,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        lastAuth = authorizeOnline(); // a cancelled transaction never runs this step
+        lastAuth = authorizeOnline();
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
         } else {
@@ -142,10 +136,6 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         }
     }
 
-    /**
-     * Demo card data (no kernel): a fixed ARQC (9F26), CID 80 (9F27), ATC (9F36) and IAD (9F10),
-     * so the online request has the same shape as a real card's.
-     */
     @Override
     public byte[] readIccTag(int tag) {
         switch (tag) {

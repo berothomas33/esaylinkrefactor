@@ -30,16 +30,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
-/**
- * The terminal's EMV parameters ({@link EmvParams}, from {@code PosTerminal#emvParams()}). One
- * category at a time, from one source: the kernel's cache (what the next transaction uses) or
- * the database. Tap a source or a category button to replace the fragment container with a fresh
- * {@link EmvParamListFragment} for them, so only what is on screen is ever loaded.
- *
- * <p>Also downloads a fresh parameter package from the host ({@link EmvParams#download}); the
- * status line shows what it applied and removed, or the first error. A failed download leaves
- * the previous parameters as they were. The terminal must be onboarded first (an access token).
- */
 public class EmvParamActivity extends AppCompatActivity {
 
     private static final String STATE_CATEGORY = "category";
@@ -47,7 +37,6 @@ public class EmvParamActivity extends AppCompatActivity {
     private final CompositeDisposable disposables = new CompositeDisposable();
 
     private EmvParams params;
-    /** What is on screen: one category, from the cache or the database. */
     private String category;
     private boolean fromCache = true;
     private MaterialButton btnDownloadEmvParams;
@@ -60,7 +49,7 @@ public class EmvParamActivity extends AppCompatActivity {
         setContentView(R.layout.activity_emv_param);
         setTitle(R.string.action_show_emv_param);
         params = ((EmvEnhanceApp) getApplication()).getTerminal().emvParams();
-        if (params == null) { // the home screen doesn't offer it then
+        if (params == null) {
             finish();
             return;
         }
@@ -69,7 +58,6 @@ public class EmvParamActivity extends AppCompatActivity {
         paramSyncProgress = findViewById(R.id.paramSyncProgress);
         paramSyncStatusText = findViewById(R.id.paramSyncStatusText);
         btnDownloadEmvParams.setOnClickListener(v -> downloadEmvParams());
-        // Debug builds keep the last downloaded files.
         View btnShowDownloadedXml = findViewById(R.id.btnShowDownloadedXml);
         btnShowDownloadedXml.setVisibility(BuildConfig.DEBUG ? View.VISIBLE : View.GONE);
         btnShowDownloadedXml.setOnClickListener(v -> chooseDownloadedXml());
@@ -86,7 +74,6 @@ public class EmvParamActivity extends AppCompatActivity {
             categoryRow.addView(button);
         }
 
-        // The toggle restores its own checked button after a rotation; the source follows it.
         MaterialButtonToggleGroup sourceToggle = findViewById(R.id.sourceToggle);
         category = savedInstanceState != null
                 ? savedInstanceState.getString(STATE_CATEGORY) : params.categories().get(0);
@@ -130,7 +117,6 @@ public class EmvParamActivity extends AppCompatActivity {
                         summary -> {
                             setSyncBusy(false);
                             paramSyncStatusText.setText(summary);
-                            // Show what the download changed at once, not at the next tab switch.
                             showCategory(category);
                         },
                         throwable -> {
@@ -157,7 +143,6 @@ public class EmvParamActivity extends AppCompatActivity {
                 .commit();
     }
 
-    /** Which of the last download's two files to show. */
     private void chooseDownloadedXml() {
         String[] files = params.downloadedFiles().toArray(new String[0]);
         new AlertDialog.Builder(this)
@@ -166,7 +151,6 @@ public class EmvParamActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** The file as the host sent it, selectable, with where it is on the device. */
     private void showDownloadedXml(String name) {
         File file = params.downloadedFile(name);
         String text;

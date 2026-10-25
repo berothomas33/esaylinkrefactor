@@ -15,9 +15,6 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Bridges {@link PosTerminal} observables to LiveData. Activity never touches vendor code.
- */
 public class MainViewModel extends ViewModel {
 
     private final PosTerminal terminal;
@@ -27,14 +24,6 @@ public class MainViewModel extends ViewModel {
     private final MutableLiveData<String> apduTrace;
     private final MutableLiveData<Event<Boolean>> terminalBusy = new MutableLiveData<>();
 
-    /**
-     * The transaction this screen started: the one thing it keeps about it. A screen reads its
-     * steps ({@link PosTerminal.Transaction#steps()}, replayed from its first after a rotation)
-     * and cancels it — that one only, never another's. {@code null}: this screen started none.
-     * A refused (busy) start leaves it as it was: if this screen's own earlier sale is what keeps
-     * the terminal busy, it keeps the handle to cancel it (onCleared included) — a second start
-     * never drops the first one.
-     */
     private final MutableLiveData<PosTerminal.Transaction> transaction = new MutableLiveData<>();
 
     public MainViewModel(@NonNull PosTerminal terminal) {
@@ -45,8 +34,6 @@ public class MainViewModel extends ViewModel {
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(event -> emvStep.setValue(new Event<>(event))));
 
-        // A transaction can exchange dozens of APDUs within a second; refresh the on-screen trace
-        // at most every 250 ms, always ending on the latest content.
         ApduTrace trace = terminal.apduTrace();
         disposables.add(trace.changes()
                 .throttleLatest(250, TimeUnit.MILLISECONDS, true)
@@ -59,7 +46,6 @@ public class MainViewModel extends ViewModel {
         return transaction;
     }
 
-    /** A start this screen asked for was refused: the previous transaction hasn't finished. */
     public LiveData<Event<Boolean>> getTerminalBusy() {
         return terminalBusy;
     }
@@ -68,23 +54,14 @@ public class MainViewModel extends ViewModel {
         return emvStep;
     }
 
-    /** The current transaction's APDU trace, one APDU/step per line — see {@link ApduTrace}. */
     public LiveData<String> getApduTrace() {
         return apduTrace;
     }
 
-    /** The APDU trace wrapped to {@code width} columns, for the receipt printer. */
     public List<String> getApduTracePrintLines(int width) {
         return terminal.apduTrace().wrapped(width);
     }
 
-    /**
-     * Preferred: accept chip / tap / swipe — vendor terminal decides. The transaction arrives on
-     * {@link #getTransaction()}; a refused start (the POS terminal is busy with the previous
-     * transaction, see {@link PosTerminal#startTransaction}) on {@link #getTerminalBusy()}.
-     *
-     * @param referenceNumber the original sale's reference number, for a refund; else {@code null}
-     */
     public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
         try {
             transaction.setValue(terminal.acceptCard(type, amountMinor, referenceNumber));
@@ -93,7 +70,6 @@ public class MainViewModel extends ViewModel {
         }
     }
 
-    /** Cancels this screen's transaction: CANCELLING at once, CANCELLED once stopped. */
     public void cancel() {
         PosTerminal.Transaction current = transaction.getValue();
         if (current != null) {
@@ -101,12 +77,10 @@ public class MainViewModel extends ViewModel {
         }
     }
 
-    /** Prints via the terminal-owned {@code PrinterBehavior} — see {@link PosTerminal#printReceipt}. */
     public void printReceipt(List<String> lines) {
         terminal.printReceipt(lines);
     }
 
-    /** Switches APDU trace recording on/off — see {@link PosTerminal#setApduLoggingEnabled}. */
     public void setApduLoggingEnabled(boolean enabled) {
         terminal.setApduLoggingEnabled(enabled);
     }
@@ -117,8 +91,6 @@ public class MainViewModel extends ViewModel {
 
     @Override
     protected void onCleared() {
-        // The screen that started the transaction is gone (Cancel, Done, or Back): don't leave its
-        // search holding the reader, or its EMV running, for the next transaction.
         cancel();
         disposables.clear();
         super.onCleared();

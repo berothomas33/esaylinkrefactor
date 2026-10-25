@@ -12,33 +12,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Per-transaction APDU trace: every command the terminal sends to the card and every response,
- * each flagged with the EMV level it belongs to, plus the kernel's own step changes.
- *
- * <p>Owned by {@code EmvEngine} (one instance, {@code EmvEngine#apduTrace()}): the engine starts
- * it fresh in {@code begin()} and records every step it publishes; the vendor device layer (PAX:
- * {@code EmvDeviceImpl}, handed this instance at transaction start) records the APDUs; the UI
- * reads it through {@code PosTerminal#apduTrace()} to show, copy and print. This class only
- * records and decodes — it holds no transaction logic of its own.
- *
- * <p>Every line also goes to Logcat under the {@value #TAG} tag.
- *
- * <p>Debug builds only, like {@link EmvLog}: the trace holds card data (PAN, track 2 in READ
- * RECORD responses), so {@link #isEnabled()} is always {@code false} in a release build. The
- * VERIFY command's data (the offline PIN block) is never recorded.
- */
 public final class ApduTrace {
 
     private static final String TAG = "ApduTrace";
 
-    /** Keeps a card that loops on a command from growing the trace without bound. */
     private static final int MAX_LINES = 5000;
 
     private static final byte[] PSE = "1PAY.SYS.DDF01".getBytes();
     private static final byte[] PPSE = "2PAY.SYS.DDF01".getBytes();
 
-    /** Recording is possible at all — {@code BuildConfig.DEBUG}: never in a release build. */
     private final boolean allowed;
     private volatile boolean enabled = true;
 
@@ -59,12 +41,10 @@ public final class ApduTrace {
         this(BuildConfig.DEBUG);
     }
 
-    /** {@code allowed = false} is a release build: nothing is ever recorded. For tests. */
     ApduTrace(boolean allowed) {
         this.allowed = allowed;
     }
 
-    /** Runtime on/off (the UI checkbox). Has no effect in a release build. */
     public void setEnabled(boolean on) {
         enabled = on;
     }
@@ -73,12 +53,10 @@ public final class ApduTrace {
         return allowed && enabled;
     }
 
-    /** Emits whenever the trace changes; read the content with {@link #text()}. */
     public Observable<Long> changes() {
         return changes.hide();
     }
 
-    /** Starts a fresh trace for a new transaction. */
     public void beginTransaction() {
         if (!isEnabled()) {
             return;
@@ -97,7 +75,6 @@ public final class ApduTrace {
         }
     }
 
-    /** A kernel/engine EMV step change, e.g. "5. Read application data". */
     public void kernelStep(String step) {
         if (!isEnabled()) {
             return;
@@ -107,7 +84,6 @@ public final class ApduTrace {
         }
     }
 
-    /** A transaction-level event (card detected, online, approved, error...). */
     public void transactionEvent(String event) {
         if (!isEnabled()) {
             return;
@@ -117,7 +93,6 @@ public final class ApduTrace {
         }
     }
 
-    /** Free-form note, e.g. a reader error. */
     public void note(String channel, String text) {
         if (!isEnabled()) {
             return;
@@ -127,7 +102,6 @@ public final class ApduTrace {
         }
     }
 
-    /** Card answer-to-reset after power-on. */
     public void atr(String channel, @Nullable byte[] atr) {
         if (!isEnabled()) {
             return;
@@ -137,10 +111,6 @@ public final class ApduTrace {
         }
     }
 
-    /**
-     * An outgoing C-APDU. {@code dataIn} may be a larger fixed buffer (PAX's is 512 bytes); only
-     * its first {@code lc} bytes are sent and recorded.
-     */
     public void command(String channel, byte[] header, int lc, @Nullable byte[] dataIn,
             int le) {
         if (!isEnabled() || header == null || header.length < 4) {
@@ -172,14 +142,12 @@ public final class ApduTrace {
                 raw.append(ins == 0x20 ? "<PIN block not logged>" : hex(data, 0, dataLen));
             }
             if (le > 0) {
-                // ISO 7816-4: Le of 256 is encoded as 00.
                 raw.append(' ').append(String.format("%02X", le & 0xFF));
             }
             add("    C-APDU: " + raw);
         }
     }
 
-    /** The R-APDU for the last {@link #command}. */
     public void response(String channel, byte sw1, byte sw2, @Nullable byte[] dataOut,
             int length) {
         if (!isEnabled()) {
@@ -203,7 +171,6 @@ public final class ApduTrace {
         }
     }
 
-    /** The whole trace, one entry per line. */
     public String text() {
         synchronized (this) {
             return String.join("\n", lines);
@@ -216,7 +183,6 @@ public final class ApduTrace {
         }
     }
 
-    /** The trace wrapped to {@code width} characters, for a receipt printer. */
     public List<String> wrapped(int width) {
         List<String> out = new ArrayList<>();
         synchronized (this) {
@@ -234,8 +200,6 @@ public final class ApduTrace {
         return out;
     }
 
-    // ─── internals (callers hold this trace's lock) ─────────────────────────
-
     private void add(String line) {
         Log.d(TAG, line);
         if (lines.size() >= MAX_LINES) {
@@ -249,15 +213,13 @@ public final class ApduTrace {
         changes.onNext(++version);
     }
 
-    /** Seconds since the transaction started, as a line prefix. */
     private String elapsed() {
         long ms = System.currentTimeMillis() - startMillis;
         return String.format(Locale.US, "[%d.%03d] ", ms / 1000, ms % 1000);
     }
 
-    /** Returns {EMV level, command name} for a C-APDU. */
     private String[] decode(int cla, int ins, int p1, int p2, byte[] data) {
-        boolean scriptCla = (cla & 0xF0) == 0x80 && (cla & 0x0C) != 0; // 84 / 8C: secure messaging
+        boolean scriptCla = (cla & 0xF0) == 0x80 && (cla & 0x0C) != 0;
         switch (ins) {
             case 0xA4: {
                 if (Arrays.equals(data, PSE)) {
@@ -394,7 +356,6 @@ public final class ApduTrace {
         return "";
     }
 
-    /** Reads the CID (9F27) from a GENERATE AC response, format 1 (80) or format 2 (77). */
     @Nullable
     private static String cryptogramType(byte[] resp, int len) {
         int cid = -1;

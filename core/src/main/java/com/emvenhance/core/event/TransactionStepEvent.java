@@ -5,21 +5,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Immutable event emitted on {@code PosTerminal.Transaction#steps()}.
- *
- * <p>Every emission is a new instance carrying the new {@link TransactionStep} plus an
- * optional bag of contextual data — PAN, issuer name, authorization result, error reason,
- * etc.  Using a {@code Map} rather than individual fields keeps this class stable when new
- * data needs arise: the vendor implementation just puts a new key, and only the consumer
- * that cares about that key reads it.
- *
- * <p>Each transaction replays its own steps to a screen that subscribes again (a rotation); no
- * step of an earlier transaction is ever replayed.
- */
 public final class TransactionStepEvent {
 
-    // ─── Well-known data keys ────────────────────────────────────────────
     public static final String KEY_PAN              = "pan";
     public static final String KEY_ISSUER_NAME      = "issuerName";
     public static final String KEY_CARDHOLDER_NAME  = "cardHolderName";
@@ -34,10 +21,6 @@ public final class TransactionStepEvent {
     public static final String KEY_TAC_DENIAL       = "tacDenial";
     public static final String KEY_IAC_DENIAL       = "iacDenial";
     public static final String KEY_ICC_DATA         = "iccData";
-    /**
-     * On {@code WAITING_FOR_CARD}: why the card has to be presented again (tap too short, see
-     * phone, chip not read...) — absent on a first search.
-     */
     public static final String KEY_RETRY_PROMPT     = "retryPrompt";
 
     private final TransactionStep step;
@@ -50,8 +33,6 @@ public final class TransactionStepEvent {
         this.message = message;
         this.data = Collections.unmodifiableMap(data);
     }
-
-    // ─── Factory methods ─────────────────────────────────────────────────
 
     public static TransactionStepEvent idle() {
         return new TransactionStepEvent(TransactionStep.IDLE, null, Collections.emptyMap());
@@ -69,8 +50,6 @@ public final class TransactionStepEvent {
             Map<String, Object> data) {
         return new TransactionStepEvent(step, message, new HashMap<>(data));
     }
-
-    // ─── Builder for multi-field events ──────────────────────────────────
 
     public static Builder builder(TransactionStep step) {
         return new Builder(step);
@@ -101,8 +80,6 @@ public final class TransactionStepEvent {
         }
     }
 
-    // ─── Accessors ───────────────────────────────────────────────────────
-
     public TransactionStep getStep() {
         return step;
     }
@@ -116,14 +93,12 @@ public final class TransactionStepEvent {
         return data;
     }
 
-    /** Type-safe convenience for reading a data entry. */
     @SuppressWarnings("unchecked")
     @Nullable
     public <T> T get(String key) {
         return (T) data.get(key);
     }
 
-    /** String convenience — returns the value or a dash when absent. */
     public String getString(String key) {
         Object v = data.get(key);
         return v != null ? v.toString() : "—";

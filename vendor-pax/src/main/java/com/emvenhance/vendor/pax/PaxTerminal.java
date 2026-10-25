@@ -36,34 +36,15 @@ import java.util.Currency;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * PAX POS terminal — uses {@link ICardReaderHelper} for card search and
- * creates {@link PaxEmvBehavior} for EMV processing.
- *
- * <p>Card detection delegates to the Neptune DAL's {@link ICardReaderHelper#polling},
- * which internally manages all readers (MAG / ICC / PICC) and returns a
- * {@link PollingResult} when a card is detected, the search times out, or is cancelled.
- * This replaces manual reader polling and matches the PAX reference demo app pattern.
- */
 public class PaxTerminal extends PosTerminal {
 
     private static final String TAG = "PaxTerminal";
-    /**
-     * How long card search waits for a card before the transaction is declined. No EMV/PCI rule
-     * fixes this; 30 s is the usual attended-POS value (PAX's demo used 60 s, too long at a till).
-     */
     private static final int SEARCH_TIMEOUT_MS = 30_000;
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
-    /**
-     * Retry budget for ICC#97/"no ATR" during search — same tuning as
-     * {@code PaxEmvBehavior#selectApplicationWithRetry}: power-cycle the slot, wait for VCC to
-     * settle, retry a bounded number of times before giving up.
-     */
     private static final int ICC_SEARCH_MAX_ATTEMPTS = 3;
     private static final long ICC_POWER_SETTLE_MS = 200L;
 
-    /** Pause after dropping the RF field before polling again, so the card fully resets. */
     private static final long PICC_RESET_SETTLE_MS = 100L;
 
     private final PaxKernel kernel;
@@ -71,14 +52,6 @@ public class PaxTerminal extends PosTerminal {
     @Nullable
     private volatile ICardReaderHelper activeCardReaderHelper;
 
-    /**
-     * Wired to {@link SaleCommunicationBehavior} ({@code cacore/exchange} + {@code cacore/sale}) —
-     * it builds its headers via {@code HostHeaders.build}, the real confirmed contract, which
-     * needs this terminal's own serial number ({@link ModelInfo#getSN()}); {@code :network} stays
-     * vendor-agnostic, so that's passed in here rather than fetched from inside it.
-     * {@link RetrofitCommunicationBehavior} ({@code crypto/purchase}) is still available as the
-     * plain-JSON alternative if this app ever needs to switch back.
-     */
     public PaxTerminal() {
         this(new PaxKernel(),
                 new SaleCommunicationBehavior(BaseApplication.getAppContext(), ModelInfo.getInstance().getSN()),
@@ -92,11 +65,6 @@ public class PaxTerminal extends PosTerminal {
         this.kernel = kernel;
     }
 
-    /**
-     * The EMV parameters the kernel uses — its in-memory cache, as it is: {@code null} until a
-     * transaction loads it (see EmvParamService#getCachedEmvParam). For {@link PaxEmvParams},
-     * which shows the cache apart from the database; never loads it.
-     */
     @Nullable
     EmvProcessParam kernelParams() {
         return EmvParamService.loaded();
@@ -107,13 +75,11 @@ public class PaxTerminal extends PosTerminal {
         return ModelInfo.getInstance().getSN();
     }
 
-    /** The PAX Neptune hardware permissions — see {@link PaxHardwarePermissions}. */
     @Override
     public String[] requiredPermissions() {
         return PaxHardwarePermissions.all();
     }
 
-    /** Every country/currency PAX's {@link CurrencyConverter} knows, by display name. */
     @Override
     public List<String> countries() {
         List<String> countries = new ArrayList<>();
@@ -121,10 +87,6 @@ public class PaxTerminal extends PosTerminal {
         return countries;
     }
 
-    /**
-     * Saves {@code country} as the terminal's currency setting (EDC_CURRENCY_LIST, read back on
-     * every call) and applies it at once for the next amount formatted.
-     */
     @Override
     public String setCountry(String country) {
         new ConfigParamService().putString(ConfigKeyConstant.EDC_CURRENCY_LIST, country);
@@ -153,11 +115,6 @@ public class PaxTerminal extends PosTerminal {
         LogUtils.i(TAG, "PAX terminal initialized (ICardReaderHelper)");
     }
 
-    /**
-     * First start only: seeds the database from the bundled JSON, off the main thread (this runs
-     * from Application.onCreate). Marked done only once the seed has finished, so a crash in the
-     * middle seeds again next start.
-     */
     private void ensureEmvConfigInitialized() {
         SharedPrefUtil prefs = new SharedPrefUtil(BaseApplication.getAppContext());
         if (prefs.getBoolean(KEY_EMV_CONFIG_INITIALIZED)) {
@@ -174,9 +131,6 @@ public class PaxTerminal extends PosTerminal {
     @Override
     public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
         if (config.isManual()) {
-            // Manual entry isn't implemented (no PAN entry screen): end it with a clear ERROR. A
-            // card returned with no listener callback ended as "Transaction ended without an
-            // outcome"; starting EMV on it would go online with no PAN.
             listener.onSearchStarted(config);
             listener.onReaderError("Manual entry is not available on this terminal yet");
             return null;
@@ -232,20 +186,6 @@ public class PaxTerminal extends PosTerminal {
         }
     }
 
-    /**
-     * Polls until a card is read, the search is cancelled, or {@link #SEARCH_TIMEOUT_MS} runs out
-     * (returns {@code null} then, reported as a timeout). A failed read the cardholder can fix
-     * doesn't end the transaction — the search carries on with whatever time is left, and the
-     * screen says what to do:
-     * <ul>
-     *   <li>Contactless ({@link PiccDevException}): a tap too short or too far, two cards in the
-     *       field, or an RF protocol/IO error — very common on a real tap. The RF field is reset
-     *       before the next attempt. Other PICC errors (not open, no permission...) still fail.
-     *   <li>Chip ({@link IccDevException}): native {@code IccException: 51} (no ATR) means the chip
-     *       didn't answer this time — mis-seated, or a mag-only card in the slot. Up to
-     *       {@link #ICC_SEARCH_MAX_ATTEMPTS} attempts, power-cycling the slot in between.
-     * </ul>
-     */
     @Nullable
     private PollingResult pollUntilCardOrTimeout(ICardReaderHelper cardReaderHelper, IDAL dal,
             EReaderType readerType, CardSearchListener listener)
@@ -283,8 +223,6 @@ public class PaxTerminal extends PosTerminal {
                 try {
                     dal.getIcc().close((byte) 0);
                 } catch (Exception ignored) {
-                    // Expected if the slot is already in a bad state — closing here is only to
-                    // force a fresh power-on for the next attempt, not to succeed cleanly.
                 }
                 if (!sleepQuietly(ICC_POWER_SETTLE_MS)) {
                     throw e;
@@ -293,7 +231,6 @@ public class PaxTerminal extends PosTerminal {
         }
     }
 
-    /** Contactless read failures a second tap can fix — {@code EPiccDevException} basement codes. */
     private static boolean isRetryablePiccError(int code) {
         return code == EPiccDevException.PICC_ERR_NOT_SEARCH_CARD.getErrCodeFromBasement()
                 || code == EPiccDevException.PICC_ERR_CARD_TOO_MANY.getErrCodeFromBasement()
@@ -315,12 +252,10 @@ public class PaxTerminal extends PosTerminal {
         return "Card not read — tap again and hold the card still";
     }
 
-    /** Drops the RF field so the next poll starts a fresh contactless activation. */
     private static void resetPicc(IDAL dal) {
         try {
             dal.getPicc(EPiccType.INTERNAL).close();
         } catch (Exception ignored) {
-            // Already closed, or in a bad state — the next polling() reopens it either way.
         }
         sleepQuietly(PICC_RESET_SETTLE_MS);
     }

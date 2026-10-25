@@ -32,29 +32,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Shown once the amount is confirmed: a live {@link com.emvenhance.core.event.EmvStep} banner
- * plus the accepted entry methods, while {@link MainViewModel#acceptCard} searches.
- *
- * <p>The three method rows are informational, not separately actionable — {@code acceptCard}
- * already searches mag/chip/contactless together (entry method {@code ANY}); tapping a physical
- * card of any of those kinds is what actually matters. Manual Entry is the one real exception,
- * since a reader can't detect "the operator wants to type a PAN" on its own — that flow doesn't
- * exist in this app yet, so the button is a stub for now.
- */
 public class SearchCardFragment extends Fragment {
 
     private static final String ARG_TRANSACTION_TYPE = "transactionType";
     private static final String ARG_AMOUNT_MINOR = "amountMinor";
     private static final String ARG_REFERENCE_NUMBER = "referenceNumber";
 
-    /** Characters per printed line: 384-dot head with PaxPrinter's 12x24 font. */
     private static final int PRINT_WIDTH = 32;
 
-    /** This view's subscription to its transaction's steps; disposed with the view. */
     private Disposable steps = Disposable.disposed();
 
-    /** @param referenceNumber the original sale's reference number, for a refund; else {@code null} */
     public static SearchCardFragment newInstance(TransactionType type, long amountMinor,
             @Nullable String referenceNumber) {
         Bundle args = new Bundle();
@@ -119,8 +106,6 @@ public class SearchCardFragment extends Fragment {
 
         View btnCancelSearch = view.findViewById(R.id.btnCancelSearch);
         btnCancelSearch.setOnClickListener(v -> cancelAndClose(viewModel));
-        // Back is Cancel: leaving the search screen must not leave its sale running unseen (the
-        // search, the kernel, maybe the host) with no screen to show how it ends.
         requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(),
                 new OnBackPressedCallback(true) {
                     @Override
@@ -156,12 +141,6 @@ public class SearchCardFragment extends Fragment {
             Toast.makeText(requireContext(), R.string.result_printed, Toast.LENGTH_SHORT).show();
         });
 
-        // Once a card is actually detected, the "insert / swipe / tap / manual" choices no
-        // longer describe what's happening — hide them instead of leaving a stale, misleading
-        // prompt on screen while EMV runs (tracked by emvStepBanner above instead). The result
-        // panel is the mirror image: hidden until the transaction actually finishes, chip/
-        // contactless only — mag/manual have no TVR/TAC/IAC/Field 55 to show (§ PaxEmvBehavior
-        // captureTransactionSummary), so their rows just read "—".
         View methodSelectionGroup = view.findViewById(R.id.methodSelectionGroup);
         TextView retryPromptText = view.findViewById(R.id.retryPromptText);
         java.util.function.Consumer<TransactionStepEvent> render = event -> {
@@ -171,9 +150,6 @@ public class SearchCardFragment extends Fragment {
                     || step == TransactionStep.WAITING_FOR_CARD;
             methodSelectionGroup.setVisibility(stillChoosing ? View.VISIBLE : View.GONE);
 
-            // A retry (tap too short, see phone, chip not read...) brings the card UI back with
-            // the reason on top, scrolled into view — the screen may be scrolled down to the
-            // APDU trace or result from the attempt that just failed.
             if (step == TransactionStep.WAITING_FOR_CARD) {
                 Object prompt = event.get(TransactionStepEvent.KEY_RETRY_PROMPT);
                 retryPromptText.setText(prompt != null ? prompt.toString() : "");
@@ -183,9 +159,6 @@ public class SearchCardFragment extends Fragment {
                 }
             }
 
-            // Final outcome, each with its own title: a decline (the card or the issuer said no),
-            // a failure (card search timeout, reader, kernel/PIN error, host didn't answer —
-            // never "declined", the card may be fine), or a cancel. The reason goes under it.
             switch (step) {
                 case APPROVED:
                     showOutcome(view, R.string.outcome_approved, true,
@@ -214,12 +187,6 @@ public class SearchCardFragment extends Fragment {
                     break;
             }
 
-            // APPROVED/DECLINED is immediately followed by a separate COMPLETED event (the
-            // behavior's finishApproved/finishDeclined) — both land on this same observer within the
-            // same main-thread burst, before a frame ever draws. Hiding resultGroup again on
-            // that COMPLETED event (or on ERROR, or on anything else) meant the panel was set
-            // VISIBLE then GONE before Android ever painted it — never actually seen. Only ever
-            // hide it when a *new* transaction starts; every other step leaves it as it is.
             if (step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
                 resultGroup.setVisibility(View.VISIBLE);
                 setKvValue(view, R.id.rowPan, event.getString(TransactionStepEvent.KEY_PAN));
@@ -232,8 +199,6 @@ public class SearchCardFragment extends Fragment {
             }
         };
 
-        // This screen's transaction: its own steps, so nothing of the previous one shows, and all
-        // of them again after a rotation (the result panel comes back with APPROVED's data). None (a refused start): the card choices, idle.
         viewModel.getTransaction().observe(getViewLifecycleOwner(), transaction -> {
             steps.dispose();
             if (transaction == null) {
@@ -245,27 +210,17 @@ public class SearchCardFragment extends Fragment {
                     .subscribe(render::accept);
         });
 
-        // After the transaction observer: a refused start shows idle, then BUSY — drawn last.
         viewModel.getTerminalBusy().observe(getViewLifecycleOwner(), event -> {
             if (event.consume() != null) {
                 showBusy(view);
             }
         });
 
-        // Fire the search the moment this screen is up, so the reader is live as soon as the
-        // cardholder sees "present card" — matches AmountFragment's old behavior, just moved
-        // here now that there's a dedicated screen for it. Only the first time: a rotation
-        // recreates this view while its transaction carries on.
         if (savedInstanceState == null) {
             viewModel.acceptCard(type, amountMinor, referenceNumber);
         }
     }
 
-    /**
-     * APDU trace card: debug builds only (the trace holds card data and is never recorded in a
-     * release build). The EditText is filled live, with the soft keyboard suppressed, so it can be
-     * scrolled, selected and copied — over Vysor too, or with the Copy button.
-     */
     private void bindApduTrace(View view, MainViewModel viewModel) {
         View group = view.findViewById(R.id.apduTraceGroup);
         if (!BuildConfig.DEBUG) {
@@ -305,7 +260,6 @@ public class SearchCardFragment extends Fragment {
         });
     }
 
-    /** Cancels this screen's transaction (CANCELLING, then CANCELLED once stopped) and closes. */
     private void cancelAndClose(MainViewModel viewModel) {
         viewModel.cancel();
         requireActivity().finish();
@@ -319,7 +273,6 @@ public class SearchCardFragment extends Fragment {
         TextView reasonText = view.findViewById(R.id.outcomeReason);
         reasonText.setText(reason != null ? reason.toString() : "");
         reasonText.setVisibility(reason != null ? View.VISIBLE : View.GONE);
-        // Retry only makes sense after a failure; an approved sale is finished.
         view.findViewById(R.id.btnOutcomeRetry).setVisibility(approved ? View.GONE : View.VISIBLE);
         group.setVisibility(View.VISIBLE);
 
@@ -327,11 +280,6 @@ public class SearchCardFragment extends Fragment {
         banner.setText(title);
     }
 
-    /**
-     * This screen's start was refused: the previous transaction hasn't finished with the reader
-     * yet (usually a cancelled search still stopping). Nothing of this screen's runs, so nothing to
-     * cancel — Try again, or Done.
-     */
     private static void showBusy(View view) {
         showOutcome(view, R.string.outcome_terminal_busy, false,
                 view.getContext().getString(R.string.terminal_busy_reason));
@@ -355,7 +303,6 @@ public class SearchCardFragment extends Fragment {
         ((TextView) parent.findViewById(rowId).findViewById(R.id.kvValue)).setText(value);
     }
 
-    /** Reads back what's currently on screen — the same values the result rows just set. */
     private static List<String> buildResultLines(View view) {
         List<String> lines = new ArrayList<>();
         lines.add(kvLine(view, R.id.rowPan));

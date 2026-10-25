@@ -5,11 +5,6 @@ import java.util.List;
 
 import androidx.annotation.Nullable;
 
-/**
- * What {@link EmvParamUpdater#applyFromZip} actually did — one line per section it touched, plus
- * the first error hit (if any), so a caller (e.g. an "apply EMV params" UI button) can show the
- * real outcome instead of a bare success/fail flag.
- */
 public final class EmvParamUpdateResult {
 
     private final List<String> appliedSections = new ArrayList<>();
@@ -22,12 +17,10 @@ public final class EmvParamUpdateResult {
         appliedSections.add(section + " (" + rowCount + ")");
     }
 
-    /** A kernel the package didn't bring: its rows were deleted. */
     void removed(String section, int rowCount) {
         removedSections.add(section + " (" + rowCount + ")");
     }
 
-    /** The top-level sections one file of the package actually had, for checking the parsing. */
     void sectionsIn(String file, List<String> sections) {
         sectionsInFiles.add(file + ": " + (sections.isEmpty() ? "none" : String.join(", ", sections)));
     }
@@ -50,7 +43,6 @@ public final class EmvParamUpdateResult {
         return removedSections;
     }
 
-    /** The database changed — rows applied or removed: the parameter cache must reload. */
     public boolean changedDatabase() {
         return !appliedSections.isEmpty() || !removedSections.isEmpty();
     }
@@ -60,7 +52,6 @@ public final class EmvParamUpdateResult {
         return errorMessage;
     }
 
-    /** One human-readable line: what applied, or the error, or "nothing to apply". */
     public String summarize() {
         StringBuilder text = new StringBuilder();
         if (errorMessage != null) {

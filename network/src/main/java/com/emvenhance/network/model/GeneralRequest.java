@@ -4,24 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/**
- * Generic encrypted-envelope request shape — the request-side counterpart to
- * {@link GeneralResponse}, mirrors the old project's {@code GeneralRequest} as used by
- * {@code orchestration/exchange} and {@code orchestration/sale} (see
- * {@code SaleCommunicationBehavior}).
- *
- * <p>Field set confirmed against the real {@code GeneralRequest} class, found in an uploaded
- * {@code model_layer.rar}:
- * <ul>
- *   <li>Exchange sends {@link #transactionKeyEncrypted} (the RSA-wrapped TEK),
- *       {@link #pinKeyEncrypted} (the RSA-wrapped PEK, if online PIN was collected), and
- *       {@link #transactionType} once, keyed to {@link #asyncRequestId}; sale doesn't resend any
- *       of those three — the host is expected to already have them from the exchange call for the
- *       same {@link #asyncRequestId}. See {@link #forExchange}/{@link #forSale}.
- *   <li>Sale instead sends {@link #encPinBlock} (the online PIN block itself, encrypted under the
- *       PEK in the PIN pad's hardware) — {@code null} for a no-online-PIN transaction.
- * </ul>
- */
 public final class GeneralRequest {
 
     @SerializedName("encSerializedRequest")
@@ -45,7 +27,6 @@ public final class GeneralRequest {
     @Nullable
     private final String encPinBlock;
 
-    /** {@code "PURCHASE"} for a sale — see {@code SaleCommunicationBehavior#TRANSACTION_TYPE_SALE}. */
     @SerializedName("transactionType")
     @Nullable
     private final String transactionType;
@@ -62,14 +43,12 @@ public final class GeneralRequest {
         this.transactionType = transactionType;
     }
 
-    /** The exchange call — establishes the TEK (and PEK, if online PIN was collected) for {@code asyncRequestId}. */
     public static GeneralRequest forExchange(String encSerializedRequest, String asyncRequestId,
             String transactionKeyEncrypted, @Nullable String pinKeyEncrypted, String transactionType) {
         return new GeneralRequest(encSerializedRequest, asyncRequestId, 0,
                 transactionKeyEncrypted, pinKeyEncrypted, null, transactionType);
     }
 
-    /** The sale call — reuses the TEK/PEK already established by {@link #forExchange} for {@code asyncRequestId}. */
     public static GeneralRequest forSale(String encSerializedRequest, String asyncRequestId,
             @Nullable String encPinBlock) {
         return new GeneralRequest(encSerializedRequest, asyncRequestId, 0, null, null, encPinBlock, null);

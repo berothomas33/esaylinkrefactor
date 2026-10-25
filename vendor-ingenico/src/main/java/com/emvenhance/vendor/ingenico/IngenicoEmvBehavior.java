@@ -10,9 +10,6 @@ import com.emvenhance.core.event.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 
-/**
- * Ingenico stub — each step ends with {@link #goToStep} (EmvStep observable → next method).
- */
 public class IngenicoEmvBehavior extends AbstractEmvBehavior {
 
     private static final String TAG = "IngenicoEmvBehavior";
@@ -28,7 +25,6 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     public void onTerminalInitialization(TransactionConfig config) {
         lastAuth = null;
         Log.w(TAG, "Ingenico EMV SDK not attached — stub init");
-        // Do not goToStep — PosTerminal searches next.
     }
 
     @Override
@@ -52,65 +48,48 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
         goToStep(EmvStep.READ_APPLICATION_DATA, "ingenico-" + stubMode);
     }
 
-    // ─── Not reached — the stub jumps APPLICATION_SELECTION → READ_APPLICATION_DATA →
-    // START_ONLINE_PROCESS → TRANSACTION_COMPLETION directly above and below. These 11 exist
-    // because EmvBehavior requires every phase to be a conscious decision, not a silent
-    // inherited no-op. Wire real Ingenico SDK candidate-selection / CVM / risk-management
-    // logic into these when the SDK is attached, instead of deleting them. ─────────────────
-
     @Override
     public void onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
-        // Not reached: no AID candidate list — the stub has exactly one application.
     }
 
     @Override
     public void onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
-        // Not reached: see onWaitApplicationSelection.
     }
 
     @Override
     public void onSetTransactionData(TransactionConfig config, CardPresence card) {
-        // Not reached: no TLV set-up beyond the stub PAN/amount already in TransactionConfig.
     }
 
     @Override
     public void onOfflineDataAuthentication(TransactionConfig config, CardPresence card) {
-        // Not reached: the stub does not simulate SDA/DDA/CDA.
     }
 
     @Override
     public void onProcessRestrictions(TransactionConfig config, CardPresence card) {
-        // Not reached: no AID/application usage-control checks in the stub.
     }
 
     @Override
     public void onCardholderVerification(TransactionConfig config, CardPresence card) {
-        // Not reached: the stub always goes straight to online, no CVM list processing.
     }
 
     @Override
     public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
-        // Not reached: see onCardholderVerification.
     }
 
     @Override
     public void onTerminalRiskManagement(TransactionConfig config, CardPresence card) {
-        // Not reached: no floor limit / velocity checking in the stub.
     }
 
     @Override
     public void onTerminalActionAnalysis(TransactionConfig config, CardPresence card) {
-        // Not reached: the stub always requests online, so there is no TAA/GAC decision.
     }
 
     @Override
     public void onIssuerAuthentication(TransactionConfig config, CardPresence card) {
-        // Not reached: the stub's online result is final; no issuer authentication data (91) to check.
     }
 
     @Override
     public void onScriptProcessing(TransactionConfig config, CardPresence card) {
-        // Not reached: the stub host never returns issuer scripts (71/72).
     }
 
     @Override
@@ -127,14 +106,10 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        lastAuth = authorizeOnline(); // a cancelled transaction never runs this step
+        lastAuth = authorizeOnline();
         goToStep(EmvStep.TRANSACTION_COMPLETION);
     }
 
-    /**
-     * Stub until the Ingenico SDK is attached: then return the tag's value from its kernel.
-     * Only the cryptogram tags are faked here, so the online request isn't empty.
-     */
     @Override
     public byte[] readIccTag(int tag) {
         switch (tag) {

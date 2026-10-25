@@ -1,20 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210707 	        xieYb                  Create
- * ===========================================================================================
- *
- */
-
 package com.pax.bizentity.entity.clss.paypass;
 
 import android.text.TextUtils;
@@ -41,11 +24,7 @@ public class PayPassAidBean implements Serializable {
     private String aid;
     @Transient
     private byte[] aidBytes;
-    // Flag indicates whether the AID supports partial name selection or not.
-    // 1: Does Not Support.
-    // 0: Supports
     private byte selFlag;
-    // Reader contactless transaction limit (No On-device CVM)
     private long transLimit;
     @Transient
     private byte[] transLimitBytes;
@@ -136,14 +115,8 @@ public class PayPassAidBean implements Serializable {
     private String dsOperatorId;
     @Transient
     private byte[] dsOperatorIdBytes;
-    /**
-     * Mobile Support Indicator (9F7E) — PAYPASSCONFIGURATION/MobileSupport, e.g. "01" (mobile
-     * supported). Added in schema 2.
-     */
     private String mobileSupport;
-    /** Account Type (5F57) — PAYPASSCONFIGURATION/AccoutType, e.g. "00" (default). Schema 2. */
     private String accountType;
-
 
     @Generated(hash = 903366745)
     public PayPassAidBean(Long id, String appName, String aid, byte selFlag, long transLimit,

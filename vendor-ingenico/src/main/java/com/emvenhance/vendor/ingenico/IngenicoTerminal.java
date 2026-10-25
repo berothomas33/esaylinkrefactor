@@ -11,10 +11,6 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Ingenico terminal stub. Replace {@link #searchCard} with Tetra/Axium reader APIs when
- * the SDK is attached — no core changes required.
- */
 public class IngenicoTerminal extends PosTerminal {
 
     private static final String TAG = "IngenicoTerminal";
@@ -53,7 +49,6 @@ public class IngenicoTerminal extends PosTerminal {
             return null;
         }
 
-        // TODO: native Ingenico ICC / PICC / Mag poll + listener callbacks
         if (config.isManual()) {
             CardPresence card = CardPresence.manual("4111111111111111");
             listener.onManualEntrySelected(card);

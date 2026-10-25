@@ -1,20 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210507 	        xieYb                  Create
- * ===========================================================================================
- *
- */
-
 package com.pax.configservice.impl;
 
 import com.alibaba.fastjson.TypeReference;
@@ -40,12 +23,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Seeds the database from the bundled JSON assets (config, acquirer, EMV parameters).
- * Synchronous: it returns once the database is seeded, so the caller knows when it is done —
- * run it off the main thread. Then the kernels' parameters reload
- * ({@link EmvParamService#invalidate()}).
- */
 public class ConfigInit {
 
     private static final String TAG = "ConfigInit";
@@ -59,9 +36,6 @@ public class ConfigInit {
         }
 
         try {
-            // Whether it is standard EMV or P2PE EMV, all parameters will be saved in the
-            // database, even if the P2PE EMV not support some of kernel. Independent of the
-            // config/acquirer chain above, so a failure there shouldn't skip this.
             loadEmvParams();
         } catch (Exception e) {
             LogUtils.e(TAG, "EMV param init failed", e);
@@ -83,7 +57,6 @@ public class ConfigInit {
         List<CardRange> cardRanges = JsonProxy.getInstance().readObjFromAsset("card_range.json", new TypeReference<List<CardRange>>(){}.getType());
         AcquirerIssuerService acquirerIssuerService = new AcquirerIssuerService();
         acquirerIssuerService.insertIssuer(issuers);
-        // Check does this device supports QR code scanning
         if (!(ModelInfo.getInstance().isSupportCamera() || ModelInfo.getInstance()
                 .isSupportScannerHw())) {
             for (Acquirer acquirer : acquirers) {
@@ -93,8 +66,6 @@ public class ConfigInit {
         if (!acquirerIssuerService.insertAcquirer(acquirers)) {
             throw new IllegalStateException("insertAcquirer failed");
         }
-        // Every acquirer takes every issuer, so no acquirer-issuer link table. A card range
-        // keeps its issuer's id (ids are set by insertIssuer above) — a plain column, no join.
         for (Issuer issuer : issuers) {
             for (CardRange cardRange : cardRanges) {
                 if (cardRange.getName().equals(issuer.getName())) {

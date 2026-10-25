@@ -1,20 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210707 	        xieYb                  Create
- * ===========================================================================================
- *
- */
-
 package com.pax.bizentity.entity.clss.paywave;
 
 import android.text.TextUtils;
@@ -42,13 +25,7 @@ public class PaywaveAidBean implements Serializable {
     private String aid;
     @Transient
     private byte[] aidBytes;
-    // Flag indicates whether the AID supports partial name selection or not.
-    // 1: Does Not Support.
-    // 0: Supports
     private byte selFlag;
-    /**
-     * application version
-     */
     private String version;
     @Transient
     private byte[] versionBytes;
@@ -66,14 +43,8 @@ public class PaywaveAidBean implements Serializable {
     private byte[] securityCapabilityBytes;
     private byte domesticOnly;
     private byte enDDAVerNo;
-    /**
-     * Terminal Capabilities (9F33, 3 bytes hex) from PAYWAVEPARAM/TERMINALCAPABILITIES:
-     * CardDataInput + CVMSupport + OffDataAuth. Null when the parameters didn't carry it — the
-     * kernel then gets {@link #securityCapability} as byte 3 only, as before.
-     */
     @Property(nameInDb = "TERMINAL_CAPABILITY")
     private String terminalCapability;
-    // Limits per transaction type (sale, cash, cashback, refund), kept in this row as JSON.
     @Property(nameInDb = "FLOOR_LIMITS")
     @Convert(converter = FloorLimitsConverter.class, columnType = String.class)
     private List<PayWaveInterFloorLimitBean> interWareFloorLimit;
@@ -267,7 +238,6 @@ public class PaywaveAidBean implements Serializable {
         this.terminalCapability = terminalCapability;
     }
 
-    /** {@link #terminalCapability} as bytes; null when it isn't set. */
     public byte[] getTerminalCapabilityBytes() {
         return TextUtils.isEmpty(terminalCapability) ? null
                 : ConvertUtils.strToBcdPaddingLeft(terminalCapability);

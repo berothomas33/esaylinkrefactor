@@ -20,18 +20,11 @@ import com.emvenhance.core.param.EmvParams;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Shows one EMV param category as a plain list of the rows the terminal's {@link EmvParams} gives
- * for it — from the kernel's cache ({@link EmvParams#cachedRows}) or the database
- * ({@link EmvParams#rows}); tap a row for every field. Loads only when this fragment's view is
- * created, and only its own category.
- */
 public class EmvParamListFragment extends Fragment {
 
     private static final String ARG_CATEGORY = "category";
     private static final String ARG_FROM_CACHE = "fromCache";
 
-    /** @param fromCache the kernel's cache; {@code false}: the database */
     public static EmvParamListFragment newInstance(String category, boolean fromCache) {
         EmvParamListFragment fragment = new EmvParamListFragment();
         Bundle args = new Bundle();
@@ -71,7 +64,7 @@ public class EmvParamListFragment extends Fragment {
                 List<EmvParams.Row> loaded = fromCache
                         ? params.cachedRows(category) : params.rows(category);
                 if (loaded == null) {
-                    titles = null; // the cache is empty: nothing loaded it yet
+                    titles = null;
                 } else {
                     for (EmvParams.Row row : loaded) {
                         rows.add(row);
@@ -79,7 +72,6 @@ public class EmvParamListFragment extends Fragment {
                     }
                 }
             } catch (Exception e) {
-                //noinspection CallToPrintStackTrace
                 e.printStackTrace();
                 failure = e.getMessage() != null ? e.getMessage() : e.toString();
             }
@@ -110,7 +102,6 @@ public class EmvParamListFragment extends Fragment {
         }, "EmvParamList-" + category).start();
     }
 
-    /** Every field of one row, from its source ({@link EmvParams.Row#details()}). */
     private void showDetails(EmvParams.Row row) {
         new Thread(() -> {
             String text;

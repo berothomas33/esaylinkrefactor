@@ -5,7 +5,6 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import com.emvenhance.R;
 
-/** Hosts {@link AmountFragment} — the amount-entry screen that starts a transaction. */
 public class AmountActivity extends AppCompatActivity {
 
     @Override

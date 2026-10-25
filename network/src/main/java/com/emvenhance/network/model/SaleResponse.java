@@ -4,18 +4,8 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/**
- * Decrypted payload of the sale call's response — mirrors the old project's {@code SaleResponse},
- * reconstructed from its getters referenced in {@code SaleActivity} ({@code fillMomknPayResponse}
- * and the {@code getResponseCode() == 0} success check; the class itself wasn't shared). Receipt-
- * only fields the old project also read here (merchant name/address, terminal id, ...) are kept
- * since {@code SaleCommunicationBehavior} passes them straight through — this module doesn't print
- * receipts itself.
- */
 public final class SaleResponse {
 
-    /** {@code 0} on success — anything else is a decline/error, see {@code SaleCommunicationBehavior}. */
-    /** {@code null} when the host's answer has none: never read as 0, which means approved. */
     @Nullable
     @SerializedName("responseCode")
     private Integer responseCode;
@@ -28,7 +18,6 @@ public final class SaleResponse {
     @Nullable
     private String authCode;
 
-    /** Bundles issuer EMV tags (91/71/72) the same way {@link PurchaseResponse#getChipData()} does. */
     @SerializedName("chipData")
     @Nullable
     private String chipData;

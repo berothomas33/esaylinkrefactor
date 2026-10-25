@@ -22,32 +22,6 @@ import javax.xml.parsers.ParserConfigurationException;
 
 import androidx.annotation.Nullable;
 
-/**
- * Parses a PAX {@code clss_param.clss} (contactless) parameter file into the same
- * {@link PayPassParamBean}/{@link PayWaveParamBean}/{@link AmexParamBean} shapes
- * {@code ConfigInit} currently loads from the bundled {@code paypass.json}/{@code paywave.json}/
- * {@code amex.json}. {@code PAYPASSPARAM} → PayPass, {@code PAYWAVEPARAM} → PayWave,
- * {@code EXPRESSPAYPARAM} → Amex ExpressPay — per-scheme sections are each optional; a
- * deployment's export only carries the schemes it actually has configured, so a missing section
- * yields a {@code null} bean for that scheme rather than an error.
- *
- * <p><b>No reference parser was available to build this against</b> (see
- * {@link EmvXmlParamParser}'s javadoc for the same caveat) — field mappings below were derived
- * from tag names, the bundled JSON assets' shapes, and the target entities' own doc comments
- * (e.g. {@code PayPassAidBean.transLimit}'s "Reader contactless transaction limit (No On-device
- * CVM)" comment, which is word-for-word what {@code ContactlessTransactionLimit_NoOnDevice}
- * describes). Only DPAS/EFT/JCB/MIR/PBOC/PURE/RUPAY are out of scope here — this sample file
- * doesn't contain those sections, so there was no tag structure to verify a mapping against.
- *
- * <p>PayPass and Amex each carry one shared configuration block ({@code PAYPASSCONFIGURATION} /
- * {@code EXPRESSPAYCONFIGURATION}: Kernel Configuration, Terminal Type, CVM capabilities...),
- * applied to every AID of that scheme.
- *
- * <p>Several bean fields (PayPass: {@code tlvParam}/{@code defaultUDOL}/{@code deviceSN}/
- * {@code dsOperatorId}/{@code acquirerId}/refund-void limits; Amex: {@code exFunction}/
- * {@code aucRFU}) have no corresponding tag anywhere in this file and are left unset — not
- * defaulted to a guessed value.
- */
 public final class ClssXmlParamParser {
 
     private static final String TAG = "ClssXmlParamParser";
@@ -62,7 +36,6 @@ public final class ClssXmlParamParser {
         public final PayWaveParamBean payWave;
         @Nullable
         public final AmexParamBean amex;
-        /** The file's top-level sections as the host sent them, parsed or not. */
         public final List<String> sections;
 
         Result(@Nullable PayPassParamBean payPass, @Nullable PayWaveParamBean payWave,
@@ -79,12 +52,6 @@ public final class ClssXmlParamParser {
         return parse(in, null);
     }
 
-    /**
-     * @param terminalWide terminal-wide values from the contact parameters (Terminal Type,
-     *     Additional Terminal Capabilities, Security Capability) — used for any contactless AID
-     *     whose scheme block doesn't set them (PayWave has no such block at all). A scheme's own
-     *     value always wins.
-     */
     public static Result parse(InputStream in, @Nullable TerminalWideValues terminalWide)
             throws ParserConfigurationException, IOException, SAXException {
         Element root = XmlDomUtils.parseDocument(in).getDocumentElement();
@@ -104,7 +71,6 @@ public final class ClssXmlParamParser {
         return result;
     }
 
-    /** Fills terminal-wide values the scheme blocks left unset — see {@link TerminalWideValues}. */
     static void applyTerminalWide(Result result, TerminalWideValues tw) {
         if (result.payPass != null && result.payPass.getAid() != null) {
             for (PayPassAidBean aid : result.payPass.getAid()) {
@@ -141,7 +107,6 @@ public final class ClssXmlParamParser {
         }
     }
 
-    /** Element children's tag names, for diagnosing an unexpected file structure. */
     private static String childNames(Element parent) {
         StringBuilder names = new StringBuilder();
         org.w3c.dom.NodeList nodes = parent.getChildNodes();
@@ -160,13 +125,7 @@ public final class ClssXmlParamParser {
         return s == null || s.trim().isEmpty();
     }
 
-    // ─── PayPass (Mastercard) ─────────────────────────────────────────────
-
     private static PayPassParamBean parsePayPass(Element payPassEl) {
-        // Kernel settings shared by every PayPass AID — Kernel Configuration, Terminal Type, CVM
-        // capabilities, Security Capability... Not reading this block left them all unset, so
-        // the kernel ran with terminal type FF, no CVM support (online PIN skipped) and
-        // On-device CVM off (See Phone reported as a decline).
         Element config = XmlDomUtils.firstChild(payPassEl, "PAYPASSCONFIGURATION");
         if (config == null) {
             LogUtils.w(TAG, "PAYPASSPARAM has no PAYPASSCONFIGURATION — PayPass kernel settings "
@@ -207,41 +166,36 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.text(aidEl, "TACDenial"),
                 XmlDomUtils.text(aidEl, "TACOnline"),
                 XmlDomUtils.text(aidEl, "TACDefault"),
-                null, // acquirerId — no source tag
+                null,
                 XmlDomUtils.text(aidEl, "TerminalAIDVersion"),
                 XmlDomUtils.text(aidEl, "TerminalRisk"),
-                // Shared across every AID in this scheme — from PAYPASSCONFIGURATION.
-                XmlDomUtils.text(config, "TerminalType"), // 9F35
-                XmlDomUtils.text(config, "AdditionalTerminalCapability"), // 9F40
-                XmlDomUtils.text(config, "KernelConfiguration"), // DF811B
-                XmlDomUtils.text(config, "CardDataInput"), // DF8117
-                XmlDomUtils.text(config, "CVMCapability_CVMRequired"), // DF8118
-                XmlDomUtils.text(config, "CVMCapability_NoCVMRequired"), // DF8119
-                XmlDomUtils.text(config, "SecurityCapability"), // DF811F
-                XmlDomUtils.text(aidEl, "MagneticApplicationVersionNumber"), // 9F6D
-                XmlDomUtils.text(config, "MagneticCVM"), // DF811E
-                magNoCvm(config), // DF812C
-                XmlDomUtils.text(config, "KernelID"), // DF810C
-                null, // kernelIdBytes (@Transient)
-                (byte) 0, // dataExchangeSupportFlag — no source tag
-                null, // tlvParam — no source tag
-                null, // defaultUDOL — no source tag
-                0L, // refundVoidFloorLimit — no source tag
-                null, // refundVoidTacDenial — no source tag
-                true, // supportDefaultMcTermParam — matches PayPassAidBean's own field default
-                hexByte(XmlDomUtils.text(config, "MaximumTornNumber"), 1), // DF811D
-                hexByte(XmlDomUtils.text(config, "TornLeftTime"), 2), // DF811C
-                null, // deviceSN — no source tag
-                null, // dsOperatorId — no source tag
-                XmlDomUtils.text(config, "MobileSupport"), // 9F7E
-                accountType(config)); // 5F57
+                XmlDomUtils.text(config, "TerminalType"),
+                XmlDomUtils.text(config, "AdditionalTerminalCapability"),
+                XmlDomUtils.text(config, "KernelConfiguration"),
+                XmlDomUtils.text(config, "CardDataInput"),
+                XmlDomUtils.text(config, "CVMCapability_CVMRequired"),
+                XmlDomUtils.text(config, "CVMCapability_NoCVMRequired"),
+                XmlDomUtils.text(config, "SecurityCapability"),
+                XmlDomUtils.text(aidEl, "MagneticApplicationVersionNumber"),
+                XmlDomUtils.text(config, "MagneticCVM"),
+                magNoCvm(config),
+                XmlDomUtils.text(config, "KernelID"),
+                null,
+                (byte) 0,
+                null,
+                null,
+                0L,
+                null,
+                true,
+                hexByte(XmlDomUtils.text(config, "MaximumTornNumber"), 1),
+                hexByte(XmlDomUtils.text(config, "TornLeftTime"), 2),
+                null,
+                null,
+                XmlDomUtils.text(config, "MobileSupport"),
+                accountType(config));
     }
 
-    // ─── PayWave (Visa) ────────────────────────────────────────────────────
-
     private static PayWaveParamBean parsePayWave(Element payWaveEl) {
-        // Shared by every Visa AID, like PAYPASSCONFIGURATION for PayPass: Terminal Type (9F35)
-        // and Terminal Capabilities (9F33 = CardDataInput + CVMSupport + OffDataAuth).
         Element capabilities = XmlDomUtils.firstChild(payWaveEl, "TERMINALCAPABILITIES");
         String terminalType = XmlDomUtils.text(capabilities, "TermType");
         String securityCapability = XmlDomUtils.text(capabilities, "OffDataAuth");
@@ -267,10 +221,6 @@ public final class ClssXmlParamParser {
         return bean;
     }
 
-    /**
-     * Terminal Capabilities (9F33): CardDataInput, CVMSupport and OffDataAuth, one byte each in
-     * that order; null unless all three are there.
-     */
     @Nullable
     static String terminalCapability(@Nullable Element capabilities) {
         String cardDataInput = XmlDomUtils.text(capabilities, "CardDataInput");
@@ -289,23 +239,18 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.text(aidEl, "ApplicationID", ""),
                 XmlDomUtils.byteOf(aidEl, "PartialAIDSelection", 0),
                 XmlDomUtils.text(aidEl, "TerminalAIDVersion"),
-                null, // terminalType — from TERMINALCAPABILITIES (parsePayWave)
+                null,
                 XmlDomUtils.text(aidEl, "ReaderTTQ"),
                 XmlDomUtils.byteOf(aidEl, "CryptogramVersion17Supported", 0),
                 XmlDomUtils.byteOf(aidEl, "StatusCheckSupported", 0),
                 XmlDomUtils.byteOf(aidEl, "ZeroAmountNoAllowed", 0),
-                null, // securityCapability — from TERMINALCAPABILITIES (parsePayWave)
-                (byte) 0, // domesticOnly
-                (byte) 0, // enDDAVerNo
-                null, // interWareFloorLimit — set by parsePayWave from INTERWARELIST
-                null); // terminalCapability — from TERMINALCAPABILITIES (parsePayWave)
+                null,
+                (byte) 0,
+                (byte) 0,
+                null,
+                null);
     }
 
-    /**
-     * The reader's limits for one transaction type. The floor limit is the contactless one
-     * (ContactlessFloorLimit / ContactlessFloorLimitSupported); a file without those tags falls
-     * back to TerminalFloorLimit / TerminalFloorLimitSupported, which this used before.
-     */
     private static PayWaveInterFloorLimitBean parsePayWaveFloorLimit(Element entry) {
         boolean contactlessFloor = XmlDomUtils.text(entry, "ContactlessFloorLimit") != null;
         return new PayWaveInterFloorLimitBean(
@@ -319,8 +264,6 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.byteOf(entry, contactlessFloor
                         ? "ContactlessFloorLimitSupported" : "TerminalFloorLimitSupported", 0));
     }
-
-    // ─── Amex ExpressPay ───────────────────────────────────────────────────
 
     private static AmexParamBean parseAmex(Element expressPayEl) {
         Element config = XmlDomUtils.firstChild(expressPayEl, "EXPRESSPAYCONFIGURATION");
@@ -358,11 +301,10 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.text(aidEl, "TACDenial"),
                 XmlDomUtils.text(aidEl, "TACOnline"),
                 XmlDomUtils.text(aidEl, "TACDefault"),
-                null, // acquirerId — no source tag
+                null,
                 XmlDomUtils.text(aidEl, "DDOL"),
                 XmlDomUtils.text(aidEl, "TDOL"),
                 XmlDomUtils.text(aidEl, "TerminalAIDVersion"),
-                // Shared across every AID in this scheme — from EXPRESSPAYCONFIGURATION.
                 XmlDomUtils.text(config, "TerminalType"),
                 XmlDomUtils.text(config, "TerminalCapability"),
                 XmlDomUtils.text(config, "TerminalAdditionalCapability"),
@@ -370,11 +312,10 @@ public final class ClssXmlParamParser {
                 XmlDomUtils.text(config, "UnpredictableNumberRange"),
                 (byte) hexToInt(XmlDomUtils.text(config, "TerminalSupportOptimizationModeTransaction", "0")),
                 XmlDomUtils.byteOf(config, "DelayAuthorizationSupport", 0),
-                // Per-AID — tag 9F6D, distinct from the shared TerminalCapability above.
                 XmlDomUtils.text(aidEl, "ExpresspayTerminalCapabilities"),
-                null, // exFunction — no source tag
-                (byte) 0, // supportFullOnline
-                null); // aucRFU — no source tag
+                null,
+                (byte) 0,
+                null);
     }
 
     private static AmexDrlBean parseAmexDrl(Element drlEl) {
@@ -391,25 +332,18 @@ public final class ClssXmlParamParser {
                 (byte) hexToInt(XmlDomUtils.text(drlEl, "DynaLmicLimitSet", "0")));
     }
 
-    /** Account Type — the host's files spell the tag "AccoutType". */
     @Nullable
     private static String accountType(@Nullable Element config) {
         String value = XmlDomUtils.text(config, "AccoutType");
         return value != null ? value : XmlDomUtils.text(config, "AccountType");
     }
 
-    /** Mag-stripe "No CVM Required" capability — the host's files spell the tag "MageticNoCVM". */
     @Nullable
     private static String magNoCvm(@Nullable Element config) {
         String value = XmlDomUtils.text(config, "MageticNoCVM");
         return value != null ? value : XmlDomUtils.text(config, "MagneticNoCVM");
     }
 
-    /**
-     * A numeric value as a {@code bytes}-long hex string, left-padded — e.g. MaximumTornNumber
-     * "2" → "02" (DF811D is 1 byte), TornLeftTime "06" → "0006" (DF811C is 2 bytes). {@code null}
-     * stays {@code null}.
-     */
     @Nullable
     static String hexByte(@Nullable String value, int bytes) {
         if (value == null || value.trim().isEmpty()) {
@@ -423,12 +357,6 @@ public final class ClssXmlParamParser {
         return padded.append(hex).toString();
     }
 
-    /**
-     * No explicit enable-flag tag exists alongside these limits — treat "value present" as "on".
-     * A value that isn't a number stays "on" with limit 0 (logged by longOf): every tap over the
-     * limit / needing a CVM, the fail-closed side — turning the limit off would let any amount
-     * through contactless.
-     */
     private static byte flagFor(Element parent, String valueTag) {
         return XmlDomUtils.text(parent, valueTag) == null ? (byte) 0 : (byte) 1;
     }

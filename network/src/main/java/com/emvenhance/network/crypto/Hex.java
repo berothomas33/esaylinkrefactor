@@ -1,12 +1,5 @@
 package com.emvenhance.network.crypto;
 
-/**
- * Uppercase hex encode/decode — the wire format {@code orchestration/exchange}'s
- * {@code encSerializedRequest}/{@code pinKey}/{@code transactionKey} fields actually use,
- * confirmed against a real captured request. {@link AesEnvelopeCrypto}/{@link RsaPublicKeyEncryptor}
- * both used base64 for these before that was known — base64 output is still valid Cipher/Mac
- * output, so nothing failed loudly; the host's HSM just couldn't make sense of it.
- */
 final class Hex {
 
     private static final char[] DIGITS = "0123456789ABCDEF".toCharArray();

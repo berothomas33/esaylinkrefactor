@@ -4,7 +4,6 @@ import android.util.Log;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 
-/** Simple host / printer stubs for demos and unfinished wiring. */
 public final class HostDefaults {
 
     private HostDefaults() {

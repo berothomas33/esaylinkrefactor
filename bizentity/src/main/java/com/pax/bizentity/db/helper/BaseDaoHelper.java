@@ -1,19 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210508 	        xieYb                  Create
- * ===========================================================================================
- *
- */
 package com.pax.bizentity.db.helper;
 
 import com.pax.bizentity.db.dao.DaoSession;
@@ -23,10 +7,6 @@ import org.greenrobot.greendao.AbstractDao;
 import org.greenrobot.greendao.database.Database;
 import org.greenrobot.greendao.query.QueryBuilder;
 
-/**
- * BaseDaoHelper
- * @param <T> The data table entity
- */
 public class BaseDaoHelper<T> {
     protected static final String TAG = "BaseDaoHelper";
     private final Class<T> entityClass;
@@ -35,7 +15,6 @@ public class BaseDaoHelper<T> {
         this.entityClass = entityClass;
     }
 
-    /** Opens the DB on first use if nothing has done so yet — init() is a no-op after that. */
     static DaoSession getDaoSession() {
         DaoManager.getInstance().init();
         return DaoManager.getInstance().getDaoSession();
@@ -55,11 +34,6 @@ public class BaseDaoHelper<T> {
         return getDao().getDatabase();
     }
 
-    /**
-     * insert record of corresponding Entity
-     * @param entity entity
-     * @return insert result
-     */
     public final boolean insert(T entity) {
         boolean success;
         try {
@@ -72,11 +46,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * insert record of corresponding Entity
-     * @param entityList entityList
-     * @return insert result
-     */
     public final boolean insert(List<T> entityList) {
         boolean success;
         try {
@@ -90,11 +59,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * update record of corresponding Entity
-     * @param entity entity
-     * @return update result
-     */
     public final boolean update(T entity) {
         boolean success;
         try {
@@ -108,11 +72,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * update record of corresponding Entity
-     * @param entityList corresponding Entity
-     * @return update result
-     */
     public final boolean update(List<T> entityList) {
         boolean success;
         try {
@@ -126,11 +85,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * delete record of corresponding Entity
-     * @param entity  corresponding Entity
-     * @return delete result
-     */
     public final boolean delete(T entity) {
         boolean success;
         try {
@@ -144,10 +98,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * delete all record of corresponding Entity
-     * @return delete result
-     */
     public final boolean deleteAll() {
         boolean success;
         try {
@@ -160,11 +110,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * delete record of corresponding Entity by key
-     * @param key key
-     * @return delete result
-     */
     public final boolean deleteByKey(long key) {
         boolean success;
         try {
@@ -178,11 +123,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * delete record of corresponding Entity by keyList
-     * @param keyList keyList
-     * @return delete result
-     */
     public final boolean deleteByKeyList(List<Long> keyList) {
         boolean success;
         try {
@@ -195,11 +135,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * delete record of corresponding Entity
-     * @param entityList record of corresponding Entity
-     * @return delete result
-     */
     public final boolean deleteEntities(List<T> entityList) {
         boolean success;
         try {
@@ -212,28 +147,14 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    /**
-     * query record of corresponding Entity by key
-     * @param key key
-     * @return corresponding Entity record
-     */
     public final T loadByKey(long key) {
         return this.getDao().load(key);
     }
 
-    /**
-     * query record of corresponding Entity by rowId
-     * @param rowId rowId
-     * @return corresponding Entity record
-     */
     public final T loadByRowId(long rowId) {
         return this.getDao().loadByRowId(rowId);
     }
 
-    /**
-     * query all record of corresponding Entity
-     * @return query result
-     */
     public final List<T> loadAll() {
         return this.getDao().loadAll();
     }

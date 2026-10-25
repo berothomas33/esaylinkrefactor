@@ -1,19 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210508 	        xieYb                  Create
- * ===========================================================================================
- *
- */
 package com.pax.bizentity.db.helper;
 
 import androidx.annotation.Nullable;
@@ -40,12 +24,6 @@ public class CardRangeDbHelper extends BaseDaoHelper<CardRange> {
                 .unique();
     }
 
-    /**
-     * WHERE (low <= ? AND high >= ?) @1
-     * WHERE (length = 0 OR ? = length) @2
-     * WHERE @1 AND @2
-     * order by (high - low)
-     */
     @Nullable
     public final CardRange findCardRange(String pan) {
         if (pan.length() < 10){
@@ -53,7 +31,6 @@ public class CardRangeDbHelper extends BaseDaoHelper<CardRange> {
         }
         String subPan = pan.substring(0, 10);
         if (subPan.contains("*")){
-            //p2pe mode is masked pan
             subPan = subPan.replaceAll("[*]", "0");
         }
         List<CardRange> list = getNoSessionQuery().where(CardRangeDao.Properties.PanRangeLow.le(subPan),

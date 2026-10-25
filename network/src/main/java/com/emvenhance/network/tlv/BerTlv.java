@@ -2,28 +2,11 @@ package com.emvenhance.network.tlv;
 
 import androidx.annotation.Nullable;
 
-/**
- * Minimal BER-TLV reader for pulling individual EMV tag values out of a hex-encoded TLV blob —
- * e.g. the issuer response's {@code chipData} field, which (matching the old project's behavior)
- * bundles whatever EMV tags the issuer returned (91 / 71 / 72 / 8A / 89 ...) into one string
- * instead of exposing them as separate JSON fields.
- *
- * <p>No general BER-TLV utility existed anywhere in this codebase (PAX's own kernel handles TLV
- * natively in C, never exposed at this layer), so this is a small, deliberately narrow reader:
- * two-byte tag numbers only (91, 71, 72, 8A, 89 are all single-byte tags, but this stays correct
- * for two-byte tags too, e.g. 9F02), one-byte definite-form length (values here are always well
- * under 128 bytes) — not the general multi-byte-length BER-TLV case.
- */
 public final class BerTlv {
 
     private BerTlv() {
     }
 
-    /**
-     * Finds {@code tag} (as a hex string, e.g. {@code "91"} or {@code "9F26"}) inside a
-     * hex-encoded BER-TLV blob and returns its value, hex-encoded. {@code null} if the tag isn't
-     * present or the blob is malformed.
-     */
     @Nullable
     public static byte[] findTag(@Nullable String hexBlob, String tag) {
         if (hexBlob == null || hexBlob.isEmpty()) {
@@ -49,8 +32,6 @@ public final class BerTlv {
             int valueLen = blob[i] & 0xFF;
             i += 1;
             if (valueLen > 0x7F) {
-                // Multi-byte length — not needed for the tags this blob carries; bail rather
-                // than risk misreading the rest of the buffer.
                 return null;
             }
             if (i + valueLen > blob.length) {

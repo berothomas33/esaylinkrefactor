@@ -4,36 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/**
- * Payload carried (AES-encrypted) inside {@link GeneralRequest#forSale}'s
- * {@code encSerializedRequest} — field set confirmed against the real {@code SaleRequest} class
- * (found in an uploaded {@code model_layer.rar}), which also revealed two things an earlier,
- * reconstructed-from-setter-calls version of this class had wrong:
- * <ul>
- *   <li>{@link #getAmount()}/{@link #getNetAmount()} are {@code double} major-currency-unit
- *       values (e.g. {@code 10.50}), not minor-unit integers — the real class even rounds
- *       {@code amount} to 2 decimal places on the way out. An earlier version sent
- *       {@code TransactionConfig#getAmountMinor()} (cents) directly as a {@code long}.
- *   <li>{@link #getNetAmount()} and {@link #getSingleTap()} weren't in the reconstructed version
- *       at all.
- * </ul>
- * {@link #getNetAmount()} is {@code 0.0}, as in the old app's approved sale.
- * {@link #getSingleTap()} is the Mastercard-CLSS single-tap retry marker (old project:
- * {@code "ST"}) — out of scope here (see {@code SaleCommunicationBehavior}'s javadoc), always
- * {@code null}.
- *
- * <p>Two fields are still placeholders pending the real per-issuer tables, same disclosure as
- * {@code RsaPublicKeyEncryptor}'s key-encoding assumption before it was confirmed:
- * <ul>
- *   <li>{@link #getCardType()} — the old project derived this from a {@code getIssueName(issuerName)}
- *       lookup (issuer/network → numeric or short code) that wasn't shared; this carries the raw
- *       issuer name instead of guessing at that table.
- *   <li>{@link #getDcc()} — the old project derived this from a {@code getDCC(issuerName)} lookup
- *       (which issuers are DCC-eligible) that also wasn't shared. Its approved Mastercard sale
- *       sent {@code "true"}, so Mastercard is {@code "true"}; every other scheme {@code "false"}.
- * </ul>
- * Confirm both against the server team before relying on this for a live transaction.
- */
 public final class SaleRequest {
 
     @SerializedName("amount")
@@ -52,7 +22,6 @@ public final class SaleRequest {
     @Nullable
     private final String pinBlock;
 
-    /** Field 55 (ICC System Related Data), hex-encoded BER-TLV — see {@code TransactionConfig#getIccData}. */
     @SerializedName("chipData")
     @Nullable
     private final String chipData;
@@ -63,14 +32,12 @@ public final class SaleRequest {
     @SerializedName("expirationYear")
     private final int expirationYear;
 
-    /** Track 2 discretionary data + separators, past the PAN/expiry — {@code ""} when unavailable. */
     @SerializedName("trailer")
     private final String trailer;
 
     @SerializedName("posEntryMode")
     private final String posEntryMode;
 
-    /** See the class javadoc's DCC/cardType caveat — issuer name, not a numeric code. */
     @SerializedName("cardType")
     @Nullable
     private final String cardType;
@@ -78,12 +45,10 @@ public final class SaleRequest {
     @SerializedName("dcc")
     private final String dcc;
 
-    /** Mastercard-CLSS single-tap retry marker — see the class javadoc; always {@code null} here. */
     @SerializedName("singleTap")
     @Nullable
     private final String singleTap;
 
-    /** {@link SaleExtraData}, JSON-serialized — see {@code SaleCommunicationBehavior}. */
     @SerializedName("extraData")
     private final String extraData;
 

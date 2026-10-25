@@ -10,17 +10,6 @@ import com.emvenhance.network.tlv.IssuerResponseFields;
 
 import io.reactivex.rxjava3.core.Single;
 
-/**
- * Real {@link CommunicationBehavior} — calls the host's online purchase endpoint and maps the
- * response into {@link AuthResult}, following the old project's {@code EmvApiClient#purchase}
- * behavior. Replaces {@code HostDefaults.declineUntilWired()} once a vendor terminal is ready to
- * go online for real.
- *
- * <p>The response's EMV tags (ARPC / issuer scripts) arrive bundled inside one {@code chipData}
- * hex BER-TLV blob rather than as separate JSON fields — same shape the old project used. See
- * {@link BerTlv}/{@link IssuerResponseFields} for the extraction and the caveat on the exact tag
- * set an issuer bundles there.
- */
 public final class RetrofitCommunicationBehavior implements CommunicationBehavior {
 
     private final HostApiConnection connection;

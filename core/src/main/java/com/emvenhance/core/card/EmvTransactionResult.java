@@ -2,17 +2,6 @@ package com.emvenhance.core.card;
 
 import androidx.annotation.Nullable;
 
-/**
- * Everything read off the card during EMV processing that the host needs for online
- * authorization — assembled once, right before {@code START_ONLINE_PROCESS}, and attached to
- * {@link TransactionConfig#withEmvResult}. Vendor-agnostic mirror of the old project's
- * {@code PosTransactionResult} (itself produced by a vendor SDK's EMV callback), trimmed to the
- * fields the exchange/sale request bodies actually read from it.
- *
- * <p>Built via {@link Builder} since it has this many fields — same shape as
- * {@code EmvTransParam.Builder}/{@code EmvProcessParam.Builder} already used elsewhere in this
- * codebase for the same reason.
- */
 public final class EmvTransactionResult {
 
     @Nullable
@@ -21,12 +10,10 @@ public final class EmvTransactionResult {
     private final String maskedPan;
     @Nullable
     private final String track2;
-    /** YYMM, tag 5F24 truncated — see {@link Builder#expDate}. */
     @Nullable
     private final String expDate;
     @Nullable
     private final String cardHolderName;
-    /** Field 55 (ICC System Related Data), hex BER-TLV — same value as {@code TransactionConfig#getIccData}. */
     @Nullable
     private final String chipData;
     @Nullable
@@ -43,10 +30,8 @@ public final class EmvTransactionResult {
     private final String tsi;
     @Nullable
     private final String atc;
-    /** Tag 9F26 when CID (9F27) says this cryptogram is an ARQC — {@code null} otherwise. */
     @Nullable
     private final String arqc;
-    /** Tag 9F26 when CID (9F27) says this cryptogram is a TC — {@code null} otherwise. */
     @Nullable
     private final String tc;
     @Nullable

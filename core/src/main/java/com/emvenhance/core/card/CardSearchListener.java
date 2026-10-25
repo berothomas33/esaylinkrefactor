@@ -2,49 +2,27 @@ package com.emvenhance.core.card;
 
 import androidx.annotation.Nullable;
 
-/**
- * Listener for unified card-reader events owned by {@link PosTerminal}.
- *
- * <p>Vendor terminals fire these from their native SDK polling. The selected entry method
- * is delivered via the detection callbacks (and the returned {@link CardPresence}).
- */
 public interface CardSearchListener {
 
-    /** Readers opened / polling started. */
     void onSearchStarted(TransactionConfig config);
 
-    /** ICC / chip card inserted and powered. */
     void onChipDetected(CardPresence card);
 
-    /** Contactless / NFC / PICC card detected. */
     void onContactlessDetected(CardPresence card);
 
-    /** Magnetic stripe swiped and tracks read. */
     void onMagstripeDetected(CardPresence card);
 
-    /** Operator chose manual PAN entry (no physical card). */
     void onManualEntrySelected(CardPresence card);
 
-    /** Card was removed during search (when the vendor SDK reports it). */
     void onCardRemoved();
 
-    /** No card presented before the vendor timeout. */
     void onSearchTimeout();
 
-    /** Search aborted: its transaction was cancelled (see {@link PosTerminal#startTransaction}). */
     void onSearchCancelled();
 
-    /** Hardware / reader failure. */
     void onReaderError(String message);
 
-    /**
-     * A read attempt failed in a way the cardholder can fix (a partial tap, two cards on the
-     * reader, a badly seated chip) and the search carries on — {@code message} says what to do.
-     */
     default void onSearchRetry(String message) {
-        // default: nothing to show
     }
-
-    /** Optional no-op defaults for adapters that only care about a subset. */
 
 }

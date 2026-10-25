@@ -1,19 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210508 	        xieYb                  Create
- * ===========================================================================================
- *
- */
 package com.pax.bizentity.entity;
 
 import androidx.annotation.NonNull;
@@ -25,9 +9,6 @@ import org.greenrobot.greendao.annotation.NotNull;
 import org.greenrobot.greendao.annotation.Property;
 import org.greenrobot.greendao.annotation.Unique;
 
-/**
- * acquirer table
- */
 @Entity(nameInDb = "acquirer")
 public class Acquirer implements Serializable {
 
@@ -38,16 +19,10 @@ public class Acquirer implements Serializable {
     public static final String SSL_TYPE_FIELD_NAME = "ssl_type";
     public static final String ENABLE_KEYIN = "key_in";
     public static final String ENABLE_QR = "qr";
-    /**
-     * id
-     */
     @Id(autoincrement = true)
     @Property(nameInDb = ID_FIELD_NAME)
     private Long id;
 
-    /**
-     * name
-     */
     @Property(nameInDb = NAME_FIELD_NAME)
     @Unique
     private String name;
@@ -271,13 +246,6 @@ public class Acquirer implements Serializable {
         isEnableQR = enableQR;
     }
 
-    /**
-     * copy constructor
-     * update data with specified acquirer
-     *
-     * @param acquirer the specified acquirer to be copied
-     * @return true if update successfully or false otherwise
-     */
     public boolean update(@NonNull Acquirer acquirer) {
         if (null == acquirer) {
             return false;
@@ -293,7 +261,6 @@ public class Acquirer implements Serializable {
         isEnableKeyIn = acquirer.isEnableKeyIn();
         isEnableQR = acquirer.isEnableQR();
 
-        //optional data
         String ip = acquirer.getIp();
         if (ip != null && !ip.isEmpty()) {
             this.ip = ip;

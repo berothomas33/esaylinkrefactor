@@ -13,15 +13,8 @@ import com.emvenhance.R;
 import com.emvenhance.core.card.TransactionType;
 import com.google.android.material.tabs.TabLayout;
 
-/**
- * Collects the transaction type and amount, then hands off to {@link SearchCardFragment} — the
- * only entry point left into a transaction. {@link MainActivity}'s old "present card / chip only /
- * contactless only" buttons always used a hardcoded amount and are gone; this fragment is what
- * replaces them.
- */
 public class AmountFragment extends Fragment {
 
-    /** {@link TransactionType#values()} order must match the tab order in fragment_amount.xml. */
     private static final TransactionType[] TAB_ORDER = {
             TransactionType.SALE, TransactionType.CASH_IN, TransactionType.REFUND,
     };
@@ -46,7 +39,6 @@ public class AmountFragment extends Fragment {
         EditText referenceInput = view.findViewById(R.id.referenceInput);
         TextView referenceError = view.findViewById(R.id.referenceError);
 
-        // A refund needs the original sale's reference number (the host's refund request).
         transactionTypeTabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
@@ -94,12 +86,6 @@ public class AmountFragment extends Fragment {
         return position >= 0 && position < TAB_ORDER.length ? TAB_ORDER[position] : TransactionType.SALE;
     }
 
-    /**
-     * Dollars-and-cents string ("10.00") to minor units (1000). Assumes a 2-decimal currency —
-     * this UI is vendor-agnostic and has no access to the PAX-only {@code CurrencyConverter} the
-     * kernel layer uses for the real exponent; {@link com.emvenhance.core.card.TransactionConfig}
-     * only carries a minor-units {@code long} regardless.
-     */
     @Nullable
     private static Long parseAmountMinor(String text) {
         if (text == null || text.trim().isEmpty()) {

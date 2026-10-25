@@ -4,11 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/**
- * Serialized (as JSON, into {@link SaleRequest#getExtraData()}) supplementary EMV data — mirrors
- * the old project's {@code SaleExtraData}, reconstructed from its setter calls in
- * {@code SaleActivity#getSaleRequest}.
- */
 public final class SaleExtraData {
 
     @SerializedName("aid")

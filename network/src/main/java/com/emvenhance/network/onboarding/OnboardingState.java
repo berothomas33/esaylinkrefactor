@@ -12,17 +12,6 @@ import java.time.format.DateTimeParseException;
 
 import androidx.annotation.Nullable;
 
-/**
- * Tracks whether this terminal has completed each onboarding cycle — the same "run once and
- * remember it" shape {@code PaxTerminal} already uses for its own
- * {@code KEY_EMV_CONFIG_INITIALIZED} flag, generalized here since onboarding is vendor-agnostic
- * (plain HTTP against {@link com.emvenhance.network.HostApiClient}), not PAX-specific.
- *
- * <p>Also persists the offline cycle's identity material (SACS / challenge / public key /
- * service account) — {@code ConfigurationActivity} reuses the saved challenge again in its later
- * {@code createToken()} step (signing {@code accessToken + challenge}), so this needs to survive
- * past the onboarding cycle itself, not just live in {@link OnboardingClient}'s call chain.
- */
 public final class OnboardingState {
 
     private static final String PREFS_NAME = "onboarding_state";
@@ -35,15 +24,6 @@ public final class OnboardingState {
     private static final String KEY_ACCESS_TOKEN = "access_token";
     private static final String KEY_TOKEN_EXPIRATION = "token_expiration";
 
-    /**
-     * Zone assumed for a bare (no-offset) {@code expiration} timestamp — matches
-     * {@code ConfigurationActivity#TOKEN_EXPIRATION_ZONE} in the old project exactly (confirmed
-     * against its real source, not reconstructed): the host is in Egypt and apparently sends this
-     * field as local time with no offset, and the old app hardcoded UTC+3 for it rather than
-     * reading the device's zone. Real JWT-expired errors traced back to this class never checking
-     * expiration at all (an access token, once saved, was reused forever) — see
-     * {@link #isTokenValid()}, ported to close that gap the same way the old app did.
-     */
     private static final ZoneOffset TOKEN_EXPIRATION_ZONE = ZoneOffset.ofHours(3);
     private static final long TOKEN_REFRESH_BUFFER_SECONDS = 30;
 
@@ -70,16 +50,10 @@ public final class OnboardingState {
         prefs.edit().putBoolean(KEY_ONLINE_ONBOARDED, true).apply();
     }
 
-    /** Both cycles done — see {@code EmvEnhanceApp} for where this should gate transactions. */
     public boolean isFullyOnboarded() {
         return isOfflineOnboarded() && isOnlineOnboarded();
     }
 
-    /**
-     * Clears both completion flags without touching the saved identity material — mirrors
-     * {@code ConfigurationActivity#resetOnboarding}, called when step 3 (confirm) fails so the
-     * next launch re-runs the full offline cycle from the handshake.
-     */
     public void resetCompletion() {
         prefs.edit()
                 .putBoolean(KEY_OFFLINE_ONBOARDED, false)
@@ -123,12 +97,6 @@ public final class OnboardingState {
         return prefs.getString(KEY_SERVICE_ACCOUNT, null);
     }
 
-    /**
-     * The bearer access token {@code OnboardingClient#createToken} fetched — not technician-entered,
-     * unlike an earlier version of this class assumed; see that method's javadoc for where it
-     * comes from. {@code HostHeaders#buildAuthenticated} reads this for every authenticated call
-     * once onboarding has completed (EMV param download, sale/exchange).
-     */
     public void saveAccessToken(String accessToken) {
         prefs.edit().putString(KEY_ACCESS_TOKEN, accessToken).apply();
     }
@@ -138,7 +106,6 @@ public final class OnboardingState {
         return prefs.getString(KEY_ACCESS_TOKEN, null);
     }
 
-    /** ISO-local-date-time-ish string, as the server returns it — see {@link #isTokenValid()}. */
     public void saveTokenExpiration(String expiration) {
         prefs.edit().putString(KEY_TOKEN_EXPIRATION, expiration).apply();
     }
@@ -148,14 +115,6 @@ public final class OnboardingState {
         return prefs.getString(KEY_TOKEN_EXPIRATION, null);
     }
 
-    /**
-     * Whether {@link #getAccessToken()} is still safe to use — ports
-     * {@code ConfigurationActivity#isTokenValid()} verbatim (same 30s refresh buffer, same
-     * dual-format parse). {@code false} whenever there's no saved expiration, it fails to parse, or
-     * {@code now} is within {@link #TOKEN_REFRESH_BUFFER_SECONDS} of it — a caller should treat any
-     * of those as "go get a fresh token" ({@code OnboardingClient#ensureValidAccessToken}), not as
-     * an error.
-     */
     public boolean isTokenValid() {
         String expiration = getTokenExpiration();
         if (expiration == null || expiration.trim().isEmpty()) {
@@ -170,12 +129,6 @@ public final class OnboardingState {
         }
     }
 
-    /**
-     * Accepts either a proper offset/UTC timestamp ({@code ...Z} or {@code ...+HH:MM}) or a bare
-     * local one with no offset at all — the real captured {@code expiration} field is the latter,
-     * so that branch is the one that actually fires; the offset-aware branch is kept only because
-     * the old app kept it (defensive, never observed).
-     */
     private static Instant parseTokenExpiration(String expiration) {
         String normalized = expiration;
         if (normalized.endsWith("Z")) {
