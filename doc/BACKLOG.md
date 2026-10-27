@@ -206,6 +206,12 @@ Ask before deleting (`CLAUDE.md` §12).
 - `CLAUDE.md` §2.3 "the adapter always calls `setCallBackResult`" — not true until 0.4 is fixed; §7 TC rule vs code (1.6).
 - `REFERENCE.md`: fixed in the same commit as this file (see its §4.3, §5.4, §5.5, §5.7, §2.5, §7).
 
+## 10. Structure
+
+| # | Sev | Where | What | §11 |
+|---|---|---|---|---|
+| 10.1 | M | `vendor-pax/.../PaxEmvBehavior.java` (2,387 lines) | **Split the PAX behavior in two stages.** **Stage 1 (small, safe):** move what only computes into `PaxResultMapper` (`checkContactResult` / `checkContactlessResult` return a decision — approved / declined / retry / see phone / fallback — that the behavior acts on; `toOnlineResultWrapper`, `hostOutcome`, `needsHostWithoutArqc`) and `PaxCardData` (PAN / track 2 / name reads, `maskPan`, `panFromTrack2`): ~400 lines out, no native call moves, and the first tests on PAX's approve / decline mapping. **Stage 2 (bigger, after `-oct27` passes the device form):** contact runners → `PaxContactFlow`, contactless → `PaxContactlessFlow` (~1,000 lines left); needs a narrow way for them to reach `goToStep` / `askStep` (`protected` in `AbstractEmvBehavior`) and touches the EMV flow, so device-test after | no |
+
 ---
 
 ## Suggested order
@@ -217,3 +223,4 @@ Ask before deleting (`CLAUDE.md` §12).
    4.1–4.5.
 5. **Live gate** (one branch): 0.2, 0.11–0.13, 5.1–5.6, 4.8, 4.10, 1.12.
 6. Receipt (6.1), then the UI rows, tests alongside each fix.
+7. Structure: 10.1 stage 1 any time (no flow change); stage 2 only after a passed device form.
