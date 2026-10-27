@@ -24,7 +24,143 @@
 
 ## 1. الـ Architecture: مين بيملك إيه
 
-### 1.1 الطبقات والـ modules
+### 1.1 الهرم: الطبقات على بعض
+
+الكود كله أربع طبقات، كل طبقة بتكلم اللي تحتها بس. الـ **CORE** هو المايسترو: الـ UI بتكلمه هو بس (باب واحد = Facade: `PosTerminal`)، وهو بيحرّك الـ vendor اللي اتبنى (`TerminalFactory` بتاع الـ flavor).
+
+```text
+                          ┌──────────────────────┐
+                          │          UI          │  screens
+                          └──────────┬───────────┘
+                                     ▼  talks to CORE only
+                ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+                ┃                                          ┃
+                ┃         CORE  (the conductor)            ┃  one door for the UI (Facade)
+                ┃                                          ┃  runs any vendor
+                ┗━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┛
+                                     ▼  drives the vendor the build picked
+        ┌──────────────────────────────────┐ ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+        │           VENDOR PAX             │      VENDOR INGENICO
+        │           (A920, live)           │ │      (stub, no SDK yet)      │
+        └────────────────┬─────────────────┘ └ ─ ─ ─ ─ ─ ─ ┬ ─ ─ ─ ─ ─ ─ ─ ┘
+                         ▼  each vendor talks to its own SDK ▼
+  ┌──────────────────────────────────────────────┐ ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+  │                 EMV LIBS (PAX)               │       INGENICO SDK
+  │         PAX libraries + native kernels       │ │     (not in the project)      │
+  └──────────────────────────────────────────────┘ └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+```
+
+- **UI**: الشاشات. بتكلم الـ CORE بس.
+- **CORE**: المايسترو، وهو أكبر طبقة. باب واحد للـ UI (`PosTerminal`)، وبيشغّل الـ vendor اللي اتبنى.
+- **VENDOR PAX** / **VENDOR INGENICO**: كل واحد بيملا عقود الـ CORE بالـ SDK بتاعه. الـ Ingenico لسه stub (الخط المتقطع).
+- **EMV LIBS**: مكتبات PAX والـ kernels الـ native. الـ Ingenico SDK لسه مش موجود.
+
+نفس الهرم بالتفاصيل — وبين كل طبقتين العقد الوحيد اللي بيعدّي:
+
+```text
+UI  :app (src/main)            AmountFragment → SearchCardFragment ⇄ MainViewModel · EmvParamActivity · OnboardingActivity
+                               مفيش import لـ PAX: بتشوف PosTerminal و EmvParams بس
+  ▼ acceptCard · cancel · steps() · emvSteps · apduTrace · printReceipt
+CORE  :core  (المايسترو)        PosTerminal (Facade: thread · busy · host · printer · ack/reverse)
+                               PosTerminal.Transaction · EmvEngine · AbstractEmvBehavior (16 onXxx · goToStep · askStep · field 55)
+                               بيحرّك الدفة: TerminalFactory بتاع الـ flavor (pax / ingenico / fake)
+  جنبه: NETWORK :network        بيملا CommunicationBehavior: exchange → sale/refund · ack · reverse · onboarding · params download
+  ▼ TerminalFactory.create() · PosTerminal.searchCard / cancelCardSearch · AbstractEmvBehavior.onXxx / readIccTag
+VENDOR PAX  :vendor-pax        PaxTerminal (polling) · PaxEmvBehavior (16 onXxx، runContact*/runContactless*، kernel callbacks)
+                               PaxKernel · PaxEmvParams · PaxPinPad · PaxAppSelectDialog
+VENDOR INGENICO  :vendor-ingenico   IngenicoTerminal · IngenicoEmvBehavior · IngenicoPinPad   (stub: كارت وهمي لحد الـ SDK)
+  ▼ native calls (والـ callbacks راجعة: IContactCallback · IContactlessCallback)
+EMV LIBS (PAX)                 :emvlib:dpas ContactProcess → EMVCallback.EMV* · :emvlib ClssProcess → Clss*Process → Clss*Api
+                               :emvlib:base · :emvbase · :emvflow (APDU، PIN) · :emvservice · :bizentity (GreenDAO + EmvParamService)
+                               :bizlib · :poslib · :commonutils  →  تحت الكل: الـ kernels الـ native المعتمدة
+INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
+```
+
+- **النداء بينزل لتحت بس.** اللي بيطلع لفوق: الـ steps (`Transaction.steps()`، `emvSteps`)، و callbacks الـ kernel اللي بترجع للـ vendor بتاعها.
+- **vendor جديد** = module فيه `TerminalFactory` + subclass لـ `PosTerminal` + subclass لـ `AbstractEmvBehavior`؛ الـ UI والـ CORE مبيتغيروش (`VENDOR.md`). `:vendor-fake` بيثبت إن الـ CORE بيشتغل من غير أي SDK.
+
+### 1.2 مكونات كل طبقة: كل حاجة بتعمل إيه
+
+**UI** — `:app (src/main)`. بتطلب من الـ CORE وبتعرض اللي راجع، ومفيش فيها أي حالة للعملية ولا أي اسم vendor.
+
+| الجزء | الكلاس | شغلته |
+|---|---|---|
+| البداية | `EmvEnhanceApp` | `PosTerminal` واحد طول عمر التطبيق (`TerminalFactory.create`) + الـ base URL |
+| الـ sale | `MainActivity` | الشاشة الرئيسية: زراير بس |
+| | `AmountActivity` / `AmountFragment` | النوع والمبلغ، وبعدين شاشة الكارت |
+| | `SearchCardFragment` | شاشة العملية: الـ banner، الـ cancel، النتيجة |
+| | `MainViewModel` | `PosTerminal` → LiveData: `acceptCard`، `cancel`، الـ steps، الـ trace |
+| | `Event` | قيمة تتقري مرة واحدة (rotation) |
+| الإعدادات | `EmvParamActivity` / `EmvParamListFragment` | الـ EMV params: كاش / DB، والـ download |
+| | `OnboardingActivity` | تسجيل الـ terminal، mToken، PIN bypass |
+| | `CountryListActivity` | البلد والعملة |
+
+**CORE — المايسترو** — `:core`. الـ transaction من أولها لآخرها بنفس الكود لأي vendor؛ بيكلم الـ vendor من خلال عقود (classes abstract و interfaces).
+
+| package | الكلاس | شغلته |
+|---|---|---|
+| `terminal` (الإدارة) | `PosTerminal` | الـ Facade: الباب الوحيد للـ UI. thread واحد، busy، الـ host (90 s)، الطابعة، ack / reverse |
+| | `PosTerminal.Transaction` | عملية واحدة: `end`، الـ steps، الـ cancel، الـ attempts، الـ requests اللي راحت للـ host |
+| | `EmvBehavior` | العقد: `prepare` · `start` · `dispose` |
+| | `AbstractEmvBehavior` | الـ EMV المشترك: `goToStep`، `askStep`، field 55، والـ 16 `onXxx` اللي الـ vendor بيملاها |
+| | `TerminalBusyException` | sale تانية وفيه واحدة شغالة |
+| `terminal` (UI بيستنى شخص) | `AbstractAppSelectDialog` | اختيار الـ app: الانتظار، الـ timeout، ومبيختارش الأول من نفسه |
+| | `PinPadBehavior` / `AbstractPinPadBehavior` / `PinKey` | شاشة الـ PIN: النقط والزراير بس (التشفير شغل الـ SDK) |
+| `engine` | `EmvEngine` | كل EMV step للـ dispatch وللـ banner، الـ APDU trace، طلب الـ retry. مالوش دعوة بحالة العملية |
+| `event` | `TransactionStep(Event)` | مراحل العملية للـ UI |
+| | `EmvStep(Event)` | الـ 17 خطوة بتاعة الـ kernel |
+| `card` | `TransactionConfig` | النوع، المبلغ، طريقة الكارت، field 55، الـ PIN block، `asyncRequestId` |
+| | `CardPresence` / `CardSearchListener` | الكارت اللي اتلقى، و events البحث |
+| | `EmvTransactionResult` | اللي اتقرا من الكارت والـ host محتاجه |
+| | `Field55` | field 55 من الـ tags، نفس الطريقة لكل vendor |
+| | `EntryMethod` / `TransactionType` | chip / tap / swipe / manual؛ sale / refund / cash in |
+| `host` | `CommunicationBehavior` | الـ host: `authorize` · `acknowledge` · `reverse` |
+| | `AuthResult` | approved / declined / failed / notSent |
+| | `HostNotReachedException` | "الـ host مستحيل يكون وافق": مفيش reversal |
+| | `PrinterBehavior` / `HostDefaults` | الطابعة؛ host وطابعة وهميين للـ demo |
+| `param` · `util` | `EmvParams` / `ApduTrace` / `EmvLog` | عقد شاشة الـ params؛ سجل الـ APDU (debug)؛ الـ logs |
+
+**NETWORK** — `:network`. الكلام مع الـ host بتاعنا. بيملا `CommunicationBehavior` ومبيعرفش أي vendor.
+
+| الجزء | الكلاس | شغلته |
+|---|---|---|
+| الـ sale | `SaleCommunicationBehavior` | exchange → sale / refund، ack، reverse، وتصنيف كل فشل (وصل للـ host ولا لأ) |
+| | `HostApiConnection` / `HostApiClient` | الـ endpoints (Retrofit) والـ client |
+| | `HostHeaders` / `HostSettings` / `HostAppKeys` | الـ headers: token، mToken (يتغير من الجهاز)، المفاتيح الثابتة |
+| | `PosEntryModeCodes` | 051 / 071 / 901 / 011 |
+| | `RetrofitCommunicationBehavior` | `crypto/purchase` القديم: موجود ومش مستخدم |
+| `crypto` · `tlv` | `RsaPublicKeyEncryptor` / `AesEnvelopeCrypto` | الـ TEK بمفتاح الـ host؛ تشفير الـ request والـ response |
+| | `BerTlv` / `IssuerResponseFields` | ARPC و الـ scripts من رد الـ host |
+| `onboarding` · params | `OnboardingClient` / `OnboardingState` | تسجيل الـ terminal، المفاتيح، الـ token وتجديده |
+| | `EmvParamDownloadClient` | ملف الـ params (bytes بس؛ الفك عند PAX) |
+| | `EnvironmentProvider` / `PinBypassSettings` | الـ base URL؛ الـ PIN bypass |
+
+**VENDOR PAX** — `:vendor-pax`. بيملا عقود الـ CORE بالـ SDK بتاع PAX؛ المكان الوحيد اللي فيه اسم PAX.
+
+| الجزء | الكلاس | شغلته |
+|---|---|---|
+| البداية | `TerminalFactory` | المكان الوحيد اللي بيعمل `PaxTerminal` |
+| | `VendorApplication` / `PaxHardwarePermissions` | الـ Application بتاع PAX (`BaseApplication`)؛ صلاحيات ICC / Mag / PICC |
+| الكارت والـ EMV | `PaxTerminal` | `extends PosTerminal`: الـ polling، والـ host والطابعة الحقيقيين |
+| | `PaxEmvBehavior` | `extends AbstractEmvBehavior`: الـ 16 `onXxx` (native call لكل خطوة) + callbacks الـ kernel |
+| | `PaxTransactionState` | اللي اتعرف في الـ attempt دي؛ جديد كل attempt |
+| | `PaxKernel` | params، contact، contactless، mag |
+| الشاشات والأجهزة | `PaxPinPad` / `PaxAppSelectDialog` / `PaxPrinter` / `PaxEmvParams` | الـ PIN، اختيار الـ app، الطابعة، الـ params لشاشة EMV Params |
+
+**VENDOR INGENICO** — `:vendor-ingenico`. نفس العقود بس stub (كارت ونتيجة وهميين) لحد ما الـ SDK يتركب: `TerminalFactory`، `VendorApplication`، `IngenicoTerminal` (`extends PosTerminal`)، `IngenicoEmvBehavior` (`extends AbstractEmvBehavior`)، `IngenicoPinPad`.
+
+**EMV LIBS (PAX)**. الـ SDK والـ kernels الـ native المعتمدة؛ الـ vendor-pax بس اللي بيكلمها.
+
+| الجزء | الـ module | شغلته |
+|---|---|---|
+| الـ kernels | `:emvlib:dpas` — `ContactProcess` | الـ contact kernel (`EMVAppSelect` … `EMVCompleteTrans`) + `EmvCallBackListener` |
+| | `:emvlib` — `ClssProcess` + `Clss*Process` | الـ contactless: kernel لكل scheme |
+| | `:emvlib:base` / `:emvbase` | الـ base classes، الـ params، الـ results، الـ callbacks |
+| الجهاز | `:emvflow` / `:emvservice` | DAL، APDU، PIN؛ `PinService`، `MagCardService` |
+| | `:poslib` / `:commonutils` / `:bizlib` | أدوات PAX |
+| الـ params | `:bizentity` | GreenDAO، `EmvParamService` (الكاش)، XML parsers، `EmvParamUpdater`، `ConfigInit` |
+
+### 1.3 الطبقات والـ modules (الـ boxes بالكلاسات)
 
 ```text
 ┌──────────── :app (src/main) — كل الشاشات، مفيش vendor ──────────────────────────────┐
@@ -63,7 +199,7 @@
 └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 مين بيملك إيه (مالك واحد لكل حاجة)
+### 1.4 مين بيملك إيه (مالك واحد لكل حاجة)
 
 ```mermaid
 flowchart LR
@@ -97,7 +233,7 @@ flowchart LR
 | `PaxKernel` | `PaxTerminal` | `EmvParamService params`، `ContactProcess contact` (جديد كل attempt)، `ClssProcess contactless`، `MagCardService mag` | — |
 | `ContactProcess` | `prepareKernel` | الـ wrapper على الـ native (`EMVAppSelect` … `EMVCompleteTrans`) و `EmvCallBackListener` (لازم يرد بـ `setCallBackResult` على كل طريق) | UI، انتظار شخص |
 
-### 1.3 قواعد معمارية مش بتتكسر
+### 1.5 قواعد معمارية مش بتتكسر
 
 1. **الـ UI والـ core مش بيعرفوا PAX.** الـ vendor module بيتختار بالـ flavor، و`TerminalFactory` هو المكان الوحيد اللي فيه اسم `PaxTerminal`.
 2. **الـ `onXxx` protected ومحدش بيناديها مباشرة.** الطريق الوحيد: `goToStep` → `emvSteps` → `dispatchStepMethod` (§3). ده اللي بيخلي كل خطوة تتشاف في الـ UI والـ APDU trace.
