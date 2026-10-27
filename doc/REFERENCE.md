@@ -223,17 +223,35 @@ flowchart LR
   PT -- "authorize · acknowledge · reverse" --> CB
 ```
 
-| الكلاس | بيتعمل فين | بيملك | ممنوع عليه |
+**`PosTerminal` = الماكينة نفسها**: ماكينة الـ POS اللي في إيد الكاشير، أياً كان نوعها (PAX A920، Ingenico…). أي ماكينة فيها نفس الأجزاء، وكل جزء ليه field:
+
+```java
+// PosTerminal = the POS machine
+protected final AbstractEmvBehavior   behavior;       // the card: EMV with the card (reader + kernel)
+protected final CommunicationBehavior communication;  // HTTP to the bank / the facilitator
+protected final PrinterBehavior       printer;        // the printer: the receipt
+private   final Executor              transactionExecutor; // one sale at a time
+```
+
+| الجزء في الماكينة | في الكود | بيعمل إيه |
+|---|---|---|
+| الكارت | `EmvBehavior` (`PaxEmvBehavior` على PAX) | يقرا الكارت، ويعمل الـ 16 خطوة بتاعة الـ EMV مع الـ kernel، ويجهّز الـ request للبنك |
+| البنك | `CommunicationBehavior` (`SaleCommunicationBehavior`) | الـ HTTP مع البنك أو الـ facilitator: `authorize` (sale / refund)، وبعد النهاية `acknowledge` أو `reverse` |
+| الطابعة | `PrinterBehavior` (`PaxPrinter`) | الإيصال، على thread لوحدها بالترتيب |
+| الماكينة نفسها | `PosTerminal` | عملية واحدة في المرة (thread واحد، `current` = مشغولة)، البحث عن الكارت (الـ vendor بينفّذ `searchCard`)، وبتربط الأجزاء ببعض |
+
+| الكلاس | يعني إيه في الحقيقة | مسؤول عن (هو بس) | ممنوع عليه |
 |---|---|---|---|
-| `EmvEnhanceApp` | `Application.onCreate` | `PosTerminal` واحد طول عمر الـ process (`TerminalFactory.create`) | — |
-| `PosTerminal` | `TerminalFactory` | الـ transaction thread، الـ busy (`AtomicReference<Transaction> current`)، الـ host (`authorize` + الـ timeout، واسم كل request: `asyncRequestId`)، الـ acknowledgement / reversal بعد النهاية (`followUpScheduler`)، الطابعة، والـ search (الـ vendor بيعمل `searchCard` / `cancelCardSearch`) | أي EMV logic |
-| `PosTerminal.Transaction` | `startTransaction` | حالتها كلها: `end` (`null` = شغالة)، steps بتاعتها (`ReplaySubject`، وهو كمان الـ lock)، الـ cancel، الـ attempt loop، والـ requests اللي اتبعتت للـ host (`online`) وهل نشرت APPROVED (`approvedReported`) | تنشر حاجة بعد النهاية |
-| `SaleCommunicationBehavior` | `PaxTerminal` | الـ exchange → sale/refund (envelope)، الـ `acknowledgement` / `reverse` (JSON عادي، نفس headers الـ sale)، وتصنيف كل فشل: وصل للـ host ولا لأ (`classify`) | قرار إمتى ack وإمتى reverse (ده بتاع `PosTerminal`) |
-| `EmvEngine` | constructor بتاع `PosTerminal`، ويتسلّم مرة واحدة: `behavior.attach(engine)` (`attach` في `AbstractEmvBehavior` بس، مش في `EmvBehavior`) | `emvSteps` (الـ dispatch bus)، `ApduTrace`، طلب الـ retry، والطريق للـ host (`Authorizer` = `PosTerminal::authorize`) | أي transaction state، أي transaction step |
-| `AbstractEmvBehavior` | super بتاع الـ vendor behavior | الـ engine (`private` field، المكان الوحيد اللي بيتحفظ فيه؛ `attach` بس اللي بيكتب فيه، والكل بيقراه بـ `engine()`: الـ vendor، و `PosTerminal` بـ `behavior.engine()`)، `goToStep` (فحص الـ cancel الوحيد)، `askStep` / `answerStep`، `publish`، `finish*`، field 55 + `authorizeOnline` | threads، busy، host |
-| `PaxEmvBehavior` | constructor بتاع `PaxTerminal` | الـ 16 `onXxx`، الـ `runContact*` / `runContactless*`، الـ kernel callbacks، `PaxTransactionState tx` (جديد كل attempt) | حد يناديه غير الـ dispatch |
-| `PaxKernel` | `PaxTerminal` | `EmvParamService params`، `ContactProcess contact` (جديد كل attempt)، `ClssProcess contactless`، `MagCardService mag` | — |
-| `ContactProcess` | `prepareKernel` | الـ wrapper على الـ native (`EMVAppSelect` … `EMVCompleteTrans`) و `EmvCallBackListener` (لازم يرد بـ `setCallBackResult` على كل طريق) | UI، انتظار شخص |
+| `PosTerminal` | الماكينة | • عملية واحدة في المرة: thread واحد، و `current` = مشغولة<br>• البنك: `authorize` (أقصى 90 ثانية)، واسم كل request (`asyncRequestId`)<br>• بعد النهاية: ack أو reverse (`followUpScheduler`)<br>• الطابعة<br>• البحث عن الكارت (الـ vendor بينفّذ `searchCard` / `cancelCardSearch`) | أي EMV logic |
+| `PosTerminal.Transaction` | العملية الواحدة (sale / refund) | • حالتها: `end` (`null` = شغالة)<br>• الـ steps اللي الشاشة بتشوفها (`ReplaySubject`، وهو الـ lock كمان)<br>• الـ cancel والـ attempts<br>• الـ requests اللي راحت للبنك وردودها (`online`، `approvedReported`) | تنشر حاجة بعد ما تخلص |
+| `AbstractEmvBehavior` | التعامل مع الكارت (المشترك بين الـ vendors) | • الـ 16 خطوة (`onXxx`)، `goToStep` (فحص الـ cancel الوحيد)، `askStep` / `answerStep`، `publish`، `finish*`<br>• field 55، والـ request للبنك (`authorizeOnline`)<br>• الـ engine: `private` field، `attach` بس اللي بيكتب فيه، والكل بيقرا بـ `engine()` | threads، busy، البنك مباشرة |
+| `PaxEmvBehavior` | التعامل مع الكارت على PAX | • الـ `onXxx`: native call لكل خطوة، `runContact*` / `runContactless*`<br>• callbacks الـ kernel<br>• `PaxTransactionState tx` جديد كل attempt | حد يناديه غير الـ dispatch |
+| `EmvEngine` | شريط خطوات الـ EMV | • `emvSteps` (الـ dispatch والـ banner)<br>• `ApduTrace`<br>• طلب الـ retry<br>• الطريق للبنك (`Authorizer` = `PosTerminal::authorize`)<br>بيتعمل في constructor الـ `PosTerminal` ويتسلّم مرة واحدة: `behavior.attach(engine)` | أي حالة للعملية |
+| `SaleCommunicationBehavior` | الـ HTTP مع البنك / الـ facilitator | • exchange → sale / refund (envelope)<br>• ack / reverse (JSON عادي، headers الـ sale)<br>• تحديد الفشل: وصل للبنك ولا لأ (`classify`) | يقرر ack ولا reverse (ده بتاع `PosTerminal`) |
+| `PaxPrinter` | الطابعة | • طباعة الإيصال | — |
+| `EmvEnhanceApp` | تشغيل التطبيق | • ماكينة واحدة (`PosTerminal`) طول عمر التطبيق (`TerminalFactory.create`) | — |
+| `PaxKernel` | الـ kernels بتاعة PAX | • `EmvParamService params`، `ContactProcess contact` (جديد كل attempt)، `ClssProcess contactless`، `MagCardService mag` | — |
+| `ContactProcess` | الغلاف حوالين الـ kernel | • `EMVAppSelect` … `EMVCompleteTrans`<br>• `EmvCallBackListener`: لازم يرد بـ `setCallBackResult` على كل طريق | UI، يستنى شخص |
 
 ### 1.5 قواعد معمارية مش بتتكسر
 
