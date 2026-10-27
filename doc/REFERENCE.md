@@ -1,7 +1,8 @@
 # EasyLink / EmvEnhance — مرجع المشروع
 
-> مكتوب من الكود على `transactionOwnsSteps` (`19cc019`، 2026-10-25). كل اسم method هنا موجود فعلاً.
+> مكتوب من الكود على `transactionOwnsSteps` (`30cd5aa`، 2026-10-27). كل اسم method هنا موجود فعلاً.
 > اتجرّب على الجهاز عند `19cc019`: chip، و tap again (form #11) — الاتنين شغالين. باقي الـ form لسه متجرّبش على الـ branch ده.
+> الجديد من بعد `19cc019` (مش متجرّب على الجهاز): الـ acknowledgement / reversal بعد النهاية (§2.7، `3d5fea1` + `30cd5aa`)، والـ trace بيبدأ عدّ الـ GENERATE AC من الأول مع كل retry (§2.5، `196af3b`).
 > الرسومات نفسها (mermaid) موجودة كمان كصفحة: https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh
 > ⚠ = الكود لسه مش بيعمل اللي المفروض يعمله — الرقم بين قوسين في `doc/BACKLOG.md`.
 > لو الكود اتغير والمرجع لأ — الكود هو الصح، وحدّث المرجع.
@@ -10,7 +11,7 @@
 ## الفهرس
 
 1. [الـ Architecture: مين بيملك إيه](#1-الـ-architecture-مين-بيملك-إيه)
-2. [PosTerminal والـ transaction thread](#2-posterminal-والـ-transaction-thread)
+2. [PosTerminal والـ transaction thread](#2-posterminal-والـ-transaction-thread) — و§2.7: [الـ host بعد النهاية: acknowledgement / reversal](#27-الـ-host-بعد-النهاية-acknowledgement--reversal)
 3. [EmvEngine والـ dispatch: من goToStep لحد onXxx](#3-emvengine-والـ-dispatch-من-gotostep-لحد-onxxx)
 4. [الـ kernel callbacks و askStep](#4-الـ-kernel-callbacks-و-askstep)
 5. [Contact flow](#5-contact-flow)
@@ -33,6 +34,8 @@
 ┌──────────── :core — مفيش أي import vendor ───────────────────────────────────────────┐
 │ PosTerminal (abstract)   thread · busy · host · printer · card search (vendor)        │
 │   └── PosTerminal.Transaction   end · steps (ReplaySubject) · cancel · run/attempt   │
+│         · online (كل request اتبعت + رده) · closeOnline → ack / reverse            │
+│ CommunicationBehavior    authorize · acknowledge · reverse  (+ HostNotReachedException)│
 │ EmvBehavior ◄── AbstractEmvBehavior   goToStep · askStep · publish · finish* · dispatch│
 │ EmvEngine                emvSteps · ApduTrace · retry · authorize → PosTerminal      │
 └──────────────────────────────────────┬───────────────────────────────────────────────┘
@@ -55,7 +58,8 @@
 │ :bizlib :poslib :commonutils                                                          │
 └───────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────── :network (vendor-agnostic) ──────────────────────────────────────────────┐
-│ SaleCommunicationBehavior (exchange → sale/refund)  · Onboarding · EmvParamDownload   │
+│ SaleCommunicationBehavior (exchange → sale/refund · acknowledgement · reverse)        │
+│   · Onboarding · EmvParamDownload                                                     │
 └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,8 +68,9 @@
 ```mermaid
 flowchart LR
   UI["UI: MainViewModel / SearchCardFragment"]
-  PT["PosTerminal<br/>transactionExecutor · current (busy)<br/>authorize (host, 90 s) · printReceipt"]
-  TX["PosTerminal.Transaction<br/>config · volatile end · ReplaySubject steps<br/>run · attempt · cancel · EngineReportingListener"]
+  PT["PosTerminal<br/>transactionExecutor · current (busy)<br/>authorize (host, 90 s) · printReceipt<br/>followUpScheduler (ack / reverse)"]
+  TX["PosTerminal.Transaction<br/>config · volatile end · ReplaySubject steps<br/>run · attempt · cancel · EngineReportingListener<br/>online requests · closeOnline"]
+  CB["CommunicationBehavior<br/>authorize · acknowledge · reverse"]
   EN["EmvEngine<br/>emvSteps · ApduTrace · retry"]
   AB["AbstractEmvBehavior<br/>goToStep · askStep · publish · finish*<br/>EmvStepObserver → dispatchStepMethod"]
   PB["PaxEmvBehavior<br/>16 onXxx · runContact* · IContactCallback"]
@@ -77,13 +82,15 @@ flowchart LR
   PB --> CP --> NK
   NK -- callbacks --> CP -- IContactCallback --> PB
   EN -- "authorize(config)" --> PT
+  PT -- "authorize · acknowledge · reverse" --> CB
 ```
 
 | الكلاس | بيتعمل فين | بيملك | ممنوع عليه |
 |---|---|---|---|
 | `EmvEnhanceApp` | `Application.onCreate` | `PosTerminal` واحد طول عمر الـ process (`TerminalFactory.create`) | — |
-| `PosTerminal` | `TerminalFactory` | الـ transaction thread، الـ busy (`AtomicReference<Transaction> current`)، الـ host (`authorize` + الـ timeout)، الطابعة، والـ search (الـ vendor بيعمل `searchCard` / `cancelCardSearch`) | أي EMV logic |
-| `PosTerminal.Transaction` | `startTransaction` | حالتها كلها: `end` (`null` = شغالة)، steps بتاعتها (`ReplaySubject`، وهو كمان الـ lock)، الـ cancel، الـ attempt loop | تنشر حاجة بعد النهاية |
+| `PosTerminal` | `TerminalFactory` | الـ transaction thread، الـ busy (`AtomicReference<Transaction> current`)، الـ host (`authorize` + الـ timeout، واسم كل request: `asyncRequestId`)، الـ acknowledgement / reversal بعد النهاية (`followUpScheduler`)، الطابعة، والـ search (الـ vendor بيعمل `searchCard` / `cancelCardSearch`) | أي EMV logic |
+| `PosTerminal.Transaction` | `startTransaction` | حالتها كلها: `end` (`null` = شغالة)، steps بتاعتها (`ReplaySubject`، وهو كمان الـ lock)، الـ cancel، الـ attempt loop، والـ requests اللي اتبعتت للـ host (`online`) وهل نشرت APPROVED (`approvedReported`) | تنشر حاجة بعد النهاية |
+| `SaleCommunicationBehavior` | `PaxTerminal` | الـ exchange → sale/refund (envelope)، الـ `acknowledgement` / `reverse` (JSON عادي، نفس headers الـ sale)، وتصنيف كل فشل: وصل للـ host ولا لأ (`classify`) | قرار إمتى ack وإمتى reverse (ده بتاع `PosTerminal`) |
 | `EmvEngine` | constructor بتاع `PosTerminal`، ويتسلّم مرة واحدة: `behavior.attach(engine)` (`attach` في `AbstractEmvBehavior` بس، مش في `EmvBehavior`) | `emvSteps` (الـ dispatch bus)، `ApduTrace`، طلب الـ retry، والطريق للـ host (`Authorizer` = `PosTerminal::authorize`) | أي transaction state، أي transaction step |
 | `AbstractEmvBehavior` | super بتاع الـ vendor behavior | الـ engine (`private` field، المكان الوحيد اللي بيتحفظ فيه؛ `attach` بس اللي بيكتب فيه، والكل بيقراه بـ `engine()`: الـ vendor، و `PosTerminal` بـ `behavior.engine()`)، `goToStep` (فحص الـ cancel الوحيد)، `askStep` / `answerStep`، `publish`، `finish*`، field 55 + `authorizeOnline` | threads، busy، host |
 | `PaxEmvBehavior` | constructor بتاع `PaxTerminal` | الـ 16 `onXxx`، الـ `runContact*` / `runContactless*`، الـ kernel callbacks، `PaxTransactionState tx` (جديد كل attempt) | حد يناديه غير الـ dispatch |
@@ -109,7 +116,8 @@ flowchart LR
 | thread واحد | `Executors.newSingleThreadExecutor()`: reader واحد، kernel واحد. عمره ما بيتعمله interrupt |
 | الـ transaction نفسها | `Transaction`: `run()` (الـ loop)، `attempt()`، `cancel()`، `publish(event)`، `steps()` |
 | الـ card search | `searchCard(config, listener)` (vendor) + `EngineReportingListener` بيحوّل events الـ reader لـ steps ويبدأ الـ EMV |
-| الـ host | `authorize(config)`: `ONLINE_REQUIRED` / `ONLINE_PROCESSING`، `communication.authorize(config).timeout(90 s).blockingGet()`، `ONLINE_COMPLETED`. أي exception = `AuthResult.failed` (مش decline) |
+| الـ host | `authorize(config)`: `ONLINE_REQUIRED` / `ONLINE_PROCESSING`، يدّي الـ request اسم (`asyncRequestId` = UUID) ويسجله على الـ `Transaction`، `communication.authorize(sent).timeout(90 s).blockingGet()`، `ONLINE_COMPLETED`. `HostNotReachedException` = `AuthResult.notSent`؛ أي exception تاني = `AuthResult.failed` (الاتنين مش decline) |
+| بعد النهاية | `Transaction.closeOnline()` يقرر acknowledge / reverse لكل request، والنداء بيطلع على `followUpScheduler` بعد ما الـ terminal يفضى (§2.7) |
 | الطابعة | `printReceipt(lines)` على thread طباعة لوحده، بالترتيب |
 | setup seam | `serialNumber()`، `requiredPermissions()`، `countries()` / `setCountry()`، `emvParams()` (VENDOR.md §2) |
 
@@ -148,8 +156,10 @@ sequenceDiagram
     TX->>TX: engine.consumePendingRetry()
   end
   TX->>TX: finally: end ?: ERROR "ended without an outcome"
+  TX->>TX: closeOnline() → ack / reverse لكل request (§2.7) + note في الـ trace
   TX->>PT: current.compareAndSet(t, null)
   TX-->>UI: deliver(end)
+  TX->>PT: followUpScheduler: acknowledge / reverse (fire-and-forget)
 ```
 
 بالكلام، thread بـ thread:
@@ -177,8 +187,10 @@ sequenceDiagram
           return engine.consumePendingRetry()   ← config الـ retry أو null
 [tx]    finally (تحت الـ lock):
           end == null → ERROR "Transaction ended without an outcome"
+          closeOnline()                         ← يقرر ack / reverse لكل request + note في الـ trace (§2.7)
           current.compareAndSet(this, null)     ← الـ terminal فاضي
           deliver(end)                          ← COMPLETED / ERROR / CANCELLED، مرة واحدة
+        بعد الـ lock: كل ack / reverse → followUpScheduler (thread لوحده، 90 s، محدش بيستناه)
 ──────────────────────────────────────────────────────────────────────────────────
 [main]  SearchCardFragment: transaction.steps() (observeOn main) → outcome / result panel
         MainViewModel: emvSteps (observeOn main) → banner؛ ApduTrace.changes() → trace
@@ -200,11 +212,11 @@ sequenceDiagram
        finally: current = null، وبعدين CANCELLED يتنشر — مرة واحدة
 ```
 
-⚠ cancel وإحنا مستنيين الـ host بيخلّص الـ sale بـ CANCELLED حتى لو الـ host وافق والكارت أخد TC (خطر #1 في الـ handoff؛ مفيش reversal: BACKLOG 0.5).
+cancel وإحنا مستنيين الـ host بيخلّص الـ sale بـ CANCELLED حتى لو الـ host وافق والكارت أخد TC — ودلوقتي ده بيطلّع **reversal** للـ request ده (§2.7). ⚠ الـ reversal مرة واحدة: لو فشل بيتكتب في الـ log بس، مفيش journal يعيده.
 
 ### 2.5 الـ retry (fallback / try again / see phone / try another interface)
 
-مفيش `startTransaction` جديد. الـ behavior بيقول `engine.requestRetry(config.withMode(X), prompt)`؛ بعد ما `behavior.start` يرجع، `attempt` بيرجّع `consumePendingRetry()` والـ loop بيعمل attempt تاني **على نفس الـ thread ونفس الـ transaction**. الـ trace بيكمل بـ `RETRY #n`، والـ prompt بيظهر في `WAITING_FOR_CARD` كـ `KEY_RETRY_PROMPT`. retry بعد الـ cancel بيتساب ("retry dropped — the transaction is over").
+مفيش `startTransaction` جديد. الـ behavior بيقول `engine.requestRetry(config.withMode(X), prompt)`؛ بعد ما `behavior.start` يرجع، `attempt` بيرجّع `consumePendingRetry()` والـ loop بيعمل attempt تاني **على نفس الـ thread ونفس الـ transaction**. الـ trace بيكمل بـ `RETRY #n` (و `ApduTrace.beginAttempt()` بعدها، من `consumePendingRetry`: أول GENERATE AC في الـ attempt الجديدة اسمه 1st تاني، والـ 2nd اسمه `ISSUER AUTHENTICATION (2nd GENERATE AC)`)، والـ prompt بيظهر في `WAITING_FOR_CARD` كـ `KEY_RETRY_PROMPT`. retry بعد الـ cancel بيتساب ("retry dropped — the transaction is over").
 
 | الـ outcome | الـ mode الجديد | الـ prompt |
 |---|---|---|
@@ -233,7 +245,67 @@ sequenceDiagram
 | ERROR | `finishError` / `PosTerminal.errorEvent` (init، reader، kernel، online failed، exception) |
 | CANCELLING / CANCELLED | `Transaction.cancel()` |
 
-⚠ الـ outcome publish مرتين (APPROVED، وبعدين COMPLETED كـ end): cancel بين الاتنين يدّي الـ UI APPROVED وبعدها CANCELLED.
+⚠ الـ outcome publish مرتين (APPROVED، وبعدين COMPLETED كـ end): cancel بين الاتنين يدّي الـ UI APPROVED وبعدها CANCELLED. الـ host side مقفول صح في الحالة دي: النهاية مش COMPLETED، فبيتبعت reversal مش acknowledgement (§2.7).
+
+### 2.7 الـ host بعد النهاية: acknowledgement / reversal
+
+كل request بيروح للـ host لازم يتقفل بعد ما الـ transaction تخلص: **acknowledgement** (العملية خلصت، الـ host يحتفظ بيها) أو **reversal** (الـ host يلغيها). الـ API بتاع الـ app القديم: `orchestration/acknowledgement` و `orchestration/reverse`، body = `{asyncRequestId, transactionType}` (`PURCHASE` / `REFUND`)، JSON عادي من غير exchange ولا envelope، بنفس headers الـ sale (token + `mToken`). أي status غير 200 = error.
+
+```mermaid
+flowchart TD
+  A["PosTerminal.authorize(config)"] --> N["sent = config.withAsyncRequestId(UUID)<br/>transaction.wentOnline(sent)"]
+  N --> C["communication.authorize(sent).timeout(90 s)"]
+  C -- "AuthResult" --> R["request.answer = result"]
+  C -- "HostNotReachedException" --> NS["request.answer = AuthResult.notSent"]
+  C -- "أي error تاني / timeout" --> F["request.answer = AuthResult.failed"]
+  R & NS & F --> E["... EMV يكمل → النهاية"]
+  E --> CO["run() finally، تحت الـ lock، end متحدد:<br/>closeOnline() لكل request"]
+  CO --> D{"الرد؟"}
+  D -- "approved + آخر request + APPROVED اتنشر + end = COMPLETED" --> ACK["ACKNOWLEDGEMENT"]
+  D -- "approved، غير كده" --> REV["REVERSAL"]
+  D -- "failed / مفيش رد" --> REV
+  D -- "notSent" --> NO1["مفيش (trace: no reversal + السبب)"]
+  D -- "declined" --> NO2["مفيش"]
+  ACK & REV --> FU["بعد current = null و deliver(end):<br/>followUpScheduler · 90 s · fire-and-forget"]
+```
+
+| الحالة | بيتبعت إيه | ليه |
+|---|---|---|
+| الـ host وافق، والـ transaction نشرت APPROVED وخلصت COMPLETED، وده آخر request | acknowledge | العملية خلصت |
+| الـ host وافق، بس النهاية حاجة تانية: الكارت رجّع AAC في الـ 2nd GENERATE AC، cancel، error | reverse | الـ host شايلها approved والكارت/الـ terminal لأ |
+| request قديم اتبعت بعده request تاني في نفس الـ transaction | reverse | الأخير بس هو اللي ممكن يتعمله ack |
+| اتبعت ومفيش رد ينفع: timeout، الاتصال اتقطع، 5xx، أي 4xx غير 401/403، envelope بايظ | reverse | ممكن الـ host يكون وافق |
+| `notSent`: الـ host مستحيل يكون وافق | مفيش | تحت |
+| الـ host رفض (declined) | مفيش | مفيش حاجة تتلغي |
+| الـ transaction مراحتش online | مفيش | مفيش request |
+
+**`notSent`** (`HostNotReachedException` → `AuthResult.notSent`، `isFailed()` و `isNotSent()` الاتنين true) — الـ network بس هو اللي يقولها، والـ default reversal:
+
+| فشل فين (`SaleCommunicationBehavior`) | النتيجة |
+|---|---|
+| ما اتبعتش: CASH_IN، refund من غير reference، مفيش EMV result / public key / access token، التشفير (RSA / AES) فشل | notSent |
+| `Token refresh: …` | notSent |
+| `Exchange: …` — أي فشل في الـ exchange (`exchangeError`) | notSent: الـ sale ما اتبعتش |
+| `Sale:` / `Refund:` HTTP 401/403، أو status 401/403 في الـ envelope (token / auth / credentials) | notSent |
+| `Sale:` / `Refund:` `ConnectException` / `UnknownHostException` | notSent |
+| `Sale:` / `Refund:` أي حاجة تانية (`classify` → `SaleException`) | failed → reverse |
+| الـ 90 s بتوع `PosTerminal` | failed → reverse (مش عارفين وقف فين) |
+
+اسم الخطوة بيوصل للـ ERROR وللـ trace: `Online Failed: Exchange: HTTP 403 Forbidden`. الـ trace (tag `HOST`):
+
+```text
+!!! HOST ACKNOWLEDGEMENT for request <id>
+!!! HOST REVERSAL for request <id>: approved, not completed
+!!! HOST REVERSAL for request <id>: no usable host answer — Sale: timeout
+!!! HOST no reversal for request <id>: the host could not have approved it — Exchange: HTTP 403 Forbidden
+```
+
+- الـ PAX مبيتغيرش: `failed` و `notSent` الاتنين `RESULT_ONLINE_FAILED` للكارت (2nd GENERATE AC بـ AAC). الفرق في الـ reversal بس.
+- النداء: `Completable.defer(() -> communication.acknowledge/reverse(sent))` على `followUpScheduler` (single thread)، `timeout(onlineTimeoutMs())`، والنتيجة في `EmvLog` بس (الـ trace ممكن يكون بتاع الـ transaction الجاية).
+- `CommunicationBehavior.acknowledge` / `reverse` ليهم default = `Completable.complete()`: host من غيرهم مبيتأثرش. `SaleCommunicationBehavior` مبيبعتش حاجة لـ request ملوش اسم أو ما اتبعتش أصلاً (`whyNotSent`).
+- ⚠ fire-and-forget زي الـ app القديم: مفيش journal (حفظ + إعادة بعد restart). reversal فشل = الـ host لازم يلغيها لوحده لما ميجيلوش ack.
+- ⚠ مش متجرّب على الجهاز ولا على الـ host. إن الـ reverse / ack محتاجين `mToken` = افتراض ("نفس headers الـ sale").
+- الـ tests: `PosTerminalHostFollowUpTest` (كل صف في الجدولين)، `ReverseAcknowledgementTest`، `OnlineFailureClassifyTest`.
 
 ---
 
@@ -548,12 +620,12 @@ proceed  → advanceContactStage(NEXT)   = goToStep(NEXT)، ولو مرجعش tr
 
 بعد الـ 2nd GAC (`completeContactIssuerAuthentication`):
 
-| الـ host | الكارت في 2nd GAC | النتيجة |
-|---|---|---|
-| APPROVE | TC | `RESULT_ONLINE_APPROVED` |
-| APPROVE | غير كده | `RESULT_ONLINE_CARD_DENIED` |
-| FAILED | أي حاجة | `RESULT_ONLINE_FAILED` / `..._CARD_APPROVED` → **online failed** |
-| DENIAL | — | `RESULT_ONLINE_DENIED` |
+| الـ host | الكارت في 2nd GAC | النتيجة | بعد النهاية (§2.7) |
+|---|---|---|---|
+| APPROVE | TC | `RESULT_ONLINE_APPROVED` | acknowledge |
+| APPROVE | غير كده | `RESULT_ONLINE_CARD_DENIED` | reverse |
+| FAILED | أي حاجة (الـ terminal بيطلب AAC) | `RESULT_ONLINE_FAILED` / `..._CARD_APPROVED` → **online failed** | reverse، إلا لو `notSent` |
+| DENIAL | — | `RESULT_ONLINE_DENIED` | مفيش |
 
 ### 5.6 النتيجة (`checkContactResult` → outcome)
 
@@ -851,6 +923,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 | main | الـ UI، `acceptCard` (+ الـ busy CAS)، `transaction.cancel()`، الـ LiveData، الـ dialogs (`PaxAppSelectDialog`، `PaxPinPad`) | أي blocking (EMV، host، print، DB) |
 | transaction (`Executors.newSingleThreadExecutor`) | `Transaction.run`: attempt loop → prepare → search → EMV كله → host (`blockingGet`) → retry → النهاية | interrupt؛ أكتر من transaction (`current`) |
 | print (single thread) | `printReceipt` بالترتيب | — |
+| follow-up (`followUpScheduler`، single thread) | الـ acknowledgement / reversal بعد النهاية، واحد ورا التاني | حد يستناه (fire-and-forget) |
 | `Schedulers.io()` | download الـ params، onboarding | — |
 | `ConfigInit` | seed أول boot | — |
 | thread لكل list في شاشة EMV Params | `rows` / `cachedRows` / `details` | — |
@@ -871,7 +944,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 7. **الـ transaction state في الـ `Transaction` بس** — متعملش flag تاني (busy = `current`، النهاية/الـ cancel = `end`).
 8. **PAX SDK modules** (`emvbase`، `emvlib*`، `poslib`، `commonutils`): تتلمس بس لما الـ kernel نفسه يحتاج، وبنفس ترتيب الـ native calls.
 9. **schema** اتغيرت → DAO بإيدك (ordinal، DDL، bind، read) + uninstall على الجهاز.
-10. اختبر: `:core` (76)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
+10. اختبر: `:core` (91)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
 
 ---
 
@@ -887,7 +960,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 | `engine` | `EmvEngine` |
 | `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
 | `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
-| `host` | `CommunicationBehavior`, `PrinterBehavior`, `AuthResult` — owned by PosTerminal |
+| `host` | `CommunicationBehavior` (`authorize`, `acknowledge`, `reverse`), `PrinterBehavior`, `AuthResult` (`approved` / `declined` / `failed` / `notSent`), `HostNotReachedException` — owned by PosTerminal |
 
 ### `:network` — `com.emvenhance.network.*`
 
@@ -895,7 +968,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 |---------|----------|
 | *(root)* | `HostApiConnection` (Retrofit), `HostApiClient`, `RetrofitCommunicationBehavior` — real `CommunicationBehavior` impl, online purchase + 2nd GAC issuer data; `SaleCommunicationBehavior` — the encrypted-envelope alternative (`cacore/exchange` + `cacore/sale`), see below |
 | `env` | `EnvironmentProvider` — holds `BuildConfig.baseUrl` from `:app`'s "environment" flavor dimension |
-| `model` | `PurchaseRequest`, `PurchaseResponse` (the `crypto/purchase` shape) plus `GeneralRequest`/`GeneralResponse`/`DataModel` (the generic encrypted envelope, shared with `onboarding`) and `ExchangeRequest`/`ExchangeResponse`/`SaleRequest`/`SaleExtraData`/`SaleResponse` (the payloads that travel inside that envelope for `SaleCommunicationBehavior`) |
+| `model` | `ReverseRequest`, `AcknowledgementRequest`, `AcknowledgementResponse` (plain JSON, `orchestration/reverse` / `orchestration/acknowledgement`); `PurchaseRequest`, `PurchaseResponse` (the `crypto/purchase` shape) plus `GeneralRequest`/`GeneralResponse`/`DataModel` (the generic encrypted envelope, shared with `onboarding`) and `ExchangeRequest`/`ExchangeResponse`/`SaleRequest`/`SaleExtraData`/`SaleResponse` (the payloads that travel inside that envelope for `SaleCommunicationBehavior`) |
 | `tlv` | `BerTlv`, `IssuerResponseFields` — minimal BER-TLV reader plus the shared ARPC/issuer-script tag extraction both `CommunicationBehavior` impls use |
 | `onboarding` | `OnboardingClient`, `OnboardingApiConnection`, `OnboardingState`, `ChallengeGenerator`, `OnboardingException` — the offline (pair terminal) and online (per-bank TMK provisioning) onboarding cycles; see `onboarding.model` for the six endpoints' request/response shapes |
 | `crypto` | `RsaPublicKeyEncryptor` — RSA-wraps a symmetric session key (online PIN key or transaction key) with the host's public key from onboarding, so the host can independently recover it; `AesEnvelopeCrypto` — AES-encrypts/decrypts the `encSerializedRequest`/`encSerializedResponse` body under that key. See `app/src/pax/.../PaxEmvBehavior#provisionOnlinePinKey` for the PIN-key use, `SaleCommunicationBehavior` for the transaction-key use |
