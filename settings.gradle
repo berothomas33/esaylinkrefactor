@@ -22,16 +22,24 @@ include ':core'
 include ':vendor-fake'
 include ':vendor-ingenico'
 include ':vendor-pax'
-include ':emvflow'
 include ':network'
 
-// PAX EMV stack
-include ':emvbase'
-include ':emvlib'
-include ':emvlib:dpas'
-include ':emvlib:base'
-include ':emvservice'
-include ':commonutils'
-include ':poslib'
-include ':bizentity'
-include ':bizlib'
+// PAX EMV stack — every PAX library module lives under pax-libs/. Only :vendor-pax depends on
+// them (core, app/src/main, network, fake and ingenico never import com.pax). The Gradle names
+// stay the short ones (':poslib', not ':pax-libs:poslib'), so no build.gradle dependency changes.
+def paxLibs = [
+        ':emvbase'    : 'emvbase',
+        ':emvlib'     : 'emvlib',
+        ':emvlib:dpas': 'emvlib/dpas',
+        ':emvlib:base': 'emvlib/base',
+        ':emvflow'    : 'emvflow',
+        ':emvservice' : 'emvservice',
+        ':commonutils': 'commonutils',
+        ':poslib'     : 'poslib',
+        ':bizentity'  : 'bizentity',
+        ':bizlib'     : 'bizlib',
+]
+paxLibs.each { path, dir ->
+    include path
+    project(path).projectDir = file("pax-libs/$dir")
+}

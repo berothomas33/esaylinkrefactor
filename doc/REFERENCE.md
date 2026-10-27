@@ -53,7 +53,7 @@
 - **UI**: الشاشات. بتكلم الـ CORE بس.
 - **CORE**: المايسترو، وهو أكبر طبقة. باب واحد للـ UI (`PosTerminal`)، وبيشغّل الـ vendor اللي اتبنى.
 - **VENDOR PAX** / **VENDOR INGENICO**: كل واحد بيملا عقود الـ CORE بالـ SDK بتاعه. الـ Ingenico لسه stub (الخط المتقطع).
-- **EMV LIBS**: مكتبات PAX والـ kernels الـ native. الـ Ingenico SDK لسه مش موجود.
+- **EMV LIBS**: مكتبات PAX والـ kernels الـ native، كلها في فولدر `pax-libs/` (أسماء الـ Gradle زي ما هي: `:poslib`، `:emvlib`… والربط في `settings.gradle`). `vendor-pax` بس اللي بيعتمد عليها. الـ Ingenico SDK لسه مش موجود.
 
 نفس الهرم بالتفاصيل — وبين كل طبقتين العقد الوحيد اللي بيعدّي:
 
@@ -149,7 +149,7 @@ INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
 
 **VENDOR INGENICO** — `:vendor-ingenico`. نفس العقود بس stub (كارت ونتيجة وهميين) لحد ما الـ SDK يتركب: `TerminalFactory`، `VendorApplication`، `IngenicoTerminal` (`extends PosTerminal`)، `IngenicoEmvBehavior` (`extends AbstractEmvBehavior`)، `IngenicoPinPad`.
 
-**EMV LIBS (PAX)**. الـ SDK والـ kernels الـ native المعتمدة؛ الـ vendor-pax بس اللي بيكلمها.
+**EMV LIBS (PAX)** — فولدر `pax-libs/`. الـ SDK والـ kernels الـ native المعتمدة؛ الـ vendor-pax بس اللي بيكلمها.
 
 | الجزء | الـ module | شغلته |
 |---|---|---|
@@ -182,7 +182,7 @@ INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
 │                     implements IContactCallback, IContactlessCallback                 │
 │                   PaxKernel { params, contact, contactless, mag } · PaxEmvParams      │
 └──────────────────────────────────────┬───────────────────────────────────────────────┘
-┌──────────── PAX SDK modules (متتلمسش إلا لسبب EMV واضح) ─────────────────────────────┐
+┌──────────── pax-libs/ — PAX SDK modules (متتلمسش إلا لسبب EMV واضح) ─────────────────┐
 │ :emvlib:dpas   ContactProcess + EmvCallBackListener ──► EMVCallback.EMV* (native)     │
 │ :emvlib        ClssProcess ──► ClssKernelProcessFactory ──► Clss{PayPass,PayWave,EFT,  │
 │                AE,Jcb,Mir,Pboc,Pure,RuPay,Dpas}Process ──► Clss*Api (native)           │

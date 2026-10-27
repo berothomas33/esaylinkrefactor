@@ -154,15 +154,15 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 | Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../card/Field55.java` |
 | PAX flow (contact / contactless runners, callbacks, PIN, online) | `vendor-pax/.../vendor/pax/PaxEmvBehavior.java` |
 | Card search (polling, ICC retry) | `vendor-pax/.../vendor/pax/PaxTerminal.java` |
-| Contact kernel wrapper + callback adapter | `emvlib/dpas/.../contact/ContactProcess.java` |
-| Contactless dispatcher, reselect | `emvlib/.../contactless/ClssProcess.java` |
-| Per-kernel stages | `emvlib/.../contactless/Clss{PayPass,PayWave,EFT,...}Process.java`, base `ClssKernelProcess` |
-| Parameter cache, DB → kernel conversion, terminal config | `bizentity/.../configservice/impl/EmvParamService.java` |
-| XML parsing | `bizentity/.../configservice/xml/{EmvXmlParamParser,ClssXmlParamParser,XmlDomUtils}.java` |
-| Download apply / delete / result | `bizentity/.../configservice/impl/EmvParamUpdater.java`, `EmvParamUpdateResult.java` |
+| Contact kernel wrapper + callback adapter | `pax-libs/emvlib/dpas/.../contact/ContactProcess.java` |
+| Contactless dispatcher, reselect | `pax-libs/emvlib/.../contactless/ClssProcess.java` |
+| Per-kernel stages | `pax-libs/emvlib/.../contactless/Clss{PayPass,PayWave,EFT,...}Process.java`, base `ClssKernelProcess` |
+| Parameter cache, DB → kernel conversion, terminal config | `pax-libs/bizentity/.../configservice/impl/EmvParamService.java` |
+| XML parsing | `pax-libs/bizentity/.../configservice/xml/{EmvXmlParamParser,ClssXmlParamParser,XmlDomUtils}.java` |
+| Download apply / delete / result | `pax-libs/bizentity/.../configservice/impl/EmvParamUpdater.java`, `EmvParamUpdateResult.java` |
 | EMV Params screen (Cached / DB, download, Downloaded XML) | `app/src/main/.../ui/EmvParamActivity.java`, `EmvParamListFragment.java`; PAX data: `vendor-pax/.../PaxEmvParams.java` (`core` contract `EmvParams`) |
 | Host envelope / sale / onboarding | `network/...` (`HostCommunicationBehavior`, `SaleCommunicationBehavior`, `OnboardingClient`) |
-| Seeds | `bizentity/src/main/assets/{acquirer,config,...}.json` |
+| Seeds | `pax-libs/bizentity/src/main/assets/{acquirer,config,...}.json` |
 
 ## 4. Branches (as of 2026-10-25)
 
@@ -205,7 +205,8 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 
 - Modules: `app` (vendor source sets), `core` (zero vendor imports), `network`, PAX stack
   (`emvflow emvbase emvlib emvlib:base emvlib:dpas emvservice poslib bizlib bizentity
-  commonutils`). Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
+  commonutils`) — all under the `pax-libs/` folder; their Gradle names stay short (`:poslib`),
+  mapped in `settings.gradle`. Only `vendor-pax` depends on them. Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
   AGP 8 → `new X()`.
 - **`PosTerminal`** owns the transaction's whole life. One transaction thread (a plain
   single-thread `Executor`, never interrupted), one `AtomicReference<Transaction> current`
