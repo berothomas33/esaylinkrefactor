@@ -21,6 +21,7 @@ import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.observers.DisposableObserver;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
@@ -43,6 +44,8 @@ public abstract class PosTerminal {
     protected final PrinterBehavior printer;
 
     private final Executor transactionExecutor = Executors.newSingleThreadExecutor();
+
+    private final Scheduler transactionScheduler = Schedulers.from(transactionExecutor);
 
     private final Scheduler printScheduler =
             Schedulers.from(Executors.newSingleThreadExecutor());
@@ -136,7 +139,7 @@ public abstract class PosTerminal {
             EmvLog.d("POS terminal is busy: the previous transaction hasn't finished");
             throw new TerminalBusyException();
         }
-        transactionExecutor.execute(transaction::run);
+        transaction.begin();
         return transaction;
     }
 
@@ -310,30 +313,108 @@ public abstract class PosTerminal {
             steps.onNext(event);
         }
 
-        private void run() {
-            try {
-                behavior.engine().begin();
-                publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
-                TransactionConfig attemptConfig = config;
-                while (attemptConfig != null && isRunning()) {
-                    attemptConfig = attempt(attemptConfig);
+        private void begin() {
+            dispatch = steps.observeOn(transactionScheduler)
+                    .subscribeWith(new TransactionStepObserver());
+            publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+        }
+
+        @Nullable
+        private DisposableObserver<TransactionStepEvent> dispatch;
+        @Nullable
+        private TransactionConfig nextAttemptConfig;
+        private boolean finished;
+
+        private final class TransactionStepObserver extends DisposableObserver<TransactionStepEvent> {
+
+            @Override
+            public void onNext(TransactionStepEvent event) {
+                try {
+                    dispatchTransactionStep(event);
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                    publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
+                    onEnd();
                 }
-            } catch (Throwable t) {
-                t.printStackTrace();
-                publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
-            } finally {
-                List<Runnable> followUps;
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                publish(errorEvent(error.getMessage() != null ? error.getMessage()
+                        : "Transaction steps failed"));
+                onEnd();
+            }
+
+            @Override
+            public void onComplete() {
+            }
+        }
+
+        private void dispatchTransactionStep(TransactionStepEvent event) {
+            switch (event.getStep()) {
+                case TRANSACTION_STARTED:
+                    onTransactionStarted(event);
+                    break;
+                case NEXT_ATTEMPT:
+                    onNextAttempt();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private void onTransactionStarted(TransactionStepEvent started) {
+            behavior.engine().begin();
+            traceTransactionStep(started);
+            runAttempt(config);
+        }
+
+        private void onNextAttempt() {
+            TransactionConfig retry = nextAttemptConfig;
+            nextAttemptConfig = null;
+            if (retry == null) {
+                EmvLog.d("NEXT_ATTEMPT with no retry config — ignored");
+                return;
+            }
+            runAttempt(retry);
+        }
+
+        private void runAttempt(TransactionConfig attemptConfig) {
+            TransactionConfig retry = isRunning() ? attempt(attemptConfig) : null;
+            boolean next = false;
+            if (retry != null) {
                 synchronized (steps) {
                     if (end == null) {
-                        end = errorEvent("Transaction ended without an outcome");
+                        nextAttemptConfig = retry;
+                        deliver(TransactionStepEvent.of(TransactionStep.NEXT_ATTEMPT));
+                        next = true;
                     }
-                    followUps = closeOnline();
-                    current.compareAndSet(this, null);
-                    deliver(end);
                 }
-                for (Runnable followUp : followUps) {
-                    followUp.run();
+            }
+            if (!next) {
+                onEnd();
+            }
+        }
+
+        private void onEnd() {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            if (dispatch != null) {
+                dispatch.dispose();
+            }
+            List<Runnable> followUps;
+            synchronized (steps) {
+                if (end == null) {
+                    end = errorEvent("Transaction ended without an outcome");
                 }
+                followUps = closeOnline();
+                current.compareAndSet(this, null);
+                deliver(end);
+            }
+            for (Runnable followUp : followUps) {
+                followUp.run();
             }
         }
 

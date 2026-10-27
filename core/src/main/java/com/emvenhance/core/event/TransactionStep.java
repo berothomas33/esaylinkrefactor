@@ -6,6 +6,8 @@ public enum TransactionStep {
 
     TRANSACTION_STARTED("Transaction started"),
 
+    NEXT_ATTEMPT("Next attempt"),
+
     WAITING_FOR_CARD("Waiting for card"),
 
     CARD_DETECTED("Card detected"),
