@@ -54,6 +54,8 @@
 - **CORE**: المايسترو، وهو أكبر طبقة. باب واحد للـ UI (`PosTerminal`)، وبيشغّل الـ vendor اللي اتبنى.
 - **VENDOR PAX** / **VENDOR INGENICO**: كل واحد بيملا عقود الـ CORE بالـ SDK بتاعه. الـ Ingenico لسه stub (الخط المتقطع).
 - **EMV LIBS**: مكتبات PAX والـ kernels الـ native، كلها في فولدر `pax-libs/` (أسماء الـ Gradle زي ما هي: `:poslib`، `:emvlib`… والربط في `settings.gradle`). `vendor-pax` بس اللي بيعتمد عليها. الـ Ingenico SDK لسه مش موجود.
+  - `pax-libs/sdk/`: كود PAX نفسه — `emvlib` (+ `dpas`، `base`)، `emvbase`، `emvservice`، `bizlib`، `poslib`، `commonutils`. متتلمسش إلا لسبب EMV واضح.
+  - `pax-libs/ours/`: modules بتاعة PAX بس إحنا اللي بنكتبها ونعدّل فيها — `emvflow` (الـ runtime: DAL، APDU، PIN، trace) و `bizentity` (الـ DB والـ params: `EmvParamService`، الـ XML parsers، `EmvParamUpdater`، وعليه tests).
 
 نفس الهرم بالتفاصيل — وبين كل طبقتين العقد الوحيد اللي بيعدّي:
 
@@ -149,7 +151,7 @@ INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
 
 **VENDOR INGENICO** — `:vendor-ingenico`. نفس العقود بس stub (كارت ونتيجة وهميين) لحد ما الـ SDK يتركب: `TerminalFactory`، `VendorApplication`، `IngenicoTerminal` (`extends PosTerminal`)، `IngenicoEmvBehavior` (`extends AbstractEmvBehavior`)، `IngenicoPinPad`.
 
-**EMV LIBS (PAX)** — فولدر `pax-libs/`. الـ SDK والـ kernels الـ native المعتمدة؛ الـ vendor-pax بس اللي بيكلمها.
+**EMV LIBS (PAX)** — فولدر `pax-libs/` (`sdk/` كود PAX، `ours/` كودنا: `emvflow` و `bizentity`). الـ SDK والـ kernels الـ native المعتمدة؛ الـ vendor-pax بس اللي بيكلمها.
 
 | الجزء | الـ module | شغلته |
 |---|---|---|
@@ -182,7 +184,7 @@ INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
 │                     implements IContactCallback, IContactlessCallback                 │
 │                   PaxKernel { params, contact, contactless, mag } · PaxEmvParams      │
 └──────────────────────────────────────┬───────────────────────────────────────────────┘
-┌──────────── pax-libs/ — PAX SDK modules (متتلمسش إلا لسبب EMV واضح) ─────────────────┐
+┌──────────── pax-libs/ — sdk/ = كود PAX (متتلمسش إلا لسبب EMV) · ours/ = emvflow, bizentity ┐
 │ :emvlib:dpas   ContactProcess + EmvCallBackListener ──► EMVCallback.EMV* (native)     │
 │ :emvlib        ClssProcess ──► ClssKernelProcessFactory ──► Clss{PayPass,PayWave,EFT,  │
 │                AE,Jcb,Mir,Pboc,Pure,RuPay,Dpas}Process ──► Clss*Api (native)           │
