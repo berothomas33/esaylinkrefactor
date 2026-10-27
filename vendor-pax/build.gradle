@@ -32,12 +32,12 @@ dependencies {
     api project(':core')
     // api: VendorApplication extends its BaseApplication, so the app needs it to compile
     // EmvEnhanceApp. Nothing else of the PAX SDK reaches the app.
-    api project(':commonutils')
+    api project(':pax-libs:sdk:commonutils')
     implementation project(':network')
-    implementation project(':emvflow')
-    implementation project(':emvservice')
-    implementation project(':bizentity')
-    implementation project(':bizlib')
+    implementation project(':pax-libs:ours:emvflow')
+    implementation project(':pax-libs:sdk:emvservice')
+    implementation project(':pax-libs:ours:bizentity')
+    implementation project(':pax-libs:sdk:bizlib')
 
     implementation 'androidx.annotation:annotation:1.7.1'
     implementation "androidx.appcompat:appcompat:$rootProject.androidAppcompat"

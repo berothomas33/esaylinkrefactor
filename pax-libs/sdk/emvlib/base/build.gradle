@@ -41,7 +41,7 @@ android {
 dependencies {
 
     api fileTree(include: ["*.jar"], dir: "libs")
-    api project(":emvbase")
+    api project(":pax-libs:sdk:emvbase")
 
 }
 

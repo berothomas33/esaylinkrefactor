@@ -40,7 +40,7 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
-    api project(':poslib')
-    api project(':bizentity')
-    api project(':commonutils')
+    api project(':pax-libs:sdk:poslib')
+    api project(':pax-libs:ours:bizentity')
+    api project(':pax-libs:sdk:commonutils')
 }

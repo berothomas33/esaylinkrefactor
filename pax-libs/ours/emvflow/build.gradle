@@ -38,10 +38,10 @@ dependencies {
     // Brings EmvStep / EmvBehavior.Callback (and RxJava) so the PAX callbacks can
     // report EMV progress directly, without a second listener type in between.
     api project(':core')
-    api project(':emvservice')
-    api project(':bizlib')
-    api project(':bizentity')
-    api project(':poslib')
-    api project(':commonutils')
-    api project(':emvbase')
+    api project(':pax-libs:sdk:emvservice')
+    api project(':pax-libs:sdk:bizlib')
+    api project(':pax-libs:ours:bizentity')
+    api project(':pax-libs:sdk:poslib')
+    api project(':pax-libs:sdk:commonutils')
+    api project(':pax-libs:sdk:emvbase')
 }
