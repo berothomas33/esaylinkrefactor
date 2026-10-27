@@ -12,7 +12,9 @@ to prove it. Nothing here is fixed yet. Read with `CLAUDE.md` (rules, §11 open 
 - One experiment = one commit. Show the native call order for EMV fixes. Device-test after.
 
 
-## Status on `transactionOwnsSteps` (2026-10-27, code at `28d79cb`)
+## Status on `transactionOwnsSteps-oct27` (2026-10-27, code at `28d79cb`)
+
+`transactionOwnsSteps` holds the code before 27/10 (`30cd5aa`); its own BACKLOG says what differs.
 
 Re-checked item by item against the code (not device-tested unless said). In the tables below
 ✅ = fixed, ◐ = partly; the rest are still open as written.

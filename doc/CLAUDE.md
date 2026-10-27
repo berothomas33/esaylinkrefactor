@@ -171,26 +171,37 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 
 ## 4. Branches (as of 2026-10-27)
 
-- **`transactionOwnsSteps`** — the one working branch (decision 23/10: no ports, no parallel
-  design branches). Every commit goes here. Built on `rxTransactionDesign` (`62d889f`, all of it)
-  plus its own commits. Device-tested at `19cc019`: chip sale, tap again. Its handoff:
-  `doc/handoff-2026-10-23.md` (decision log §2, risks §4, SDK plan §5).
-  Points worth knowing on it: `62d889f` = before any `transactionOwnsSteps` commit;
-  `19cc019` = last device-tested; `30cd5aa` = end of 25/10 (ack / reversal in);
-  `28d79cb` = end of 27/10 (`pax-libs/`, `emvFinished`).
-- **`transactionOwnsSteps-clean`** — code-only twin of `transactionOwnsSteps`: no tests, no
-  comments, no `doc/`. Kept in step by porting each code commit (the commit's `src/main` files
-  with comments stripped by the same tool; tokens checked equal). At `e4e5d08` it matches
-  `transactionOwnsSteps` @ `28d79cb` (222 files, 0 token mismatches; `pax-libs/sdk` untouched).
-  Never merge it back.
+27/10 was split off on purpose: **`transactionOwnsSteps` = before 27/10, `transactionOwnsSteps-oct27` =
+after**. Each carries docs that match its own code.
+
+- **`transactionOwnsSteps`** — code up to 25/10 (`30cd5aa`) + docs: ack / reversal and the
+  not-sent rules are in; the PAX modules are still at the repo root; the EMV still ends the
+  transaction (`finish*` publish APPROVED / DECLINED then COMPLETED). Built on
+  `rxTransactionDesign` (`62d889f`, all of it) plus its own commits. Device-tested at `19cc019`:
+  chip sale, tap again. Its handoff: `doc/handoff-2026-10-23.md` (decision log §2, risks §4, SDK
+  plan §5).
+- **`transactionOwnsSteps-oct27`** — `transactionOwnsSteps` + the 27/10 work: the PAX modules
+  under `pax-libs/sdk` and `pax-libs/ours` (`62f5206`, `3622d1d`), the EMV reports and the
+  `Transaction` ends the transaction (`28d79cb`, `emvFinished`), docs. **New work goes here**
+  unless Ebram says otherwise. Nothing on it is device-tested.
+- **`transactionOwnsSteps-clean`** (`e9ad3a6`) and **`transactionOwnsSteps-clean-oct27`**
+  (`e4e5d08`) — code-only twins: no tests, no comments, no `doc/`. Kept in step by porting each
+  code commit (its `src/main` files with comments stripped by the same tool; Java tokens checked
+  equal). `-clean` = `transactionOwnsSteps` @ `30cd5aa` without `196af3b` / `85ef5a4`;
+  `-clean-oct27` = `-oct27` @ `28d79cb` (222 files, 0 token mismatches; `pax-libs/sdk` keeps its
+  comments). Never merge them back.
+- Points on the line: `62d889f` = before any `transactionOwnsSteps` commit; `19cc019` = last
+  device-tested; `30cd5aa` = end of 25/10 (= `transactionOwnsSteps`' code); `28d79cb` = end of
+  27/10 (= `-oct27`'s code). `git switch -c <name> <commit>` to work from one; after crossing
+  `62f5206` (the `pax-libs/` move) Android Studio needs Sync + Clean / Rebuild.
 - **`Finalvision`** — device-tested 15/10 (direct dispatch); split from this line at
   `4a74277` (14/10) and has 24 commits of its own (the contactless granular stages, params screen
   work) — catch-up in `catchup-finalvision.md`.
 - **`coroutineDesign`** — Kotlin + coroutines; built on the discarded `ae25378` (20/10), 21
   commits of its own; `catchup-coroutine.md`.
-- History only (don't merge blindly): `rxTransactionDesign` (fully inside
-  `transactionOwnsSteps`), `rxSetTransactionData`, `rxDispatchEmvSteps`, `add-rsa-pin-key-injection`,
-  many `claude/*`.
+- History only (don't merge blindly): `rxTransactionDesign` and `rxSetTransactionData` (both
+  fully inside `transactionOwnsSteps`), `rxDispatchEmvSteps`, `add-rsa-pin-key-injection`, many
+  `claude/*`.
 
 ## 5. Build & test
 
