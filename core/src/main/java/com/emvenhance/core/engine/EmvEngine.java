@@ -77,6 +77,7 @@ public final class EmvEngine {
         pendingRetryConfig = null;
         if (config != null) {
             apduTrace.transactionEvent("RETRY #" + retryCount.incrementAndGet());
+            apduTrace.beginAttempt();
         }
         return config;
     }

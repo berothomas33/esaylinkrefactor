@@ -75,6 +75,18 @@ public final class ApduTrace {
         }
     }
 
+    public void beginAttempt() {
+        if (!isEnabled()) {
+            return;
+        }
+        synchronized (this) {
+            gpoSent = false;
+            generateAcCount = 0;
+            currentLevel = null;
+            lastCommandLevel = null;
+        }
+    }
+
     public void kernelStep(String step) {
         if (!isEnabled()) {
             return;
@@ -281,7 +293,8 @@ public final class ApduTrace {
                 return generateAcCount == 1
                         ? of("TERMINAL/CARD ACTION ANALYSIS (1st GENERATE AC)",
                                 "1st GENERATE AC request " + type + cda)
-                        : of("COMPLETION (2nd GENERATE AC)", "2nd GENERATE AC request " + type + cda);
+                        : of("ISSUER AUTHENTICATION (2nd GENERATE AC)",
+                                "2nd GENERATE AC request " + type + cda);
             }
             case 0x82:
                 return of("ISSUER AUTHENTICATION", "EXTERNAL AUTHENTICATE");
