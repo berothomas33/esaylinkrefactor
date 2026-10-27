@@ -44,9 +44,9 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
-    api project(':commonutils')
-    api project(':emvbase')
-    api project(':poslib')
+    api project(':pax-libs:sdk:commonutils')
+    api project(':pax-libs:sdk:emvbase')
+    api project(':pax-libs:sdk:poslib')
 
     testImplementation "junit:junit:$rootProject.junit"
 }

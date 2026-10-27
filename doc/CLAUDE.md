@@ -211,7 +211,7 @@ after**. Each carries docs that match its own code.
 - `~/.gradle/gradle.properties` (never committed): `DATABASE_PWD`, `MTOKEN_TEMP`.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
-  `./gradlew :core:testDebugUnitTest`, `:network:…`, `:bizentity:…`, or the green arrow in
+  `./gradlew :core:testDebugUnitTest`, `:network:…`, `:pax-libs:ours:bizentity:…`, or the green arrow in
   Android Studio. Core: 99 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `TransactionEmvFinishedTest`, `Field55Test`,
   `PosTerminal*Test` (incl. `PosTerminalHostFollowUpTest`: ack / reverse) (tests
@@ -236,8 +236,8 @@ after**. Each carries docs that match its own code.
   (`emvflow emvbase emvlib emvlib:base emvlib:dpas emvservice poslib bizlib bizentity
   commonutils`) — under `pax-libs/`: `pax-libs/sdk/` = PAX's own SDK code (emvbase, emvlib,
   emvservice, bizlib, poslib, commonutils; touched only for a clear EMV reason), `pax-libs/ours/` =
-  PAX-only modules we write and change (emvflow, bizentity). Gradle names stay short (`:poslib`),
-  mapped in `settings.gradle`. Only `vendor-pax` depends on them. Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
+  PAX-only modules we write and change (emvflow, bizentity). The Gradle path is the folder (`:pax-libs:sdk:poslib`, `:pax-libs:ours:bizentity`), so
+  Android Studio's Android view groups them too. Only `vendor-pax` depends on them. Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
   AGP 8 → `new X()`.
 - **`PosTerminal`** owns the transaction's whole life. One transaction thread (a plain
   single-thread `Executor`, never interrupted), one `AtomicReference<Transaction> current`

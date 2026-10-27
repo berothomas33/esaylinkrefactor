@@ -41,11 +41,11 @@ android {
 dependencies {
 
     api fileTree(include: ["*.jar"], dir: "libs")
-    api project(":bizentity")
-    api project(":emvbase")
-    api project(":emvlib")
-    api project(":commonutils")
-    api project(":bizlib")
-    api project(":poslib")
+    api project(":pax-libs:ours:bizentity")
+    api project(":pax-libs:sdk:emvbase")
+    api project(":pax-libs:sdk:emvlib")
+    api project(":pax-libs:sdk:commonutils")
+    api project(":pax-libs:sdk:bizlib")
+    api project(":pax-libs:sdk:poslib")
 
 }

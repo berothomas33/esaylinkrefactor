@@ -24,24 +24,18 @@ include ':vendor-ingenico'
 include ':vendor-pax'
 include ':network'
 
-// PAX EMV stack — only :vendor-pax depends on it (core, app/src/main, network, fake and ingenico
-// never import com.pax). The Gradle names stay the short ones (':poslib', not ':pax-libs:sdk:poslib'),
-// so no build.gradle dependency changes.
+// PAX EMV stack, under pax-libs/ — only :vendor-pax depends on it (core, app/src/main, network,
+// fake and ingenico never import com.pax). The Gradle path is the folder, so Android Studio's
+// Android view groups them too:
 //   pax-libs/sdk  — PAX's own SDK code; touched only for a clear EMV reason
 //   pax-libs/ours — PAX-only modules we write and change: the device runtime and the parameters
-def paxLibs = [
-        ':emvbase'    : 'sdk/emvbase',
-        ':emvlib'     : 'sdk/emvlib',
-        ':emvlib:dpas': 'sdk/emvlib/dpas',
-        ':emvlib:base': 'sdk/emvlib/base',
-        ':emvservice' : 'sdk/emvservice',
-        ':commonutils': 'sdk/commonutils',
-        ':poslib'     : 'sdk/poslib',
-        ':bizlib'     : 'sdk/bizlib',
-        ':emvflow'    : 'ours/emvflow',
-        ':bizentity'  : 'ours/bizentity',
-]
-paxLibs.each { path, dir ->
-    include path
-    project(path).projectDir = file("pax-libs/$dir")
-}
+include ':pax-libs:sdk:emvbase'
+include ':pax-libs:sdk:emvlib'
+include ':pax-libs:sdk:emvlib:dpas'
+include ':pax-libs:sdk:emvlib:base'
+include ':pax-libs:sdk:emvservice'
+include ':pax-libs:sdk:commonutils'
+include ':pax-libs:sdk:poslib'
+include ':pax-libs:sdk:bizlib'
+include ':pax-libs:ours:emvflow'
+include ':pax-libs:ours:bizentity'
