@@ -273,14 +273,38 @@ public abstract class PosTerminal {
                     end = event;
                     return;
                 }
-                if (event.getStep() == TransactionStep.APPROVED) {
-                    approvedReported = true;
-                }
                 deliver(event);
             }
         }
 
+        void emvFinished(TransactionStepEvent outcome) {
+            TransactionStep step = outcome.getStep();
+            synchronized (steps) {
+                if (end != null) {
+                    EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
+                    apduTrace().note("EMV", "EMV outcome dropped, the transaction has ended ("
+                            + end.getStep() + "): " + step);
+                    return;
+                }
+                if (step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
+                    apduTrace().note("EMV", "EMV finished: " + step + " — the transaction completes");
+                    deliver(outcome);
+                    end = TransactionStepEvent.of(TransactionStep.COMPLETED);
+                } else if (step == TransactionStep.ERROR) {
+                    apduTrace().note("EMV", "EMV finished with an error — the transaction ends");
+                    end = outcome;
+                } else {
+                    apduTrace().note("EMV", "EMV finished with no outcome (" + step
+                            + ") — the transaction ends with an error");
+                    end = errorEvent("EMV finished with no outcome: " + step);
+                }
+            }
+        }
+
         private void deliver(TransactionStepEvent event) {
+            if (event.getStep() == TransactionStep.APPROVED) {
+                approvedReported = true;
+            }
             EmvLog.d("TransactionStep: " + event);
             traceTransactionStep(event);
             steps.onNext(event);

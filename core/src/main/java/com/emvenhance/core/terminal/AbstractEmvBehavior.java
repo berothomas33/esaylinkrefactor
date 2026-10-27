@@ -122,8 +122,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     protected final void finishApproved(TransactionStepEvent approved) {
-        publish(approved);
-        publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        emvFinished(approved);
     }
 
     protected final void finishDeclined(String message) {
@@ -133,17 +132,31 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     protected final void finishDeclined(TransactionStepEvent declined) {
-        publish(declined);
-        publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        emvFinished(declined);
     }
 
     protected final void finishError(String message) {
-        publish(PosTerminal.errorEvent(message));
+        emvFinished(PosTerminal.errorEvent(message));
+    }
+
+    private void emvFinished(TransactionStepEvent outcome) {
+        if (transaction == null) {
+            EmvLog.d("EMV outcome dropped, no transaction: " + outcome);
+            return;
+        }
+        transaction.emvFinished(outcome);
     }
 
     protected final void publish(TransactionStepEvent event) {
         if (transaction == null) {
             EmvLog.d("TransactionStep dropped, no transaction: " + event);
+            return;
+        }
+        TransactionStep step = event.getStep();
+        if (step.isEnd() || step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
+            EmvLog.d("TransactionStep dropped, an outcome goes through finish*: " + event);
+            engine().apduTrace().note("EMV",
+                    "transaction step dropped — an outcome goes through finish*: " + event);
             return;
         }
         transaction.publish(event);
