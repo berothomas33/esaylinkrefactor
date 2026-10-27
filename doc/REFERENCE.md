@@ -1,8 +1,8 @@
 # EasyLink / EmvEnhance — مرجع المشروع
 
-> مكتوب من الكود على `transactionOwnsSteps` (`30cd5aa`، 2026-10-27). كل اسم method هنا موجود فعلاً.
+> مكتوب من الكود على `transactionOwnsSteps` (`28d79cb`، 2026-10-27). كل اسم method هنا موجود فعلاً.
 > اتجرّب على الجهاز عند `19cc019`: chip، و tap again (form #11) — الاتنين شغالين. باقي الـ form لسه متجرّبش على الـ branch ده.
-> الجديد من بعد `19cc019` (مش متجرّب على الجهاز): الـ acknowledgement / reversal بعد النهاية (§2.7، `3d5fea1` + `30cd5aa`)، والـ trace بيبدأ عدّ الـ GENERATE AC من الأول مع كل retry (§2.5، `196af3b`).
+> الجديد من بعد `19cc019` (مش متجرّب على الجهاز): الـ acknowledgement / reversal بعد النهاية (§2.7، `3d5fea1` + `30cd5aa`)، والـ trace بيبدأ عدّ الـ GENERATE AC من الأول مع كل retry (§2.5، `196af3b`)، **الـ EMV بيبلّغ نتيجته والـ `Transaction` هي اللي بتقفل** (§3.5، `28d79cb`)، والـ modules بتاعة PAX في `pax-libs/sdk` و `pax-libs/ours` (§1.1).
 > الرسومات نفسها (mermaid) موجودة كمان كصفحة: https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh
 > ⚠ = الكود لسه مش بيعمل اللي المفروض يعمله — الرقم بين قوسين في `doc/BACKLOG.md`.
 > لو الكود اتغير والمرجع لأ — الكود هو الصح، وحدّث المرجع.
@@ -259,6 +259,7 @@ private   final Executor              transactionExecutor; // one sale at a time
 2. **الـ `onXxx` protected ومحدش بيناديها مباشرة.** الطريق الوحيد: `goToStep` → `emvSteps` → `dispatchStepMethod` (§3). ده اللي بيخلي كل خطوة تتشاف في الـ UI والـ APDU trace.
 3. **الـ engine مبيعرفش الـ transaction**، والـ behavior بيكلم الـ `Transaction` اللي اتسلّمها في `prepare` / `start` (`publish`، `isRunning()`، `isCancelled()`).
 4. **`EmvBehavior` = الـ EMV lifecycle بس:** `prepare`، `start`، `dispose` (`EmvBehaviorContractTest` بيتأكد). الـ engine (`attach` / `engine()`) بتاع `AbstractEmvBehavior`، وعشان كده `PosTerminal.behavior` نوعه `AbstractEmvBehavior`.
+5. **الـ EMV بيبلّغ، والـ `Transaction` بتقفل.** الـ EMV بيقول نتيجته بـ `finish*` بس، والـ `Transaction.emvFinished` هي اللي بتحط النهاية (§3.5). الـ behavior لو نشر APPROVED / DECLINED / end بنفسه بـ `publish` → بيتساب.
 
 ---
 
@@ -397,11 +398,11 @@ cancel وإحنا مستنيين الـ host بيخلّص الـ sale بـ CANCE
 | CARD_READ | contact: `showConfirmCard`؛ clss: `confirmCard`؛ mag/manual: `onReadApplicationData` |
 | CARDHOLDER_VERIFIED | `enterPin` (`KEY_ONLINE_PIN`، `KEY_PIN_BYPASS`، `KEY_PIN_TRIES_LEFT`) |
 | ONLINE_REQUIRED / PROCESSING / COMPLETED | `PosTerminal.authorize` — حوالين نداء الـ host |
-| APPROVED / DECLINED + COMPLETED | `reportOutcome` → `finishApproved/Declined(event)` (PAN/TVR/TAC/IAC/field 55)، أو `finishApproved/Declined(String)` (mag/manual) |
-| ERROR | `finishError` / `PosTerminal.errorEvent` (init، reader، kernel، online failed، exception) |
+| APPROVED / DECLINED + COMPLETED | `Transaction.emvFinished`، لما الـ EMV يبلّغ بـ `reportOutcome` → `finishApproved/Declined(event)` (PAN/TVR/TAC/IAC/field 55)، أو `finishApproved/Declined(String)` (mag/manual) |
+| ERROR | الـ EMV: `finishError` → `Transaction.emvFinished`؛ الـ terminal نفسه: `PosTerminal.errorEvent` (init، reader، search timeout، exception في `run`) |
 | CANCELLING / CANCELLED | `Transaction.cancel()` |
 
-⚠ الـ outcome publish مرتين (APPROVED، وبعدين COMPLETED كـ end): cancel بين الاتنين يدّي الـ UI APPROVED وبعدها CANCELLED. الـ host side مقفول صح في الحالة دي: النهاية مش COMPLETED، فبيتبعت reversal مش acknowledgement (§2.7).
+الـ outcome والنهاية بيتحطوا مع بعض في `emvFinished` (تحت الـ lock): cancel قبلها → النتيجة بتتساب والشاشة تشوف CANCELLED بس (والـ host: reversal لو وافق، §2.7)؛ cancel بعدها → مبيعملش حاجة. (كانت ⚠ "APPROVED وبعدها CANCELLED" لحد `28d79cb`.)
 
 ### 2.7 الـ host بعد النهاية: acknowledgement / reversal
 
@@ -573,12 +574,26 @@ sequenceDiagram
 
 ### 3.5 إزاي الـ transaction بتخلص
 
+**الـ EMV بيبلّغ، والـ `Transaction` بتقفل** (`28d79cb`):
+
+```text
+EMV  (AbstractEmvBehavior)                         Transaction
+finishApproved / finishDeclined / finishError  ──► emvFinished(outcome)   [تحت الـ lock]
+                                                     end != null (cancel سبق)  → dropped + note
+                                                     APPROVED / DECLINED       → يتنشر، end = COMPLETED
+                                                     ERROR                     → end = ERROR
+                                                     غير كده                   → end = ERROR "EMV finished with no outcome"
+```
+
+مبتقلبش قرار الكارت أبداً (رفض عمره ما يبقى approved). ده المكان اللي هيتقرر فيه الـ Mastercard single tap (الـ host يطلب PIN بعد ما الـ EMV خلص — BACKLOG 4.11).
+
 | من فين | بيعمل إيه |
 |---|---|
-| `finishApproved/Declined(String)` (mag/manual) | APPROVED/DECLINED + COMPLETED |
-| `finishWithOutcome(step, detail, msg)` (chip/clss) | `tx.outcome` → `goToStep(TRANSACTION_COMPLETION)` → `onTransactionCompletion` → `reportOutcome` → `finishApproved/Declined(event)` |
-| `finishError(msg)` | ERROR |
+| `finishApproved/Declined(String)` (mag/manual) | → `emvFinished`: APPROVED/DECLINED + COMPLETED |
+| `finishWithOutcome(step, detail, msg)` (chip/clss) | `tx.outcome` → `goToStep(TRANSACTION_COMPLETION)` → `onTransactionCompletion` → `reportOutcome` → `finishApproved/Declined(event)` → `emvFinished` |
+| `finishError(msg)` | → `emvFinished`: ERROR |
 | exception جوه أي `onXxx` | `EmvStepObserver.onNext` يمسكه → `finishError` |
+| `publish(APPROVED / DECLINED / end)` من الـ behavior | dropped + note في الـ trace: النهاية بتاعة `finish*` بس |
 | `Transaction.cancel()` | `end = CANCELLED` + CANCELLING + `cancelCardSearch()` |
 | الـ search خلص من غير outcome | `finally` بتاع `run`: ERROR "Transaction ended without an outcome" |
 
@@ -1100,7 +1115,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 7. **الـ transaction state في الـ `Transaction` بس** — متعملش flag تاني (busy = `current`، النهاية/الـ cancel = `end`).
 8. **PAX SDK modules** (`emvbase`، `emvlib*`، `poslib`، `commonutils`): تتلمس بس لما الـ kernel نفسه يحتاج، وبنفس ترتيب الـ native calls.
 9. **schema** اتغيرت → DAO بإيدك (ordinal، DDL، bind، read) + uninstall على الجهاز.
-10. اختبر: `:core` (91)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
+10. اختبر: `:core` (99)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
 
 ---
 

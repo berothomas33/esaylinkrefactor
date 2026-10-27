@@ -1,4 +1,4 @@
-# BACKLOG.md — what is missing, broken or risky (2026-10-20)
+# BACKLOG.md — what is missing, broken or risky (2026-10-20; status 2026-10-27)
 
 A whole-project gap scan on `rxTransactionDesign` (`0bee281`). Four read-only scans covered core +
 UI, PAX, network, and params + build. Every item names a file and line that was read. Items marked
@@ -12,11 +12,21 @@ to prove it. Nothing here is fixed yet. Read with `CLAUDE.md` (rules, §11 open 
 - One experiment = one commit. Show the native call order for EMV fixes. Device-test after.
 
 
-## Status on `transactionOwnsSteps` (2026-10-25, code at `19cc019`)
+## Status on `transactionOwnsSteps` (2026-10-27, code at `28d79cb`)
 
 Re-checked item by item against the code (not device-tested unless said). In the tables below
 ✅ = fixed, ◐ = partly; the rest are still open as written.
-Device-tested on `19cc019`: chip sale and tap again (form #11) — both work.
+Device-tested on `19cc019`: chip sale and tap again (form #11) — both work. Nothing after
+`19cc019` is device-tested (ack / reversal, not-sent failures, `emvFinished`, the trace retry
+label, the `pax-libs/` move).
+
+**New since 25/10** (`3d5fea1`, `30cd5aa`, `28d79cb`; see `REFERENCE.md` §2.7):
+- **0.5 ◐** acknowledgement / reversal are sent after the end (below).
+- **The EMV no longer ends the transaction**: `finish*` report the outcome to
+  `Transaction.emvFinished`, which sets the outcome and the end together under the lock — the
+  APPROVED-then-CANCELLED race is gone; a behavior's `publish` drops outcome / end steps.
+- **Online failed names its step** (`Token refresh:` / `Exchange:` / `Sale:` / `Refund:`), and a
+  failure the host certainly couldn't have approved is `AuthResult.notSent` (no reversal).
 
 | # | Now | Where it shows in the code |
 |---|---|---|
@@ -39,9 +49,10 @@ Device-tested on `19cc019`: chip sale and tap again (form #11) — both work.
 | ◐ 1.5 | An ERROR shows "Failed", not "Declined"; but Retry is still offered after "the host didn't answer" → a second authorization (handoff risk #3) | `SearchCardFragment.showOutcome` |
 | ◐ 3.1 | The seed flag is set after the seed finishes; the seed still runs on its own thread, so a sale can start mid-seed | `PaxTerminal.ensureEmvConfigInitialized` |
 | ◐ 6.3 / 6.4 | A screen that subscribes late (rotation) gets every step replayed (`Transaction.steps()` is a `ReplaySubject`); not device-tested | `PosTerminal.Transaction` |
+| ◐ 0.5 | Ack / reversal sent after every online transaction; fire-and-forget, no journal (0.15) | `PosTerminal.Transaction.closeOnline`, `SaleCommunicationBehavior.acknowledge / reverse` |
 
 Still open, re-checked: 0.2 (PAN / TVR / field 55 result panel shown in release — only the
-APDU trace is debug-gated), 0.5 (no reversal / ack), 0.11 (`RELEASE` hard-coded `false`), 0.12
+APDU trace is debug-gated), 0.11 (`RELEASE` hard-coded `false`), 0.12
 (a live mToken is still a literal in `HostAppKeys`), 0.13 (`Level.BODY` in every build), 1.4,
 1.8 (no host public key → a warning only), 1.9, 1.12 (Ingenico / Fake `approveAlways`), 1.13,
 1.14, 2.1, 2.3, 2.5 (`TagsTable.TAC_DENIAL = 0xDF8121`), 3.3, 3.7, 3.8, 4.1, 4.3 (75 s per call,
@@ -58,7 +69,7 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 | 0.2 | H ✔ | `SearchCardFragment:134-143,205-211`, `MainActivity:70`, `PaxEmvBehavior` `KEY_PAN` | **Full PAN shown and printed in release** (with TVR/TAC/IAC/field 55); only the APDU trace is `BuildConfig.DEBUG`-gated | no |
 | ✅ 0.3 | H ✔ | `network/.../SaleResponse.java:19` + `SaleCommunicationBehavior.toAuthResult:497-506` | **Fails open**: `responseCode` is an `int` → missing field = 0 = APPROVED; approved RC always forced to "00" | no |
 | ✅ 0.4 | H ✔ | `emvlib/dpas/.../ContactProcess.java` `certVerify` / `emvVerifyPINfailed` | No `setCallBackResult` → the native side blocks forever (javap: `cv.block()` no timeout) → terminal BUSY until restart | yes |
-| 0.5 | H | `PosTerminal.authorize:110-122`, `PaxEmvBehavior:2274`, `ContactProcess:381-390`, `ClssPayWaveProcess:493-496` | **No reversal / no acknowledgement**: host timeout after send, host-approved + card AAC / ARPC fail / script fail / 2nd tap missed, cancel after approve. `AuthResult.getAsyncRequestId` has no caller; no endpoint in `HostApiConnection` | yes (triggers no) |
+| ◐ 0.5 | H | `PosTerminal.Transaction.closeOnline`, `SaleCommunicationBehavior.acknowledge / reverse`, `HostApiConnection` (`orchestration/acknowledgement`, `orchestration/reverse`) | ~~No reversal / no acknowledgement~~ — **sent since `3d5fea1`**: ack for the last host-approved request when the transaction reported APPROVED and ended COMPLETED; reverse for one the host approved and the transaction didn't complete (2nd GEN AC AAC, cancel, error) or that got no usable answer; nothing for a decline or `notSent` (`30cd5aa`: token refresh, exchange, 401/403, no connection). Still open: fire-and-forget (0.15); that ack / reverse need mToken is assumed (same headers as the sale); not tried on the host | yes |
 | ✅ 0.6 | H ✔ | `PaxEmvBehavior.checkContactlessResult:1059-1087`; `ClssPayPassProcess:185-197`, Mir :126, DPAS :155-172 | SEE_PHONE / TRY_AGAIN / TRY_ANOTHER_INTERFACE built with `ret == EMV_OK` fall into the OK branch → **decline**. Likely root of **#10 See Phone** on Mastercard phones | yes |
 | ✅ 0.7 | H ✔ | `ContactProcess.resetParam:469` | `EMVGetMCKParam` where `EMVSetMCKParam` is meant → the selected AID's PIN-bypass never reaches the kernel; AID[0]'s applies to all | yes |
 | ✅ 0.8 | H ✔ | `bizentity/.../EmvParamService.capkConvert:975-985`, `getCachedEmvParam:842` → `ContactProcess:88,116` | No revocations (or no AIDs) → list stays **null** → NPE in `preTransProcess` → every sale "Terminal initialization failed", contactless too | partly |
@@ -68,6 +79,7 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 | 0.12 | H | `network/.../HostAppKeys.java:29-32,62-66` | Live mToken JWT + fixed app keys / accountId in source and git history (rotate them); `BuildConfig.MTOKEN_TEMP` read by nothing | partly |
 | 0.13 | H | `HostApiClient:36-37`, `HostHeaders:47,64,106` | OkHttp `Level.BODY` + header logging **in every build**: bearer token, apiKey, mToken, SACS, envelope keys | yes |
 | ✅ 0.14 | H | `PaxEmvBehavior.tryAgain:2321-2326` | Kernel-made `RESULT_TRY_AGAIN` has no cap → endless re-tap loop (JCB/RuPay/Mir/PayPass once 0.6 is fixed) | yes |
+| 0.15 | H | `PosTerminal.sendFollowUp` | **No reversal journal**: a reversal (or ack) that fails is logged, not stored or retried — after a timeout or a crash the host must reverse on its own (no ack). Store pending follow-ups (GreenDAO), send on the next start / before the next sale | yes |
 
 ---
 
@@ -89,6 +101,8 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 | 1.12 | M | `FakeEmvBehavior:90,198-206`; `IngenicoTerminal:25` (`approveAlways`) | Fake approves offline / on `null` auth; **an Ingenico prod×live build approves every card** (no variant filter) | partly |
 | 1.13 | L | `AbstractEmvBehavior.authorizeOnline:217-219` | Cancel returns `declined("17")` (host-shaped) instead of `failed` | no |
 | 1.14 | L | `ClssMirProcess:299-308` | `while(true)` on TRY_AGAIN, no cap / wait / cancel (seed-only: download deletes Mir) | no |
+| ✅ 1.15 | M | `AbstractEmvBehavior.finish*` → `PosTerminal.Transaction.emvFinished` | APPROVED then CANCELLED: a cancel between the outcome and COMPLETED. Fixed in `28d79cb`: outcome and end are set under one hold of the lock | yes |
+| 1.16 | M | `SaleCommunicationBehavior.classify` | A sale / refund HTTP 4xx other than 401/403 is still reversed (only 401/403 decided as "not sent"); decide the rest of 4xx | no |
 
 ## 2. Contactless kernels
 
@@ -123,7 +137,7 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 
 | # | Sev | Where | What | §11 |
 |---|---|---|---|---|
-| 4.1 | M | network (0 uses of `HttpException` / `errorBody`) | UI shows "HTTP 403", not the server text | yes |
+| ◐ 4.1 | M | `SaleCommunicationBehavior.classify` (no `errorBody` read) | The step is named now ("Exchange: HTTP 403 Forbidden", `30cd5aa`); the server's own text is still not shown | yes |
 | 4.2 | M | `OnboardingClient:159-179`, `HostSettings:29-32` | Token refreshed only from saved expiry; a 401/403 isn't retried; mToken never refreshed (~3 days) | partly |
 | 4.3 | M | `HostApiClient:22,40-41` | 75 s connect + 75 s read per call, 3 chained calls inside the 90 s budget; no `callTimeout`; `isRetry` always 0, no inquiry | no |
 | 4.4 | M | `AbstractEmvBehavior:221`, `PaxEmvBehavior:2096`, `SaleCommunicationBehavior:164-168` | **Swipe and manual can never go online** (no `EmvTransactionResult` → `SaleException`) | partly |
@@ -133,6 +147,7 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 | 4.8 | M | `OnboardingActivity:112-121`, `HostHeaders:76-89` | Every secret header shown on screen | no |
 | 4.9 | L | `AesEnvelopeCrypto:37`, `HostApiClient:39-43`, `DataModel`, `Hex.decode` | AES-CBC no MAC, no cert pinning, asyncRequestId not matched, createToken signature unchecked, lax hex | no |
 | 4.10 | L | `OnboardingState:113-162`, `HostSettings:52` | Secrets in plain SharedPreferences; sales gated only on "key + token present" | no |
+| 4.11 | M | `PosTerminal.Transaction.emvFinished`, `SaleRequest.singleTap` (always `null`) | **Mastercard single tap ("Single Tap and PIN Request")**: the host answers a contactless no-CVM sale with "PIN required"; the terminal asks for an online PIN and sends a new request with the first tap's card data and `singleTap = "ST"` (old app). Not done. Needs: the host's exact answer (response code — 65 for Mastercard is an assumption), a vendor hook to collect the online PIN, the decision in `emvFinished` | no |
 
 ## 5. Live gate (security / build)
 
@@ -165,7 +180,7 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 ## 7. Tests to add (none exist for these)
 
 - **app**: no `app/src/test` at all. `MainViewModel` (IDLE reset, busy → `getTerminalBusy`, cancel only its own, `onCleared` cancels); `AmountFragment.parseAmountMinor` (0, rounding, overflow — pull it out first).
-- **core**: retry end to end (same transaction, adjusted config, "RETRY #n", cancelled → no search); `prepare()==false` → one ERROR; `authorizeOnline` (cancelled never calls host; manual skips field 55); `finishApproved/Declined` order; `printReceipt` failure; `TransactionConfig.withX` keeps the rest.
+- **core**: the retry state lives in `EmvEngine` (`requestRetry` / `consumePendingRetry`), not in the `Transaction` — move it next to `emvFinished` when the step-driven run loop (design idea 2) is decided; retry end to end (same transaction, adjusted config, "RETRY #n", cancelled → no search); `prepare()==false` → one ERROR; `authorizeOnline` (cancelled never calls host; manual skips field 55); `finishApproved/Declined` order; `printReceipt` failure; `TransactionConfig.withX` keeps the rest.
 - **network**: `toAuthResult` (approve / decline / missing code — 0.3), `decryptEnvelope` errors, AES round trip + IV‖ct layout, RSA PKCS#1 parse, BerTlv / IssuerResponseFields, HmacSigner vs the captured run, `isTokenValid`, REFUND envelope, `cardFields` expiry / track-2.
 - **bizentity**: `EmvParamUpdater` (zip, delete/insert, `removeKernelsNotInPackage`, `changedDatabase`), contact XML CAPK + revocation fixture, Amex parsing, `XmlDomUtils` (BOM, prolog, bad numbers), `capkConvert` / `getCachedEmvParam` on empty tables, `ConfigInit`, DAO bind/read round trips.
 - **PAX kernels**: atomic kernels (2.2); `checkContactlessResult` mapping (0.6) as a pure function.
@@ -178,7 +193,8 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 `RetrofitCommunicationBehavior` + `HostApiConnection#purchase` + `Purchase*` (would send PAN + PIN
 block in plain JSON), the online onboarding cycle (`OnboardingClient:218-261`, `OnboardingOnline*`),
 `OnboardingState.markOnlineOnboarded` / `isOnlineOnboarded` / `isFullyOnboarded` / `getSacs` /
-`getChallenge`, `AuthResult.getAsyncRequestId` (needed by 0.5 — keep), `BuildConfig.MTOKEN_TEMP`.
+`getChallenge`, `AuthResult.withAsyncRequestId` / `getAsyncRequestId` (no reader since `3d5fea1`: the
+request's name lives on `TransactionConfig`), `BuildConfig.MTOKEN_TEMP`.
 Ask before deleting (`CLAUDE.md` §12).
 
 ## 9. Docs that no longer match the code
@@ -195,6 +211,7 @@ Ask before deleting (`CLAUDE.md` §12).
 1. **Before any more device testing**: 0.4 (hang), 0.8 + 0.10 (no sale at all), 0.1 (Back), 0.3 (fail open).
 2. **Form bugs**: 0.6 + 0.14 + 2.1 (#10 See Phone / try again), 0.7, 1.1–1.3.
 3. **Parameters**: 0.9, 3.1, 3.2, 3.4, 3.5, then 3.3 / 3.7.
-4. **Host**: 0.5 (needs the host's reversal / ack API), 4.1–4.5.
+4. **Host**: 0.15 (reversal journal), 4.11 (single tap, after the host's answer is known), 1.16,
+   4.1–4.5.
 5. **Live gate** (one branch): 0.2, 0.11–0.13, 5.1–5.6, 4.8, 4.10, 1.12.
 6. Receipt (6.1), then the UI rows, tests alongside each fix.
