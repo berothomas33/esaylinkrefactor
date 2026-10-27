@@ -380,10 +380,16 @@ public class PosTerminalTransactionLifecycleTest {
             return !isBusy();
         }
 
-        /** The next transaction's end, as published once the terminal is free. */
+        /**
+         * The next transaction's end, as published once the terminal is free — and once it has
+         * reached the test's {@code events} too: {@code ends} is subscribed first, so it hears
+         * the end while the transaction thread is still delivering it to {@code events}.
+         */
         TransactionStepEvent awaitEnd() throws InterruptedException {
             TransactionStepEvent end = ends.poll(5, TimeUnit.SECONDS);
             assertNotNull("no end published", end);
+            assertTrue("the end never reached the test's steps",
+                    awaitTrue(() -> events.contains(end)));
             return end;
         }
 
