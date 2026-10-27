@@ -200,6 +200,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         boolean answered;
     }
 
+    /**
+     * The card approved: the EMV is done, approved. Reported to the {@link PosTerminal.Transaction},
+     * which ends the transaction ({@link PosTerminal.Transaction#emvFinished}) — the EMV reports
+     * its outcome, it doesn't end the transaction itself.
+     */
     protected final void finishApproved(String message) {
         finishApproved(TransactionStepEvent.builder(TransactionStep.APPROVED)
                 .put(TransactionStepEvent.KEY_RESULT, message)
@@ -208,10 +213,10 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     /** As {@link #finishApproved(String)}, with an APPROVED event the vendor built (its audit data). */
     protected final void finishApproved(TransactionStepEvent approved) {
-        publish(approved);
-        publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        emvFinished(approved);
     }
 
+    /** The card or the host declined: the EMV is done, declined (see {@link #finishApproved(String)}). */
     protected final void finishDeclined(String message) {
         finishDeclined(TransactionStepEvent.builder(TransactionStep.DECLINED)
                 .put(TransactionStepEvent.KEY_ERROR, message)
@@ -220,21 +225,37 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     /** As {@link #finishDeclined(String)}, with a DECLINED event the vendor built (its audit data). */
     protected final void finishDeclined(TransactionStepEvent declined) {
-        publish(declined);
-        publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        emvFinished(declined);
     }
 
+    /** The EMV failed (kernel, reader, online failed…): done, with an error (see {@link #finishApproved(String)}). */
     protected final void finishError(String message) {
-        publish(PosTerminal.errorEvent(message));
+        emvFinished(PosTerminal.errorEvent(message));
+    }
+
+    private void emvFinished(TransactionStepEvent outcome) {
+        if (transaction == null) {
+            EmvLog.d("EMV outcome dropped, no transaction: " + outcome);
+            return;
+        }
+        transaction.emvFinished(outcome);
     }
 
     /**
      * Reports a step of the transaction (CARD_READ, APPLICATION_SELECTED…) on its steps; dropped
-     * once it has ended.
+     * once it has ended. Not the outcome nor the end: those are {@code finish*}'s, so only the
+     * {@link PosTerminal.Transaction} ends a transaction — one published here is dropped.
      */
     protected final void publish(TransactionStepEvent event) {
         if (transaction == null) {
             EmvLog.d("TransactionStep dropped, no transaction: " + event);
+            return;
+        }
+        TransactionStep step = event.getStep();
+        if (step.isEnd() || step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
+            EmvLog.d("TransactionStep dropped, an outcome goes through finish*: " + event);
+            engine().apduTrace().note("EMV",
+                    "transaction step dropped — an outcome goes through finish*: " + event);
             return;
         }
         transaction.publish(event);

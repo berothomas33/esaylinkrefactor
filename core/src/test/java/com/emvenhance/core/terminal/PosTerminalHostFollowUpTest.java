@@ -70,8 +70,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(approved());
         terminal = new TestTerminal(t -> {
             goOnline();
-            t.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         });
 
         terminal.runOne();
@@ -86,8 +85,7 @@ public class PosTerminalHostFollowUpTest {
         terminal = new TestTerminal(t -> {
             goOnline();
             // AAC at the 2nd GENERATE AC
-            t.publish(TransactionStepEvent.of(TransactionStep.DECLINED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
         });
 
         terminal.runOne();
@@ -102,8 +100,7 @@ public class PosTerminalHostFollowUpTest {
         terminal = new TestTerminal(t -> {
             goOnline();
             t.cancel();
-            t.publish(TransactionStepEvent.of(TransactionStep.APPROVED)); // dropped: ended
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED)); // dropped: ended
         });
 
         terminal.runOne();
@@ -118,7 +115,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(approved());
         terminal = new TestTerminal(t -> {
             goOnline();
-            t.publish(PosTerminal.errorEvent("card removed"));
+            t.emvFinished(PosTerminal.errorEvent("card removed"));
         });
 
         terminal.runOne();
@@ -132,8 +129,7 @@ public class PosTerminalHostFollowUpTest {
         // no answer queued: the host errors
         terminal = new TestTerminal(t -> {
             assertTrue(goOnline().isFailed());
-            t.publish(TransactionStepEvent.of(TransactionStep.DECLINED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
         });
 
         terminal.runOne();
@@ -148,7 +144,7 @@ public class PosTerminalHostFollowUpTest {
         AtomicReference<AuthResult> answer = new AtomicReference<>();
         terminal = new TestTerminal(t -> {
             answer.set(goOnline());
-            t.publish(PosTerminal.errorEvent("Online Failed"));
+            t.emvFinished(PosTerminal.errorEvent("Online Failed"));
         });
 
         terminal.runOne();
@@ -164,7 +160,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(AuthResult.notSent("Cash In isn't supported online yet"));
         terminal = new TestTerminal(t -> {
             goOnline();
-            t.publish(PosTerminal.errorEvent("Online Failed"));
+            t.emvFinished(PosTerminal.errorEvent("Online Failed"));
         });
 
         terminal.runOne();
@@ -177,8 +173,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(AuthResult.declined("05", "Do not honour"));
         terminal = new TestTerminal(t -> {
             goOnline();
-            t.publish(TransactionStepEvent.of(TransactionStep.DECLINED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
         });
 
         terminal.runOne();
@@ -189,8 +184,7 @@ public class PosTerminalHostFollowUpTest {
     @Test(timeout = 10_000)
     public void aTransactionThatNeverWentOnlineHasNothingToClose() throws InterruptedException {
         terminal = new TestTerminal(t -> {
-            t.publish(TransactionStepEvent.of(TransactionStep.DECLINED)); // offline decline
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED)); // offline decline
         });
 
         terminal.runOne();
@@ -207,8 +201,7 @@ public class PosTerminalHostFollowUpTest {
         terminal = new TestTerminal(t -> {
             goOnline();
             goOnline();
-            t.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         });
 
         terminal.runOne();
@@ -224,8 +217,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(approved());
         terminal = new TestTerminal(t -> {
             goOnline();
-            t.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         });
 
         terminal.runOne();
@@ -241,8 +233,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(approved());
         terminal = new TestTerminal(t -> {
             goOnline();
-            t.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         });
 
         terminal.runOne();
@@ -274,8 +265,7 @@ public class PosTerminalHostFollowUpTest {
         };
         terminal = new TestTerminal(failing, t -> {
             goOnline();
-            t.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         });
 
         terminal.runOne();
@@ -318,8 +308,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(approved());
         terminal.script = t -> {
             goOnline();
-            t.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-            t.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         };
         terminal.runOne();
         assertEquals("ACK " + idSent(sent.size() - 1), followUps.take());

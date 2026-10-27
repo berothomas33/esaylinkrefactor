@@ -455,10 +455,43 @@ public abstract class PosTerminal {
                     end = event;
                     return;
                 }
-                if (event.getStep() == TransactionStep.APPROVED) {
-                    approvedReported = true;
-                }
                 deliver(event);
+            }
+        }
+
+        /**
+         * The EMV is done with the card and reports how ({@code AbstractEmvBehavior#finish*}):
+         * APPROVED, DECLINED or ERROR. The transaction, not the EMV, ends itself here. Today the
+         * end follows the card's outcome — APPROVED or DECLINED then COMPLETED, ERROR as it is —
+         * and never turns a decline or an error into an approval. This is where an outcome that
+         * still needs the host (e.g. Mastercard single tap: the host asks for a PIN) will be
+         * decided.
+         *
+         * <p>The outcome and the end are set under one hold of the lock, so a cancel can't land
+         * between them (APPROVED then CANCELLED). Dropped, with a trace note, once the transaction
+         * has ended (a cancel was first).
+         */
+        void emvFinished(TransactionStepEvent outcome) {
+            TransactionStep step = outcome.getStep();
+            synchronized (steps) {
+                if (end != null) {
+                    EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
+                    apduTrace().note("EMV", "EMV outcome dropped, the transaction has ended ("
+                            + end.getStep() + "): " + step);
+                    return;
+                }
+                if (step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
+                    apduTrace().note("EMV", "EMV finished: " + step + " — the transaction completes");
+                    deliver(outcome);
+                    end = TransactionStepEvent.of(TransactionStep.COMPLETED);
+                } else if (step == TransactionStep.ERROR) {
+                    apduTrace().note("EMV", "EMV finished with an error — the transaction ends");
+                    end = outcome;
+                } else {
+                    apduTrace().note("EMV", "EMV finished with no outcome (" + step
+                            + ") — the transaction ends with an error");
+                    end = errorEvent("EMV finished with no outcome: " + step);
+                }
             }
         }
 
@@ -467,6 +500,9 @@ public abstract class PosTerminal {
          * that throws doesn't reach here: its {@link SafeObserver} ({@link #steps()}) takes it.
          */
         private void deliver(TransactionStepEvent event) {
+            if (event.getStep() == TransactionStep.APPROVED) {
+                approvedReported = true;
+            }
             EmvLog.d("TransactionStep: " + event);
             traceTransactionStep(event);
             steps.onNext(event);
