@@ -18,6 +18,13 @@ public enum TransactionStep {
     /** {@code prepare()} called; terminal is initializing. */
     TRANSACTION_STARTED("Transaction started"),
 
+    /**
+     * A retry the behavior asked for (fallback, try again, See Phone, try another interface):
+     * the next attempt of the same transaction starts — prepare, card search, EMV again. Once
+     * per retry.
+     */
+    NEXT_ATTEMPT("Next attempt"),
+
     /** Terminal initialization complete; waiting for a card tap or insert. */
     WAITING_FOR_CARD("Waiting for card"),
 

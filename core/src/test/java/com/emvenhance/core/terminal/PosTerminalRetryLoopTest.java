@@ -26,9 +26,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
- * A retry the behavior asks for (fallback, try another interface, try again, See Phone) is the
- * next turn of {@code Transaction.run}'s loop: a new search after the previous one
- * returned, never one started from inside its callback, and TRANSACTION_STARTED only once.
+ * The transaction runs from its own steps, on the transaction thread: TRANSACTION_STARTED runs
+ * the first attempt; a retry the behavior asks for (fallback, try another interface, try again,
+ * See Phone) is NEXT_ATTEMPT — a new search after the previous one returned, never one started
+ * from inside its callback — and TRANSACTION_STARTED comes only once. Whatever happens, the end
+ * is published once, with the terminal already free.
  */
 public class PosTerminalRetryLoopTest {
 
@@ -41,6 +43,10 @@ public class PosTerminalRetryLoopTest {
     private final AtomicReference<java.util.function.BiConsumer<EmvEngine, PosTerminal.Transaction>>
             onStart = new AtomicReference<>();
     private final AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
+    private final List<Thread> searchThreads = new CopyOnWriteArrayList<>();
+    private final List<Boolean> busyAtTheEnd = new CopyOnWriteArrayList<>();
+    /** Thrown by the search when set. */
+    private volatile RuntimeException searchFails;
 
     @Test
     public void aRetryIsTheNextTurnOfTheLoopNotASearchInsideTheLastOne() throws Exception {
@@ -62,7 +68,60 @@ public class PosTerminalRetryLoopTest {
         assertEquals(Arrays.asList(EntryMethod.ANY, EntryMethod.MAGSTRIPE), searchedWith);
         assertEquals("a search started inside another", 1, deepestNesting.get());
         assertEquals("once per transaction", 1, count(TransactionStep.TRANSACTION_STARTED));
+        assertEquals("once per retry", 1, count(TransactionStep.NEXT_ATTEMPT));
+        assertTrue("NEXT_ATTEMPT before the second search's steps",
+                indexOf(TransactionStep.NEXT_ATTEMPT) < lastIndexOf(TransactionStep.APPROVED));
         assertEquals(TransactionStep.COMPLETED, events.get(events.size() - 1).getStep());
+    }
+
+    @Test
+    public void everyAttemptRunsOnTheTransactionThreadNotTheCaller() throws Exception {
+        AtomicInteger starts = new AtomicInteger();
+        onStart.set((engine, transaction) -> {
+            if (starts.incrementAndGet() == 1) {
+                engine.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
+                        EntryMethod.MAGSTRIPE), "Chip not readable — swipe the card");
+            } else {
+                transaction.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
+            }
+        });
+        TestTerminal terminal = new TestTerminal();
+
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        assertTrue(ended.await(5, TimeUnit.SECONDS));
+
+        assertEquals(2, searchThreads.size());
+        assertTrue("not the caller's thread", searchThreads.get(0) != Thread.currentThread());
+        assertTrue("one transaction thread", searchThreads.get(0) == searchThreads.get(1));
+    }
+
+    @Test
+    public void aSearchThatThrowsEndsWithAnErrorAndFreesTheTerminal() throws Exception {
+        searchFails = new IllegalStateException("reader gone");
+        TestTerminal terminal = new TestTerminal();
+
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        assertTrue(ended.await(5, TimeUnit.SECONDS));
+
+        TransactionStepEvent end = events.get(events.size() - 1);
+        assertEquals(TransactionStep.ERROR, end.getStep());
+        assertEquals("reader gone", end.getMessage());
+        assertEquals("free before the end is seen", Arrays.asList(false), busyAtTheEnd);
+        assertEquals(0, count(TransactionStep.NEXT_ATTEMPT));
+    }
+
+    @Test
+    public void anAttemptWithNoOutcomeEndsWithAnError() throws Exception {
+        onStart.set((engine, transaction) -> { }); // EMV reports nothing
+        TestTerminal terminal = new TestTerminal();
+
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        assertTrue(ended.await(5, TimeUnit.SECONDS));
+
+        assertEquals("Transaction ended without an outcome",
+                events.get(events.size() - 1).getMessage());
+        assertEquals(Arrays.asList(false), busyAtTheEnd);
+        assertEquals("the end once", 1, countEnds());
     }
 
     @Test
@@ -81,6 +140,7 @@ public class PosTerminalRetryLoopTest {
         assertTrue(ended.await(5, TimeUnit.SECONDS));
 
         assertEquals("the retry never searched", Arrays.asList(EntryMethod.ANY), searchedWith);
+        assertEquals("no NEXT_ATTEMPT once cancelled", 0, count(TransactionStep.NEXT_ATTEMPT));
         TransactionStepEvent end = events.get(events.size() - 1);
         assertEquals("Transaction cancelled", end.getMessage());
         assertFalse(terminal.isSearchCancelled());
@@ -92,6 +152,34 @@ public class PosTerminalRetryLoopTest {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private int indexOf(TransactionStep step) {
+        for (int i = 0; i < events.size(); i++) {
+            if (events.get(i).getStep() == step) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int lastIndexOf(TransactionStep step) {
+        for (int i = events.size() - 1; i >= 0; i--) {
+            if (events.get(i).getStep() == step) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int countEnds() {
+        int n = 0;
+        for (TransactionStepEvent e : events) {
+            if (e.getStep().isEnd()) {
+                n++;
+            }
+        }
+        return n;
     }
 
     private int count(TransactionStep step) {
@@ -122,6 +210,7 @@ public class PosTerminalRetryLoopTest {
             allSteps.subscribe(e -> {
                 events.add(e);
                 if (e.getStep().isEnd()) {
+                    busyAtTheEnd.add(isBusy());
                     ended.countDown();
                 }
             });
@@ -130,7 +219,11 @@ public class PosTerminalRetryLoopTest {
         @Override
         public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
             deepestNesting.accumulateAndGet(searchesOnStack.incrementAndGet(), Math::max);
+            searchThreads.add(Thread.currentThread());
             try {
+                if (searchFails != null) {
+                    throw searchFails;
+                }
                 searchedWith.add(config.getMode());
                 CardPresence card = CardPresence.chip();
                 listener.onChipDetected(card); // EMV runs right here, as on PAX

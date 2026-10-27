@@ -21,6 +21,7 @@ import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.observers.DisposableObserver;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
@@ -45,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [returns its Transaction at once]
- *          └── transaction thread: transaction.run()
+ *          └── TRANSACTION_STARTED → transaction thread: onTransactionStarted()
  *          └── behavior.prepare(config, transaction) + searchCard(config, listener) ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
  *                        └── behavior.start(config, card, transaction) ← vendor EMV, from inside the callback
@@ -75,6 +76,13 @@ public abstract class PosTerminal {
      * is a flag the transaction reads, never an interrupt of a native call.
      */
     private final Executor transactionExecutor = Executors.newSingleThreadExecutor();
+
+    /**
+     * {@link #transactionExecutor} as an Rx scheduler: a transaction's steps reach its
+     * {@link Transaction.TransactionStepObserver} on that one thread, in order, one at a time
+     * (never interrupted: {@code Schedulers.from} doesn't interrupt its tasks).
+     */
+    private final Scheduler transactionScheduler = Schedulers.from(transactionExecutor);
 
     /**
      * The one thread receipts print on: one printer, one job at a time, in the order they were
@@ -243,7 +251,7 @@ public abstract class PosTerminal {
             EmvLog.d("POS terminal is busy: the previous transaction hasn't finished");
             throw new TerminalBusyException();
         }
-        transactionExecutor.execute(transaction::run);
+        transaction.begin();
         return transaction;
     }
 
@@ -365,9 +373,9 @@ public abstract class PosTerminal {
 
     /**
      * One accepted {@link #startTransaction}: everything about it, in one place — it runs itself
-     * on the transaction thread ({@link #run}). The terminal outlives every transaction, so what
-     * belongs to one lives here — a search still running for an earlier transaction can then
-     * tell it is over, instead of acting on the next.
+     * on the transaction thread, driven by its own steps ({@link #dispatchTransactionStep}). The
+     * terminal outlives every transaction, so what belongs to one lives here — a search still
+     * running for an earlier transaction can then tell it is over, instead of acting on the next.
      *
      * <ul>
      *   <li>{@link #end} is its whole state: {@code null} while it runs (and the terminal is busy
@@ -440,7 +448,7 @@ public abstract class PosTerminal {
         /**
          * Every step of this transaction comes through here — the terminal's own and its
          * behavior's ({@link AbstractEmvBehavior#publish}). Published only while it is running;
-         * the first end ends it and is published by {@link #run} once the terminal is free;
+         * the first end ends it and is published by {@link #onEnd} once the terminal is free;
          * anything after it is dropped.
          */
         void publish(TransactionStepEvent event) {
@@ -509,44 +517,154 @@ public abstract class PosTerminal {
         }
 
         /**
-         * Runs on the transaction thread — always, even for a transaction cancelled before it got
-         * here, so it always frees the terminal. One {@link EmvEngine#begin()} for the whole
-         * transaction, including any retries a behavior requests via {@link EmvEngine#requestRetry}
-         * (PAX fallback / try-another-interface / try-again). Never throws.
-         *
-         * <p>Its {@code finally} is the one place a transaction's end is published: frees the
-         * terminal first, then publishes the end, so a screen that sees COMPLETED/ERROR can start
-         * the next sale at once.
+         * Starts this transaction, on the caller's thread right after the busy check: subscribes
+         * its {@link TransactionStepObserver} (on the transaction thread) to its own steps, then
+         * publishes TRANSACTION_STARTED — the step that runs the first attempt there. Once.
          */
-        private void run() {
-            try {
-                behavior.engine().begin();
-                publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)); // once
-                // Each attempt: prepare, search, EMV. A retry the behavior asked for (fallback,
-                // try another interface, try again, See Phone) is the next turn of this loop —
-                // not a search started from inside the previous search's callback.
-                TransactionConfig attemptConfig = config;
-                while (attemptConfig != null && isRunning()) {
-                    attemptConfig = attempt(attemptConfig);
+        private void begin() {
+            dispatch = steps.observeOn(transactionScheduler)
+                    .subscribeWith(new TransactionStepObserver());
+            publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+        }
+
+        /** Its dispatch observer; disposed by {@link #onEnd}. Set once, in {@link #begin}. */
+        @Nullable
+        private DisposableObserver<TransactionStepEvent> dispatch;
+        /** The config of the attempt NEXT_ATTEMPT starts; transaction thread only. */
+        @Nullable
+        private TransactionConfig nextAttemptConfig;
+        /** Whether {@link #onEnd} ran; transaction thread only. */
+        private boolean finished;
+
+        /**
+         * This transaction's steps, on the transaction thread, one at a time — the way
+         * {@code AbstractEmvBehavior}'s EmvStepObserver runs EMV steps. Unlike the EMV dispatch
+         * (synchronous, nested), a step published from a step method waits its turn: it runs
+         * once the current method returns. Whatever goes wrong here still ends the transaction
+         * and frees the terminal ({@link #onEnd}).
+         */
+        private final class TransactionStepObserver extends DisposableObserver<TransactionStepEvent> {
+
+            @Override
+            public void onNext(TransactionStepEvent event) {
+                try {
+                    dispatchTransactionStep(event);
+                } catch (Throwable t) {
+                    //noinspection CallToPrintStackTrace
+                    t.printStackTrace();
+                    publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
+                    onEnd();
                 }
-            } catch (Throwable t) {
-                //noinspection CallToPrintStackTrace
-                t.printStackTrace();
-                publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
-            } finally {
-                List<Runnable> followUps;
-                synchronized (steps) { // a cancel's CANCELLING can't land after the end
-                    // A search that stopped with no outcome still ends its transaction.
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                publish(errorEvent(error.getMessage() != null ? error.getMessage()
+                        : "Transaction steps failed"));
+                onEnd();
+            }
+
+            @Override
+            public void onComplete() {
+            }
+        }
+
+        /**
+         * Runs the method of the steps that drive the transaction; every other step is a report
+         * for the screen and runs nothing.
+         *
+         * <pre>
+         *   TRANSACTION_STARTED → onTransactionStarted: engine.begin, then the first attempt
+         *   NEXT_ATTEMPT        → onNextAttempt: the retry's attempt
+         *   (an attempt with no retry to follow) → onEnd: free the terminal, publish the end
+         * </pre>
+         */
+        private void dispatchTransactionStep(TransactionStepEvent event) {
+            switch (event.getStep()) {
+                case TRANSACTION_STARTED:
+                    onTransactionStarted(event);
+                    break;
+                case NEXT_ATTEMPT:
+                    onNextAttempt();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        /**
+         * The first attempt. One {@link EmvEngine#begin()} for the whole transaction, retries
+         * included; it starts a fresh APDU trace, so TRANSACTION_STARTED (published on the
+         * caller's thread before it) is written into the new trace here.
+         */
+        private void onTransactionStarted(TransactionStepEvent started) {
+            behavior.engine().begin();
+            traceTransactionStep(started);
+            runAttempt(config);
+        }
+
+        /** A retry's attempt (fallback / try another interface / try again / See Phone). */
+        private void onNextAttempt() {
+            TransactionConfig retry = nextAttemptConfig;
+            nextAttemptConfig = null;
+            if (retry == null) {
+                EmvLog.d("NEXT_ATTEMPT with no retry config — ignored");
+                return;
+            }
+            runAttempt(retry);
+        }
+
+        /**
+         * One attempt ({@link #attempt}), then what comes next: the retry the behavior asked for,
+         * as NEXT_ATTEMPT — run once this method returns — or the end ({@link #onEnd}). A
+         * cancel that landed first wins: no NEXT_ATTEMPT is published once the transaction has
+         * ended, and it ends instead.
+         */
+        private void runAttempt(TransactionConfig attemptConfig) {
+            // An exception from the attempt is the observer's: ERROR, then onEnd.
+            TransactionConfig retry = isRunning() ? attempt(attemptConfig) : null;
+            boolean next = false;
+            if (retry != null) {
+                synchronized (steps) { // a cancel can't land between the check and the publish
                     if (end == null) {
-                        end = errorEvent("Transaction ended without an outcome");
+                        nextAttemptConfig = retry;
+                        deliver(TransactionStepEvent.of(TransactionStep.NEXT_ATTEMPT));
+                        next = true;
                     }
-                    followUps = closeOnline();
-                    current.compareAndSet(this, null);
-                    deliver(end);
                 }
-                for (Runnable followUp : followUps) {
-                    followUp.run();
+            }
+            if (!next) {
+                onEnd();
+            }
+        }
+
+        /**
+         * The one place a transaction's end is published, on the transaction thread, once: the
+         * end (or ERROR "Transaction ended without an outcome" if none was set), the host
+         * follow-up decided ({@link #closeOnline}), the terminal freed, then the end delivered —
+         * a screen that sees COMPLETED / ERROR / CANCELLED can start the next sale at once — and
+         * last the acknowledgement / reversal sent.
+         */
+        private void onEnd() {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            if (dispatch != null) {
+                dispatch.dispose(); // its last step; the end itself runs nothing
+            }
+            List<Runnable> followUps;
+            synchronized (steps) { // a cancel's CANCELLING can't land after the end
+                // A search that stopped with no outcome still ends its transaction.
+                if (end == null) {
+                    end = errorEvent("Transaction ended without an outcome");
                 }
+                followUps = closeOnline();
+                current.compareAndSet(this, null);
+                deliver(end);
+            }
+            for (Runnable followUp : followUps) {
+                followUp.run();
             }
         }
 
@@ -560,7 +678,7 @@ public abstract class PosTerminal {
         /**
          * Closes the host's side of every request this transaction sent, now that it has ended;
          * called under the lock, with {@link #end} set. Notes each in the APDU trace and returns
-         * the calls, which {@link #run} makes once the terminal is free.
+         * the calls, which {@link #onEnd} makes once the terminal is free.
          *
          * <ul>
          *   <li>Its last request, approved by the host, and the transaction reported APPROVED and
@@ -623,7 +741,7 @@ public abstract class PosTerminal {
                 return null;
             }
             searchCard(config, new EngineReportingListener(config));
-            // Consumed either way; run's loop drops it if the transaction is over (cancelled).
+            // Consumed either way; runAttempt drops it if the transaction is over (cancelled).
             TransactionConfig retry = behavior.engine().consumePendingRetry();
             if (retry != null && !isRunning()) {
                 EmvLog.d("Retry dropped: the transaction is over");

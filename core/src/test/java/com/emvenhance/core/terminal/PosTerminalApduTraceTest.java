@@ -61,6 +61,8 @@ public class PosTerminalApduTraceTest {
         terminal.acceptCard(TransactionType.SALE, 1000);
 
         assertTrue(ended.await(5, TimeUnit.SECONDS));
+        assertTrue("the new trace starts with the start step: " + trace.text(),
+                trace.text().contains("--- TRANSACTION STARTED"));
         assertTrue(trace.text(), trace.text().contains("--- ERROR: Terminal initialization failed"));
     }
 
