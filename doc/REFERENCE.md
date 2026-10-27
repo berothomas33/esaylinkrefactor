@@ -1,6 +1,7 @@
 # EasyLink / EmvEnhance — مرجع المشروع
 
 > مكتوب من الكود على `transactionOwnsSteps` (`30cd5aa`، 2026-10-27). كل اسم method هنا موجود فعلاً.
+> **ده الـ REFERENCE بتاع "قبل 27/10".** شغل 27/10 (الـ modules في `pax-libs/`، والـ EMV بيبلّغ والـ `Transaction` هي اللي بتقفل: `emvFinished`) على `transactionOwnsSteps-oct27`، وليه REFERENCE بتاعه.
 > اتجرّب على الجهاز عند `19cc019`: chip، و tap again (form #11) — الاتنين شغالين. باقي الـ form لسه متجرّبش على الـ branch ده.
 > الجديد من بعد `19cc019` (مش متجرّب على الجهاز): الـ acknowledgement / reversal بعد النهاية (§2.7، `3d5fea1` + `30cd5aa`)، والـ trace بيبدأ عدّ الـ GENERATE AC من الأول مع كل retry (§2.5، `196af3b`).
 > الرسومات نفسها (mermaid) موجودة كمان كصفحة: https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh
