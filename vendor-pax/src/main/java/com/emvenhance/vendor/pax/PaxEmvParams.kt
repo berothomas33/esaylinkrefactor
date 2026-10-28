@@ -32,6 +32,7 @@ import com.pax.commonlib.utils.ConvertUtils
 import com.pax.emvbase.param.EmvProcessParam
 import com.pax.emvbase.param.clss.BaseAid
 import com.pax.emvbase.param.clss.BaseParam
+import com.pax.emvbase.param.common.Capk
 import com.pax.commonlib.application.BaseApplication
 import com.pax.configservice.impl.ConfigInit
 import com.pax.configservice.impl.EmvParamUpdater
@@ -42,7 +43,7 @@ import java.lang.reflect.Modifier
 
 /**
  * PAX's [EmvParams]: the GreenDAO parameter database, the kernel's parameter cache
- * ([PaxTerminal.kernelParams]), and the host's parameter package ([EmvParamDownloadClient] +
+ * ([PaxTerminal.kernelParams], shown apart, never loaded from here), and the host's parameter package ([EmvParamDownloadClient] +
  * [EmvParamUpdater]). Every row is rendered here, so the screen never sees a PAX type. Nothing
  * writes the database while a transaction runs.
  */
@@ -52,7 +53,15 @@ internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
 
     override fun rows(category: String): List<EmvParams.Row> {
         val c = Category.of(category)
-        return c.loader().filterNotNull().map { PaxRow(c, it) }
+        return c.loader().filterNotNull().map { PaxRow(c.renderer(it), it) }
+    }
+
+    /** Read from [PaxTerminal.kernelParams], which never loads it. */
+    override fun cachedRows(category: String): List<EmvParams.Row>? {
+        val cache = terminal.kernelParams() ?: return null
+        val c = Category.of(category)
+        val entries = c.cached(cache) ?: throw IllegalStateException(c.label + " is not in the kernel's cache")
+        return entries.filterNotNull().map { PaxRow(c.cachedRenderer(it), it) }
     }
 
     /**
@@ -91,111 +100,109 @@ internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
         return File(dir, name).takeIf { it.isFile }
     }
 
-    /** One database row; its details are its entry in the kernel's cache, looked up on demand. */
-    private inner class PaxRow(private val category: Category, private val item: Any) : EmvParams.Row {
+    /** One entry — a database row or a cache entry — and every field of it. */
+    private class PaxRow(private val title: String, private val item: Any) : EmvParams.Row {
 
-        override fun title(): String = category.renderer(item)
+        override fun title(): String = title
 
-        override fun details(): String {
-            val cached = category.cache(terminal.kernelParams(), item)
-            return if (cached != null) {
-                "In the kernel's cache — what the next transaction uses:\n\n" + describe(cached)
-            } else {
-                "Not in the kernel's cache yet (it reloads at the next transaction after a download). " +
-                    "Database values:\n\n" + describe(item)
-            }
-        }
+        override fun details(): String = describe(item)
     }
 
     /**
-     * One EMV param category: how to load it from the database, how to render each row, and how
-     * to find that row's entry in the kernel's parameter cache (what a transaction uses).
+     * One EMV param category: how to load it from the database and render each row, and how to
+     * read its entries in the kernel's parameter cache (what a transaction uses) and render them.
+     * `cached` is `null` when the cache lacks the category.
      */
     private enum class Category(
         val label: String,
         val loader: () -> List<*>,
         val renderer: (Any) -> String,
-        val cache: (EmvProcessParam, Any) -> Any?,
+        val cached: (EmvProcessParam) -> List<*>?,
+        val cachedRenderer: (Any) -> String,
     ) {
         AID(
             "AID",
             { GreendaoHelper.getEmvAidHelper().loadAll() },
             { item -> row((item as EmvAid).appName, item.aid) },
-            { cache, item -> find(cache.emvAidList, { aid -> hex(aid.applicationID) }, (item as EmvAid).aid) },
+            { cache -> cache.emvAidList },
+            { entry -> hex((entry as com.pax.emvbase.param.contact.EmvAid).applicationID) },
         ),
         CAPK(
             "CAPK",
             { GreendaoHelper.getEmvCapkHelper().loadAll() },
             { item -> "RID " + (item as EmvCapk).rid + "   Key " + item.keyID },
-            { cache, item ->
-                cache.capkParam?.let { capkParam ->
-                    find(
-                        capkParam.capkList,
-                        { capk -> hex(capk.rid) + "/" + (capk.keyId.toInt() and 0xFF) },
-                        (item as EmvCapk).rid + "/" + item.keyID,
-                    )
-                }
-            },
+            { cache -> cache.capkParam?.capkList },
+            { entry -> "RID " + hex((entry as Capk).rid) + "   Key " + (entry.keyId.toInt() and 0xFF) },
         ),
         AMEX(
             "Amex",
             { AmexAidDbHelper.getInstance().loadAll() },
             { item -> row((item as AmexAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.amexParam, (item as AmexAidBean).aid) },
+            { cache -> clss(cache.amexParam) },
+            { entry -> clssRow(entry) },
         ),
         PAYPASS(
             "PayPass",
             { PaypassAidDbHelper.getInstance().loadAll() },
             { item -> row((item as PayPassAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.payPassParam, (item as PayPassAidBean).aid) },
+            { cache -> clss(cache.payPassParam) },
+            { entry -> clssRow(entry) },
         ),
         PAYWAVE(
             "PayWave",
             { PaywaveAidDbHelper.getInstance().loadAll() },
             { item -> row((item as PaywaveAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.payWaveParam, (item as PaywaveAidBean).aid) },
+            { cache -> clss(cache.payWaveParam) },
+            { entry -> clssRow(entry) },
         ),
         DPAS(
             "Dpas",
             { DpasAidDbHelper.getInstance().loadAll() },
             { item -> row((item as DpasAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.dpasParam, (item as DpasAidBean).aid) },
+            { cache -> clss(cache.dpasParam) },
+            { entry -> clssRow(entry) },
         ),
         EFT(
             "EFT",
             { EFTAidDbHelper.getInstance().loadAll() },
             { item -> row((item as EFTAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.eftParam, (item as EFTAidBean).aid) },
+            { cache -> clss(cache.eftParam) },
+            { entry -> clssRow(entry) },
         ),
         JCB(
             "Jcb",
             { JcbAidDbHelper.getInstance().loadAll() },
             { item -> row((item as JcbAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.jcbParam, (item as JcbAidBean).aid) },
+            { cache -> clss(cache.jcbParam) },
+            { entry -> clssRow(entry) },
         ),
         MIR(
             "Mir",
             { MirAidDbHelper.getInstance().loadAll() },
             { item -> row((item as MirAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.mirParam, (item as MirAidBean).aid) },
+            { cache -> clss(cache.mirParam) },
+            { entry -> clssRow(entry) },
         ),
         PBOC(
             "Pboc",
             { PBOCAidDbHelper.getInstance().loadAll() },
             { item -> row((item as PBOCAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.pbocParam, (item as PBOCAidBean).aid) },
+            { cache -> clss(cache.pbocParam) },
+            { entry -> clssRow(entry) },
         ),
         PURE(
             "Pure",
             { PureAidDbHelper.getInstance().loadAll() },
             { item -> row((item as PureAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.pureParam, (item as PureAidBean).aid) },
+            { cache -> clss(cache.pureParam) },
+            { entry -> clssRow(entry) },
         ),
         RUPAY(
             "RuPay",
             { RupayAidDbHelper.getInstance().loadAll() },
             { item -> row((item as RupayAidBean).appName, item.aid) },
-            { cache, item -> clss(cache.ruPayParam, (item as RupayAidBean).aid) },
+            { cache -> clss(cache.ruPayParam) },
+            { entry -> clssRow(entry) },
         ),
         ;
 
@@ -215,17 +222,15 @@ internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
          */
         const val POS_TYPE = "pax"
 
-        /** The cached entry whose key matches `key`; null when the cache doesn't have it. */
-        private fun <T> find(cached: List<T>?, keyOf: (T) -> String, key: String?): T? {
-            if (cached == null || key == null) {
-                return null
-            }
-            return cached.firstOrNull { key.equals(keyOf(it), ignoreCase = true) }
-        }
+        /** A contactless kernel's cached AIDs; `null` when the cache lacks the kernel. */
+        private fun clss(param: BaseParam<out BaseAid>?): List<*>? = param?.aidList
 
-        /** A contactless kernel's cached AID entry, by AID. */
-        private fun clss(param: BaseParam<out BaseAid>?, aid: String?): Any? =
-            if (param == null) null else find(param.aidList, { entry -> hex(entry.aid) }, aid)
+        /** A cached contactless AID, the way [row] shows its database row. */
+        private fun clssRow(entry: Any): String {
+            val aid = entry as BaseAid
+            val name = aid.appName
+            return row(if (name == null) "" else String(name, Charsets.US_ASCII).trim(), hex(aid.aid))
+        }
 
         private fun hex(bytes: ByteArray?): String = if (bytes == null) "" else ConvertUtils.bcd2Str(bytes)
 

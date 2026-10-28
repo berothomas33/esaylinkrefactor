@@ -17,6 +17,7 @@ import com.emvenhance.R
 import com.emvenhance.core.param.EmvParams
 import com.emvenhance.network.onboarding.OnboardingState
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,8 +26,9 @@ import java.io.IOException
 
 /**
  * The terminal's EMV parameters ([EmvParams], from `PosTerminal.emvParams()`). One category at a
- * time: tap a category button to replace the fragment container with a fresh
- * [EmvParamListFragment] for it, so only the category on screen is ever loaded.
+ * time, from one source: the kernel's cache (what the next transaction uses) or the database.
+ * Tap a source or a category button to replace the fragment container with a fresh
+ * [EmvParamListFragment] for them, so only what is on screen is ever loaded.
  *
  * Also downloads a fresh parameter package from the host ([EmvParams.download]); the status line
  * shows what it applied and removed, or the first error. A failed download leaves the previous
@@ -38,6 +40,10 @@ import java.io.IOException
 class EmvParamActivity : AppCompatActivity() {
 
     private lateinit var params: EmvParams
+
+    /** What is on screen: one category, from the cache or the database. */
+    private lateinit var category: String
+    private var fromCache = true
     private lateinit var btnDownloadEmvParams: MaterialButton
     private lateinit var paramSyncProgress: ProgressBar
     private lateinit var paramSyncStatusText: TextView
@@ -61,20 +67,38 @@ class EmvParamActivity : AppCompatActivity() {
         btnShowDownloadedXml.setOnClickListener { chooseDownloadedXml() }
 
         val categoryRow = findViewById<LinearLayout>(R.id.categoryRow)
-        for (category in params.categories()) {
+        for (label in params.categories()) {
             val button = MaterialButton(this)
-            button.text = category
+            button.text = label
             val layout = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             )
             layout.marginEnd = dp(8)
             button.layoutParams = layout
-            button.setOnClickListener { showCategory(category) }
+            button.setOnClickListener { showCategory(label) }
             categoryRow.addView(button)
         }
 
+        // The toggle restores its own checked button after a rotation; the source follows it.
+        val sourceToggle = findViewById<MaterialButtonToggleGroup>(R.id.sourceToggle)
+        category = savedInstanceState?.getString(STATE_CATEGORY) ?: params.categories()[0]
+        fromCache = sourceToggle.checkedButtonId == R.id.btnSourceCache
+        sourceToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) {
+                fromCache = checkedId == R.id.btnSourceCache
+                showCategory(category)
+            }
+        }
+
         if (savedInstanceState == null) {
-            showCategory(params.categories()[0])
+            showCategory(category)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (this::category.isInitialized) {
+            outState.putString(STATE_CATEGORY, category)
         }
     }
 
@@ -99,7 +123,7 @@ class EmvParamActivity : AppCompatActivity() {
             setSyncBusy(false)
             paramSyncStatusText.text = summary
             // Show what the download changed at once, not at the next tab switch.
-            showCategory(params.categories()[0])
+            showCategory(category)
         }
     }
 
@@ -109,8 +133,9 @@ class EmvParamActivity : AppCompatActivity() {
     }
 
     private fun showCategory(category: String) {
+        this.category = category
         supportFragmentManager.beginTransaction()
-            .replace(R.id.fragmentContainer, EmvParamListFragment.newInstance(category))
+            .replace(R.id.fragmentContainer, EmvParamListFragment.newInstance(category, fromCache))
             .commit()
     }
 
@@ -161,6 +186,8 @@ class EmvParamActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private companion object {
+        const val STATE_CATEGORY = "category"
+
         fun message(throwable: Throwable): String = throwable.message ?: throwable.toString()
     }
 }

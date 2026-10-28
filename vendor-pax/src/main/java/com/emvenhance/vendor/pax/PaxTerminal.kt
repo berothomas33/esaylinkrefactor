@@ -17,6 +17,7 @@ import com.pax.commonlib.utils.LogUtils
 import com.pax.configservice.export.ConfigKeyConstant
 import com.pax.configservice.impl.ConfigInit
 import com.pax.configservice.impl.ConfigParamService
+import com.pax.configservice.impl.EmvParamService
 import com.pax.dal.ICardReaderHelper
 import com.pax.dal.IDAL
 import com.pax.dal.entity.EPiccType
@@ -65,11 +66,11 @@ class PaxTerminal private constructor(
     )
 
     /**
-     * The EMV parameters the kernel uses — its in-memory cache, loaded from the database once
-     * (see EmvParamService#getCachedEmvParam). For [PaxEmvParams]; call it off the main thread,
-     * since an empty cache loads from the database here.
+     * The EMV parameters the kernel uses — its in-memory cache, as it is: `null` until a
+     * transaction loads it (see EmvParamService#getCachedEmvParam). For [PaxEmvParams], which shows
+     * the cache apart from the database; never loads it.
      */
-    internal fun kernelParams(): EmvProcessParam = kernel.params.cachedEmvParam
+    internal fun kernelParams(): EmvProcessParam? = EmvParamService.loaded()
 
     override fun serialNumber(): String = ModelInfo.getInstance().sn
 

@@ -4,8 +4,8 @@ import java.io.File
 
 /**
  * A vendor's EMV parameters, for the EMV params screen: browse what is in the parameter database
- * and in the kernel's cache, download a fresh package from the host, or seed the database with
- * the bundled defaults. The screen knows nothing of the vendor's parameter types: every row is
+ * ([rows]) and, apart, in the kernel's cache ([cachedRows]), download a fresh package from the
+ * host, or seed the database with the bundled defaults. The screen knows nothing of the vendor's parameter types: every row is
  * text the vendor wrote.
  *
  * From `PosTerminal.emvParams()`; `null` there means the vendor has none to show. Every call
@@ -19,6 +19,17 @@ interface EmvParams {
 
     /** The rows of one category, from the parameter database. Blocking. */
     fun rows(category: String): List<Row>
+
+    /**
+     * The rows of one category as the kernel has them in memory: what the next transaction uses.
+     * Asking never loads them, so the screen shows the real state. Blocking.
+     *
+     * @return `null`: nothing is in memory yet — it loads at the first transaction after a start,
+     *      a download or a seed
+     * @throws IllegalStateException the memory copy is there but lacks this category (a bug: the
+     *      kernel would fail at terminal initialization)
+     */
+    fun cachedRows(category: String): List<Row>?
 
     /**
      * Downloads the host's parameter package and applies it to the database; the next
@@ -47,11 +58,7 @@ interface EmvParams {
 
         fun title(): String
 
-        /**
-         * Every field as the kernel gets it: its entry in the kernel's cache (what the next
-         * transaction uses), or the database values when it isn't cached yet — and which.
-         * Blocking.
-         */
+        /** Every field of this entry, from where the row came: the database or the cache. */
         fun details(): String
     }
 }
