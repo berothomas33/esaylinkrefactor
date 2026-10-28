@@ -18,7 +18,6 @@ import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
-import io.reactivex.rxjava3.observers.DisposableObserver;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
@@ -70,8 +69,8 @@ public abstract class PosTerminal {
 
     /**
      * The one thread every transaction runs on, from the card search through EMV and the host: one
-     * reader, one kernel. A transaction's steps reach its {@link Transaction.TransactionStepObserver}
-     * here, in order, one at a time. Only one transaction is ever on it —
+     * reader, one kernel. TRANSACTION_STARTED's method puts the transaction here
+     * ({@code onTransactionStarted}). Only one transaction is ever on it —
      * {@link #startTransaction} refuses a start while the previous one is still there — and
      * nothing ever interrupts it ({@code Schedulers.from} doesn't interrupt its tasks): a cancel
      * is a flag the transaction reads, never an interrupt of a native call.
@@ -343,8 +342,8 @@ public abstract class PosTerminal {
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted {@link #startTransaction}: everything about it, in one place — it runs itself
-     * on the transaction thread, driven by its own steps ({@link #dispatchTransactionStep}). The
+     * One accepted {@link #startTransaction}: everything about it, in one place — driven by its
+     * own steps, whose methods run as they are published ({@link #dispatchTransactionStep}). The
      * terminal outlives every transaction, so what belongs to one lives here — a search still
      * running for an earlier transaction can then tell it is over, instead of acting on the next.
      *
@@ -394,16 +393,17 @@ public abstract class PosTerminal {
          * or a second cancel.
          */
         public void cancel() {
+            TransactionStepEvent cancelling = TransactionStepEvent.of(TransactionStep.CANCELLING,
+                    "Cancelling — finishing with the card");
             synchronized (steps) {
                 if (end != null) {
                     return;
                 }
                 end = TransactionStepEvent.of(TransactionStep.CANCELLED);
                 // Under the lock: before the end, whichever thread is first.
-                deliver(TransactionStepEvent.of(TransactionStep.CANCELLING,
-                        "Cancelling — finishing with the card"));
+                deliver(cancelling);
             }
-            behavior.cancelCardSearch();
+            dispatchTransactionStep(cancelling);
         }
 
         /** False once it has ended — an outcome or a cancel; the terminal is freed only after. */
@@ -436,6 +436,7 @@ public abstract class PosTerminal {
                 }
                 deliver(event);
             }
+            dispatchTransactionStep(event);
         }
 
         /**
@@ -488,61 +489,22 @@ public abstract class PosTerminal {
         }
 
         /**
-         * Starts this transaction, on the caller's thread right after the busy check: subscribes
-         * its {@link TransactionStepObserver} (on the transaction thread) to its own steps, then
-         * publishes TRANSACTION_STARTED — the step that runs the first attempt there. Once.
+         * Starts this transaction, on the caller's thread right after the busy check: publishes
+         * TRANSACTION_STARTED, whose method puts it on the transaction thread. Once.
          */
         private void begin() {
-            dispatch = steps.observeOn(transactionScheduler)
-                    .subscribeWith(new TransactionStepObserver());
             publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
         }
 
-        /** Its dispatch observer; disposed by {@link #onEnd}. Set once, in {@link #begin}. */
-        @Nullable
-        private DisposableObserver<TransactionStepEvent> dispatch;
-        /** Whether {@link #onEnd} ran; transaction thread only. */
-        private boolean finished;
-
         /**
-         * This transaction's steps, on the transaction thread, one at a time — the way
-         * {@code AbstractEmvBehavior}'s EmvStepObserver runs EMV steps. Unlike the EMV dispatch
-         * (synchronous, nested), a step published from a step method waits its turn: it runs
-         * once the current method returns. Whatever goes wrong here still ends the transaction
-         * and frees the terminal ({@link #onEnd}).
-         */
-        private final class TransactionStepObserver extends DisposableObserver<TransactionStepEvent> {
-
-            @Override
-            public void onNext(TransactionStepEvent event) {
-                try {
-                    dispatchTransactionStep(event);
-                } catch (Throwable t) {
-                    //noinspection CallToPrintStackTrace
-                    t.printStackTrace();
-                    publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
-                    onEnd();
-                }
-            }
-
-            @Override
-            public void onError(Throwable error) {
-                publish(errorEvent(error.getMessage() != null ? error.getMessage()
-                        : "Transaction steps failed"));
-                onEnd();
-            }
-
-            @Override
-            public void onComplete() {
-            }
-        }
-
-        /**
-         * Runs the method of the steps that drive the transaction; every other step is a report
-         * for the screen and runs nothing.
+         * Runs the method of a step that drives the transaction, the way {@code goToStep} runs
+         * an EMV step's: synchronously, on the thread that published it, once it is delivered
+         * (outside the lock). Every other step is a report for the screen and runs nothing.
          *
          * <pre>
-         *   TRANSACTION_STARTED → onTransactionStarted: engine.begin, the EMV, then onEnd
+         *   TRANSACTION_STARTED → onTransactionStarted: on the transaction thread, the EMV, then
+         *                         the end ({@link #onEnd})
+         *   CANCELLING          → onCancelling: the card search stops
          * </pre>
          */
         private void dispatchTransactionStep(TransactionStepEvent event) {
@@ -550,42 +512,62 @@ public abstract class PosTerminal {
                 case TRANSACTION_STARTED:
                     onTransactionStarted(event);
                     break;
+                case CANCELLING:
+                    onCancelling();
+                    break;
                 default:
                     break;
             }
         }
 
         /**
-         * The transaction's EMV, then its end. One {@link EmvEngine#begin()} for the whole
-         * transaction, retries included; it starts a fresh APDU trace, so TRANSACTION_STARTED
-         * (published on the caller's thread before it) is written into the new trace here. The
-         * EMV runs whatever retries the kernel asks for ({@link EmvBehavior#run}); a cancel
-         * first just makes it return sooner.
+         * The transaction goes to its thread: its EMV, then its end. Scheduled on
+         * {@link #transactionScheduler}, which runs every task it is given — never disposed,
+         * never interrupted — so even a transaction cancelled before its turn comes still ends
+         * there and frees the terminal.
          */
         private void onTransactionStarted(TransactionStepEvent started) {
-            behavior.engine().begin();
-            traceTransactionStep(started);
-            if (isRunning()) {
-                behavior.run(config, this);
-            }
-            onEnd();
+            transactionScheduler.scheduleDirect(() -> runTransaction(started));
         }
 
         /**
-         * The one place a transaction's end is published, on the transaction thread, once: the
+         * On the transaction thread. One {@link EmvEngine#begin()} for the whole transaction,
+         * retries included; it starts a fresh APDU trace, so TRANSACTION_STARTED (published on
+         * the caller's thread before it) is written into the new trace here. The EMV runs
+         * whatever retries the kernel asks for ({@link EmvBehavior#run}); a cancel first just
+         * makes it return sooner. Whatever goes wrong, the transaction still ends and frees the
+         * terminal.
+         */
+        private void runTransaction(TransactionStepEvent started) {
+            try {
+                behavior.engine().begin();
+                traceTransactionStep(started);
+                if (isRunning()) {
+                    behavior.run(config, this);
+                }
+            } catch (Throwable t) {
+                //noinspection CallToPrintStackTrace
+                t.printStackTrace();
+                publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
+            } finally {
+                onEnd();
+            }
+        }
+
+        /** The transaction was cancelled: its card search stops; the EMV winds down at its next step. */
+        private void onCancelling() {
+            behavior.cancelCardSearch();
+        }
+
+        /**
+         * The one place a transaction's end is published, on the transaction thread, once (the
+         * last thing {@link #runTransaction} does): the
          * end (or ERROR "Transaction ended without an outcome" if none was set), the host
          * follow-up decided ({@link #closeOnline}), the terminal freed, then the end delivered —
          * a screen that sees COMPLETED / ERROR / CANCELLED can start the next sale at once — and
          * last the acknowledgement / reversal sent.
          */
         private void onEnd() {
-            if (finished) {
-                return;
-            }
-            finished = true;
-            if (dispatch != null) {
-                dispatch.dispose(); // its last step; the end itself runs nothing
-            }
             List<Runnable> followUps;
             synchronized (steps) { // a cancel's CANCELLING can't land after the end
                 // A search that stopped with no outcome still ends its transaction.
