@@ -1,7 +1,10 @@
 package com.emvenhance.core.terminal
 
 import com.emvenhance.core.card.CardPresence
+import com.emvenhance.core.host.AuthResult
+import com.emvenhance.core.host.CommunicationBehavior
 import com.emvenhance.core.card.CardSearchListener
+import com.emvenhance.core.card.EntryMethod
 import com.emvenhance.core.card.TransactionConfig
 import com.emvenhance.core.card.TransactionType
 import com.emvenhance.core.engine.EmvEngine
@@ -69,7 +72,7 @@ class PosTerminalTransactionLifecycleTest {
         first.listener.onSearchStarted(first.config)
 
         assertTrue("next transaction got ${events.values}", events.values.isEmpty())
-        assertTrue(terminal.engine().isRunning())
+        assertTrue(terminal.last!!.isRunning())
     }
 
     @Test
@@ -113,7 +116,7 @@ class PosTerminalTransactionLifecycleTest {
 
         assertNull(terminal.searches.poll(300, TimeUnit.MILLISECONDS))
         assertTrue("first transaction got ${events.values}", events.values.isEmpty())
-        assertTrue(terminal.engine().isRunning())
+        assertTrue(terminal.last!!.isRunning())
         first.listener.onChipDetected(CardPresence.chip())
         assertEquals(listOf(1000L), emvStartedWithAmount)
     }
@@ -127,8 +130,8 @@ class PosTerminalTransactionLifecycleTest {
         sale.cancel()
 
         assertTrue(terminal.isSearchCancelled())
-        assertFalse("the EMV winds down", terminal.engine().isRunning())
-        assertTrue(terminal.engine().isCancelled())
+        assertFalse("the EMV winds down", sale.isRunning())
+        assertTrue(sale.isCancelled())
         assertEquals(1, terminal.searchCancels.get())
         assertEquals("only CANCELLING before the transaction thread stops", listOf(TransactionStep.CANCELLING), events.values.map { it.step })
 
@@ -179,14 +182,14 @@ class PosTerminalTransactionLifecycleTest {
 
     @Test
     fun aTransactionEndsOnceWhateverItsCodeReportsAfter() {
-        sale(1000)
+        val sale = sale(1000)
         val first = terminal.nextSearch()
         events.values.clear()
 
         first.listener.onSearchTimeout() // the end
-        terminal.engine().notifyApproved("00") // code still unwinding
-        terminal.engine().notifyCompleted()
-        terminal.engine().notifyError("Transaction cancelled")
+        sale.publish(TransactionStepEvent.of(TransactionStep.APPROVED)) // code still unwinding
+        sale.publish(TransactionStepEvent.of(TransactionStep.COMPLETED))
+        sale.publish(PosTerminal.errorEvent("Transaction cancelled"))
         first.release.countDown()
 
         val end = awaitEnd()
@@ -203,7 +206,7 @@ class PosTerminalTransactionLifecycleTest {
 
         val end = awaitEnd()
         assertEquals("Transaction ended without an outcome", end.message)
-        assertFalse(terminal.engine().isRunning())
+        assertFalse(terminal.last!!.isRunning())
         assertEquals("the next sale runs", 2000L, startWhenFree(2000).config.amountMinor)
     }
 
@@ -225,11 +228,10 @@ class PosTerminalTransactionLifecycleTest {
 
     @Test
     fun nothingIsPublishedOutsideATransaction() {
-        terminal.engine().notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED))
-        terminal.engine().notifyCompleted()
+        terminal.authorize(TransactionConfig(TransactionType.SALE, 1000, EntryMethod.ANY))
 
-        assertTrue(events.values.isEmpty())
-        assertFalse(terminal.engine().isRunning())
+        assertTrue("ONLINE_* with no transaction: ${events.values}", events.values.isEmpty())
+        assertFalse(terminal.isBusy())
     }
 
     /** A sale for `amount`, started on the calling thread like the UI does. */
@@ -288,7 +290,7 @@ class PosTerminalTransactionLifecycleTest {
 
     private inner class TestTerminal : PosTerminal(
         stubBehavior(prepared = true) { config -> emvStartedWithAmount.add(config.amountMinor) },
-        stub(),
+        CommunicationBehavior { AuthResult.failed("no host") },
         stub(),
     ) {
         val searches = LinkedBlockingQueue<Search>()
@@ -300,8 +302,12 @@ class PosTerminalTransactionLifecycleTest {
         /** Every transaction's steps, for the test: each transaction has its own flow. */
         val allSteps = AllSteps()
 
+        /** The last transaction started. */
+        @Volatile
+        var last: Transaction? = null
+
         override fun startTransaction(config: TransactionConfig): Transaction =
-            allSteps.relay(super.startTransaction(config))
+            allSteps.relay(super.startTransaction(config)).also { last = it }
 
         /** The terminal's one transaction thread, to hold it busy from a test. */
         fun transactionExecutor(): ExecutorService {

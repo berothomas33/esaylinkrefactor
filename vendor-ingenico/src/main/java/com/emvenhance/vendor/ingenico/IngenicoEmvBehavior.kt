@@ -91,8 +91,8 @@ class IngenicoEmvBehavior : AbstractEmvBehavior() {
     }
 
     override fun onReadApplicationData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
-        engine.notifyTransactionStep(
+        publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
+        publish(
             TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, stubPan ?: "")
                 .put(TransactionStepEvent.KEY_ISSUER_NAME, "Ingenico Stub")

@@ -34,8 +34,9 @@ internal fun stubBehavior(
     prepared: Boolean = false,
     onStart: (TransactionConfig) -> Unit = {},
 ): EmvBehavior = object : EmvBehavior {
-    override fun prepare(engine: EmvEngine, config: TransactionConfig) = prepared
-    override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence) = onStart(config)
+    override fun prepare(engine: EmvEngine, config: TransactionConfig, transaction: PosTerminal.Transaction) = prepared
+    override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) =
+        onStart(config)
 }
 
 /** Interface stub whose methods do nothing and return a default value. */

@@ -14,6 +14,7 @@ import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
 import com.emvenhance.core.terminal.AbstractAppSelectDialog
 import com.emvenhance.core.terminal.AbstractEmvBehavior
+import com.emvenhance.core.terminal.PosTerminal
 import com.emvenhance.emvflow.device.EmvDeviceImpl
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor
@@ -118,13 +119,13 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
 
     // ─── Lifecycle ───────────────────────────────────────────────────────
 
-    override fun prepare(engine: EmvEngine, config: TransactionConfig): Boolean {
+    override fun prepare(engine: EmvEngine, config: TransactionConfig, transaction: PosTerminal.Transaction): Boolean {
         // A fresh state per attempt: nothing from an earlier sale carries over — its online PIN
         // block (and RSA-wrapped key) sent again with this sale, flagged as online PIN; or its
         // kernel result read as this one's.
         tx = PaxTransactionState()
-        super.prepare(engine, config)
-        return tx.initOk && engine.isRunning()
+        super.prepare(engine, config, transaction)
+        return tx.initOk && isRunning()
     }
 
     override fun onTerminalInitialization(engine: EmvEngine, config: TransactionConfig) {
@@ -163,7 +164,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
                 finishError("Manual entry requires a PAN")
                 return
             }
-            engine.notifyTransactionStep(
+            publish(
                 TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MANUAL")
@@ -177,7 +178,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         if (card.isMagstripe) {
             val track2 = card.track2 ?: ""
             val pan = panFromTrack2(track2)
-            engine.notifyTransactionStep(
+            publish(
                 TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MAG")
@@ -301,7 +302,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
      */
     private fun answerApplicationSelection() {
         val candList = tx.candidates
-        requireEngine().notifyTransactionStep(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
+        publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
         if (candList == null || !showsAppSelectDialog(candList)) {
             // Nothing for the cardholder to choose between — index 0 either selects the card's
             // only application, or (candList empty/null) is the safe default the kernel expects.
@@ -309,7 +310,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             return
         }
         val index = PaxAppSelectDialog().selectBlocking(PaxAppSelectDialog.labels(candList)) {
-            !requireEngine().isRunning()
+            !isRunning()
         }
         if (index == AbstractAppSelectDialog.NO_ANSWER) {
             // Not answered: askStep gives the kernel USER_CANCEL and notes it in the trace.
@@ -1504,7 +1505,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             // runContactlessReadAppData(), so publishing it here would be a duplicate.
             goToStep(EmvStep.READ_APPLICATION_DATA, null)
         }
-        requireEngine().notifyTransactionStep(
+        publish(
             TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"),
         )
     }
@@ -1518,8 +1519,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         }
         // The contactless kernels don't take the TID from the trans param; set it for field 55.
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID, kernel.params.cachedEmvParam.termConfig.terminalId)
-        val eng = requireEngine()
-        eng.notifyTransactionStep(
+        publish(
             TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactlessPan()))
                 .put(TransactionStepEvent.KEY_ISSUER_NAME, "PAX Issuer")
@@ -1546,8 +1546,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     // [CONTACT]
     override fun showConfirmCard(): Int {
         // Called by ContactProcess.setTransactionData(), inside SET_TRANSACTION_DATA's own step.
-        val eng = requireEngine()
-        eng.notifyTransactionStep(
+        publish(
             TransactionStepEvent.builder(TransactionStep.CARD_READ)
                 .put(TransactionStepEvent.KEY_PAN, safe(getContactPan()))
                 .put(TransactionStepEvent.KEY_ISSUER_NAME, "PAX Issuer")
@@ -1583,7 +1582,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         val isOnlinePin = request.online
         val supportPINByPass = request.supportPinBypass
         val leftTimes = request.leftTimes
-        requireEngine().notifyTransactionStep(
+        publish(
             TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, isOnlinePin)
                 .put(
@@ -1946,7 +1945,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         // with the reason, like every other re-presentment (KEY_RETRY_PROMPT).
         val prompt = "Tap the same card again to finish"
         requireEngine().apduTrace().note("PICC", "2nd tap requested — $prompt")
-        requireEngine().notifyTransactionStep(
+        publish(
             TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(prompt)
                 .put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt).build(),
         )
@@ -2111,32 +2110,23 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     }
 
     private fun reportOutcome(outcome: Outcome) {
-        val eng = requireEngine()
         when (outcome.step) {
-            TransactionStep.APPROVED -> {
-                eng.notifyTransactionStep(
-                    buildOutcomeEvent(TransactionStep.APPROVED, TransactionStepEvent.KEY_RESULT, outcome.message),
-                )
-                eng.notifyCompleted()
-            }
-            TransactionStep.DECLINED -> {
-                eng.notifyTransactionStep(
-                    buildOutcomeEvent(TransactionStep.DECLINED, TransactionStepEvent.KEY_ERROR, outcome.message),
-                )
-                eng.notifyCompleted()
-            }
+            TransactionStep.APPROVED -> finishApproved(
+                buildOutcomeEvent(TransactionStep.APPROVED, TransactionStepEvent.KEY_RESULT, outcome.message),
+            )
+            TransactionStep.DECLINED -> finishDeclined(
+                buildOutcomeEvent(TransactionStep.DECLINED, TransactionStepEvent.KEY_ERROR, outcome.message),
+            )
             else -> finishError(outcome.message)
         }
     }
 
     /**
-     * Builds the APPROVED/DECLINED event, same shape [EmvEngine.notifyApproved]/
-     * [EmvEngine.notifyDeclined] would build, plus the audit snapshot [captureTransactionSummary]
-     * stashed earlier — those two simple String-only methods have nowhere to attach it, so
-     * chip/CLSS outcomes go through `engine.notifyTransactionStep` directly instead. Mag/manual
-     * still use [finishApproved]/[finishDeclined] unchanged (see [onTransactionCompletion]) —
-     * they never call [captureTransactionSummary], so their event simply has no
-     * PAN/TVR/TAC/IAC/Field 55 to attach.
+     * Builds the APPROVED/DECLINED event the String-only [finishApproved] / [finishDeclined]
+     * would build, plus the audit snapshot [captureTransactionSummary] stashed earlier; it goes
+     * through their event overloads. Mag/manual use the String ones (see
+     * [onTransactionCompletion]) — they never call [captureTransactionSummary], so their event
+     * simply has no PAN/TVR/TAC/IAC/Field 55 to attach.
      */
     private fun buildOutcomeEvent(step: TransactionStep, messageKey: String, message: String): TransactionStepEvent =
         TransactionStepEvent.builder(step)

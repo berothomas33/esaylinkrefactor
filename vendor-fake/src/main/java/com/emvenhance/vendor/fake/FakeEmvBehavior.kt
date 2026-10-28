@@ -36,23 +36,23 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
     }
 
     override fun onFinalApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
+        publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
         goToStep(EmvStep.READ_APPLICATION_DATA)
     }
 
     override fun onReadApplicationData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
         when {
-            card.isChip -> engine.notifyTransactionStep(
+            card.isChip -> publish(
                 cardRead("4111111111111111", "Demo Bank", "CARD HOLDER", "Contact"),
             )
-            card.isContactless -> engine.notifyTransactionStep(
+            card.isContactless -> publish(
                 cardRead("5555444433332222", "Demo Bank", "CL HOLDER", "Contactless"),
             )
             card.isMagstripe -> {
                 val pan = card.track2?.split(Regex("[=D]"))?.get(0) ?: "4111111111111111"
-                engine.notifyTransactionStep(cardRead(pan, "MAG Bank", "", "Magstripe"))
+                publish(cardRead(pan, "MAG Bank", "", "Magstripe"))
             }
-            card.isManual -> engine.notifyTransactionStep(cardRead(card.manualPan ?: "", "MANUAL", "", "Manual"))
+            card.isManual -> publish(cardRead(card.manualPan ?: "", "MANUAL", "", "Manual"))
         }
         sleep(200)
 
@@ -84,7 +84,7 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
     }
 
     override fun onOfflinePinVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
-        engine.notifyTransactionStep(
+        publish(
             TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, true)
                 .put(TransactionStepEvent.KEY_PIN_BYPASS, true)

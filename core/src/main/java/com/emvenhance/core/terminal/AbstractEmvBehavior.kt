@@ -6,6 +6,8 @@ import com.emvenhance.core.card.TransactionConfig
 import com.emvenhance.core.engine.EmvEngine
 import com.emvenhance.core.event.EmvStep
 import com.emvenhance.core.event.EmvStepEvent
+import com.emvenhance.core.event.TransactionStep
+import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
 import com.emvenhance.core.util.EmvLog
 
@@ -30,6 +32,10 @@ import com.emvenhance.core.util.EmvLog
  * Everything here is plain and blocking, on the transaction thread — no `suspend`: the native
  * kernel calls back into it and needs every answer on the same stack.
  *
+ * The attempt's [PosTerminal.Transaction] comes with [prepare] / [start]: the behavior reports
+ * its steps there ([publish], `finish*`) and asks it whether a step may still run ([goToStep],
+ * [isRunning], [isCancelled]).
+ *
  * [prepare] only starts [EmvStep.TERMINAL_INITIALIZATION] (does not chain further —
  * PosTerminal searches next). [start] kicks the first post-search step; the vendor chain
  * continues via [goToStep].
@@ -45,22 +51,27 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     @JvmField
     protected var activeCard: CardPresence? = null
 
+    /** The attempt's transaction, from [prepare] / [start]. */
+    private var transaction: PosTerminal.Transaction? = null
+
     /** This behavior's step handler on the engine — see [initEmvObserver]. */
     private val stepHandler = EmvEngine.Listener<EmvStepEvent> { event -> handleEmvStep(event) }
 
-    override fun prepare(engine: EmvEngine, config: TransactionConfig): Boolean {
+    override fun prepare(engine: EmvEngine, config: TransactionConfig, transaction: PosTerminal.Transaction): Boolean {
         this.engine = engine
+        this.transaction = transaction
         initEmvObserver(engine)
         this.activeConfig = config
         this.activeCard = null
 
         // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION)
-        return engine.isRunning() // false once it ended: init failed, or cancelled
+        return isRunning() // false once it ended: init failed, or cancelled
     }
 
-    override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) {
         this.engine = engine
+        this.transaction = transaction
         initEmvObserver(engine)
         this.activeConfig = config
         this.activeCard = card
@@ -79,7 +90,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      *
      * The engine always runs the handler after the flow has the step, so every observer sees a
      * step before its method publishes the next one — the UI ends on the last step, not the
-     * first. After a transaction's end the engine publishes no EMV step, so a step from code
+     * first. After a transaction's end [goToStep] publishes no EMV step, so a step from code
      * still unwinding never runs a step method; the next [prepare] registers again.
      */
     protected fun initEmvObserver(engine: EmvEngine) {
@@ -94,8 +105,8 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      * Vendor finished the current step → publish `step`; the engine runs that step's `onXxx`
      * method before this returns.
      *
-     * No cancel check of its own: once the transaction is cancelled (or ended) the engine
-     * publishes no step ([EmvEngine.notifyEmvStep]), so nothing runs.
+     * The one cancel check at a step boundary: once the transaction is cancelled (or ended) no
+     * step is published, so nothing runs.
      *
      * @return whether the step ran — `false` once the transaction is cancelled or ended, so a
      *      vendor holding a resource across steps (the ICC reader) knows to release it
@@ -135,8 +146,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         }
         // No answer, or one that came after the transaction ended (a cancel while the cardholder
         // was choosing): the kernel gets the fail-closed value, never a choice nobody waits for.
-        val engine = engine
-        val ended = engine == null || !engine.isRunning()
+        val ended = !isRunning()
         if (!answer.answered || ended) {
             val why = if (answer.answered) step.title + " answered after the transaction ended" else "no answer for " + step.title
             engine?.apduTrace()?.note("EMV", "$why — answering $failClosed")
@@ -161,23 +171,54 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     }
 
     protected fun finishApproved(message: String) {
-        val engine = engine ?: return
-        engine.notifyApproved(message)
-        engine.notifyCompleted()
+        finishApproved(
+            TransactionStepEvent.builder(TransactionStep.APPROVED)
+                .put(TransactionStepEvent.KEY_RESULT, message)
+                .build(),
+        )
+    }
+
+    /** As [finishApproved], with an APPROVED event the vendor built (its audit data). */
+    protected fun finishApproved(approved: TransactionStepEvent) {
+        publish(approved)
+        publish(TransactionStepEvent.of(TransactionStep.COMPLETED))
     }
 
     protected fun finishDeclined(message: String) {
-        val engine = engine ?: return
-        engine.notifyDeclined(message)
-        engine.notifyCompleted()
+        finishDeclined(
+            TransactionStepEvent.builder(TransactionStep.DECLINED)
+                .put(TransactionStepEvent.KEY_ERROR, message)
+                .build(),
+        )
+    }
+
+    /** As [finishDeclined], with a DECLINED event the vendor built (its audit data). */
+    protected fun finishDeclined(declined: TransactionStepEvent) {
+        publish(declined)
+        publish(TransactionStepEvent.of(TransactionStep.COMPLETED))
     }
 
     protected fun finishError(message: String) {
-        engine?.notifyError(message)
+        publish(PosTerminal.errorEvent(message))
     }
 
-    /** Whether `PosTerminal` cancelled the current transaction (see [EmvEngine.isCancelled]). */
-    protected fun isCancelled(): Boolean = engine?.isCancelled() == true
+    /**
+     * Reports a step of the transaction (CARD_READ, APPLICATION_SELECTED…) on its steps; dropped
+     * once it has ended.
+     */
+    protected fun publish(event: TransactionStepEvent) {
+        val transaction = transaction ?: run {
+            EmvLog.d("TransactionStep dropped, no transaction: $event")
+            return
+        }
+        transaction.publish(event)
+    }
+
+    /** Whether the transaction is still running: false once it ended (an outcome, or a cancel). */
+    protected fun isRunning(): Boolean = transaction?.isRunning() == true
+
+    /** Whether `PosTerminal` cancelled the transaction ([PosTerminal.Transaction.cancel]). */
+    protected fun isCancelled(): Boolean = transaction?.isCancelled() == true
 
     /**
      * The one way a vendor goes online. For chip and contactless it first builds field 55 from
@@ -320,9 +361,25 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      */
     protected abstract fun readIccTag(tag: Int): ByteArray?
 
+    /**
+     * Publishes `step` — only while the transaction is running. Once it has ended (an outcome,
+     * or a cancel) a step from code still unwinding is dropped: it never reaches the UI or a
+     * step method.
+     *
+     * @return whether it was published (and so ran)
+     */
     private fun enterStep(step: EmvStep, detail: String? = null): Boolean {
-        // Flows/listeners → UI, then the step handler → dispatchStepMethod → onXxx.
-        return engine?.notifyEmvStep(step, detail) == true
+        val engine = engine ?: return false
+        if (!isRunning()) {
+            val event = EmvStepEvent(step, detail)
+            val why = if (isCancelled()) "cancelled" else "the transaction has ended"
+            EmvLog.d("EmvStep dropped, $why: $event")
+            engine.apduTrace().note("EMV", "step dropped, $why: $event")
+            return false
+        }
+        // Flows → UI, then the step handler → dispatchStepMethod → onXxx.
+        engine.notifyEmvStep(step, detail)
+        return true
     }
 
     /**
@@ -376,13 +433,11 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     }
 
     /**
-     * A step with no method to run ends the transaction: its ERROR stops the engine publishing
-     * steps ([EmvEngine.notifyEmvStep]) and removes this behavior's step handler
-     * ([initEmvObserver]).
+     * A step with no method to run ends the transaction: after its ERROR no more steps are
+     * published ([goToStep]).
      */
     private fun unknownStep(step: EmvStep?) {
-        val engine = engine
-        if (engine == null || !engine.isRunning()) {
+        if (!isRunning()) {
             return // already ended: no second ERROR
         }
         finishError("Unknown EMV step: $step")

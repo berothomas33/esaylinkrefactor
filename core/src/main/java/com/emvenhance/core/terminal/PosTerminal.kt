@@ -37,14 +37,16 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * The only public hardware API for the app.
  *
- * Owns card search, host communication, and printer. EMV after entry selection is delegated to
- * its [EmvEngine], which owns the vendor's [EmvBehavior].
+ * Owns card search, host communication, and printer. EMV after entry selection is the vendor's
+ * [EmvBehavior], run by this terminal for each attempt with its [EmvEngine] (EMV steps, APDU
+ * trace, retry, the way online) and the attempt's [Transaction].
  *
  * ```
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)               [returns its Transaction at once]
- *          └── engine.prepare + searchCard(config, listener)        ← vendor SDK
+ *          └── transaction thread: process(transaction)
+ *          └── behavior.prepare(engine, config, transaction) + searchCard(config, listener) ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
- *                        └── engine.start(card)                     ← vendor EMV, from inside the callback
+ *                        └── behavior.start(engine, config, card, transaction) ← vendor EMV, from inside the callback
  *                               └── behavior → engine.authorize → PosTerminal.authorize → host
  * ```
  *
@@ -59,19 +61,14 @@ import java.util.concurrent.atomic.AtomicReference
  * work is started, cancelled and observed; never the order or the thread of kernel calls.
  */
 abstract class PosTerminal protected constructor(
-    behavior: EmvBehavior,
+    /** The vendor's EMV: this terminal runs it for each attempt, handing it the transaction. */
+    private val behavior: EmvBehavior,
     @JvmField protected val communication: CommunicationBehavior,
     @JvmField protected val printer: PrinterBehavior,
 ) {
 
     @JvmField
-    protected val engine: EmvEngine = EmvEngine(
-        behavior,
-        EmvEngine.Authorizer { authorize(it) },
-        ::publish,
-        { current.get()?.isRunning() == true },
-        { current.get()?.isCancelled() == true },
-    )
+    protected val engine: EmvEngine = EmvEngine { authorize(it) }
 
     /**
      * The one thread every transaction runs on, from card search through EMV and the host: one
@@ -118,9 +115,9 @@ abstract class PosTerminal protected constructor(
      * on the same stack, so the suspending host call runs in `runBlocking` here — the only
      * `runBlocking` in the app, and never on the main thread.
      */
-    fun authorize(config: TransactionConfig): AuthResult {
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED))
-        engine.notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING))
+    open fun authorize(config: TransactionConfig): AuthResult {
+        publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED))
+        publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING))
         // Cancel doesn't cut this short: once sent, the sale may be approved at the host, and
         // with no reversal yet the terminal waits for that answer — or the timeout, which
         // cancels the request.
@@ -136,7 +133,7 @@ abstract class PosTerminal protected constructor(
             // No usable host answer (network, envelope error): online failed, not a host decline.
             AuthResult.failed(e.message ?: "Online failed")
         }
-        engine.notifyTransactionStep(
+        publish(
             TransactionStepEvent.builder(TransactionStep.ONLINE_COMPLETED)
                 .put(TransactionStepEvent.KEY_RESULT, result.message)
                 .build(),
@@ -219,7 +216,7 @@ abstract class PosTerminal protected constructor(
     /** Cancels the transaction still on this terminal, if any; the terminal is going away. */
     open fun dispose() {
         current.get()?.cancel()
-        engine.dispose()
+        behavior.dispose()
         printScope.cancel()
     }
 
@@ -233,30 +230,13 @@ abstract class PosTerminal protected constructor(
     /** Whether the vendor search polling for the current transaction should stop: it is over. */
     fun isSearchCancelled(): Boolean = current.get()?.isOver() == true
 
-    /**
-     * Every transaction step comes through here ([EmvEngine.notifyTransactionStep] hands the
-     * behavior's ones over). Published only while the current transaction is running, on that
-     * transaction's [Transaction.steps]; the first end ends it ([Transaction.end]) and is
-     * published by [process] once the terminal is free; anything after it is dropped.
-     */
+    /** [authorize]'s steps, on the transaction going online: the current one. */
     private fun publish(event: TransactionStepEvent) {
-        val transaction = current.get()
-        if (transaction == null) {
+        val transaction = current.get() ?: run {
             EmvLog.d("TransactionStep dropped, no transaction: $event")
             return
         }
-        synchronized(transaction.steps) {
-            if (!transaction.isRunning()) {
-                EmvLog.d("TransactionStep dropped, the transaction has ended: $event")
-                engine.apduTrace().note("EMV", "transaction step dropped, the transaction has ended: $event")
-                return
-            }
-            if (event.step.isEnd) {
-                transaction.end(event)
-                return
-            }
-            transaction.publishNow(event)
-        }
+        transaction.publish(event)
     }
 
     /** Flags each transaction step in the APDU trace. */
@@ -384,6 +364,27 @@ abstract class PosTerminal protected constructor(
         /** Ended, or no longer the terminal's transaction: nothing it reports reaches the UI. */
         internal fun isOver(): Boolean = !isRunning() || current.get() !== this
 
+        /**
+         * Every step of this transaction comes through here — the terminal's own and its
+         * behavior's ([AbstractEmvBehavior.publish]). Published only while it is running; the
+         * first end ends it ([end]) and is published by [process] once the terminal is free;
+         * anything after it is dropped.
+         */
+        internal fun publish(event: TransactionStepEvent) {
+            synchronized(steps) {
+                if (!isRunning()) {
+                    EmvLog.d("TransactionStep dropped, the transaction has ended: $event")
+                    engine.apduTrace().note("EMV", "transaction step dropped, the transaction has ended: $event")
+                    return
+                }
+                if (event.step.isEnd) {
+                    end(event)
+                    return
+                }
+                publishNow(event)
+            }
+        }
+
         /** The first end wins; a later one (a stage noticing the cancel, say) is dropped. */
         internal fun end(event: TransactionStepEvent) {
             if (!end.compareAndSet(null, event)) {
@@ -415,7 +416,7 @@ abstract class PosTerminal protected constructor(
     private fun process(transaction: Transaction) {
         try {
             engine.begin()
-            publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)) // once
+            transaction.publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)) // once
             // Each attempt: prepare, search, EMV. A retry the behavior asked for (fallback, try
             // another interface, try again, See Phone) is the next turn of this loop — not a
             // search started from inside the previous search's callback.
@@ -446,8 +447,8 @@ abstract class PosTerminal protected constructor(
      *      or `null`: the transaction is done
      */
     private fun attempt(transaction: Transaction, config: TransactionConfig): TransactionConfig? {
-        if (!engine.prepare(config)) {
-            engine.notifyError("Terminal initialization failed") // dropped if it already ended
+        if (!behavior.prepare(engine, config, transaction)) {
+            transaction.publish(errorEvent("Terminal initialization failed")) // dropped if it already ended
             return null
         }
         searchCard(config, EngineReportingListener(transaction, config))
@@ -461,7 +462,7 @@ abstract class PosTerminal protected constructor(
     }
 
     /**
-     * Maps reader events → steps for the UI, and starts EMV once a card is found. Belongs
+     * Maps reader events → its transaction's steps, and starts EMV once a card is found. Belongs
      * to one [Transaction]: once that is over, its callbacks are dropped, so a search that
      * outlived it can't fail, or start EMV for, the next one.
      */
@@ -488,7 +489,7 @@ abstract class PosTerminal protected constructor(
             if (prompt != null) {
                 waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt)
             }
-            engine.notifyTransactionStep(waiting.build())
+            transaction.publish(waiting.build())
             engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg)
         }
 
@@ -512,37 +513,35 @@ abstract class PosTerminal protected constructor(
             if (isStale("onCardRemoved")) {
                 return
             }
-            engine.notifyTransactionStep(
-                TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD, "Card removed"),
-            )
+            transaction.publish(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD, "Card removed"))
         }
 
         override fun onSearchTimeout() {
             if (isStale("onSearchTimeout")) {
                 return
             }
-            engine.notifyError("No card presented — card search timed out")
+            transaction.publish(errorEvent("No card presented — card search timed out"))
         }
 
         override fun onSearchCancelled() {
             if (isStale("onSearchCancelled")) {
                 return
             }
-            engine.notifyError("Card search cancelled")
+            transaction.publish(errorEvent("Card search cancelled"))
         }
 
         override fun onReaderError(message: String?) {
             if (isStale("onReaderError")) {
                 return
             }
-            engine.notifyError(message ?: "Reader error")
+            transaction.publish(errorEvent(message ?: "Reader error"))
         }
 
         override fun onSearchRetry(message: String) {
             if (isStale("onSearchRetry")) {
                 return
             }
-            engine.notifyTransactionStep(
+            transaction.publish(
                 TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(message)
                     .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build(),
             )
@@ -554,18 +553,19 @@ abstract class PosTerminal protected constructor(
             if (isStale("card detected")) {
                 return
             }
-            engine.notifyTransactionStep(
+            transaction.publish(
                 TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
                     .put(TransactionStepEvent.KEY_MODE, card.modeLabel)
                     .put("entryMethod", card.entryMethod.name)
                     .build(),
             )
 
-            engine.start(config, card)
+            behavior.start(engine, config, card, transaction)
         }
     }
 
-    private companion object {
+    internal companion object {
+        /** An ERROR step: the terminal's own, and its behavior's ([AbstractEmvBehavior.finishError]). */
         fun errorEvent(error: String): TransactionStepEvent =
             TransactionStepEvent.builder(TransactionStep.ERROR)
                 .message(error)

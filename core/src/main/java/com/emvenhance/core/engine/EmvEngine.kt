@@ -1,13 +1,9 @@
 package com.emvenhance.core.engine
 
-import com.emvenhance.core.card.CardPresence
 import com.emvenhance.core.card.TransactionConfig
 import com.emvenhance.core.event.EmvStep
 import com.emvenhance.core.event.EmvStepEvent
-import com.emvenhance.core.event.TransactionStep
-import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
-import com.emvenhance.core.terminal.EmvBehavior
 import com.emvenhance.core.util.ApduTrace
 import com.emvenhance.core.util.EmvLog
 import kotlinx.coroutines.channels.BufferOverflow
@@ -17,14 +13,13 @@ import kotlinx.coroutines.flow.asSharedFlow
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * The EMV side of one terminal: owns the vendor's [EmvBehavior], the [emvSteps] flow, the APDU
- * trace and the retry request. No vendor logic, no transaction state.
+ * The EMV side of one terminal: the [emvSteps] flow, the APDU trace, the retry request and the
+ * way online. No vendor logic, and nothing of the transaction: it holds no transaction state and
+ * publishes no transaction step. Whether a step may still run is asked of the transaction before
+ * it is published here (`AbstractEmvBehavior.goToStep`, `PosTerminal`'s card search).
  *
  * `PosTerminal` owns the transaction itself — its thread, busy, cancel, its steps and its end —
- * and reaches the behavior only through this class ([prepare], [start]). The engine reads that
- * state through the narrow hooks it is given: whether the transaction is still running
- * ([isRunning] — no EMV step is published once it ended), whether it was cancelled
- * ([isCancelled]), and where a transaction step goes ([notifyTransactionStep]).
+ * and runs the vendor's behavior for each attempt, handing it this engine and the transaction.
  *
  * [emvSteps] is for observers only (the UI, tests): `tryEmit` into a buffer, never blocking or
  * suspending the transaction thread. The behavior's step dispatch is not a collector: it is a
@@ -35,19 +30,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * The one way back out is [authorize]: a behavior goes online from inside the kernel, so the
  * engine hands that request to the [Authorizer] `PosTerminal` gave it — `PosTerminal#authorize`,
  * which holds the communication port. The engine never holds the port itself.
- *
- * @param transactionSteps where a transaction step goes — `PosTerminal`, which drops it once its
- *      transaction has ended
- * @param running whether the current transaction is still running (not ended)
- * @param cancelled whether it was cancelled
  */
-class EmvEngine(
-    private val behavior: EmvBehavior,
-    private val authorizer: Authorizer,
-    private val transactionSteps: (TransactionStepEvent) -> Unit,
-    private val running: () -> Boolean,
-    private val cancelled: () -> Boolean,
-) {
+class EmvEngine(private val authorizer: Authorizer) {
 
     /** How the engine goes online for its behavior — `PosTerminal#authorize`. Blocking. */
     fun interface Authorizer {
@@ -87,12 +71,6 @@ class EmvEngine(
         }
     }
 
-    /** Whether the current transaction is still running: false once it has ended. */
-    fun isRunning(): Boolean = running()
-
-    /** Whether the current transaction was cancelled; its EMV winds down at the next check. */
-    fun isCancelled(): Boolean = cancelled()
-
     /** A new transaction: fresh trace, no retry pending. */
     fun begin() {
         retryCount.set(0)
@@ -108,80 +86,20 @@ class EmvEngine(
      */
     fun apduTrace(): ApduTrace = apduTrace
 
-    /** Runs the behavior's terminal initialization; `false` if it failed or was cancelled. */
-    fun prepare(config: TransactionConfig): Boolean = behavior.prepare(this, config)
-
-    /** Runs EMV on the card search found, from the behavior's first post-search step. */
-    fun start(config: TransactionConfig, card: CardPresence) {
-        behavior.start(this, config, card)
-    }
-
-    /** Releases the behavior's own step handler; the terminal is going away. */
-    fun dispose() {
-        behavior.dispose()
-    }
-
     /**
-     * Publishes `step` — only while a transaction is running. Once it has ended (ERROR or
-     * COMPLETED, however it got there) a step from code still unwinding is dropped: it never
-     * reaches the UI or the behavior's step methods. The next transaction publishes again.
-     *
-     * This is the one cancel check at a step boundary: a cancel ends the transaction at once
-     * (`PosTerminal.Transaction.cancel`), so after it no step runs.
+     * Publishes `step`: every observer, then the behavior's step handler, gets it before this
+     * returns. Its caller has already asked the transaction whether a step may still run.
      *
      * Not serialized, on purpose: a step method publishes the next step from inside the
      * handler, and it has to run right there, before the current one returns.
-     *
-     * @return whether it was published (and so, for the behavior's steps, ran)
      */
     @JvmOverloads
-    fun notifyEmvStep(step: EmvStep, detail: String? = null): Boolean {
+    fun notifyEmvStep(step: EmvStep, detail: String? = null) {
         val event = EmvStepEvent(step, detail)
-        if (!isRunning()) {
-            val why = if (isCancelled()) "cancelled" else "the transaction has ended"
-            EmvLog.d("EmvStep dropped, $why: $event")
-            apduTrace.note("EMV", "step dropped, $why: $event")
-            return false
-        }
         EmvLog.d("EmvStep: $event")
         apduTrace.kernelStep(event.toString())
         _emvSteps.tryEmit(event)
         emvStepHandler?.onStep(event)
-        return true
-    }
-
-    /** Hands `event` to `PosTerminal`, which publishes it while the transaction runs. */
-    fun notifyTransactionStep(event: TransactionStepEvent) {
-        transactionSteps(event)
-    }
-
-    fun notifyApproved(result: String) {
-        notifyTransactionStep(
-            TransactionStepEvent.builder(TransactionStep.APPROVED)
-                .put(TransactionStepEvent.KEY_RESULT, result)
-                .build(),
-        )
-    }
-
-    fun notifyDeclined(reason: String) {
-        notifyTransactionStep(
-            TransactionStepEvent.builder(TransactionStep.DECLINED)
-                .put(TransactionStepEvent.KEY_ERROR, reason)
-                .build(),
-        )
-    }
-
-    fun notifyError(error: String) {
-        notifyTransactionStep(
-            TransactionStepEvent.builder(TransactionStep.ERROR)
-                .message(error)
-                .put(TransactionStepEvent.KEY_ERROR, error)
-                .build(),
-        )
-    }
-
-    fun notifyCompleted() {
-        notifyTransactionStep(TransactionStepEvent.of(TransactionStep.COMPLETED))
     }
 
     /**

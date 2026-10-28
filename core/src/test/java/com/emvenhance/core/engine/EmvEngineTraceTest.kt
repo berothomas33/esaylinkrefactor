@@ -5,7 +5,6 @@ import com.emvenhance.core.card.TransactionConfig
 import com.emvenhance.core.card.TransactionType
 import com.emvenhance.core.event.EmvStep
 import com.emvenhance.core.host.AuthResult
-import com.emvenhance.core.terminal.stubBehavior
 import com.emvenhance.core.util.ApduTrace
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,16 +17,18 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 
-/** The engine owns the APDU trace: one per engine, started by begin(), fed by its own steps. */
+/**
+ * The engine owns the APDU trace: one per engine, started by begin(), fed by its own steps. A
+ * step dropped after the end is the behavior's to note (`EmvStepObserverTest`).
+ */
 class EmvEngineTraceTest {
 
-    private val session = TestSession()
     private lateinit var engine: EmvEngine
     private lateinit var trace: ApduTrace
 
     @Before
     fun setUp() {
-        engine = newEngine(session)
+        engine = newEngine()
         trace = engine.apduTrace()
     }
 
@@ -35,17 +36,16 @@ class EmvEngineTraceTest {
     fun ownsOneTracePerEngine() {
         assertNotNull(trace)
         assertSame(trace, engine.apduTrace())
-        assertNotSame(trace, newEngine(TestSession()).apduTrace())
+        assertNotSame(trace, newEngine().apduTrace())
     }
 
     @Test
     fun beginStartsAFreshTrace() {
         assumeTrue("trace records in debug builds only", trace.isEnabled())
-        session.begin(engine)
+        engine.begin()
         trace.note("ICC", "first transaction")
-        engine.notifyError("done") // ends the transaction
 
-        session.begin(engine)
+        engine.begin()
 
         assertFalse(trace.text().contains("first transaction"))
         assertTrue(trace.text().startsWith("===== EMV TRANSACTION ====="))
@@ -54,7 +54,7 @@ class EmvEngineTraceTest {
     @Test
     fun recordsKernelSteps() {
         assumeTrue("trace records in debug builds only", trace.isEnabled())
-        session.begin(engine)
+        engine.begin()
 
         engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe")
 
@@ -62,24 +62,9 @@ class EmvEngineTraceTest {
     }
 
     @Test
-    fun aStepAfterTheEndIsNotedAsDroppedNotAsAKernelStep() {
-        assumeTrue("trace records in debug builds only", trace.isEnabled())
-        session.begin(engine)
-        engine.notifyCompleted()
-
-        engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION, "late")
-
-        val text = trace.text()
-        assertFalse(text.contains("### KERNEL STEP 16."))
-        assertTrue(
-            text.contains("!!! EMV step dropped, the transaction has ended: 16. Transaction completion (late)"),
-        )
-    }
-
-    @Test
     fun retryKeepsTheFailedAttemptAndMarksIt() {
         assumeTrue("trace records in debug builds only", trace.isEnabled())
-        session.begin(engine)
+        engine.begin()
         trace.note("PICC", "card communication error -2")
 
         engine.requestRetry(config(), "Card not read — tap again")
@@ -93,7 +78,7 @@ class EmvEngineTraceTest {
 
     @Test
     fun countsRetriesAndHandsThePromptOverOnce() {
-        session.begin(engine)
+        engine.begin()
         assertEquals(0, engine.getRetryCount())
 
         engine.requestRetry(config(), "Card not read — tap again")
@@ -108,12 +93,11 @@ class EmvEngineTraceTest {
 
     @Test
     fun beginResetsRetryState() {
-        session.begin(engine)
+        engine.begin()
         engine.requestRetry(config(), "Insert the card")
         engine.consumePendingRetry()
-        engine.notifyError("done")
 
-        session.begin(engine)
+        engine.begin()
 
         assertEquals(0, engine.getRetryCount())
         assertNull(engine.consumeRetryPrompt())
@@ -122,7 +106,7 @@ class EmvEngineTraceTest {
     private companion object {
         fun config() = TransactionConfig(TransactionType.SALE, 100, EntryMethod.ANY)
 
-        /** An engine whose behavior does nothing and that never reaches a host. */
-        fun newEngine(session: TestSession) = session.engine(stubBehavior()) { AuthResult.failed("no host") }
+        /** An engine that never reaches a host. */
+        fun newEngine() = EmvEngine { AuthResult.failed("no host") }
     }
 }

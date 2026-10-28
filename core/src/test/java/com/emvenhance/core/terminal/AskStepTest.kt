@@ -15,7 +15,6 @@ import org.junit.Before
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import com.emvenhance.core.engine.TestSession
 import org.junit.Test
 
 /**
@@ -38,8 +37,9 @@ class AskStepTest {
     @Before
     fun setUp() {
         vendor = Vendor()
-        engine = vendor.session.engine(vendor) { AuthResult.failed("no host") }
-        vendor.session.begin(engine)
+        vendor.session = TestSession(vendor) { AuthResult.failed("no host") }
+        engine = vendor.session.engine
+        vendor.session.begin(CONFIG)
     }
 
     @Test
@@ -47,7 +47,7 @@ class AskStepTest {
         val seen = engine.emvSteps.recordIn(scope)
         vendor.selectionAnswer = 1
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertEquals(1, vendor.callbackGot)
         assertEquals(Thread.currentThread(), vendor.answeredOn)
@@ -58,7 +58,7 @@ class AskStepTest {
     fun noAnswerGivesTheFailClosedValue() {
         vendor.selectionAnswer = null
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
     }
@@ -68,7 +68,7 @@ class AskStepTest {
         assumeTrue("trace records in debug builds only", engine.apduTrace().isEnabled())
         vendor.selectionAnswer = null
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertTrue(engine.apduTrace().text().contains("no answer for"))
     }
@@ -78,7 +78,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.cancelBeforeAsking = true
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
         assertEquals(0, vendor.selectionRuns)
@@ -89,7 +89,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.cancelWhileChoosing = true
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertEquals(1, vendor.selectionRuns)
         assertEquals(USER_CANCEL, vendor.callbackGot)
@@ -100,7 +100,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.throwInSelection = true
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
     }
@@ -110,7 +110,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.askFinalInsideSelection = true
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertEquals(7, vendor.innerGot)
         assertEquals(1, vendor.callbackGot)
@@ -121,16 +121,15 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.goWithoutAsking = true
 
-        engine.start(CONFIG, CardPresence.chip())
+        vendor.session.start(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
     }
 
     /** APPLICATION_SELECTION plays the kernel calling back for the cardholder's choice. */
     private class Vendor : NoOpStepsBehavior() {
-        /** The terminal's cancel flag (PosTerminal owns it in the app). */
-        /** Stands in for the terminal: its cancel flag (PosTerminal owns it in the app). */
-        val session = TestSession()
+        /** Stands in for the terminal and its transaction (PosTerminal owns them in the app). */
+        lateinit var session: TestSession
         var selectionAnswer: Int? = null
         var cancelBeforeAsking = false
         var cancelWhileChoosing = false

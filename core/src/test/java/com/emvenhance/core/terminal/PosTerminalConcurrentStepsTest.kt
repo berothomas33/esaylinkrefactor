@@ -49,13 +49,13 @@ class PosTerminalConcurrentStepsTest {
         assertTrue(terminal.searching.await(5, TimeUnit.SECONDS))
 
         val first = Thread(
-            { terminal.engine().notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING)) },
+            { sale.publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING)) },
             "first",
         )
         first.start()
         assertTrue(firstInside.await(5, TimeUnit.SECONDS))
         val second = Thread(
-            { terminal.engine().notifyTransactionStep(TransactionStepEvent.of(TransactionStep.ONLINE_COMPLETED)) },
+            { sale.publish(TransactionStepEvent.of(TransactionStep.ONLINE_COMPLETED)) },
             "second",
         )
         second.start()

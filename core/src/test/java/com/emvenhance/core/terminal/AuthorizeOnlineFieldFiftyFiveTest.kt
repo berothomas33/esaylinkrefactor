@@ -24,7 +24,7 @@ class AuthorizeOnlineFieldFiftyFiveTest {
     fun chipRequestCarriesTheVendorsFieldFiftyFive() {
         val vendor = VendorBehavior(true)
 
-        val result = vendor.goOnline(engineFor(vendor), CardPresence.chip())
+        val result = vendor.goOnline(sessionFor(vendor), CardPresence.chip())
 
         assertTrue(result.isApproved)
         assertTrue(vendor.tagsRead > 0)
@@ -37,7 +37,7 @@ class AuthorizeOnlineFieldFiftyFiveTest {
     fun contactlessWithoutFieldFiftyFiveIsOnlineFailedAndNeverSent() {
         val vendor = VendorBehavior(false)
 
-        val result = vendor.goOnline(engineFor(vendor), CardPresence.contactless(null))
+        val result = vendor.goOnline(sessionFor(vendor), CardPresence.contactless(null))
 
         assertFalse(result.isApproved)
         assertTrue(result.isFailed)
@@ -49,26 +49,28 @@ class AuthorizeOnlineFieldFiftyFiveTest {
     fun magstripeNeverAsksForFieldFiftyFive() {
         val vendor = VendorBehavior(true)
 
-        vendor.goOnline(engineFor(vendor), CardPresence.magstripe(null, "4111111111111111=2812", null))
+        vendor.goOnline(sessionFor(vendor), CardPresence.magstripe(null, "4111111111111111=2812", null))
 
         assertEquals(0, vendor.tagsRead)
         assertEquals(1, sentToHost.size)
         assertNull(sentToHost[0].iccData)
     }
 
-    /** An engine for `vendor` whose host records each request and approves it. */
-    private fun engineFor(vendor: VendorBehavior) = EmvEngine(vendor, { config ->
+    /** A session for `vendor` whose host records each request and approves it. */
+    private fun sessionFor(vendor: VendorBehavior) = TestSession(vendor) { config ->
         sentToHost.add(config)
         AuthResult.approved("123456", "00", null, null)
-    }, {}, { true }, { false })
+    }
 
     /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */
     private class VendorBehavior(private val hasCryptogram: Boolean) : NoOpStepsBehavior() {
         var tagsRead = 0
         var iccDataSeenByExtras: String? = null
 
-        fun goOnline(engine: EmvEngine, card: CardPresence): AuthResult {
-            start(engine, TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP), card)
+        fun goOnline(session: TestSession, card: CardPresence): AuthResult {
+            val config = TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP)
+            session.begin(config)
+            session.start(config, card)
             return authorizeOnline()
         }
 
