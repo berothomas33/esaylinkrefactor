@@ -1,5 +1,5 @@
-// The Ingenico vendor (stub until the Ingenico SDK is wired in): IngenicoTerminal, IngenicoEmvBehavior,
-// IngenicoPinPad. Depends on core only; its SDK modules go here when they arrive (rule 14).
+// The Ingenico vendor (stub until the Ingenico SDK is wired in): IngenicoTerminal,
+// IngenicoEmvBehavior. Depends on core only; its SDK modules go here when they arrive (rule 14).
 plugins {
     id 'com.android.library'
 }
