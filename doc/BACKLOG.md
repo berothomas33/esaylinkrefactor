@@ -12,7 +12,7 @@ to prove it. Nothing here is fixed yet. Read with `CLAUDE.md` (rules, §11 open 
 - One experiment = one commit. Show the native call order for EMV fixes. Device-test after.
 
 
-## Status on `transactionOwnsSteps-oct27` (2026-10-27, code at `28d79cb`)
+## Status on `transactionOwnsSteps-oct27` (2026-10-28, code at `9a590d4`)
 
 `transactionOwnsSteps` holds the code before 27/10 (`30cd5aa`); its own BACKLOG says what differs.
 
@@ -182,22 +182,25 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 ## 7. Tests to add (none exist for these)
 
 - **app**: no `app/src/test` at all. `MainViewModel` (IDLE reset, busy → `getTerminalBusy`, cancel only its own, `onCleared` cancels); `AmountFragment.parseAmountMinor` (0, rounding, overflow — pull it out first).
-- **core**: the retry state lives in `EmvEngine` (`requestRetry` / `consumePendingRetry`), not in the `Transaction` — move it next to `emvFinished` when the step-driven run loop (design idea 2) is decided; retry end to end (same transaction, adjusted config, "RETRY #n", cancelled → no search); `prepare()==false` → one ERROR; `authorizeOnline` (cancelled never calls host; manual skips field 55); `finishApproved/Declined` order; `printReceipt` failure; `TransactionConfig.withX` keeps the rest.
+- **core**: the retry state lives in `EmvEngine` (`requestRetry` / `consumePendingRetry`), not in the `Transaction` — the step-driven transaction (`2e4fbb4`) keeps only the next attempt's config; move the rest next to `emvFinished`; retry end to end (same transaction, adjusted config, "RETRY #n", cancelled → no search); `prepare()==false` → one ERROR; `authorizeOnline` (cancelled never calls host; manual skips field 55); `finishApproved/Declined` order; `printReceipt` failure; `TransactionConfig.withX` keeps the rest.
 - **network**: `toAuthResult` (approve / decline / missing code — 0.3), `decryptEnvelope` errors, AES round trip + IV‖ct layout, RSA PKCS#1 parse, BerTlv / IssuerResponseFields, HmacSigner vs the captured run, `isTokenValid`, REFUND envelope, `cardFields` expiry / track-2.
 - **bizentity**: `EmvParamUpdater` (zip, delete/insert, `removeKernelsNotInPackage`, `changedDatabase`), contact XML CAPK + revocation fixture, Amex parsing, `XmlDomUtils` (BOM, prolog, bad numbers), `capkConvert` / `getCachedEmvParam` on empty tables, `ConfigInit`, DAO bind/read round trips.
 - **PAX kernels**: atomic kernels (2.2); `checkContactlessResult` mapping (0.6) as a pure function.
 
 ## 8. Dead code (bare name and `Class::method` searched)
 
-`PosTerminal.communication()` / `printer()` / `dispose()` (app never calls it), `HostDefaults.declineUntilWired`,
-`FakePinPad`, `IngenicoPinPad`, `CardSearchListener.onCardRemoved` (no vendor calls it),
-`TransactionStepEvent.KEY_AMOUNT`, `EmvEnhanceApp.getOnboarding()` / `getOnboardingState()`,
-`RetrofitCommunicationBehavior` + `HostApiConnection#purchase` + `Purchase*` (would send PAN + PIN
-block in plain JSON), the online onboarding cycle (`OnboardingClient:218-261`, `OnboardingOnline*`),
+**Removed on 28/10** (`c6d1e17`, `4c7b757`, `708f5f6`, `a1ace8a`): `PosTerminal.communication()` /
+`printer()`, `CardSearchListener.onCardRemoved`, `TransactionStepEvent.KEY_AMOUNT`,
+`HostDefaults.declineUntilWired`, `AuthResult.withAsyncRequestId` / `getAsyncRequestId`,
+`EmvEnhanceApp.getOnboarding()` / `getOnboardingState()`, `RetrofitCommunicationBehavior` +
+`HostApiConnection#purchase` + `Purchase*`, `FakePinPad`, `IngenicoPinPad`. Also `transactionExecutor`
+(merged into `transactionScheduler`, `5f6e1c9`).
+
+**Still there, on purpose**: `PosTerminal.dispose()` (the app never calls it — decide where the
+terminal is released), the online onboarding cycle (`OnboardingClient:218-261`, `OnboardingOnline*`,
 `OnboardingState.markOnlineOnboarded` / `isOnlineOnboarded` / `isFullyOnboarded` / `getSacs` /
-`getChallenge`, `AuthResult.withAsyncRequestId` / `getAsyncRequestId` (no reader since `3d5fea1`: the
-request's name lives on `TransactionConfig`), `BuildConfig.MTOKEN_TEMP`.
-Ask before deleting (`CLAUDE.md` §12).
+`getChallenge`: TMK provisioning, not wired yet), `BuildConfig.MTOKEN_TEMP` (the way out of the
+mToken literal, 0.12). Ask before deleting (`CLAUDE.md` §12).
 
 ## 9. Docs that no longer match the code
 
