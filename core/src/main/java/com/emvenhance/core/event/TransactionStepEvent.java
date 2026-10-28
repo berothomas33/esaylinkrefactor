@@ -11,7 +11,6 @@ public final class TransactionStepEvent {
     public static final String KEY_ISSUER_NAME      = "issuerName";
     public static final String KEY_CARDHOLDER_NAME  = "cardHolderName";
     public static final String KEY_MODE             = "mode";
-    public static final String KEY_AMOUNT           = "amount";
     public static final String KEY_RESULT           = "result";
     public static final String KEY_ERROR            = "error";
     public static final String KEY_ONLINE_PIN       = "onlinePin";

@@ -14,8 +14,6 @@ public interface CardSearchListener {
 
     void onManualEntrySelected(CardPresence card);
 
-    void onCardRemoved();
-
     void onSearchTimeout();
 
     void onSearchCancelled();

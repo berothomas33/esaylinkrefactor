@@ -4,8 +4,6 @@ import com.emvenhance.network.model.AcknowledgementRequest;
 import com.emvenhance.network.model.AcknowledgementResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
-import com.emvenhance.network.model.PurchaseRequest;
-import com.emvenhance.network.model.PurchaseResponse;
 import com.emvenhance.network.model.ReverseRequest;
 
 import java.util.Map;
@@ -19,9 +17,6 @@ import retrofit2.http.POST;
 import retrofit2.http.Path;
 
 public interface HostApiConnection {
-
-    @POST("crypto/purchase")
-    Single<PurchaseResponse> purchase(@Body PurchaseRequest request);
 
     @POST("orchestration/exchange")
     Single<GeneralResponse> exchange(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);

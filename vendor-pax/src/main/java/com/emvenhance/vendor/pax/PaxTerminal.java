@@ -10,7 +10,6 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
-import com.emvenhance.network.RetrofitCommunicationBehavior;
 import com.emvenhance.network.SaleCommunicationBehavior;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.currency.CurrencyConverter;

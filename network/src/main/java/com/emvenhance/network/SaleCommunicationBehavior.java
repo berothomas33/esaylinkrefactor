@@ -189,7 +189,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 .flatMap(exchangeResponse -> refund
                         ? refund(headers, config, emvResult, tek, asyncRequestId)
                         : sale(headers, config, emvResult, tek, asyncRequestId))
-                .map(response -> toAuthResult(response).withAsyncRequestId(asyncRequestId));
+                .map(SaleCommunicationBehavior::toAuthResult);
     }
 
     private Single<ExchangeResponse> exchange(Map<String, String> headers, TransactionConfig config,

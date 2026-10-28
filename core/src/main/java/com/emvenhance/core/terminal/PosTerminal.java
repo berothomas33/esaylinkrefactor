@@ -30,7 +30,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -43,9 +42,8 @@ public abstract class PosTerminal {
     protected final CommunicationBehavior communication;
     protected final PrinterBehavior printer;
 
-    private final Executor transactionExecutor = Executors.newSingleThreadExecutor();
-
-    private final Scheduler transactionScheduler = Schedulers.from(transactionExecutor);
+    private final Scheduler transactionScheduler =
+            Schedulers.from(Executors.newSingleThreadExecutor());
 
     private final Scheduler printScheduler =
             Schedulers.from(Executors.newSingleThreadExecutor());
@@ -63,14 +61,6 @@ public abstract class PosTerminal {
         this.printer = printer;
         behavior.attach(new EmvEngine(this::authorize));
         initializeVendor();
-    }
-
-    public CommunicationBehavior communication() {
-        return communication;
-    }
-
-    public PrinterBehavior printer() {
-        return printer;
     }
 
     public AuthResult authorize(TransactionConfig config) {
@@ -518,14 +508,6 @@ public abstract class PosTerminal {
             @Override
             public void onManualEntrySelected(CardPresence card) {
                 handleCardFound(card);
-            }
-
-            @Override
-            public void onCardRemoved() {
-                if (isStale("onCardRemoved")) {
-                    return;
-                }
-                publish(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD, "Card removed"));
             }
 
             @Override
