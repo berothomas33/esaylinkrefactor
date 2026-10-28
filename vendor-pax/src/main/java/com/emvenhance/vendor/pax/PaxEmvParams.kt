@@ -38,6 +38,7 @@ import com.pax.configservice.impl.EmvParamUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.lang.reflect.Modifier
 
 /**
  * PAX's [EmvParams]: the GreenDAO parameter database, the kernel's parameter cache
@@ -98,10 +99,10 @@ internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
         override fun details(): String {
             val cached = category.cache(terminal.kernelParams(), item)
             return if (cached != null) {
-                "In the kernel's cache — what the next transaction uses:\n\n" + ParamDump.describe(cached)
+                "In the kernel's cache — what the next transaction uses:\n\n" + describe(cached)
             } else {
                 "Not in the kernel's cache yet (it reloads at the next transaction after a download). " +
-                    "Database values:\n\n" + ParamDump.describe(item)
+                    "Database values:\n\n" + describe(item)
             }
         }
     }
@@ -229,5 +230,72 @@ internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
         private fun hex(bytes: ByteArray?): String = if (bytes == null) "" else ConvertUtils.bcd2Str(bytes)
 
         private fun row(appName: String?, aid: String?): String = "$appName   ($aid)"
+
+        /**
+         * Every field of one parameter object — a cached kernel AID, CAPK or the like — as text, the
+         * way the kernel gets it: byte arrays in hex, nested objects and lists indented.
+         */
+        fun describe(value: Any): String {
+            val text = StringBuilder()
+            append(text, value, "")
+            return text.toString()
+        }
+
+        private fun append(text: StringBuilder, value: Any, indent: String) {
+            var type: Class<*>? = value.javaClass
+            while (type != null && type != Any::class.java) {
+                for (field in type.declaredFields) {
+                    if (Modifier.isStatic(field.modifiers) || field.isSynthetic) {
+                        continue
+                    }
+                    field.isAccessible = true
+                    val fieldValue = try {
+                        field.get(value)
+                    } catch (e: IllegalAccessException) {
+                        continue
+                    }
+                    text.append(indent).append(field.name).append(" = ")
+                    appendValue(text, fieldValue, indent)
+                }
+                type = type.superclass
+            }
+        }
+
+        private fun appendValue(text: StringBuilder, value: Any?, indent: String) {
+            when {
+                value == null -> text.append("null\n")
+                value is ByteArray ->
+                    text.append(if (value.isEmpty()) "(empty)" else ConvertUtils.bcd2Str(value)).append('\n')
+                value is Byte -> text.append(String.format("%02X", value.toInt() and 0xFF)).append('\n')
+                value.javaClass.isArray -> {
+                    val items = StringBuilder("[")
+                    for (i in 0 until java.lang.reflect.Array.getLength(value)) {
+                        items.append(if (i == 0) "" else ", ").append(java.lang.reflect.Array.get(value, i))
+                    }
+                    text.append(items).append("]\n")
+                }
+                value is Collection<*> -> {
+                    text.append(value.size).append(" item(s)\n")
+                    for ((i, item) in value.withIndex()) {
+                        text.append(indent).append("  [").append(i).append("]\n")
+                        if (isPlain(item)) {
+                            text.append(indent).append("    ")
+                            appendValue(text, item, "$indent    ")
+                        } else {
+                            append(text, item!!, "$indent    ")
+                        }
+                    }
+                }
+                isPlain(value) -> text.append(value).append('\n')
+                else -> {
+                    text.append('\n')
+                    append(text, value, "$indent  ")
+                }
+            }
+        }
+
+        private fun isPlain(value: Any?): Boolean =
+            value == null || value is CharSequence || value is Number || value is Boolean ||
+                value is Char || value is Enum<*> || value is ByteArray || value.javaClass.isArray
     }
 }
