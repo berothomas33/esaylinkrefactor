@@ -791,6 +791,31 @@ proceed  → advanceContactStage(NEXT)   = goToStep(NEXT)، ولو مرجعش tr
 
 `startOnlineProcess()`: `tx.onlineRequested = true` → `goToStep(START_ONLINE_PROCESS)` → `onStartOnlineProcess` → `tx.lastAuth = authorizeOnline()` (field 55 من `readIccTag`، فاضي → online failed من غير ما يبعت؛ `addOnlineRequestData`: PAN، PIN block، المفتاح المشفّر، `EmvTransactionResult`) → `engine.authorize` → `PosTerminal.authorize`. الـ step متلغي → `lastAuth = null` → "online step did not run — online failed". `toOnlineResultWrapper`: null/failed → FAILED، approved → APPROVE (auth code، RC، ARPC، scripts)، غير كده → DENIAL.
 
+**رد الـ host بيرجع للـ behavior إزاي (علشان الـ 2nd GENERATE AC)** — نداء بيرجّع رد، مش callback؛ كله على الـ transaction thread وبالترتيب، والكيرنل مستني في النص:
+
+```
+PaxEmvBehavior.onStartOnlineProcess
+   tx.lastAuth = authorizeOnline();
+         │
+         └─ engine.authorize → PosTerminal.authorize → الـ host
+         │      (PosTerminal: ONLINE_* steps، يسمّي الـ request ويسجّله للـ ack / reversal، 90 ث)
+         │
+   ◄──── AuthResult راجع هنا مباشرة (approved / declined / failed + ARPC + scripts + auth code)
+   │
+toOnlineResultWrapper(auth)                  ← يحوّله لشكل PAX
+   │   ARPC          → rsp.setAuthData
+   │   scripts       → rsp.setScript
+   │   response code → rsp.setRespCode
+   │
+kernel.contact.completeTransProcess(rsp)     ← الـ 2nd GENERATE AC (completeContactIssuerAuthentication)
+   │
+الكارت: TC (approved) أو AAC (declined)
+   │
+finishApproved / finishDeclined
+```
+
+اتناقش 28/10: الشكل ده آمن (الـ request بيتسجل قبل ما يتبعت) ومريح للـ 2nd GAC، فاتساب زي ما هو؛ `PosTerminal.authorize` مش هيتقسم.
+
 `runIssuerAuthentication`: `tx.issuerResponse = online` → `goToStep(ISSUER_AUTHENTICATION)` → `onIssuerAuthentication` → `completeIssuerAuthentication`. الـ step متلغي (cancel) → الـ 2nd GAC بيتعمل برضه ("issuer authentication step did not run — completing with the card anyway").
 
 بعد الـ 2nd GAC (`completeContactIssuerAuthentication`):
