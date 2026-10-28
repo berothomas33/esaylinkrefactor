@@ -1194,10 +1194,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             if (isOnlinePin) {
                 return askStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN",
                         EmvConstant.ContactCallbackStatus.USER_CANCEL);
+            } else {
+                goToStep(EmvStep.CARDHOLDER_VERIFICATION, "PIN");
+                return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
+                        EmvConstant.ContactCallbackStatus.USER_CANCEL);
             }
-            goToStep(EmvStep.CARDHOLDER_VERIFICATION, "PIN");
-            return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
-                    EmvConstant.ContactCallbackStatus.USER_CANCEL);
         } finally {
             tx.pinRequest = null;
         }
