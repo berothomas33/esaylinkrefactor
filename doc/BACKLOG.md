@@ -105,6 +105,7 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 | 1.14 | L | `ClssMirProcess:299-308` | `while(true)` on TRY_AGAIN, no cap / wait / cancel (seed-only: download deletes Mir) | no |
 | ✅ 1.15 | M | `AbstractEmvBehavior.finish*` → `PosTerminal.Transaction.emvFinished` | APPROVED then CANCELLED: a cancel between the outcome and COMPLETED. Fixed in `28d79cb`: outcome and end are set under one hold of the lock | yes |
 | 1.16 | M | `SaleCommunicationBehavior.classify` | A sale / refund HTTP 4xx other than 401/403 is still reversed (only 401/403 decided as "not sent"); decide the rest of 4xx | no |
+| 1.17 | L, unverified | `PaxCardSearch.pollUntilCardOrTimeout` / `stop` | **A cancel just before `polling()` starts may not stop it.** The loop checks `cancelled` (= not running), then calls `cardReaderHelper.polling(...)`; a cancel landing between the two calls `stopPolling()` before the poll exists. If PAX doesn't keep that stop for the next poll, the poll waits its timeout (up to 30 s), the terminal busy, then ends CANCELLED. Delay only: the end is already CANCELLED, a card found then is dropped (no EMV), no money moves. Same window as in `PaxTerminal` before `9a911d1`. Check on the device (cancel right as the search starts); fix if needed: `stop()` marks a flag the loop reads right after `polling()` returns early, or re-checks `cancelled` and calls `stopPolling()` again once `polling` has begun | no |
 
 ## 2. Contactless kernels
 
