@@ -93,12 +93,8 @@ final class PaxTransactionState {
     String lastIccData;
 
     // ─── Flags ───────────────────────────────────────────────────────────
-    // Each repeats something another field already says (BACKLOG 28 / 41): initOk = the
-    // transaction is still running, onlineRequested = always true where it's read,
-    // scriptsProcessed = pendingScripts. Kept for now.
-
-    /** Terminal initialization succeeded (prepareKernel). */
-    boolean initOk = true;
+    // Each repeats something another field already says (BACKLOG 28 / 41): onlineRequested =
+    // always true where it's read, scriptsProcessed = pendingScripts. Kept for now.
 
     /** True while startOnlineProcess waits for the host step. */
     boolean onlineRequested;

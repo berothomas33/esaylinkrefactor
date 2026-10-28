@@ -12,11 +12,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * The EMV side of one terminal: the {@link #emvSteps()} observable, the APDU trace, the retry
  * request and the way online. No vendor logic, and nothing of the transaction: it holds no
  * transaction state and publishes no transaction step. Whether a step may still run is asked of
- * the transaction before it is published here ({@code AbstractEmvBehavior#goToStep},
- * {@code PosTerminal}'s card search).
+ * the transaction before it is published here ({@code AbstractEmvBehavior#goToStep}).
  *
  * <p>{@code PosTerminal} owns the transaction itself — its thread, busy, cancel, its steps and
- * its end — and runs the vendor's behavior for each attempt, handing it the transaction. The
+ * its end — and runs the vendor's behavior once per transaction, handing it the transaction. The
  * behavior keeps this engine (given once, {@code AbstractEmvBehavior#attach}); {@code PosTerminal}
  * reaches it through {@code AbstractEmvBehavior#engine()}.
  *
@@ -90,7 +89,7 @@ public final class EmvEngine {
         return authorizer.authorize(config);
     }
 
-    // ─── Retry (behavior → PosTerminal's transaction loop) ────────────────
+    // ─── Retry (kernel → the behavior's run loop) ─────────────────────────
 
     @Nullable
     private volatile TransactionConfig pendingRetryConfig;
@@ -102,11 +101,11 @@ public final class EmvEngine {
     /**
      * Requests that the current transaction restart with an adjusted config — e.g. a PAX
      * {@code fallback()} forcing magstripe, or a {@code tryAnotherInterface()} forcing
-     * contact. Takes effect once the current step returns control to
-     * {@link com.emvenhance.core.terminal.PosTerminal}'s transaction loop: no new
-     * {@link #begin()} is taken and no new thread is scheduled, so this is safe to call from
-     * deep inside a vendor kernel callback — the retry runs on the same thread, right after
-     * the call stack that requested it unwinds.
+     * contact. Takes effect once the kernel has returned to the behavior's run loop
+     * ({@code AbstractEmvBehavior#run}), which starts the next attempt from the card search: no
+     * new {@link #begin()} is taken and no new thread is scheduled, so this is safe to call from
+     * deep inside a vendor kernel callback — the retry runs on the same thread, right after the
+     * call stack that requested it unwinds.
      */
     public void requestRetry(TransactionConfig adjustedConfig) {
         requestRetry(adjustedConfig, null);
@@ -121,7 +120,7 @@ public final class EmvEngine {
         retryPrompt = prompt;
     }
 
-    /** Called once per attempt by {@code PosTerminal}'s transaction loop. */
+    /** Called once per attempt by the behavior's run loop ({@code AbstractEmvBehavior#run}). */
     @Nullable
     public TransactionConfig consumePendingRetry() {
         TransactionConfig config = pendingRetryConfig;

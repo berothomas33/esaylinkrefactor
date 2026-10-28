@@ -19,7 +19,7 @@ import com.emvenhance.core.host.PrinterBehavior;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
@@ -27,7 +27,8 @@ import org.junit.Test;
 
 /**
  * WAITING_FOR_CARD carries KEY_RETRY_PROMPT only when the card has to be presented again, so the
- * search screen can show the reason on top of the card UI.
+ * search screen can show the reason on top of the card UI: a retry the kernel asked for (the
+ * next search's prompt), or a read the cardholder can fix during the search.
  */
 public class PosTerminalRetryPromptTest {
 
@@ -41,29 +42,27 @@ public class PosTerminalRetryPromptTest {
         engine = terminal.behavior.engine();
         terminal.allSteps.subscribe(events::add);
         terminal.acceptCard(TransactionType.SALE, 1000);
-        assertTrue("search never started", terminal.searching.await(5, TimeUnit.SECONDS));
-        events.clear();
+        assertTrue("search never started", terminal.searches.tryAcquire(5, TimeUnit.SECONDS));
     }
 
     @After
     public void tearDown() {
-        terminal.release.countDown();
+        terminal.releases.release(10);
     }
 
     @Test
     public void firstSearchHasNoRetryPrompt() {
-        terminal.listener.onSearchStarted(config());
-
         TransactionStepEvent waiting = lastWaiting();
         assertEquals("Insert, tap, or swipe", waiting.getMessage());
         assertNull(waiting.get(TransactionStepEvent.KEY_RETRY_PROMPT));
     }
 
     @Test
-    public void searchAfterARetryCarriesThePrompt() {
+    public void searchAfterARetryCarriesThePrompt() throws Exception {
         engine.requestRetry(config(), "See phone — verify on your phone, then tap again");
 
-        terminal.listener.onSearchStarted(config());
+        terminal.releases.release(); // the first search returns: the kernel has returned
+        assertTrue("no second search", terminal.searches.tryAcquire(5, TimeUnit.SECONDS));
 
         TransactionStepEvent waiting = lastWaiting();
         assertEquals("See phone — verify on your phone, then tap again", waiting.getMessage());
@@ -73,7 +72,7 @@ public class PosTerminalRetryPromptTest {
 
     @Test
     public void readerRetryDuringSearchCarriesThePrompt() {
-        terminal.listener.onSearchRetry("Card not read — tap again and hold the card still");
+        terminal.listener().onSearchRetry("Card not read — tap again and hold the card still");
 
         TransactionStepEvent waiting = lastWaiting();
         assertEquals("Card not read — tap again and hold the card still",
@@ -95,7 +94,10 @@ public class PosTerminalRetryPromptTest {
         return new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.ANY);
     }
 
-    /** Holds card search open and hands the test the terminal's own listener. */
+    /**
+     * Each card search reports it started (as a vendor's does), hands the test its listener and
+     * is held open until released.
+     */
     private static final class CapturingTerminal extends PosTerminal {
 
         /** Every transaction's steps, for the test: each transaction has its own stream. */
@@ -108,34 +110,43 @@ public class PosTerminalRetryPromptTest {
             return transaction;
         }
 
-        final CountDownLatch searching = new CountDownLatch(1);
-        final CountDownLatch release = new CountDownLatch(1);
-        volatile CardSearchListener listener;
+        /** One permit per search started. */
+        final Semaphore searches;
+        /** One permit lets one search return. */
+        final Semaphore releases;
+        private final java.util.concurrent.atomic.AtomicReference<CardSearchListener> captured;
 
         CapturingTerminal() {
-            super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
+            this(new Semaphore(0), new Semaphore(0),
+                    new java.util.concurrent.atomic.AtomicReference<>());
         }
 
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            this.listener = listener;
-            searching.countDown();
-            try {
-                release.await(5, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return null;
+        private CapturingTerminal(Semaphore searches, Semaphore releases,
+                java.util.concurrent.atomic.AtomicReference<CardSearchListener> captured) {
+            super(behavior(searches, releases, captured), stub(CommunicationBehavior.class),
+                    stub(PrinterBehavior.class));
+            this.searches = searches;
+            this.releases = releases;
+            this.captured = captured;
         }
 
-        @Override
-        protected void cancelCardSearch() {
+        /** The listener of the search running now. */
+        CardSearchListener listener() {
+            return captured.get();
         }
 
-        /** prepare() succeeds so the terminal goes on to search; everything else is a no-op. */
-        private static AbstractEmvBehavior behavior() {
-            return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
-                    ? Boolean.TRUE : defaultValue(method.getReturnType()));
+        private static AbstractEmvBehavior behavior(Semaphore searches, Semaphore releases,
+                java.util.concurrent.atomic.AtomicReference<CardSearchListener> captured) {
+            return StubBehavior.of((name, args) -> {
+                if (name.equals("search")) {
+                    CardSearchListener listener = (CardSearchListener) args[1];
+                    captured.set(listener);
+                    listener.onSearchStarted((TransactionConfig) args[0]);
+                    searches.release();
+                    releases.tryAcquire(5, TimeUnit.SECONDS);
+                }
+                return null;
+            });
         }
 
         @SuppressWarnings("unchecked")

@@ -26,11 +26,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
- * The transaction runs from its own steps, on the transaction thread: TRANSACTION_STARTED runs
- * the first attempt; a retry the behavior asks for (fallback, try another interface, try again,
- * See Phone) is NEXT_ATTEMPT — a new search after the previous one returned, never one started
- * from inside its callback — and TRANSACTION_STARTED comes only once. Whatever happens, the end
- * is published once, with the terminal already free.
+ * The transaction runs on the transaction thread from TRANSACTION_STARTED, once; its EMV owns the
+ * retries: one the kernel asks for (fallback, try another interface, try again, See Phone) is the
+ * next turn of the behavior's run loop — SEARCH_CARD again after the previous search returned,
+ * never one started from inside its callback. Whatever happens, the end is published once, with
+ * the terminal already free.
  */
 public class PosTerminalRetryLoopTest {
 
@@ -39,7 +39,7 @@ public class PosTerminalRetryLoopTest {
     private final AtomicInteger searchesOnStack = new AtomicInteger();
     private final AtomicInteger deepestNesting = new AtomicInteger();
     private final CountDownLatch ended = new CountDownLatch(1);
-    /** What the behavior's start() does: ask for a retry, maybe cancel first. */
+    /** What the EMV on the card found does: ask for a retry, maybe cancel first. */
     private final AtomicReference<java.util.function.BiConsumer<EmvEngine, PosTerminal.Transaction>>
             onStart = new AtomicReference<>();
     private final AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
@@ -68,9 +68,12 @@ public class PosTerminalRetryLoopTest {
         assertEquals(Arrays.asList(EntryMethod.ANY, EntryMethod.MAGSTRIPE), searchedWith);
         assertEquals("a search started inside another", 1, deepestNesting.get());
         assertEquals("once per transaction", 1, count(TransactionStep.TRANSACTION_STARTED));
-        assertEquals("once per retry", 1, count(TransactionStep.NEXT_ATTEMPT));
-        assertTrue("NEXT_ATTEMPT before the second search's steps",
-                indexOf(TransactionStep.NEXT_ATTEMPT) < lastIndexOf(TransactionStep.APPROVED));
+        assertEquals("a search per attempt", 2, count(TransactionStep.WAITING_FOR_CARD));
+        TransactionStepEvent retrySearch = events.get(lastIndexOf(TransactionStep.WAITING_FOR_CARD));
+        assertEquals("the retry's own prompt", "Chip not readable — swipe the card",
+                retrySearch.get(TransactionStepEvent.KEY_RETRY_PROMPT));
+        assertTrue("the retry's search before its outcome",
+                lastIndexOf(TransactionStep.WAITING_FOR_CARD) < lastIndexOf(TransactionStep.APPROVED));
         assertEquals(TransactionStep.COMPLETED, events.get(events.size() - 1).getStep());
     }
 
@@ -107,7 +110,6 @@ public class PosTerminalRetryLoopTest {
         assertEquals(TransactionStep.ERROR, end.getStep());
         assertEquals("reader gone", end.getMessage());
         assertEquals("free before the end is seen", Arrays.asList(false), busyAtTheEnd);
-        assertEquals(0, count(TransactionStep.NEXT_ATTEMPT));
     }
 
     @Test
@@ -140,10 +142,10 @@ public class PosTerminalRetryLoopTest {
         assertTrue(ended.await(5, TimeUnit.SECONDS));
 
         assertEquals("the retry never searched", Arrays.asList(EntryMethod.ANY), searchedWith);
-        assertEquals("no NEXT_ATTEMPT once cancelled", 0, count(TransactionStep.NEXT_ATTEMPT));
+        assertEquals("one search", 1, count(TransactionStep.WAITING_FOR_CARD));
         TransactionStepEvent end = events.get(events.size() - 1);
         assertEquals("Transaction cancelled", end.getMessage());
-        assertFalse(terminal.isSearchCancelled());
+        assertFalse(terminal.isBusy());
     }
 
     private static void awaitQuietly(CountDownLatch latch) {
@@ -152,15 +154,6 @@ public class PosTerminalRetryLoopTest {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    private int indexOf(TransactionStep step) {
-        for (int i = 0; i < events.size(); i++) {
-            if (events.get(i).getStep() == step) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     private int lastIndexOf(TransactionStep step) {
@@ -192,7 +185,6 @@ public class PosTerminalRetryLoopTest {
         return n;
     }
 
-    /** A search that finds a chip at once (or swipes, on a magstripe retry), on the transaction thread. */
     private final class TestTerminal extends PosTerminal {
 
         /** Every transaction's steps, for the test: each transaction has its own stream. */
@@ -215,40 +207,39 @@ public class PosTerminalRetryLoopTest {
                 }
             });
         }
-
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            deepestNesting.accumulateAndGet(searchesOnStack.incrementAndGet(), Math::max);
-            searchThreads.add(Thread.currentThread());
-            try {
-                if (searchFails != null) {
-                    throw searchFails;
-                }
-                searchedWith.add(config.getMode());
-                CardPresence card = CardPresence.chip();
-                listener.onChipDetected(card); // EMV runs right here, as on PAX
-                return card;
-            } finally {
-                searchesOnStack.decrementAndGet();
-            }
-        }
-
-        @Override
-        protected void cancelCardSearch() {
-        }
     }
 
-    /** prepare() succeeds; start() does what the test set in {@link #onStart}. */
+    /**
+     * The search finds a chip at once (or the mode a retry asked for), on the transaction thread,
+     * and the EMV on it does what the test set in {@link #onStart}.
+     */
     private AbstractEmvBehavior behavior() {
-        return StubBehavior.of((proxy, method, args) -> {
-            if (method.getName().equals("prepare")) {
-                return Boolean.TRUE;
+        AtomicReference<AbstractEmvBehavior> self = new AtomicReference<>();
+        self.set(StubBehavior.of((name, args) -> {
+            if (name.equals("search")) {
+                search((TransactionConfig) args[0], (CardSearchListener) args[1]);
             }
-            if (method.getName().equals("start")) {
-                onStart.get().accept(((AbstractEmvBehavior) proxy).engine(), (PosTerminal.Transaction) args[2]);
+            if (name.equals("start")) {
+                onStart.get().accept(self.get().engine(), (PosTerminal.Transaction) args[2]);
             }
-            return method.getReturnType() == boolean.class ? false : null;
-        });
+            return null;
+        }));
+        return self.get();
+    }
+
+    private void search(TransactionConfig config, CardSearchListener listener) {
+        deepestNesting.accumulateAndGet(searchesOnStack.incrementAndGet(), Math::max);
+        searchThreads.add(Thread.currentThread());
+        try {
+            if (searchFails != null) {
+                throw searchFails;
+            }
+            listener.onSearchStarted(config);
+            searchedWith.add(config.getMode());
+            listener.onChipDetected(CardPresence.chip()); // EMV runs right here, as on PAX
+        } finally {
+            searchesOnStack.decrementAndGet();
+        }
     }
 
     @SuppressWarnings("unchecked")

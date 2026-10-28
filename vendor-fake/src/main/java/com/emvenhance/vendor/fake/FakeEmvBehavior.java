@@ -2,12 +2,14 @@ package com.emvenhance.vendor.fake;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
+import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.emv.EmvStep;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Fake vendor: each step does its work, then {@link #goToStep} publishes on the EmvStep
@@ -15,13 +17,81 @@ import com.emvenhance.core.terminal.AbstractEmvBehavior;
  */
 public class FakeEmvBehavior extends AbstractEmvBehavior {
 
+    private static final long SEARCH_DELAY_MS = 200L;
+    private final AtomicBoolean stopSearch = new AtomicBoolean(false);
+
     @Nullable
     private AuthResult lastAuth;
 
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
         lastAuth = null;
-        // Stop here — PosTerminal.searchCard runs next. Do NOT goToStep.
+        // Stop here — the card search (SEARCH_CARD) is the base class's next step. Do NOT goToStep.
+    }
+
+    /** A demo search: a card of the entry mode asked for, after a short wait. */
+    @Override
+    public void onSearchCard(TransactionConfig config, @Nullable CardPresence found) {
+        CardSearchListener listener = cardSearchListener();
+        stopSearch.set(false);
+        listener.onSearchStarted(config);
+
+        try {
+            Thread.sleep(SEARCH_DELAY_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            listener.onSearchCancelled();
+            return;
+        }
+
+        if (stopSearch.get() || !isRunning()) {
+            listener.onSearchCancelled();
+            return;
+        }
+
+        if (config.isManual()) {
+            CardPresence card = CardPresence.manual("4111111111111111");
+            listener.onManualEntrySelected(card);
+            return;
+        }
+        if (config.isMagstripe()) {
+            CardPresence card = CardPresence.magstripe("CARD HOLDER", "4111111111111111=4912", null);
+            listener.onMagstripeDetected(card);
+            return;
+        }
+        if (config.isContactless()) {
+            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
+            listener.onContactlessDetected(card);
+            return;
+        }
+        // CONTACT and ANY → chip first (demo)
+        if (config.allowsChip()) {
+            CardPresence card = CardPresence.chip();
+            listener.onChipDetected(card);
+            return;
+        }
+        if (config.allowsContactless()) {
+            CardPresence card = CardPresence.contactless(new byte[] {0x01, 0x02});
+            listener.onContactlessDetected(card);
+            return;
+        }
+        if (config.allowsMagstripe()) {
+            CardPresence card = CardPresence.magstripe("CARD HOLDER", "4111111111111111=4912", null);
+            listener.onMagstripeDetected(card);
+            return;
+        }
+        if (config.allowsManual()) {
+            CardPresence card = CardPresence.manual("4111111111111111");
+            listener.onManualEntrySelected(card);
+            return;
+        }
+
+        listener.onSearchTimeout();
+    }
+
+    @Override
+    public void cancelCardSearch() {
+        stopSearch.set(true);
     }
 
     @Override

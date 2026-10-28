@@ -158,8 +158,6 @@ public class PosTerminalHostTest {
             }));
         }
 
-        private final java.util.concurrent.BlockingQueue<AuthResult> online =
-                new java.util.concurrent.LinkedBlockingQueue<>();
         private final CountDownLatch ended = new CountDownLatch(1);
 
         TestTerminal(CommunicationBehavior host, PrinterBehavior printer) {
@@ -180,25 +178,26 @@ public class PosTerminalHostTest {
         }
 
         @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            online.add(behavior.engine().authorize(CONFIG));
-            return null;
-        }
-
-        @Override
-        protected void cancelCardSearch() {
-        }
-
-        @Override
         protected long onlineTimeoutMs() {
             return onlineTimeoutMs;
         }
     }
 
-    /** prepare() succeeds, so the terminal goes on to "search"; everything else is a no-op. */
-    private static AbstractEmvBehavior preparingBehavior() {
-        return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
-                ? Boolean.TRUE : method.getReturnType() == boolean.class ? false : null);
+    /** What the "card search" got from the host. */
+    private final java.util.concurrent.BlockingQueue<AuthResult> online =
+            new java.util.concurrent.LinkedBlockingQueue<>();
+
+    /** The "card search" is the vendor going online, as EMV does mid-transaction. */
+    private AbstractEmvBehavior preparingBehavior() {
+        java.util.concurrent.atomic.AtomicReference<AbstractEmvBehavior> self =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        self.set(StubBehavior.of((name, args) -> {
+            if (name.equals("search")) {
+                online.add(self.get().engine().authorize(CONFIG));
+            }
+            return null;
+        }));
+        return self.get();
     }
 
     /** Interface stub whose methods do nothing and return a default value. */

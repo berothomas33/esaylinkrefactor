@@ -343,24 +343,16 @@ public class PosTerminalHostFollowUpTest {
             assertTrue("never ended", ended.await(5, TimeUnit.SECONDS));
         }
 
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            transactionThread = Thread.currentThread();
-            listener.onChipDetected(CardPresence.chip());
-            return null;
-        }
-
-        @Override
-        protected void cancelCardSearch() {
-        }
     }
 
-    /** prepare() succeeds; start() runs the terminal's script with its transaction. */
+    /** The search finds a chip at once; the EMV on it runs the terminal's script with its transaction. */
     private AbstractEmvBehavior scripted() {
-        return StubBehavior.of((proxy, method, args) -> {
-            switch (method.getName()) {
-                case "prepare":
-                    return Boolean.TRUE;
+        return StubBehavior.of((name, args) -> {
+            switch (name) {
+                case "search":
+                    terminal.transactionThread = Thread.currentThread();
+                    ((CardSearchListener) args[1]).onChipDetected(CardPresence.chip());
+                    return null;
                 case "start":
                     terminal.script.accept((PosTerminal.Transaction) args[2]);
                     return null;

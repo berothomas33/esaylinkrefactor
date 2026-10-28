@@ -1,13 +1,10 @@
 package com.emvenhance.core.terminal;
 
 import androidx.annotation.Nullable;
-import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.emv.EmvEngine;
-import com.emvenhance.core.emv.EmvStep;
 import com.emvenhance.core.emv.EmvStepEvent;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
@@ -38,18 +35,21 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * The only public hardware API for the app.
  *
- * <p>Owns card search, host communication, and printer. EMV after entry selection is the
- * vendor's {@link AbstractEmvBehavior}, run by this terminal for each attempt with the attempt's
+ * <p>Owns the transaction, host communication, and printer. The EMV — from terminal
+ * initialization and the card search through the outcome, retries included — is the vendor's
+ * {@link AbstractEmvBehavior}, run by this terminal once per transaction with its
  * {@link Transaction}; the behavior keeps the {@link EmvEngine} (EMV steps, APDU trace, retry,
  * the way online), which this terminal reaches through {@link AbstractEmvBehavior#engine()}.
  *
  * <pre>
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)   [returns its Transaction at once]
  *          └── TRANSACTION_STARTED → transaction thread: onTransactionStarted()
- *          └── behavior.prepare(config, transaction) + searchCard(config, listener) ← vendor SDK
- *                 └── listener.onXxxDetected(card)                 ← vendor callback
- *                        └── behavior.start(config, card, transaction) ← vendor EMV, from inside the callback
- *                               └── behavior → engine.authorize → PosTerminal.authorize → host
+ *                 └── behavior.run(config, transaction)        ← the vendor's EMV
+ *                        TERMINAL_INITIALIZATION → SEARCH_CARD (vendor polling)
+ *                        → card found → the EMV steps → finish* (the outcome)
+ *                        → a retry the kernel asked for: SEARCH_CARD again
+ *                        └── behavior → engine.authorize → PosTerminal.authorize → host
+ *                 └── onEnd()                                   ← the end, the terminal free
  * </pre>
  *
  * <p>The terminal owns the whole life of a transaction in one place: busy ({@link #current})
@@ -69,7 +69,7 @@ public abstract class PosTerminal {
     protected final PrinterBehavior printer;
 
     /**
-     * The one thread every transaction runs on, from card search through EMV and the host: one
+     * The one thread every transaction runs on, from the card search through EMV and the host: one
      * reader, one kernel. A transaction's steps reach its {@link Transaction.TransactionStepObserver}
      * here, in order, one at a time. Only one transaction is ever on it —
      * {@link #startTransaction} refuses a start while the previous one is still there — and
@@ -219,11 +219,10 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Start with an explicit reader mode: card search, EMV and the host run on the transaction
-     * thread and this returns at once. Every outcome (card found, search cancelled, timed out,
-     * or errored) arrives as a {@link CardSearchListener} callback there, and the transaction's
-     * steps on {@link Transaction#steps()}, ending with COMPLETED, ERROR or CANCELLED once the
-     * terminal is free.
+     * Start with an explicit reader mode: the EMV (card search included) and the host run on the
+     * transaction thread and this returns at once. The transaction's steps arrive on
+     * {@link Transaction#steps()}, ending with COMPLETED, ERROR or CANCELLED once the terminal is
+     * free.
      *
      * @return this transaction: its {@link Transaction#steps() steps}, and the handle to
      *         {@link Transaction#cancel() cancel} it — that one only, never another's
@@ -258,12 +257,6 @@ public abstract class PosTerminal {
      */
     public final boolean isBusy() {
         return current.get() != null;
-    }
-
-    /** Whether the vendor search polling for the current transaction should stop: it is over. */
-    public final boolean isSearchCancelled() {
-        Transaction transaction = current.get();
-        return transaction != null && !transaction.isRunning();
     }
 
     /** {@link #authorize}'s steps, on the transaction going online: the current one. */
@@ -341,16 +334,7 @@ public abstract class PosTerminal {
         return null;
     }
 
-    // ─── Vendor must implement ───────────────────────────────────────────
-
-    /**
-     * Blocking card search using the vendor's native SDK.
-     * Fire {@link CardSearchListener} events; return the selected card or {@code null}.
-     */
-    @Nullable
-    public abstract CardPresence searchCard(TransactionConfig config, CardSearchListener listener);
-
-    protected abstract void cancelCardSearch();
+    // ─── Vendor may override ─────────────────────────────────────────────
 
     protected void initializeVendor() {
         // default: no-op
@@ -419,7 +403,7 @@ public abstract class PosTerminal {
                 deliver(TransactionStepEvent.of(TransactionStep.CANCELLING,
                         "Cancelling — finishing with the card"));
             }
-            cancelCardSearch();
+            behavior.cancelCardSearch();
         }
 
         /** False once it has ended — an outcome or a cancel; the terminal is freed only after. */
@@ -517,9 +501,6 @@ public abstract class PosTerminal {
         /** Its dispatch observer; disposed by {@link #onEnd}. Set once, in {@link #begin}. */
         @Nullable
         private DisposableObserver<TransactionStepEvent> dispatch;
-        /** The config of the attempt NEXT_ATTEMPT starts; transaction thread only. */
-        @Nullable
-        private TransactionConfig nextAttemptConfig;
         /** Whether {@link #onEnd} ran; transaction thread only. */
         private boolean finished;
 
@@ -561,9 +542,7 @@ public abstract class PosTerminal {
          * for the screen and runs nothing.
          *
          * <pre>
-         *   TRANSACTION_STARTED → onTransactionStarted: engine.begin, then the first attempt
-         *   NEXT_ATTEMPT        → onNextAttempt: the retry's attempt
-         *   (an attempt with no retry to follow) → onEnd: free the terminal, publish the end
+         *   TRANSACTION_STARTED → onTransactionStarted: engine.begin, the EMV, then onEnd
          * </pre>
          */
         private void dispatchTransactionStep(TransactionStepEvent event) {
@@ -571,58 +550,25 @@ public abstract class PosTerminal {
                 case TRANSACTION_STARTED:
                     onTransactionStarted(event);
                     break;
-                case NEXT_ATTEMPT:
-                    onNextAttempt();
-                    break;
                 default:
                     break;
             }
         }
 
         /**
-         * The first attempt. One {@link EmvEngine#begin()} for the whole transaction, retries
-         * included; it starts a fresh APDU trace, so TRANSACTION_STARTED (published on the
-         * caller's thread before it) is written into the new trace here.
+         * The transaction's EMV, then its end. One {@link EmvEngine#begin()} for the whole
+         * transaction, retries included; it starts a fresh APDU trace, so TRANSACTION_STARTED
+         * (published on the caller's thread before it) is written into the new trace here. The
+         * EMV runs whatever retries the kernel asks for ({@link EmvBehavior#run}); a cancel
+         * first just makes it return sooner.
          */
         private void onTransactionStarted(TransactionStepEvent started) {
             behavior.engine().begin();
             traceTransactionStep(started);
-            runAttempt(config);
-        }
-
-        /** A retry's attempt (fallback / try another interface / try again / See Phone). */
-        private void onNextAttempt() {
-            TransactionConfig retry = nextAttemptConfig;
-            nextAttemptConfig = null;
-            if (retry == null) {
-                EmvLog.d("NEXT_ATTEMPT with no retry config — ignored");
-                return;
+            if (isRunning()) {
+                behavior.run(config, this);
             }
-            runAttempt(retry);
-        }
-
-        /**
-         * One attempt ({@link #attempt}), then what comes next: the retry the behavior asked for,
-         * as NEXT_ATTEMPT — run once this method returns — or the end ({@link #onEnd}). A
-         * cancel that landed first wins: no NEXT_ATTEMPT is published once the transaction has
-         * ended, and it ends instead.
-         */
-        private void runAttempt(TransactionConfig attemptConfig) {
-            // An exception from the attempt is the observer's: ERROR, then onEnd.
-            TransactionConfig retry = isRunning() ? attempt(attemptConfig) : null;
-            boolean next = false;
-            if (retry != null) {
-                synchronized (steps) { // a cancel can't land between the check and the publish
-                    if (end == null) {
-                        nextAttemptConfig = retry;
-                        deliver(TransactionStepEvent.of(TransactionStep.NEXT_ATTEMPT));
-                        next = true;
-                    }
-                }
-            }
-            if (!next) {
-                onEnd();
-            }
+            onEnd();
         }
 
         /**
@@ -710,138 +656,6 @@ public abstract class PosTerminal {
             }
             return followUps;
         }
-
-        /**
-         * One attempt: terminal initialization, then card search. Every {@link CardSearchListener}
-         * implementation (Pax/Ingenico/Fake) calls exactly one listener method before it stops
-         * searching, and that callback drives what happens next:
-         * {@link EngineReportingListener#handleCardFound} runs EMV the moment a card is found.
-         *
-         * @return the adjusted config of a retry the behavior asked for
-         *         ({@link EmvEngine#requestRetry}), or {@code null}: the transaction is done
-         */
-        @Nullable
-        private TransactionConfig attempt(TransactionConfig config) {
-            if (!behavior.prepare(config, this)) {
-                // Dropped if it already ended.
-                publish(errorEvent("Terminal initialization failed"));
-                return null;
-            }
-            searchCard(config, new EngineReportingListener(config));
-            // Consumed either way; runAttempt drops it if the transaction is over (cancelled).
-            TransactionConfig retry = behavior.engine().consumePendingRetry();
-            if (retry != null && !isRunning()) {
-                EmvLog.d("Retry dropped: the transaction is over");
-                apduTrace().note("EMV", "retry dropped — the transaction is over");
-            }
-            return retry;
-        }
-
-        /**
-         * Maps reader events → this transaction's steps, and starts EMV once a card is found.
-         * Once the transaction is over, its callbacks are dropped, so a search that outlived it
-         * can't fail, or start EMV for, the next one.
-         */
-        private final class EngineReportingListener implements CardSearchListener {
-
-            private final TransactionConfig config;
-
-            EngineReportingListener(TransactionConfig config) {
-                this.config = config;
-            }
-
-            private boolean isStale(String callback) {
-                if (!isRunning()) {
-                    EmvLog.d("Ignored " + callback + " from a search whose transaction is over");
-                    return true;
-                }
-                return false;
-            }
-
-            @Override
-            public void onSearchStarted(TransactionConfig config) {
-                if (isStale("onSearchStarted")) {
-                    return;
-                }
-                String prompt = behavior.engine().consumeRetryPrompt();
-                String msg = prompt != null ? prompt : waitingMessage(config);
-                TransactionStepEvent.Builder waiting = TransactionStepEvent
-                        .builder(TransactionStep.WAITING_FOR_CARD).message(msg);
-                if (prompt != null) {
-                    waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt);
-                }
-                publish(waiting.build());
-                behavior.engine().notifyEmvStep(EmvStep.SEARCH_CARD, msg);
-            }
-
-            @Override
-            public void onChipDetected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onContactlessDetected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onMagstripeDetected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onManualEntrySelected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onSearchTimeout() {
-                if (isStale("onSearchTimeout")) {
-                    return;
-                }
-                publish(errorEvent("No card presented — card search timed out"));
-            }
-
-            @Override
-            public void onSearchCancelled() {
-                if (isStale("onSearchCancelled")) {
-                    return;
-                }
-                publish(errorEvent("Card search cancelled"));
-            }
-
-            @Override
-            public void onReaderError(String message) {
-                if (isStale("onReaderError")) {
-                    return;
-                }
-                publish(errorEvent(message != null ? message : "Reader error"));
-            }
-
-            @Override
-            public void onSearchRetry(String message) {
-                if (isStale("onSearchRetry")) {
-                    return;
-                }
-                publish(TransactionStepEvent.builder(
-                        TransactionStep.WAITING_FOR_CARD).message(message)
-                        .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build());
-                behavior.engine().notifyEmvStep(EmvStep.SEARCH_CARD, message);
-            }
-
-            /** Runs EMV right here; a retry it asks for is {@link #attempt}'s to return. */
-            private void handleCardFound(CardPresence card) {
-                if (isStale("card detected")) {
-                    return;
-                }
-                publish(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                        .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
-                        .put("entryMethod", card.getEntryMethod().name())
-                        .build());
-
-                behavior.start(config, card, Transaction.this);
-            }
-        }
     }
 
     /** One request a transaction sent the host, and the host's answer to it once it came. */
@@ -875,21 +689,5 @@ public abstract class PosTerminal {
                 .message(error)
                 .put(TransactionStepEvent.KEY_ERROR, error)
                 .build();
-    }
-
-    private static String waitingMessage(TransactionConfig config) {
-        if (config.getMode() == EntryMethod.ANY) {
-            return "Insert, tap, or swipe";
-        }
-        if (config.isContact()) {
-            return "Insert card";
-        }
-        if (config.isMagstripe()) {
-            return "Swipe card";
-        }
-        if (config.isManual()) {
-            return "Enter card number";
-        }
-        return "Tap card";
     }
 }

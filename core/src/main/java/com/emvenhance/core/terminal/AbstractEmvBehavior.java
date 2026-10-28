@@ -2,6 +2,8 @@ package com.emvenhance.core.terminal;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
+import com.emvenhance.core.card.CardSearchListener;
+import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.emv.Field55;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.emv.EmvEngine;
@@ -27,18 +29,20 @@ import io.reactivex.rxjava3.observers.DisposableObserver;
  *
  * <p>{@link #dispatchStepMethod} is the consumer of {@link EmvEngine#emvSteps()}: this class's
  * own observer ({@link EmvStepObserver}) hands it every step published there — by
- * {@link #goToStep}, from a kernel callback, or by PosTerminal's card search — and it runs that
- * step's {@code onXxx} method. Nothing calls a step method directly. A phase the kernel runs
- * internally is still published with {@link #goToStep}; its {@code onXxx} is then the place that
- * says so, with nothing to run.
+ * {@link #goToStep} or from a kernel callback — and it runs that step's {@code onXxx} method.
+ * Nothing calls a step method directly. A phase the kernel runs internally is still published
+ * with {@link #goToStep}; its {@code onXxx} is then the place that says so, with nothing to run.
  *
- * <p>The attempt's {@link PosTerminal.Transaction} comes with {@link #prepare} / {@link #start}:
- * the behavior reports its steps there ({@link #publish}, {@code finish*}) and asks it whether a
- * step may still run ({@link #goToStep}, {@link #isRunning()}, {@link #isCancelled()}).
+ * <p>The transaction's {@link PosTerminal.Transaction} comes with {@link #run}: the behavior
+ * reports its steps there ({@link #publish}, {@code finish*}) and asks it whether a step may
+ * still run ({@link #goToStep}, {@link #isRunning()}, {@link #isCancelled()}).
  *
- * <p>{@link #prepare} only starts {@link EmvStep#TERMINAL_INITIALIZATION} (does not
- * chain further — PosTerminal searches next). {@link #start} kicks the first post-search
- * step; the vendor chain continues via {@link #goToStep}.
+ * <p>The EMV owns its flow from the start, retries included — the way EMV Book B's Entry Point
+ * does: {@link #run} takes each attempt through {@link EmvStep#TERMINAL_INITIALIZATION} and
+ * {@link EmvStep#SEARCH_CARD} (the vendor's {@code onSearchCard} polls, reporting through
+ * {@link #cardSearchListener()}); the card found starts the first post-search step, and the
+ * vendor chain continues via {@link #goToStep}. A retry the kernel asks for
+ * ({@link EmvEngine#requestRetry}) starts the next attempt only once the kernel has returned.
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
@@ -52,9 +56,12 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected TransactionConfig activeConfig;
     @Nullable
     protected CardPresence activeCard;
-    /** The attempt's transaction, from {@link #prepare} / {@link #start}. */
+    /** The transaction, from {@link #run}. */
     @Nullable
     private PosTerminal.Transaction transaction;
+    /** Where this attempt's card search reports — see {@link #cardSearchListener()}. */
+    @Nullable
+    private CardSearchListener cardSearch;
 
     /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
     private final CompositeDisposable disposables = new CompositeDisposable();
@@ -69,29 +76,84 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return engine;
     }
 
+    /**
+     * The transaction's EMV, attempt after attempt: each one initializes the terminal, then
+     * searches for the card ({@link #searchCard}), and the EMV runs on the card found. The next
+     * attempt is the retry the kernel asked for, taken only once this one has returned.
+     */
     @Override
-    public boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
+    public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
+        TransactionConfig attempt = config;
+        while (attempt != null) {
+            if (prepare(attempt, transaction)) {
+                searchCard();
+            }
+            attempt = nextAttempt();
+        }
+    }
+
+    /**
+     * One attempt's start: its transaction, a fresh dispatch observer, and
+     * {@link EmvStep#TERMINAL_INITIALIZATION} only.
+     *
+     * @return whether the attempt goes on to the card search — {@code false} once the
+     *         transaction ended: initialization failed, or it was cancelled
+     */
+    boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
         this.transaction = transaction;
         initEmvObserver();
         this.activeConfig = config;
         this.activeCard = null;
-
-        // Run init only — do NOT goToStep further; PosTerminal will searchCard next.
         enterStep(EmvStep.TERMINAL_INITIALIZATION);
-        return isRunning(); // false once it ended: init failed, or cancelled
+        return isRunning();
     }
 
-    @Override
-    public void start(TransactionConfig config, CardPresence card,
-            PosTerminal.Transaction transaction) {
-        this.transaction = transaction;
-        // No initEmvObserver here: prepare, which always runs first in the same attempt,
-        // subscribed it last; nothing in the app subscribes to emvSteps during a card search.
-        this.activeConfig = config;
-        this.activeCard = card;
+    /**
+     * {@link EmvStep#SEARCH_CARD}, with the prompt the screen shows: a retry's own ("Card not
+     * read — tap again"), or what the entry mode asks for. Its {@code onSearchCard} is the
+     * vendor's search; the card it finds starts the EMV ({@link #start}) before this returns.
+     */
+    private void searchCard() {
+        String prompt = engine.consumeRetryPrompt();
+        String message = prompt != null ? prompt : waitingMessage(activeConfig);
+        cardSearch = new CardSearchReporter(transaction, prompt, message);
+        goToStep(EmvStep.SEARCH_CARD, message);
+    }
 
-        // First post-search step — vendor methods chain via goToStep from here.
+    /** The EMV on the card the search found: its first post-search step, then the vendor chain. */
+    void start(CardPresence card) {
+        this.activeCard = card;
         goToStep(firstStepAfterSearch(card));
+    }
+
+    /**
+     * The retry the kernel asked for in the attempt that just returned, or {@code null}: no
+     * attempt follows. Consumed either way; dropped, with a trace note, once the transaction has
+     * ended (a cancel came first).
+     */
+    @Nullable
+    private TransactionConfig nextAttempt() {
+        TransactionConfig retry = engine.consumePendingRetry();
+        if (retry == null) {
+            return null;
+        }
+        if (!isRunning()) {
+            EmvLog.d("Retry dropped: the transaction is over");
+            engine.apduTrace().note("EMV", "retry dropped — the transaction is over");
+            return null;
+        }
+        return retry;
+    }
+
+    /**
+     * Where the vendor's card search ({@code onSearchCard}) reports: each callback becomes the
+     * transaction's step (WAITING_FOR_CARD, CARD_DETECTED, the ERROR of a timeout or a reader
+     * failure), and a card found starts the EMV on it, right there. Bound to this attempt's
+     * transaction: once that is over, a late callback is dropped, so it can't fail, or start EMV
+     * for, the next one.
+     */
+    protected final CardSearchListener cardSearchListener() {
+        return cardSearch;
     }
 
     @Override
@@ -103,15 +165,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * Subscribes {@link EmvStepObserver} to the engine's EmvStep observable, replacing any
      * earlier subscription.
      *
-     * <p>Called at the start of every {@link #prepare}, not once: the observer must be the
-     * engine's <em>last</em> subscriber. A step method runs inside the observer and publishes the
-     * next step from there, so every subscriber after it would see that next step before the
+     * <p>Called at the start of every attempt ({@link #prepare}), not once: the observer must be
+     * the engine's <em>last</em> subscriber. A step method runs inside the observer and publishes
+     * the next step from there, so every subscriber after it would see that next step before the
      * current one — the UI would end on the first step instead of the last. Re-subscribing moves
      * it behind every subscriber that came first, such as a {@code MainViewModel} created after
-     * an earlier transaction. {@link #start} doesn't repeat it: {@code PosTerminal} always runs
-     * {@link #prepare} first in the same attempt (a retry is a new attempt), and the app
-     * subscribes to {@code emvSteps} before a transaction starts, never during the card search.
-     * A subscriber added during the search would see nested steps out of order.
+     * an earlier transaction. The app subscribes to {@code emvSteps} before a transaction starts,
+     * never during the card search; a subscriber added during the search would see nested steps
+     * out of order.
      *
      * <p>Once a transaction has ended ({@link TransactionStep#isEnd()}) {@link #goToStep}
      * publishes no step, so a step still published by code unwinding never runs a step method;
@@ -362,13 +423,13 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected abstract void onTerminalInitialization(TransactionConfig config);
 
     /**
-     * The one step method that stays optional. {@link PosTerminal#searchCard} is the real,
-     * mandatory search for every vendor; this runs when {@code SEARCH_CARD} is published — by
-     * PosTerminal, with its prompt — and has nothing left to do. Requiring a body here would
-     * force an empty one in every vendor for no benefit.
+     * The vendor's card search: polls its readers until a card, a timeout, a reader failure or
+     * a cancel ({@link #cancelCardSearch}, {@link #isRunning()}), and reports each through
+     * {@link #cardSearchListener()} — exactly one of found / timeout / cancelled / error before
+     * it returns. A card found runs the EMV on it inside that callback. {@code card} is
+     * {@code null}: none yet.
      */
-    protected void onSearchCard(TransactionConfig config, CardPresence card) {
-    }
+    protected abstract void onSearchCard(TransactionConfig config, @Nullable CardPresence card);
 
     protected abstract void onApplicationSelection(TransactionConfig config, CardPresence card);
 
@@ -446,8 +507,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * <p>Runs on the thread that published the step, before {@code goToStep} returns — there is
      * deliberately no {@code subscribeOn} / {@code observeOn} (and {@code emvSteps} is never
      * serialized). Vendor kernels call {@code goToStep} from inside their own callbacks and expect
-     * the step to have run when it returns; {@code PosTerminal} reads {@link #prepare}'s result
-     * and any requested retry the moment {@link #prepare} / {@link #start} return; and a step
+     * the step to have run when it returns; {@link #run} reads {@link #prepare}'s result and any
+     * requested retry the moment the step it published returns; and a step
      * method blocks (APDUs, PIN entry, the host), which a {@code computation} thread must never do.
      */
     private final class EmvStepObserver extends DisposableObserver<EmvStepEvent> {
@@ -552,5 +613,132 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return; // already ended: no second ERROR
         }
         finishError("Unknown EMV step: " + step);
+    }
+    /** The search's prompt for an entry mode, when no retry gave its own. */
+    private static String waitingMessage(TransactionConfig config) {
+        if (config.getMode() == EntryMethod.ANY) {
+            return "Insert, tap, or swipe";
+        }
+        if (config.isContact()) {
+            return "Insert card";
+        }
+        if (config.isMagstripe()) {
+            return "Swipe card";
+        }
+        if (config.isManual()) {
+            return "Enter card number";
+        }
+        return "Tap card";
+    }
+
+    /**
+     * {@link #cardSearchListener()}: one attempt's search, reported on its own transaction. Its
+     * callbacks are dropped once that transaction is over — the next one starts only after.
+     */
+    private final class CardSearchReporter implements CardSearchListener {
+
+        private final PosTerminal.Transaction owner;
+        @Nullable
+        private final String retryPrompt;
+        private final String message;
+
+        CardSearchReporter(PosTerminal.Transaction owner, @Nullable String retryPrompt,
+                String message) {
+            this.owner = owner;
+            this.retryPrompt = retryPrompt;
+            this.message = message;
+        }
+
+        private boolean isStale(String callback) {
+            if (!owner.isRunning()) {
+                EmvLog.d("Ignored " + callback + " from a search whose transaction is over");
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void onSearchStarted(TransactionConfig config) {
+            if (isStale("onSearchStarted")) {
+                return;
+            }
+            TransactionStepEvent.Builder waiting = TransactionStepEvent
+                    .builder(TransactionStep.WAITING_FOR_CARD).message(message);
+            if (retryPrompt != null) {
+                waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, retryPrompt);
+            }
+            owner.publish(waiting.build());
+        }
+
+        @Override
+        public void onChipDetected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onContactlessDetected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onMagstripeDetected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onManualEntrySelected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onSearchTimeout() {
+            if (isStale("onSearchTimeout")) {
+                return;
+            }
+            owner.publish(PosTerminal.errorEvent("No card presented — card search timed out"));
+        }
+
+        @Override
+        public void onSearchCancelled() {
+            if (isStale("onSearchCancelled")) {
+                return;
+            }
+            owner.publish(PosTerminal.errorEvent("Card search cancelled"));
+        }
+
+        @Override
+        public void onReaderError(String message) {
+            if (isStale("onReaderError")) {
+                return;
+            }
+            owner.publish(PosTerminal.errorEvent(message != null ? message : "Reader error"));
+        }
+
+        /**
+         * WAITING_FOR_CARD again, with what to do. Not SEARCH_CARD again: that step's method is
+         * the search itself, still running.
+         */
+        @Override
+        public void onSearchRetry(String message) {
+            if (isStale("onSearchRetry")) {
+                return;
+            }
+            owner.publish(TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD)
+                    .message(message)
+                    .put(TransactionStepEvent.KEY_RETRY_PROMPT, message)
+                    .build());
+        }
+
+        /** CARD_DETECTED, then the EMV on it, right here; a retry it asks for is {@link #run}'s. */
+        private void cardFound(CardPresence card) {
+            if (isStale("card detected")) {
+                return;
+            }
+            owner.publish(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+                    .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
+                    .put("entryMethod", card.getEntryMethod().name())
+                    .build());
+            start(card);
+        }
     }
 }

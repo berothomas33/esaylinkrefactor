@@ -99,7 +99,7 @@ public class PosTerminalConcurrentStepsTest {
                 TransactionStep.ONLINE_PROCESSING, TransactionStep.ERROR), seen);
     }
 
-    /** prepare() succeeds; the search is held open until released. */
+    /** The search is held open until released. */
     private static final class TestTerminal extends PosTerminal {
 
         /** Every transaction's steps, for the test: each transaction has its own stream. */
@@ -112,31 +112,29 @@ public class PosTerminalConcurrentStepsTest {
             return transaction;
         }
 
-        final CountDownLatch searching = new CountDownLatch(1);
-        final CountDownLatch release = new CountDownLatch(1);
+        final CountDownLatch searching;
+        final CountDownLatch release;
 
         TestTerminal() {
-            super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
+            this(new CountDownLatch(1), new CountDownLatch(1));
         }
 
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            searching.countDown();
-            try {
-                release.await(5, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return null;
+        private TestTerminal(CountDownLatch searching, CountDownLatch release) {
+            super(behavior(searching, release), stub(CommunicationBehavior.class),
+                    stub(PrinterBehavior.class));
+            this.searching = searching;
+            this.release = release;
         }
 
-        @Override
-        protected void cancelCardSearch() {
-        }
-
-        private static AbstractEmvBehavior behavior() {
-            return StubBehavior.of((proxy, method, args) -> method.getName().equals("prepare")
-                    ? Boolean.TRUE : method.getReturnType() == boolean.class ? false : null);
+        private static AbstractEmvBehavior behavior(CountDownLatch searching,
+                CountDownLatch release) {
+            return StubBehavior.of((name, args) -> {
+                if (name.equals("search")) {
+                    searching.countDown();
+                    release.await(5, TimeUnit.SECONDS);
+                }
+                return null;
+            });
         }
 
         @SuppressWarnings("unchecked")

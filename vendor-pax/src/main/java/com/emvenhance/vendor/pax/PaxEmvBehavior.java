@@ -17,7 +17,6 @@ import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.cardholder.AbstractAppSelectDialog;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
-import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
@@ -142,6 +141,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private final PaxKernel kernel;
 
+    /** The SEARCH_CARD step's polling; stops once the transaction is over. */
+    private final PaxCardSearch cardSearch;
+
     /**
      * See Phone on a tap: the kernel asks for it ({@link #needSeePhone}) on the next tap, which is
      * a retry — a new attempt — so unlike {@link PaxTransactionState} it carries over.
@@ -153,29 +155,34 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
+        this.cardSearch = new PaxCardSearch(kernel, () -> !isRunning());
     }
 
     // ─── Lifecycle ───────────────────────────────────────────────────────
 
     @Override
-    public boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
-        // A fresh state per attempt: nothing from an earlier sale carries over — its online PIN
-        // block (and RSA-wrapped key) sent again with this sale, flagged as online PIN; or its
-        // kernel result read as this one's.
-        tx = new PaxTransactionState();
-        super.prepare(config, transaction);
-        return tx.initOk && isRunning();
-    }
-
-    @Override
     public void onTerminalInitialization(TransactionConfig config) {
+        // The first step of every attempt: a fresh state, so nothing from an earlier sale or
+        // attempt carries over — its online PIN block (and RSA-wrapped key) sent again with this
+        // sale, flagged as online PIN; or its kernel result read as this one's.
+        tx = new PaxTransactionState();
         // The kernel calls EmvDeviceImpl directly, so hand it this transaction's APDU trace.
         EmvDeviceImpl.getInstance().setApduTrace(engine().apduTrace());
         if (!prepareKernel(config)) {
-            tx.initOk = false;
             finishError("Terminal initialization failed");
         }
-        // Do not goToStep — PosTerminal.searchCard runs next.
+        // Do not goToStep — the card search (SEARCH_CARD) is the base class's next step.
+    }
+
+    /** Polls the PAX readers ({@link PaxCardSearch}); the card found runs the EMV from its callback. */
+    @Override
+    public void onSearchCard(TransactionConfig config, @Nullable CardPresence card) {
+        cardSearch.search(config, cardSearchListener(), engine().apduTrace());
+    }
+
+    @Override
+    public void cancelCardSearch() {
+        cardSearch.stop();
     }
 
     // firstStepAfterSearch: no override needed — AbstractEmvBehavior's default already does

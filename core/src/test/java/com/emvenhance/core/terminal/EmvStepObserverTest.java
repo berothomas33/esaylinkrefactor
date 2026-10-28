@@ -48,7 +48,7 @@ public class EmvStepObserverTest {
     public void everyStepRunsItsMethodOnce() {
         session.begin(CONFIG);
         session.prepare(CONFIG);
-        session.start(CONFIG, CardPresence.chip());
+        session.start(CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
                 EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION), vendor.ran);
@@ -75,7 +75,7 @@ public class EmvStepObserverTest {
         vendor.ran.clear();
         vendor.threads.clear();
 
-        session.start(CONFIG, CardPresence.chip());
+        session.start(CardPresence.chip());
 
         assertEquals(3, vendor.ran.size());
         assertEquals(Arrays.asList(caller, caller, caller), vendor.threads);
@@ -303,6 +303,7 @@ public class EmvStepObserverTest {
         @Override public void onSearchCard(TransactionConfig c, CardPresence p) {
             ran(EmvStep.SEARCH_CARD);
         }
+        @Override public void cancelCardSearch() { }
         @Override public void onTerminalInitialization(TransactionConfig c) {
             ran(EmvStep.TERMINAL_INITIALIZATION);
         }

@@ -5,10 +5,9 @@ import com.emvenhance.core.transaction.TransactionConfig;
 import androidx.annotation.Nullable;
 
 /**
- * Listener for unified card-reader events owned by {@link PosTerminal}.
- *
- * <p>Vendor terminals fire these from their native SDK polling. The selected entry method
- * is delivered via the detection callbacks (and the returned {@link CardPresence}).
+ * Listener for unified card-reader events: what a vendor's card search reports, from its native
+ * SDK polling, in its {@code onSearchCard} step ({@code AbstractEmvBehavior#cardSearchListener}).
+ * The selected entry method is delivered via the detection callbacks.
  */
 public interface CardSearchListener {
 
@@ -30,7 +29,7 @@ public interface CardSearchListener {
     /** No card presented before the vendor timeout. */
     void onSearchTimeout();
 
-    /** Search aborted: its transaction was cancelled (see {@link PosTerminal#startTransaction}). */
+    /** Search aborted: its transaction was cancelled ({@code EmvBehavior#cancelCardSearch}). */
     void onSearchCancelled();
 
     /** Hardware / reader failure. */

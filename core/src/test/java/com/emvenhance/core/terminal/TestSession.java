@@ -2,7 +2,6 @@ package com.emvenhance.core.terminal;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.emv.EmvEngine;
 import com.emvenhance.core.transaction.TransactionStepEvent;
@@ -14,11 +13,11 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Stands in for the transaction thread ({@code onTransactionStarted} / {@code onNextAttempt}) when
- * a test drives a behavior on its own, on the test's thread: a real {@link PosTerminal.Transaction}
- * of a terminal that never searches, handed to the behavior as an attempt hands it. Unlike the
- * terminal, the end is listed at once in {@link #steps()} (there is no transaction thread to free
- * first).
+ * Stands in for the transaction thread ({@code onTransactionStarted}, the behavior's run loop)
+ * when a test drives a behavior on its own, on the test's thread: a real
+ * {@link PosTerminal.Transaction}, handed to the behavior as an attempt hands it, and the card a
+ * search would have found. Unlike the terminal, the end is listed at once in {@link #steps()}
+ * (there is no transaction thread to free first).
  */
 final class TestSession {
 
@@ -47,14 +46,15 @@ final class TestSession {
         return behavior.prepare(config, transaction);
     }
 
-    void start(TransactionConfig config, CardPresence card) {
-        behavior.start(config, card, transaction);
+    /** The card a search found: the EMV on it, with the prepared config. */
+    void start(CardPresence card) {
+        behavior.start(card);
     }
 
-    /** One attempt as {@code PosTerminal} runs it: {@link #prepare}, then {@link #start}. */
+    /** One attempt as the run loop takes it: {@link #prepare}, then the card {@link #start}. */
     void attempt(TransactionConfig config, CardPresence card) {
         prepare(config);
-        start(config, card);
+        start(card);
     }
 
     /** As the screen's Cancel: {@link PosTerminal.Transaction#cancel()}. */
@@ -100,7 +100,7 @@ final class TestSession {
         }
     }
 
-    /** Never searches; goes online through the test's authorizer. */
+    /** Goes online through the test's authorizer. */
     private static final class Terminal extends PosTerminal {
 
         private final EmvEngine.Authorizer authorizer;
@@ -113,15 +113,6 @@ final class TestSession {
         @Override
         public AuthResult authorize(TransactionConfig config) {
             return authorizer.authorize(config);
-        }
-
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            return null;
-        }
-
-        @Override
-        protected void cancelCardSearch() {
         }
     }
 }

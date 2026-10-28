@@ -1,37 +1,77 @@
 package com.emvenhance.core.terminal;
 
+import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.transaction.TransactionConfig;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
 
 /**
- * An {@link AbstractEmvBehavior} stub for terminal tests: keeps the engine {@code attach} gives
- * it and returns it from {@code engine()}, as every behavior does; {@code prepare}, {@code start}
- * and {@code dispose} go to {@code calls} (as {@link EmvBehavior}'s methods, with this stub as
- * the "proxy"), and it runs no EMV step.
+ * An {@link AbstractEmvBehavior} stub for terminal tests: the real run loop, with its hooks
+ * going to {@code calls} by name, and no EMV step after the search.
+ *
+ * <ul>
+ *   <li>{@code "initialize"} (config) — TERMINAL_INITIALIZATION; {@code false} fails it</li>
+ *   <li>{@code "search"} (config, listener, stub) — the card search: report through the
+ *       listener; {@code stub.searchCancelled()} says whether to stop</li>
+ *   <li>{@code "start"} (config, card, transaction) — the EMV on the card found (its first
+ *       step)</li>
+ *   <li>{@code "cancelCardSearch"} (), {@code "dispose"} ()</li>
+ * </ul>
  */
 final class StubBehavior extends AbstractEmvBehavior {
 
-    private final InvocationHandler calls;
+    interface Calls {
+        @Nullable
+        Object call(String name, Object... args) throws Exception;
+    }
 
-    private StubBehavior(InvocationHandler calls) {
+    private final Calls calls;
+    /** The transaction {@link #run} was handed — what a test's EMV reports to. */
+    private volatile PosTerminal.Transaction transaction;
+
+    private StubBehavior(Calls calls) {
         this.calls = calls;
     }
 
-    static AbstractEmvBehavior of(InvocationHandler calls) {
+    static AbstractEmvBehavior of(Calls calls) {
         return new StubBehavior(calls);
     }
 
     @Override
-    public boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
-        return Boolean.TRUE.equals(call("prepare", config, transaction));
+    public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
+        this.transaction = transaction;
+        super.run(config, transaction);
+    }
+
+    /** What a vendor search reads to stop: its transaction is over. */
+    boolean searchCancelled() {
+        return !isRunning();
     }
 
     @Override
-    public void start(TransactionConfig config, CardPresence card,
-            PosTerminal.Transaction transaction) {
+    protected void onTerminalInitialization(TransactionConfig config) {
+        if (Boolean.FALSE.equals(call("initialize", config))) {
+            finishError("Terminal initialization failed");
+        }
+    }
+
+    @Override
+    protected void onSearchCard(TransactionConfig config, @Nullable CardPresence card) {
+        call("search", config, cardSearchListener(), this);
+    }
+
+    @Override
+    protected void onApplicationSelection(TransactionConfig config, CardPresence card) {
         call("start", config, card, transaction);
+    }
+
+    @Override
+    protected void onReadApplicationData(TransactionConfig config, CardPresence card) {
+        call("start", config, card, transaction);
+    }
+
+    @Override
+    public void cancelCardSearch() {
+        call("cancelCardSearch");
     }
 
     @Override
@@ -39,29 +79,22 @@ final class StubBehavior extends AbstractEmvBehavior {
         call("dispose");
     }
 
+    @Nullable
     private Object call(String name, Object... args) {
         try {
-            for (Method method : EmvBehavior.class.getMethods()) {
-                if (method.getName().equals(name)) {
-                    return calls.invoke(this, method, args.length == 0 ? null : args);
-                }
-            }
+            return calls.call(name, args);
         } catch (RuntimeException | Error e) {
             throw e;
-        } catch (Throwable t) {
-            throw new RuntimeException(t);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        throw new AssertionError("EmvBehavior has no " + name);
     }
 
     // ─── No EMV behind a stub ─────────────────────────────────────────────
 
     @Override protected byte[] readIccTag(int tag) { return null; }
-    @Override protected void onTerminalInitialization(TransactionConfig c) { }
-    @Override protected void onApplicationSelection(TransactionConfig c, CardPresence p) { }
     @Override protected void onWaitApplicationSelection(TransactionConfig c, CardPresence p) { }
     @Override protected void onFinalApplicationSelection(TransactionConfig c, CardPresence p) { }
-    @Override protected void onReadApplicationData(TransactionConfig c, CardPresence p) { }
     @Override protected void onSetTransactionData(TransactionConfig c, CardPresence p) { }
     @Override protected void onOfflineDataAuthentication(TransactionConfig c, CardPresence p) { }
     @Override protected void onProcessRestrictions(TransactionConfig c, CardPresence p) { }

@@ -105,6 +105,8 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
         }
 
         @Override public void onTerminalInitialization(TransactionConfig c) { }
+        @Override public void onSearchCard(TransactionConfig c, CardPresence p) { }
+        @Override public void cancelCardSearch() { }
         @Override public void onApplicationSelection(TransactionConfig c, CardPresence p) { }
         @Override public void onWaitApplicationSelection(TransactionConfig c, CardPresence p) { }
         @Override public void onFinalApplicationSelection(TransactionConfig c, CardPresence p) { }

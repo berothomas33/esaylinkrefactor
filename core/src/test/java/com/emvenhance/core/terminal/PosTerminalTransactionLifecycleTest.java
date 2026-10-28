@@ -127,7 +127,7 @@ public class PosTerminalTransactionLifecycleTest {
 
         sale.cancel();
 
-        assertTrue(terminal.isSearchCancelled());
+        assertTrue("busy until the search has stopped", terminal.isBusy());
         assertFalse("the EMV winds down", sale.isRunning());
         assertTrue(sale.isCancelled());
         assertEquals(1, terminal.searchCancels.get());
@@ -335,7 +335,7 @@ public class PosTerminalTransactionLifecycleTest {
         return false;
     }
 
-    /** One {@code searchCard} call, held open until the test releases it. */
+    /** One card search ({@code onSearchCard}), held open until the test releases it. */
     private static final class Search {
         final TransactionConfig config;
         final CardSearchListener listener;
@@ -368,7 +368,7 @@ public class PosTerminalTransactionLifecycleTest {
         final LinkedBlockingQueue<Search> searches = new LinkedBlockingQueue<>();
         final LinkedBlockingQueue<TransactionStepEvent> ends = new LinkedBlockingQueue<>();
         final AtomicInteger searchCancels = new AtomicInteger();
-        private final List<Search> all = new CopyOnWriteArrayList<>();
+        final List<Search> all = new CopyOnWriteArrayList<>();
 
         TestTerminal() {
             super(behavior(), stub(CommunicationBehavior.class), stub(PrinterBehavior.class));
@@ -404,39 +404,42 @@ public class PosTerminalTransactionLifecycleTest {
                 search.release.countDown();
             }
         }
-
-        /** Like a vendor poll that stops only when released, and reports nothing on its own. */
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            Search search = new Search(config, listener);
-            all.add(search);
-            searches.add(search);
-            try {
-                search.release.await(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            search.cancelledWhenReleased = isSearchCancelled();
-            return null;
-        }
-
-        @Override
-        protected void cancelCardSearch() {
-            searchCancels.incrementAndGet();
-        }
     }
 
-    /** prepare() succeeds; start() records the amount EMV ran for. */
+    /**
+     * The search is like a vendor poll that stops only when released, and reports nothing on its
+     * own; the EMV on a card found records the amount it ran for.
+     */
     private AbstractEmvBehavior behavior() {
-        return StubBehavior.of((proxy, method, args) -> {
-            if (method.getName().equals("prepare")) {
-                return Boolean.TRUE;
+        return StubBehavior.of((name, args) -> {
+            switch (name) {
+                case "search":
+                    search((TransactionConfig) args[0], (CardSearchListener) args[1],
+                            (StubBehavior) args[2]);
+                    break;
+                case "start":
+                    emvStartedWithAmount.add(((TransactionConfig) args[0]).getAmountMinor());
+                    break;
+                case "cancelCardSearch":
+                    terminal.searchCancels.incrementAndGet();
+                    break;
+                default:
+                    break;
             }
-            if (method.getName().equals("start")) {
-                emvStartedWithAmount.add(((TransactionConfig) args[0]).getAmountMinor());
-            }
-            return method.getReturnType() == boolean.class ? false : null;
+            return null;
         });
+    }
+
+    private void search(TransactionConfig config, CardSearchListener listener, StubBehavior stub) {
+        Search search = new Search(config, listener);
+        terminal.all.add(search);
+        terminal.searches.add(search);
+        try {
+            search.release.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        search.cancelledWhenReleased = stub.searchCancelled();
     }
 
     @SuppressWarnings("unchecked")

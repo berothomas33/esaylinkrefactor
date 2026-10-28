@@ -119,6 +119,8 @@ public class TransactionEmvFinishedTest {
     private static final class Behavior extends AbstractEmvBehavior {
         @Override protected byte[] readIccTag(int tag) { return null; }
         @Override protected void onTerminalInitialization(TransactionConfig c) { }
+        @Override protected void onSearchCard(TransactionConfig c, CardPresence p) { }
+        @Override public void cancelCardSearch() { }
         @Override protected void onApplicationSelection(TransactionConfig c, CardPresence p) { }
         @Override protected void onWaitApplicationSelection(TransactionConfig c, CardPresence p) { }
         @Override protected void onFinalApplicationSelection(TransactionConfig c, CardPresence p) { }

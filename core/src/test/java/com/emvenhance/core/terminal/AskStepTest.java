@@ -163,6 +163,8 @@ public class AskStepTest {
         }
 
         @Override protected void onTerminalInitialization(TransactionConfig c) { }
+        @Override protected void onSearchCard(TransactionConfig c, CardPresence p) { }
+        @Override public void cancelCardSearch() { }
         @Override protected void onReadApplicationData(TransactionConfig c, CardPresence p) { }
         @Override protected void onSetTransactionData(TransactionConfig c, CardPresence p) { }
         @Override protected void onOfflineDataAuthentication(TransactionConfig c, CardPresence p) { }

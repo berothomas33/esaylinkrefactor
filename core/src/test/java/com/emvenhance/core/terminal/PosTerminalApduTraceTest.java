@@ -8,8 +8,6 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
-import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.host.CommunicationBehavior;
@@ -52,7 +50,7 @@ public class PosTerminalApduTraceTest {
 
     @Test
     public void aTransactionsStepsAndItsEndReachTheTrace() throws InterruptedException {
-        TestTerminal terminal = new TestTerminal(); // its prepare() fails: the sale ends at once
+        TestTerminal terminal = new TestTerminal(); // its initialization fails: the sale ends at once
         ApduTrace trace = terminal.apduTrace();
         assumeTrue("trace records in debug builds only", trace.isEnabled());
         CountDownLatch ended = new CountDownLatch(1);
@@ -79,19 +77,9 @@ public class PosTerminalApduTraceTest {
         }
 
         TestTerminal() {
-            super(StubBehavior.of((proxy, method, args) ->
-                            method.getReturnType() == boolean.class ? false : null),
+            super(StubBehavior.of((name, args) -> name.equals("initialize") ? Boolean.FALSE : null),
                     stub(CommunicationBehavior.class),
                     stub(PrinterBehavior.class));
-        }
-
-        @Override
-        public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-            return null;
-        }
-
-        @Override
-        protected void cancelCardSearch() {
         }
 
         /** Interface stub whose methods do nothing and return a default value. */
