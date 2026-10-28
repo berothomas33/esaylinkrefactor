@@ -30,7 +30,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -71,18 +70,14 @@ public abstract class PosTerminal {
 
     /**
      * The one thread every transaction runs on, from card search through EMV and the host: one
-     * reader, one kernel. Nothing ever queues on it — {@link #startTransaction} refuses a start
-     * while the previous transaction is still there — and nothing ever interrupts it: a cancel
+     * reader, one kernel. A transaction's steps reach its {@link Transaction.TransactionStepObserver}
+     * here, in order, one at a time. Only one transaction is ever on it —
+     * {@link #startTransaction} refuses a start while the previous one is still there — and
+     * nothing ever interrupts it ({@code Schedulers.from} doesn't interrupt its tasks): a cancel
      * is a flag the transaction reads, never an interrupt of a native call.
      */
-    private final Executor transactionExecutor = Executors.newSingleThreadExecutor();
-
-    /**
-     * {@link #transactionExecutor} as an Rx scheduler: a transaction's steps reach its
-     * {@link Transaction.TransactionStepObserver} on that one thread, in order, one at a time
-     * (never interrupted: {@code Schedulers.from} doesn't interrupt its tasks).
-     */
-    private final Scheduler transactionScheduler = Schedulers.from(transactionExecutor);
+    private final Scheduler transactionScheduler =
+            Schedulers.from(Executors.newSingleThreadExecutor());
 
     /**
      * The one thread receipts print on: one printer, one job at a time, in the order they were

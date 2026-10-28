@@ -24,7 +24,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -165,7 +164,7 @@ public class PosTerminalTransactionLifecycleTest {
     @Test
     public void aTransactionCancelledBeforeItRanStillFreesTheTerminal() throws Exception {
         CountDownLatch hold = new CountDownLatch(1);
-        transactionExecutor().execute(() -> {
+        transactionScheduler().scheduleDirect(() -> {
             try {
                 hold.await(5, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
@@ -290,10 +289,11 @@ public class PosTerminalTransactionLifecycleTest {
     }
 
     /** The terminal's one transaction thread, to hold it busy from a test. */
-    private Executor transactionExecutor() throws ReflectiveOperationException {
-        Field field = PosTerminal.class.getDeclaredField("transactionExecutor");
+    private io.reactivex.rxjava3.core.Scheduler transactionScheduler()
+            throws ReflectiveOperationException {
+        Field field = PosTerminal.class.getDeclaredField("transactionScheduler");
         field.setAccessible(true);
-        return (Executor) field.get(terminal);
+        return (io.reactivex.rxjava3.core.Scheduler) field.get(terminal);
     }
 
     private int count(TransactionStep step) {
