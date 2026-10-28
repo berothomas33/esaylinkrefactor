@@ -297,7 +297,7 @@ class PosTerminalTransactionLifecycleTest {
         val searchCancels = AtomicInteger()
         private val all = CopyOnWriteArrayList<Search>()
 
-        fun engine(): EmvEngine = engine
+        fun engine(): EmvEngine = behavior.engine()
 
         /** Every transaction's steps, for the test: each transaction has its own flow. */
         val allSteps = AllSteps()

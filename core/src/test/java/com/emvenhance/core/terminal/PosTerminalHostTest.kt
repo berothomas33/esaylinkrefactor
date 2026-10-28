@@ -1,5 +1,6 @@
 package com.emvenhance.core.terminal
 
+import com.emvenhance.core.engine.EmvEngine
 import com.emvenhance.core.card.CardPresence
 import com.emvenhance.core.card.CardSearchListener
 import com.emvenhance.core.card.EntryMethod
@@ -197,7 +198,7 @@ class PosTerminalHostTest {
 
         private val ends = allSteps.flow.recordIn(scope)
 
-        fun engine() = engine
+        fun engine(): EmvEngine = behavior.engine()
 
         /** A sale whose "card search" is the vendor going online, as EMV does mid-transaction. */
         fun authorizeInsideATransaction(): AuthResult {
@@ -208,7 +209,7 @@ class PosTerminalHostTest {
         }
 
         override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? {
-            online.add(engine.authorize(CONFIG))
+            online.add(engine().authorize(CONFIG))
             return null
         }
 

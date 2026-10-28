@@ -105,7 +105,7 @@ class PosTerminalRetryPromptTest {
         @Volatile
         var listener: CardSearchListener? = null
 
-        fun engine() = engine
+        fun engine(): EmvEngine = behavior.engine()
 
         override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? {
             this.listener = listener

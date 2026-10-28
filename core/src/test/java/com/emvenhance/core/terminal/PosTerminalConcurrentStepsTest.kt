@@ -1,5 +1,6 @@
 package com.emvenhance.core.terminal
 
+import com.emvenhance.core.engine.EmvEngine
 import com.emvenhance.core.card.CardPresence
 import com.emvenhance.core.card.CardSearchListener
 import com.emvenhance.core.card.TransactionConfig
@@ -76,7 +77,7 @@ class PosTerminalConcurrentStepsTest {
         val searching = CountDownLatch(1)
         val release = CountDownLatch(1)
 
-        fun engine() = engine
+        fun engine(): EmvEngine = behavior.engine()
 
         override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? {
             searching.countDown()

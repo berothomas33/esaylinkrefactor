@@ -141,7 +141,7 @@ class AskStepTest {
         var selectionRuns = 0
         var answeredOn: Thread? = null
 
-        override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+        override fun onApplicationSelection(config: TransactionConfig, card: CardPresence) {
             if (cancelBeforeAsking) {
                 session.cancel()
             }
@@ -154,7 +154,7 @@ class AskStepTest {
             callbackGot = askStep(EmvStep.WAIT_APPLICATION_SELECTION, null, USER_CANCEL)
         }
 
-        override fun onWaitApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+        override fun onWaitApplicationSelection(config: TransactionConfig, card: CardPresence) {
             selectionRuns++
             if (throwInSelection) {
                 throw IllegalStateException("dialog failed")
@@ -171,7 +171,7 @@ class AskStepTest {
             }
         }
 
-        override fun onFinalApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+        override fun onFinalApplicationSelection(config: TransactionConfig, card: CardPresence) {
             answerStep(7)
         }
     }

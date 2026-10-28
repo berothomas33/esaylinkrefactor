@@ -17,12 +17,12 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
 
     private var lastAuth: AuthResult? = null
 
-    override fun onTerminalInitialization(engine: EmvEngine, config: TransactionConfig) {
+    override fun onTerminalInitialization(config: TransactionConfig) {
         lastAuth = null
         // Stop here — PosTerminal.searchCard runs next. Do NOT goToStep.
     }
 
-    override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onApplicationSelection(config: TransactionConfig, card: CardPresence) {
         if (card.isContactless) {
             // Abbreviated CLSS: skip wait/final/ODA/… → read → complete offline
             goToStep(EmvStep.READ_APPLICATION_DATA, "contactless")
@@ -31,16 +31,16 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
         goToStep(EmvStep.WAIT_APPLICATION_SELECTION)
     }
 
-    override fun onWaitApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onWaitApplicationSelection(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.FINAL_APPLICATION_SELECTION)
     }
 
-    override fun onFinalApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onFinalApplicationSelection(config: TransactionConfig, card: CardPresence) {
         publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
         goToStep(EmvStep.READ_APPLICATION_DATA)
     }
 
-    override fun onReadApplicationData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onReadApplicationData(config: TransactionConfig, card: CardPresence) {
         when {
             card.isChip -> publish(
                 cardRead("4111111111111111", "Demo Bank", "CARD HOLDER", "Contact"),
@@ -67,23 +67,23 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
         goToStep(EmvStep.SET_TRANSACTION_DATA)
     }
 
-    override fun onSetTransactionData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onSetTransactionData(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.OFFLINE_DATA_AUTHENTICATION)
     }
 
-    override fun onOfflineDataAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onOfflineDataAuthentication(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.PROCESS_RESTRICTIONS)
     }
 
-    override fun onProcessRestrictions(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onProcessRestrictions(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.CARDHOLDER_VERIFICATION)
     }
 
-    override fun onCardholderVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onCardholderVerification(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.OFFLINE_PIN_VERIFICATION)
     }
 
-    override fun onOfflinePinVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onOfflinePinVerification(config: TransactionConfig, card: CardPresence) {
         publish(
             TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, true)
@@ -94,15 +94,15 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
         goToStep(EmvStep.TERMINAL_RISK_MANAGEMENT)
     }
 
-    override fun onTerminalRiskManagement(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onTerminalRiskManagement(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.TERMINAL_ACTION_ANALYSIS)
     }
 
-    override fun onTerminalActionAnalysis(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onTerminalActionAnalysis(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.START_ONLINE_PROCESS)
     }
 
-    override fun onStartOnlineProcess(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onStartOnlineProcess(config: TransactionConfig, card: CardPresence) {
         lastAuth = authorizeOnline()
         if (card.isChip) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION)
@@ -123,15 +123,15 @@ class FakeEmvBehavior : AbstractEmvBehavior() {
         else -> ByteArray(0)
     }
 
-    override fun onIssuerAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onIssuerAuthentication(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.SCRIPT_PROCESSING)
     }
 
-    override fun onScriptProcessing(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onScriptProcessing(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.TRANSACTION_COMPLETION)
     }
 
-    override fun onTransactionCompletion(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onTransactionCompletion(config: TransactionConfig, card: CardPresence) {
         val auth = lastAuth
         when {
             card.isContactless && auth == null -> finishApproved("OFFLINE APPROVED")

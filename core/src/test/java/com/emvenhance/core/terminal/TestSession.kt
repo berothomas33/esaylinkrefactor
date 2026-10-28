@@ -38,10 +38,10 @@ internal class TestSession(
         return transaction
     }
 
-    fun prepare(config: TransactionConfig): Boolean = behavior.prepare(engine, config, transaction)
+    fun prepare(config: TransactionConfig): Boolean = behavior.prepare(config, transaction)
 
     fun start(config: TransactionConfig, card: CardPresence) {
-        behavior.start(engine, config, card, transaction)
+        behavior.start(config, card, transaction)
     }
 
     /** As the screen's Cancel: [PosTerminal.Transaction.cancel]. */
@@ -60,7 +60,7 @@ internal class TestSession(
     private class Terminal(behavior: EmvBehavior, private val authorizer: EmvEngine.Authorizer) :
         PosTerminal(behavior, stub(), stub()) {
 
-        fun engine(): EmvEngine = engine
+        fun engine(): EmvEngine = behavior.engine()
 
         override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? = null
 

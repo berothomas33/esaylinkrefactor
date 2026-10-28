@@ -289,25 +289,25 @@ class EmvStepObserverTest {
             }
         }
 
-        override fun onSearchCard(engine: EmvEngine, config: TransactionConfig, card: CardPresence?) {
+        override fun onSearchCard(config: TransactionConfig, card: CardPresence?) {
             ran(EmvStep.SEARCH_CARD)
         }
 
-        override fun onTerminalInitialization(engine: EmvEngine, config: TransactionConfig) {
+        override fun onTerminalInitialization(config: TransactionConfig) {
             ran(EmvStep.TERMINAL_INITIALIZATION)
         }
 
-        override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+        override fun onApplicationSelection(config: TransactionConfig, card: CardPresence) {
             ran(EmvStep.APPLICATION_SELECTION)
             goToStep(afterApplicationSelection)
         }
 
-        override fun onReadApplicationData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+        override fun onReadApplicationData(config: TransactionConfig, card: CardPresence) {
             ran(EmvStep.READ_APPLICATION_DATA)
             goToStep(EmvStep.TRANSACTION_COMPLETION)
         }
 
-        override fun onTransactionCompletion(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+        override fun onTransactionCompletion(config: TransactionConfig, card: CardPresence) {
             ran(EmvStep.TRANSACTION_COMPLETION)
             if (approveOnCompletion) {
                 finishApproved("APPROVED")

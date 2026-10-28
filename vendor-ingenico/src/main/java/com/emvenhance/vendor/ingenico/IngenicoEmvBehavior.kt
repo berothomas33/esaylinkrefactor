@@ -19,7 +19,7 @@ class IngenicoEmvBehavior : AbstractEmvBehavior() {
     private var stubPan: String? = null
     private var stubMode: String? = null
 
-    override fun onTerminalInitialization(engine: EmvEngine, config: TransactionConfig) {
+    override fun onTerminalInitialization(config: TransactionConfig) {
         lastAuth = null
         Log.w(TAG, "Ingenico EMV SDK not attached — stub init")
         // Do not goToStep — PosTerminal searches next.
@@ -36,7 +36,7 @@ class IngenicoEmvBehavior : AbstractEmvBehavior() {
         return EmvStep.APPLICATION_SELECTION
     }
 
-    override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onApplicationSelection(config: TransactionConfig, card: CardPresence) {
         goToStep(EmvStep.READ_APPLICATION_DATA, "ingenico-$stubMode")
     }
 
@@ -46,51 +46,51 @@ class IngenicoEmvBehavior : AbstractEmvBehavior() {
     // inherited no-op. Wire real Ingenico SDK candidate-selection / CVM / risk-management
     // logic into these when the SDK is attached, instead of deleting them. ─────────────────
 
-    override fun onWaitApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onWaitApplicationSelection(config: TransactionConfig, card: CardPresence) {
         // Not reached: no AID candidate list — the stub has exactly one application.
     }
 
-    override fun onFinalApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onFinalApplicationSelection(config: TransactionConfig, card: CardPresence) {
         // Not reached: see onWaitApplicationSelection.
     }
 
-    override fun onSetTransactionData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onSetTransactionData(config: TransactionConfig, card: CardPresence) {
         // Not reached: no TLV set-up beyond the stub PAN/amount already in TransactionConfig.
     }
 
-    override fun onOfflineDataAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onOfflineDataAuthentication(config: TransactionConfig, card: CardPresence) {
         // Not reached: the stub does not simulate SDA/DDA/CDA.
     }
 
-    override fun onProcessRestrictions(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onProcessRestrictions(config: TransactionConfig, card: CardPresence) {
         // Not reached: no AID/application usage-control checks in the stub.
     }
 
-    override fun onCardholderVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onCardholderVerification(config: TransactionConfig, card: CardPresence) {
         // Not reached: the stub always goes straight to online, no CVM list processing.
     }
 
-    override fun onOfflinePinVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onOfflinePinVerification(config: TransactionConfig, card: CardPresence) {
         // Not reached: see onCardholderVerification.
     }
 
-    override fun onTerminalRiskManagement(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onTerminalRiskManagement(config: TransactionConfig, card: CardPresence) {
         // Not reached: no floor limit / velocity checking in the stub.
     }
 
-    override fun onTerminalActionAnalysis(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onTerminalActionAnalysis(config: TransactionConfig, card: CardPresence) {
         // Not reached: the stub always requests online, so there is no TAA/GAC decision.
     }
 
-    override fun onIssuerAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onIssuerAuthentication(config: TransactionConfig, card: CardPresence) {
         // Not reached: the stub's online result is final; no issuer authentication data (91) to check.
     }
 
-    override fun onScriptProcessing(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onScriptProcessing(config: TransactionConfig, card: CardPresence) {
         // Not reached: the stub host never returns issuer scripts (71/72).
     }
 
-    override fun onReadApplicationData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onReadApplicationData(config: TransactionConfig, card: CardPresence) {
         publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED))
         publish(
             TransactionStepEvent.builder(TransactionStep.CARD_READ)
@@ -103,7 +103,7 @@ class IngenicoEmvBehavior : AbstractEmvBehavior() {
         goToStep(EmvStep.START_ONLINE_PROCESS)
     }
 
-    override fun onStartOnlineProcess(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onStartOnlineProcess(config: TransactionConfig, card: CardPresence) {
         lastAuth = authorizeOnline()
         goToStep(EmvStep.TRANSACTION_COMPLETION)
     }
@@ -119,7 +119,7 @@ class IngenicoEmvBehavior : AbstractEmvBehavior() {
         else -> ByteArray(0)
     }
 
-    override fun onTransactionCompletion(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
+    override fun onTransactionCompletion(config: TransactionConfig, card: CardPresence) {
         val auth = lastAuth
         if (auth != null && auth.isApproved) {
             finishApproved("INGENICO STUB APPROVED")

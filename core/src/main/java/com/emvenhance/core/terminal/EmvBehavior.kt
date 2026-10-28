@@ -7,8 +7,9 @@ import com.emvenhance.core.engine.EmvEngine
 /**
  * What [PosTerminal] drives on a vendor's EMV kernel — and all it can call.
  *
- * Lifecycle: [prepare] → (PosTerminal search) → [start], once per attempt, each handed the
- * terminal's [EmvEngine] and the attempt's [PosTerminal.Transaction]; [dispose] once, when the
+ * Lifecycle: [attach] once, when the terminal is built — the terminal's one [EmvEngine], kept by
+ * the behavior and read back through [engine]; then [prepare] → (PosTerminal search) → [start],
+ * once per attempt, each handed the attempt's [PosTerminal.Transaction]; [dispose] once, when the
  * terminal itself goes away. A cancel isn't a call into the behavior: it reads that transaction
  * ([AbstractEmvBehavior.isCancelled]) at each step.
  *
@@ -25,6 +26,12 @@ import com.emvenhance.core.engine.EmvEngine
  */
 interface EmvBehavior {
 
+    /** The terminal's engine, given once when the terminal is built; kept for its whole life. */
+    fun attach(engine: EmvEngine)
+
+    /** The engine [attach] gave: the one place it is kept. */
+    fun engine(): EmvEngine
+
     /**
      * Terminal initialization for one attempt.
      *
@@ -32,10 +39,10 @@ interface EmvBehavior {
      *      asks whether a step may still run
      * @return `false` if it failed or the transaction ended meanwhile
      */
-    fun prepare(engine: EmvEngine, config: TransactionConfig, transaction: PosTerminal.Transaction): Boolean
+    fun prepare(config: TransactionConfig, transaction: PosTerminal.Transaction): Boolean
 
     /** EMV on the card the search found, for the same attempt as [prepare]. */
-    fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction)
+    fun start(config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction)
 
     /**
      * Releases what the behavior holds beyond one transaction — [AbstractEmvBehavior]'s step

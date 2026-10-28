@@ -44,9 +44,9 @@ import java.util.concurrent.atomic.AtomicReference
  * ```
  *   UI → PosTerminal.startTransaction(ANY|CHIP|…)               [returns its Transaction at once]
  *          └── transaction thread: process(transaction)
- *          └── behavior.prepare(engine, config, transaction) + searchCard(config, listener) ← vendor SDK
+ *          └── behavior.prepare(config, transaction) + searchCard(config, listener) ← vendor SDK
  *                 └── listener.onXxxDetected(card)                 ← vendor callback
- *                        └── behavior.start(engine, config, card, transaction) ← vendor EMV, from inside the callback
+ *                        └── behavior.start(config, card, transaction) ← vendor EMV, from inside the callback
  *                               └── behavior → engine.authorize → PosTerminal.authorize → host
  * ```
  *
@@ -61,14 +61,19 @@ import java.util.concurrent.atomic.AtomicReference
  * work is started, cancelled and observed; never the order or the thread of kernel calls.
  */
 abstract class PosTerminal protected constructor(
-    /** The vendor's EMV: this terminal runs it for each attempt, handing it the transaction. */
-    private val behavior: EmvBehavior,
+    /**
+     * The vendor's EMV: this terminal runs it for each attempt, handing it the transaction. It
+     * keeps the terminal's one [EmvEngine] ([EmvBehavior.attach] in `init`, read back through
+     * [EmvBehavior.engine]).
+     */
+    @JvmField protected val behavior: EmvBehavior,
     @JvmField protected val communication: CommunicationBehavior,
     @JvmField protected val printer: PrinterBehavior,
 ) {
 
-    @JvmField
-    protected val engine: EmvEngine = EmvEngine { authorize(it) }
+    /** The engine the behavior keeps — not a field of this class (one owner: the behavior). */
+    private val engine: EmvEngine
+        get() = behavior.engine()
 
     /**
      * The one thread every transaction runs on, from card search through EMV and the host: one
@@ -96,6 +101,7 @@ abstract class PosTerminal protected constructor(
     private val current = AtomicReference<Transaction?>(null)
 
     init {
+        behavior.attach(EmvEngine { authorize(it) })
         initializeVendor()
     }
 
@@ -447,7 +453,7 @@ abstract class PosTerminal protected constructor(
      *      or `null`: the transaction is done
      */
     private fun attempt(transaction: Transaction, config: TransactionConfig): TransactionConfig? {
-        if (!behavior.prepare(engine, config, transaction)) {
+        if (!behavior.prepare(config, transaction)) {
             transaction.publish(errorEvent("Terminal initialization failed")) // dropped if it already ended
             return null
         }
@@ -560,7 +566,7 @@ abstract class PosTerminal protected constructor(
                     .build(),
             )
 
-            behavior.start(engine, config, card, transaction)
+            behavior.start(config, card, transaction)
         }
     }
 

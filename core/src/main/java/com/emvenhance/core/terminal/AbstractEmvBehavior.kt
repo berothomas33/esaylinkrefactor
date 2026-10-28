@@ -42,8 +42,12 @@ import com.emvenhance.core.util.EmvLog
  */
 abstract class AbstractEmvBehavior : EmvBehavior {
 
-    @JvmField
-    protected var engine: EmvEngine? = null
+    /** The terminal's engine, from [attach]; the one place it is kept. */
+    private var attached: EmvEngine? = null
+
+    /** The terminal's engine ([attach]); a behavior is always attached before any step runs. */
+    protected val engine: EmvEngine
+        get() = attached ?: throw IllegalStateException("EmvBehavior used before attach()")
 
     @JvmField
     protected var activeConfig: TransactionConfig? = null
@@ -57,8 +61,13 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     /** This behavior's step handler on the engine — see [initEmvObserver]. */
     private val stepHandler = EmvEngine.Listener<EmvStepEvent> { event -> handleEmvStep(event) }
 
-    override fun prepare(engine: EmvEngine, config: TransactionConfig, transaction: PosTerminal.Transaction): Boolean {
-        this.engine = engine
+    final override fun attach(engine: EmvEngine) {
+        attached = engine
+    }
+
+    final override fun engine(): EmvEngine = engine
+
+    override fun prepare(config: TransactionConfig, transaction: PosTerminal.Transaction): Boolean {
         this.transaction = transaction
         initEmvObserver(engine)
         this.activeConfig = config
@@ -69,8 +78,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         return isRunning() // false once it ended: init failed, or cancelled
     }
 
-    override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) {
-        this.engine = engine
+    override fun start(config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) {
         this.transaction = transaction
         initEmvObserver(engine)
         this.activeConfig = config
@@ -98,7 +106,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     }
 
     private fun stopObserving() {
-        engine?.clearEmvStepHandler(stepHandler)
+        attached?.clearEmvStepHandler(stepHandler)
     }
 
     /**
@@ -117,7 +125,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
             unknownStep(null)
             return false
         }
-        if (engine == null || activeConfig == null) {
+        if (activeConfig == null) {
             return false
         }
         return enterStep(step, detail)
@@ -149,7 +157,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         val ended = !isRunning()
         if (!answer.answered || ended) {
             val why = if (answer.answered) step.title + " answered after the transaction ended" else "no answer for " + step.title
-            engine?.apduTrace()?.note("EMV", "$why — answering $failClosed")
+            engine.apduTrace().note("EMV", "$why — answering $failClosed")
             return failClosed
         }
         return answer.value
@@ -232,11 +240,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      * Blocking: it returns once the host answered or the online timeout passed.
      */
     protected fun authorizeOnline(): AuthResult {
-        val engine = engine
-        var config = activeConfig
-        if (engine == null || config == null) {
-            return AuthResult.failed("Online failed: no active transaction")
-        }
+        var config = activeConfig ?: return AuthResult.failed("Online failed: no active transaction")
         if (isCancelled()) {
             return AuthResult.declined("17", "Cancelled")
         }
@@ -269,7 +273,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         }
         val summary = field55.describe(source)
         EmvLog.d(summary)
-        engine?.apduTrace()?.note("EMV", summary)
+        engine.apduTrace().note("EMV", summary)
         return field55.hex()
     }
 
@@ -308,7 +312,7 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     // `card` is null only for SEARCH_CARD (and TERMINAL_INITIALIZATION, which has none): every
     // step after the search has the card it found.
 
-    protected abstract fun onTerminalInitialization(engine: EmvEngine, config: TransactionConfig)
+    protected abstract fun onTerminalInitialization(config: TransactionConfig)
 
     /**
      * The one step method that stays optional. [PosTerminal.searchCard] is the real, mandatory
@@ -316,38 +320,38 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      * its prompt — and has nothing left to do. Requiring a body here would force an empty one
      * in every vendor for no benefit.
      */
-    protected open fun onSearchCard(engine: EmvEngine, config: TransactionConfig, card: CardPresence?) {
+    protected open fun onSearchCard(config: TransactionConfig, card: CardPresence?) {
     }
 
-    protected abstract fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onApplicationSelection(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onWaitApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onWaitApplicationSelection(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onFinalApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onFinalApplicationSelection(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onReadApplicationData(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onReadApplicationData(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onSetTransactionData(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onSetTransactionData(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onOfflineDataAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onOfflineDataAuthentication(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onProcessRestrictions(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onProcessRestrictions(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onCardholderVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onCardholderVerification(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onOfflinePinVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onOfflinePinVerification(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onTerminalRiskManagement(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onTerminalRiskManagement(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onTerminalActionAnalysis(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onTerminalActionAnalysis(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onStartOnlineProcess(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onStartOnlineProcess(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onIssuerAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onIssuerAuthentication(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onScriptProcessing(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onScriptProcessing(config: TransactionConfig, card: CardPresence)
 
-    protected abstract fun onTransactionCompletion(engine: EmvEngine, config: TransactionConfig, card: CardPresence)
+    protected abstract fun onTransactionCompletion(config: TransactionConfig, card: CardPresence)
 
     // ─── Field 55 — every vendor writes this ──────────────────────────────
 
@@ -369,7 +373,6 @@ abstract class AbstractEmvBehavior : EmvBehavior {
      * @return whether it was published (and so ran)
      */
     private fun enterStep(step: EmvStep, detail: String? = null): Boolean {
-        val engine = engine ?: return false
         if (!isRunning()) {
             val event = EmvStepEvent(step, detail)
             val why = if (isCancelled()) "cancelled" else "the transaction has ended"
@@ -397,14 +400,13 @@ abstract class AbstractEmvBehavior : EmvBehavior {
 
     /** Runs the `onXxx` method of every step published on the engine. */
     private fun dispatchStepMethod(step: EmvStep) {
-        val engine = engine ?: return
         val config = activeConfig ?: return
         if (step == EmvStep.TERMINAL_INITIALIZATION) {
-            onTerminalInitialization(engine, config)
+            onTerminalInitialization(config)
             return
         }
         if (step == EmvStep.SEARCH_CARD) {
-            onSearchCard(engine, config, activeCard)
+            onSearchCard(config, activeCard)
             return
         }
         // Every later step runs on the card the search found.
@@ -414,21 +416,21 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         }
         when (step) {
             EmvStep.TERMINAL_INITIALIZATION, EmvStep.SEARCH_CARD -> Unit // handled above
-            EmvStep.APPLICATION_SELECTION -> onApplicationSelection(engine, config, card)
-            EmvStep.WAIT_APPLICATION_SELECTION -> onWaitApplicationSelection(engine, config, card)
-            EmvStep.FINAL_APPLICATION_SELECTION -> onFinalApplicationSelection(engine, config, card)
-            EmvStep.READ_APPLICATION_DATA -> onReadApplicationData(engine, config, card)
-            EmvStep.SET_TRANSACTION_DATA -> onSetTransactionData(engine, config, card)
-            EmvStep.OFFLINE_DATA_AUTHENTICATION -> onOfflineDataAuthentication(engine, config, card)
-            EmvStep.PROCESS_RESTRICTIONS -> onProcessRestrictions(engine, config, card)
-            EmvStep.CARDHOLDER_VERIFICATION -> onCardholderVerification(engine, config, card)
-            EmvStep.OFFLINE_PIN_VERIFICATION -> onOfflinePinVerification(engine, config, card)
-            EmvStep.TERMINAL_RISK_MANAGEMENT -> onTerminalRiskManagement(engine, config, card)
-            EmvStep.TERMINAL_ACTION_ANALYSIS -> onTerminalActionAnalysis(engine, config, card)
-            EmvStep.START_ONLINE_PROCESS -> onStartOnlineProcess(engine, config, card)
-            EmvStep.ISSUER_AUTHENTICATION -> onIssuerAuthentication(engine, config, card)
-            EmvStep.SCRIPT_PROCESSING -> onScriptProcessing(engine, config, card)
-            EmvStep.TRANSACTION_COMPLETION -> onTransactionCompletion(engine, config, card)
+            EmvStep.APPLICATION_SELECTION -> onApplicationSelection(config, card)
+            EmvStep.WAIT_APPLICATION_SELECTION -> onWaitApplicationSelection(config, card)
+            EmvStep.FINAL_APPLICATION_SELECTION -> onFinalApplicationSelection(config, card)
+            EmvStep.READ_APPLICATION_DATA -> onReadApplicationData(config, card)
+            EmvStep.SET_TRANSACTION_DATA -> onSetTransactionData(config, card)
+            EmvStep.OFFLINE_DATA_AUTHENTICATION -> onOfflineDataAuthentication(config, card)
+            EmvStep.PROCESS_RESTRICTIONS -> onProcessRestrictions(config, card)
+            EmvStep.CARDHOLDER_VERIFICATION -> onCardholderVerification(config, card)
+            EmvStep.OFFLINE_PIN_VERIFICATION -> onOfflinePinVerification(config, card)
+            EmvStep.TERMINAL_RISK_MANAGEMENT -> onTerminalRiskManagement(config, card)
+            EmvStep.TERMINAL_ACTION_ANALYSIS -> onTerminalActionAnalysis(config, card)
+            EmvStep.START_ONLINE_PROCESS -> onStartOnlineProcess(config, card)
+            EmvStep.ISSUER_AUTHENTICATION -> onIssuerAuthentication(config, card)
+            EmvStep.SCRIPT_PROCESSING -> onScriptProcessing(config, card)
+            EmvStep.TRANSACTION_COMPLETION -> onTransactionCompletion(config, card)
         }
     }
 

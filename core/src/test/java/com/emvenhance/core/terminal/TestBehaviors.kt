@@ -11,31 +11,39 @@ import java.lang.reflect.Proxy
  */
 internal abstract class NoOpStepsBehavior : AbstractEmvBehavior() {
     override fun readIccTag(tag: Int): ByteArray? = null
-    override fun onTerminalInitialization(engine: EmvEngine, config: TransactionConfig) {}
-    override fun onApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onWaitApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onFinalApplicationSelection(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onReadApplicationData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onSetTransactionData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onOfflineDataAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onProcessRestrictions(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onCardholderVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onOfflinePinVerification(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onTerminalRiskManagement(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onTerminalActionAnalysis(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onStartOnlineProcess(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onIssuerAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onScriptProcessing(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
-    override fun onTransactionCompletion(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {}
+    override fun onTerminalInitialization(config: TransactionConfig) {}
+    override fun onApplicationSelection(config: TransactionConfig, card: CardPresence) {}
+    override fun onWaitApplicationSelection(config: TransactionConfig, card: CardPresence) {}
+    override fun onFinalApplicationSelection(config: TransactionConfig, card: CardPresence) {}
+    override fun onReadApplicationData(config: TransactionConfig, card: CardPresence) {}
+    override fun onSetTransactionData(config: TransactionConfig, card: CardPresence) {}
+    override fun onOfflineDataAuthentication(config: TransactionConfig, card: CardPresence) {}
+    override fun onProcessRestrictions(config: TransactionConfig, card: CardPresence) {}
+    override fun onCardholderVerification(config: TransactionConfig, card: CardPresence) {}
+    override fun onOfflinePinVerification(config: TransactionConfig, card: CardPresence) {}
+    override fun onTerminalRiskManagement(config: TransactionConfig, card: CardPresence) {}
+    override fun onTerminalActionAnalysis(config: TransactionConfig, card: CardPresence) {}
+    override fun onStartOnlineProcess(config: TransactionConfig, card: CardPresence) {}
+    override fun onIssuerAuthentication(config: TransactionConfig, card: CardPresence) {}
+    override fun onScriptProcessing(config: TransactionConfig, card: CardPresence) {}
+    override fun onTransactionCompletion(config: TransactionConfig, card: CardPresence) {}
 }
 
-/** An [EmvBehavior] whose `prepare` returns `prepared` and every other call does nothing. */
+/**
+ * An [EmvBehavior] whose `prepare` returns `prepared`, keeping the engine `attach` gives it (as every
+ * behavior does); every other call does nothing.
+ */
 internal fun stubBehavior(
     prepared: Boolean = false,
     onStart: (TransactionConfig) -> Unit = {},
 ): EmvBehavior = object : EmvBehavior {
-    override fun prepare(engine: EmvEngine, config: TransactionConfig, transaction: PosTerminal.Transaction) = prepared
-    override fun start(engine: EmvEngine, config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) =
+    private var engine: EmvEngine? = null
+    override fun attach(engine: EmvEngine) {
+        this.engine = engine
+    }
+    override fun engine(): EmvEngine = engine!!
+    override fun prepare(config: TransactionConfig, transaction: PosTerminal.Transaction) = prepared
+    override fun start(config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) =
         onStart(config)
 }
 

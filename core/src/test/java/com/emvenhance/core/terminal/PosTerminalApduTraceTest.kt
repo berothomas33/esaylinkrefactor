@@ -1,5 +1,6 @@
 package com.emvenhance.core.terminal
 
+import com.emvenhance.core.engine.EmvEngine
 import com.emvenhance.core.card.CardPresence
 import com.emvenhance.core.card.CardSearchListener
 import com.emvenhance.core.card.TransactionConfig
@@ -56,7 +57,7 @@ class PosTerminalApduTraceTest {
     }
 
     private class TestTerminal : PosTerminal(stubBehavior(), stub(), stub()) {
-        fun engine() = engine
+        fun engine(): EmvEngine = behavior.engine()
 
         /** Every transaction's steps, for the test: each transaction has its own flow. */
         val allSteps = AllSteps()
