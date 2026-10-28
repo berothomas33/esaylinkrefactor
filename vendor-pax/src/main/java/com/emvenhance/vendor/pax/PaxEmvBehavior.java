@@ -1648,12 +1648,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         tx.pinRequest = new PinRequest(isOnlinePin, supportPINByPass, leftTimes);
         try {
             if (isOnlinePin) {
+                // Online PIN: CARDHOLDER_VERIFICATION's method collects it and answers.
                 return askStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN",
                         EmvConstant.ContactCallbackStatus.USER_CANCEL);
+            } else {
+                // Offline PIN: CARDHOLDER_VERIFICATION is announced, OFFLINE_PIN_VERIFICATION's
+                // method collects it and answers; the kernel verifies it with the card.
+                goToStep(EmvStep.CARDHOLDER_VERIFICATION, "PIN");
+                return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
+                        EmvConstant.ContactCallbackStatus.USER_CANCEL);
             }
-            goToStep(EmvStep.CARDHOLDER_VERIFICATION, "PIN");
-            return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
-                    EmvConstant.ContactCallbackStatus.USER_CANCEL);
         } finally {
             tx.pinRequest = null;
         }
