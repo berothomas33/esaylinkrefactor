@@ -1,6 +1,7 @@
 package com.emvenhance.vendor.pax
 
 import com.emvenhance.core.param.EmvParams
+import com.emvenhance.network.EmvParamDownloadClient
 import com.emvenhance.network.HostHeaders
 import com.emvenhance.network.onboarding.OnboardingClient
 import com.emvenhance.network.onboarding.OnboardingState
@@ -40,8 +41,9 @@ import java.io.File
 
 /**
  * PAX's [EmvParams]: the GreenDAO parameter database, the kernel's parameter cache
- * ([PaxTerminal.kernelParams]), and the host's parameter package ([PaxEmvParamUpdateService]).
- * Every row is rendered here, so the screen never sees a PAX type.
+ * ([PaxTerminal.kernelParams]), and the host's parameter package ([EmvParamDownloadClient] +
+ * [EmvParamUpdater]). Every row is rendered here, so the screen never sees a PAX type. Nothing
+ * writes the database while a transaction runs.
  */
 internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
 
@@ -55,25 +57,29 @@ internal class PaxEmvParams(private val terminal: PaxTerminal) : EmvParams {
     /**
      * Refreshes the saved access token first if it is near or past expiry (rather than handing
      * the host whatever token onboarding first minted), then downloads with the authenticated
-     * headers — the confirmed post-onboarding contract. A download that changed the database
-     * makes the next transaction load it again. Main-safe: runs on `Dispatchers.IO`.
+     * headers — the confirmed post-onboarding contract — and applies the package. Refused while
+     * a transaction runs (checked again right before the apply): the apply deletes and rewrites
+     * the tables that transaction may read. A changed database reloads at the next transaction
+     * ([EmvParamUpdater] invalidates the cache). Main-safe: runs on `Dispatchers.IO`.
      */
     override suspend fun download(): String = withContext(Dispatchers.IO) {
+        refuseWhileBusy()
         val state = OnboardingState(BaseApplication.getAppContext())
         val sn = terminal.serialNumber()
         val accessToken = OnboardingClient().ensureValidAccessToken(HostHeaders.build(sn), state)
-        val result = PaxEmvParamUpdateService()
-            .downloadAndApply(HostHeaders.buildAuthenticated(sn, accessToken), POS_TYPE)
-        if (result.changedDatabase()) {
-            // Rows applied or removed, even if a later section failed.
-            state.requireTerminalInitialization()
-        }
-        result.summarize()
+        val zip = EmvParamDownloadClient().download(HostHeaders.buildAuthenticated(sn, accessToken), POS_TYPE)
+        refuseWhileBusy()
+        EmvParamUpdater.applyFromZip(zip).summarize()
     }
 
+    /** Seeds the database from the bundled JSON; refused while a transaction runs. Blocking. */
     override fun seedDefaults() {
-        ConfigInit().init()
-        OnboardingState(BaseApplication.getAppContext()).requireTerminalInitialization()
+        refuseWhileBusy()
+        ConfigInit().init() // synchronous; reloads the cache when done
+    }
+
+    private fun refuseWhileBusy() {
+        check(!terminal.isBusy()) { "A transaction is running — try again when it ends" }
     }
 
     override fun downloadedFiles(): List<String> =

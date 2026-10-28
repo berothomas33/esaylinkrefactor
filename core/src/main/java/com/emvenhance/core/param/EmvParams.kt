@@ -23,11 +23,17 @@ interface EmvParams {
     /**
      * Downloads the host's parameter package and applies it to the database; the next
      * transaction loads it into the kernel. Returns what was applied and removed, section by
-     * section. Needs the terminal onboarded (an access token).
+     * section. Needs the terminal onboarded (an access token). Fails with
+     * [IllegalStateException] while a transaction is running (nothing written).
      */
     suspend fun download(): String
 
-    /** Seeds the parameter database with the bundled defaults (debug). Blocking. */
+    /**
+     * Seeds the parameter database with the bundled defaults (debug). Blocking: returns once
+     * done.
+     *
+     * @throws IllegalStateException a transaction is running (nothing written)
+     */
     fun seedDefaults()
 
     /** The files of the last download kept for diagnosis (debug builds), by name. */

@@ -17,6 +17,7 @@ import com.emvenhance.emvflow.device.EmvDeviceImpl
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor
 import com.emvenhance.network.onboarding.OnboardingState
+import com.pax.configservice.impl.EmvParamService
 import com.emvenhance.settings.PinBypassSettings
 import com.pax.bizentity.entity.SearchMode
 import com.pax.bizlib.card.TrackUtils
@@ -1469,23 +1470,22 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     }
 
     /**
-     * Terminal initialization, once per onboarding or parameter download
-     * ([OnboardingState.isTerminalInitialized]): loads every EMV/CLSS parameter (AIDs, CAPKs,
-     * terminal config, contactless kernels) from the database into memory. Every transaction
-     * after that reuses them and only runs its own kernel set-up ([runPreTransProcess]: amount,
-     * date/time, 9F41, contactless pre-processing), which PAX and EMV need per transaction.
+     * Terminal initialization: loads every EMV/CLSS parameter (AIDs, CAPKs, terminal config,
+     * contactless kernels) from the database into memory, in step 0 before the card search — the
+     * first transaction after an app start, a download or a seed ([EmvParamService.isLoaded], the
+     * one owner). Every transaction after that reuses them and only runs its own kernel set-up
+     * ([runPreTransProcess]: amount, date/time, 9F41, contactless pre-processing), which PAX and
+     * EMV need per transaction.
      */
     private fun initializeTerminalIfNeeded() {
-        val state = OnboardingState(BaseApplication.getAppContext())
-        if (state.isTerminalInitialized()) {
+        if (EmvParamService.isLoaded()) {
             return
         }
         val start = SystemClock.elapsedRealtime()
-        kernel.params.reloadFromDatabase()
-        state.markTerminalInitialized()
+        kernel.params.cachedEmvParam
         requireEngine().apduTrace().note(
             "EMV",
-            "terminal initialization (once per onboarding / parameter download): " +
+            "terminal initialization (EMV parameters loaded from the database): " +
                 (SystemClock.elapsedRealtime() - start) + " ms",
         )
     }

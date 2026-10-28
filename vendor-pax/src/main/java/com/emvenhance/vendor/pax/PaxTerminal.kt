@@ -321,14 +321,21 @@ class PaxTerminal private constructor(
         /** Pause after dropping the RF field before polling again, so the card fully resets. */
         const val PICC_RESET_SETTLE_MS = 100L
 
+        /**
+         * First start only: seeds the database from the bundled JSON, off the main thread (this
+         * runs from Application.onCreate). Marked done only once the seed has finished, so a crash
+         * in the middle seeds again next start.
+         */
         fun ensureEmvConfigInitialized() {
             val prefs = SharedPrefUtil(BaseApplication.getAppContext())
             if (prefs.getBoolean(KEY_EMV_CONFIG_INITIALIZED)) {
                 LogUtils.i(TAG, "EMV config already initialized, skipping")
                 return
             }
-            ConfigInit().init()
-            prefs.putBoolean(KEY_EMV_CONFIG_INITIALIZED, true)
+            Thread({
+                ConfigInit().init()
+                prefs.putBoolean(KEY_EMV_CONFIG_INITIALIZED, true)
+            }, "ConfigInit").start()
         }
 
         /** Contactless read failures a second tap can fix — `EPiccDevException` basement codes. */

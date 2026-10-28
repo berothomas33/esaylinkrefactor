@@ -28,27 +28,7 @@ class OnboardingState(context: Context) {
     fun isOfflineOnboarded(): Boolean = prefs.getBoolean(KEY_OFFLINE_ONBOARDED, false)
 
     fun markOfflineOnboarded() {
-        prefs.edit()
-            .putBoolean(KEY_OFFLINE_ONBOARDED, true)
-            .putBoolean(KEY_TERMINAL_INITIALIZED, false)
-            .apply()
-    }
-
-    /**
-     * Whether the vendor's one-time terminal initialization (EMV parameters loaded from the
-     * database) has run since the last onboarding or parameter download. Cleared by
-     * [markOfflineOnboarded] and [requireTerminalInitialization]; the next transaction then
-     * initializes the terminal and calls [markTerminalInitialized].
-     */
-    fun isTerminalInitialized(): Boolean = prefs.getBoolean(KEY_TERMINAL_INITIALIZED, false)
-
-    fun markTerminalInitialized() {
-        prefs.edit().putBoolean(KEY_TERMINAL_INITIALIZED, true).apply()
-    }
-
-    /** The terminal's parameters changed (e.g. a parameter download): initialize it again. */
-    fun requireTerminalInitialization() {
-        prefs.edit().putBoolean(KEY_TERMINAL_INITIALIZED, false).apply()
+        prefs.edit().putBoolean(KEY_OFFLINE_ONBOARDED, true).apply()
     }
 
     fun isOnlineOnboarded(): Boolean = prefs.getBoolean(KEY_ONLINE_ONBOARDED, false)
@@ -140,7 +120,6 @@ class OnboardingState(context: Context) {
         const val PREFS_NAME = "onboarding_state"
         const val KEY_OFFLINE_ONBOARDED = "offline_onboarded"
         const val KEY_ONLINE_ONBOARDED = "online_onboarded"
-        const val KEY_TERMINAL_INITIALIZED = "terminal_initialized"
         const val KEY_SACS = "sacs"
         const val KEY_CHALLENGE = "challenge"
         const val KEY_PUBLIC_KEY = "public_key"

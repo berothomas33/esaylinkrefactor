@@ -41,15 +41,24 @@ class MainActivity : AppCompatActivity() {
 
         val params = terminal.emvParams()
         show(binding.btnShowEmvParam, params != null)
-        show(binding.btnInsertEmvParam, params != null)
+        // Seeding the bundled JSON over the host's parameters is a debug tool only (rule 7).
+        show(binding.btnInsertEmvParam, params != null && BuildConfig.DEBUG)
         if (params != null) {
             binding.btnShowEmvParam.setOnClickListener {
                 startActivity(Intent(this, EmvParamActivity::class.java))
             }
             binding.btnInsertEmvParam.setOnClickListener {
-                // Blocking database work: its own thread, never the main thread.
-                Thread(params::seedDefaults, "EmvParamSeed").start()
                 Toast.makeText(this, "Inserting EMV param data…", Toast.LENGTH_SHORT).show()
+                // Blocking database work: its own thread, never the main thread.
+                Thread({
+                    val done = try {
+                        params.seedDefaults()
+                        "EMV param data inserted"
+                    } catch (busy: IllegalStateException) {
+                        busy.message ?: "A transaction is running"
+                    }
+                    runOnUiThread { Toast.makeText(this, done, Toast.LENGTH_SHORT).show() }
+                }, "EmvParamSeed").start()
             }
         }
 

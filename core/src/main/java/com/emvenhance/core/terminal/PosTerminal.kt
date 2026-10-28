@@ -223,6 +223,13 @@ abstract class PosTerminal protected constructor(
         printScope.cancel()
     }
 
+    /**
+     * Whether a transaction is on this terminal (from its accepted start until it is done with
+     * the reader) — what refuses a second start. Nothing else may rewrite what it reads (EMV
+     * parameters) meanwhile.
+     */
+    fun isBusy(): Boolean = current.get() != null
+
     /** Whether the vendor search polling for the current transaction should stop: it is over. */
     fun isSearchCancelled(): Boolean = current.get()?.isOver() == true
 
