@@ -85,6 +85,17 @@ class AskStepTest {
     }
 
     @Test
+    fun anAnswerAfterTheTransactionEndedGetsTheFailClosedValue() {
+        vendor.selectionAnswer = 1
+        vendor.cancelWhileChoosing = true
+
+        engine.start(CONFIG, CardPresence.chip())
+
+        assertEquals(1, vendor.selectionRuns)
+        assertEquals(USER_CANCEL, vendor.callbackGot)
+    }
+
+    @Test
     fun aStepMethodThatThrowsGetsTheFailClosedValue() {
         vendor.selectionAnswer = 1
         vendor.throwInSelection = true
@@ -122,6 +133,7 @@ class AskStepTest {
         val session = TestSession()
         var selectionAnswer: Int? = null
         var cancelBeforeAsking = false
+        var cancelWhileChoosing = false
         var throwInSelection = false
         var askFinalInsideSelection = false
         var goWithoutAsking = false
@@ -150,6 +162,9 @@ class AskStepTest {
             }
             if (askFinalInsideSelection) {
                 innerGot = askStep(EmvStep.FINAL_APPLICATION_SELECTION, null, USER_CANCEL)
+            }
+            if (cancelWhileChoosing) {
+                session.cancel() // the transaction ends while the cardholder is choosing
             }
             selectionAnswer?.let {
                 answeredOn = Thread.currentThread()

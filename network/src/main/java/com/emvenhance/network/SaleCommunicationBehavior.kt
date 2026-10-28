@@ -481,10 +481,11 @@ class SaleCommunicationBehavior(
         }
 
         private fun toAuthResult(response: SaleResponse): AuthResult {
-            if (response.responseCode != 0) {
-                return AuthResult.declined(
-                    response.responseCode.toString(), response.responseMessage ?: "Declined",
-                )
+            val responseCode = response.responseCode
+                // Fail closed: an answer without a response code is no approval.
+                ?: return AuthResult.failed("Online failed: the host's answer has no response code")
+            if (responseCode != 0) {
+                return AuthResult.declined(responseCode.toString(), response.responseMessage ?: "Declined")
             }
             val authCode = response.authCode ?: ""
             val arpc = IssuerResponseFields.arpc(response.chipData)

@@ -379,7 +379,13 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             answerStep(EmvConstant.ContactCallbackStatus.CONTACT_OK)
             return
         }
-        answerStep(AppSelectDialog(candList).selectBlocking())
+        val index = AppSelectDialog(candList).selectBlocking { !requireEngine().isRunning() }
+        if (index == AppSelectDialog.NO_ANSWER) {
+            // Not answered: askStep gives the kernel USER_CANCEL and notes it in the trace.
+            LogUtils.i(TAG, "Application not selected (timed out, cancelled or no screen)")
+            return
+        }
+        answerStep(index)
     }
 
     override fun onSetTransactionData(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
@@ -737,6 +743,13 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             markTryAgainOnCommunicationError(resultCode)
             return resultCode
         }
+        if (transResultEnum == TransResultEnum.RESULT_CLSS_SEE_PHONE ||
+            transResultEnum == TransResultEnum.RESULT_TRY_AGAIN
+        ) {
+            // PayPass reports both with EMV_OK: a restart, not a card to take online. The stage
+            // end (checkContactlessResult) asks for the re-tap, or declines at the cap.
+            return resultCode
+        }
         var ret = confirmCard()
         LogUtils.d(TAG, "confirm card: $ret")
         if (ret != RetCode.EMV_OK) {
@@ -754,6 +767,11 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             // NO_PASSWORD is a PIN bypass (only possible when it's enabled): go online without a
             // PIN block and let the issuer decide.
             if (ret != RetCode.EMV_OK && ret != EmvConstant.ContactCallbackStatus.NO_PASSWORD) {
+                // No PIN (cancelled, timed out, PIN pad error): an error, not a card decline. The
+                // end is this ERROR; the decline recorded below (so nothing goes online) is
+                // dropped by the end guard.
+                requireEngine().apduTrace().note("PICC", "online PIN not entered ($ret)")
+                finishError("Online PIN not entered — cancelled or timed out")
                 tx.clsTransResult = TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult)
                 return ret
             }
@@ -875,11 +893,8 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         if (!communicationError) {
             return
         }
-        val retries = requireEngine().getRetryCount()
-        if (retries >= MAX_TAP_RETRIES) {
-            LogUtils.w(TAG, "Contactless communication error ret=$ret after $retries retries — declining")
-            return
-        }
+        // The cap is tryAgain()'s: it declines once MAX_TAP_RETRIES taps were tried, whichever
+        // way the try-again was reported (here, or by the kernel itself: JCB, Mir, RuPay).
         LogUtils.w(TAG, "Contactless communication error ret=$ret — asking to tap again")
         requireEngine().apduTrace().note("PICC", "card communication error $ret — tap again")
         tx.clsTransResult = TransResult(ret, TransResultEnum.RESULT_TRY_AGAIN, CvmResultEnum.CVM_NO_CVM)
@@ -931,13 +946,23 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         val cvmResult = result.cvmResult
         LogUtils.d(
             TAG,
-            "result code: " + resultCode + ", trans result: " + transResultEnum.name +
-                ", cvm result: " + cvmResult.name,
+            "result code: $resultCode, trans result: $transResultEnum, cvm result: $cvmResult",
         )
+        // A restart outcome, whatever the result code: PayPass and Mir report See Phone and
+        // Try Again with EMV_OK, which fell through to "unknown status" and declined.
+        if (transResultEnum == TransResultEnum.RESULT_CLSS_SEE_PHONE) {
+            clsLastNeedSeePhone = true
+            seePhone()
+            return
+        }
+        if (transResultEnum == TransResultEnum.RESULT_TRY_AGAIN) {
+            tryAgain()
+            return
+        }
         if (resultCode == RetCode.EMV_OK) {
             // CVM_CONSUMER_DEVICE here is CDCVM already *done*: the phone verified the cardholder
             // (Face ID / fingerprint / passcode), a successful CVM like PIN — the outcome below
-            // decides approve/decline as for any other CVM. Only RESULT_CLSS_SEE_PHONE (below)
+            // decides approve/decline as for any other CVM. Only RESULT_CLSS_SEE_PHONE (above)
             // means the cardholder still has to verify on the phone.
             if (cvmResult == CvmResultEnum.CVM_CONSUMER_DEVICE) {
                 LogUtils.d(TAG, "CDCVM performed on the consumer device")
@@ -953,17 +978,11 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
                 offlineDenied(RetCode.CLSS_DECLINE)
             }
         } else {
-            if (transResultEnum == TransResultEnum.RESULT_CLSS_SEE_PHONE) {
-                clsLastNeedSeePhone = true
-                seePhone()
-            } else if (transResultEnum == TransResultEnum.RESULT_CLSS_TRY_ANOTHER_INTERFACE ||
+            if (transResultEnum == TransResultEnum.RESULT_CLSS_TRY_ANOTHER_INTERFACE ||
                 resultCode == RetCode.CLSS_USE_CONTACT
             ) {
                 // restart detect icc card and transaction
                 tryAnotherInterface()
-            } else if (transResultEnum == TransResultEnum.RESULT_TRY_AGAIN) {
-                // PICC return USE_CONTACT 1.restart detect card and transaction
-                tryAgain()
             } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_DENIED) {
                 // host reject, prompt has been showed during online
                 onlineDenied()
@@ -1666,6 +1685,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             // before returning CONTACT_OK, fire-and-forget — the dialog is dismissed by whichever
             // of PinCallback's terminal callbacks EmvDeviceImpl invokes (onCancel/onTimeout/
             // onError), or defensively in finishContactStage() if none of those fire.
+            tx.activePinPad?.dismiss() // the kernel asks again (wrong PIN): one pad on screen
             val pad = PaxPinPad("Enter Offline PIN ($leftTimes left)")
             tx.activePinPad = pad
             pad.showForOfflinePin()
@@ -2090,6 +2110,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     fun seePhone() {
         val retries = requireEngine().getRetryCount()
         if (retries >= MAX_TAP_RETRIES) {
+            requireEngine().apduTrace().note("PICC", "SEE PHONE again after $retries retries — declining")
             completeDeclined("See Phone: verification on the phone not completed")
             return
         }
@@ -2109,6 +2130,14 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
     // [CONTACTLESS — only checkContactlessResult() calls this]
     fun tryAgain() {
+        val retries = requireEngine().getRetryCount()
+        if (retries >= MAX_TAP_RETRIES) {
+            // A card that always fails ends in a decline, not an endless "tap again".
+            LogUtils.w(TAG, "Try Again after $retries retries — declining")
+            requireEngine().apduTrace().note("PICC", "card not read after $retries retries — declining")
+            completeDeclined("Card not read — tried ${retries + 1} times")
+            return
+        }
         val mode = activeConfig?.mode ?: EntryMethod.ANY
         retryWithMode(mode, "Try Again: re-presenting card", "Card not read — tap again and hold the card still")
     }

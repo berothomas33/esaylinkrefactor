@@ -12,9 +12,12 @@ import com.google.gson.annotations.SerializedName
  */
 class SaleResponse {
 
-    /** `0` on success — anything else is a decline/error, see `SaleCommunicationBehavior`. */
+    /**
+     * `0` on success — anything else is a decline/error, see `SaleCommunicationBehavior`. `null`
+     * when the host's answer has none: never read as 0, which means approved.
+     */
     @SerializedName("responseCode")
-    var responseCode: Int = 0
+    var responseCode: Int? = null
         private set
 
     @SerializedName("responseMessage")

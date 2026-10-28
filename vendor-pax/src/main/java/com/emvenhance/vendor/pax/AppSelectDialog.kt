@@ -2,6 +2,7 @@ package com.emvenhance.vendor.pax
 
 import android.app.AlertDialog
 import android.os.ConditionVariable
+import android.os.SystemClock
 import com.pax.commonlib.application.ActivityStack
 import com.pax.commonlib.application.BaseApplication
 import com.pax.commonlib.utils.ConvertUtils
@@ -27,21 +28,29 @@ internal class AppSelectDialog(private val candidates: List<CandidateAID>) {
     private var selectedIndex = 0
     private var dialog: AlertDialog? = null
 
-    /** Shows the dialog and blocks until the cardholder taps a row, or [TIMEOUT_MS] elapses. */
-    fun selectBlocking(): Int {
+    /**
+     * Shows the dialog and blocks until the cardholder taps a row. [NO_ANSWER] (and the dialog
+     * closed) once [TIMEOUT_MS] elapses or `ended` turns true (a cancel). Plain blocking waits in
+     * [POLL_MS] slices — the kernel is waiting on this very call, so no coroutine here.
+     */
+    fun selectBlocking(ended: () -> Boolean): Int {
         BaseApplication.getAppContext().runOnUiThread { createDialog() }
-        val answered = done.block(TIMEOUT_MS)
-        if (!answered) {
-            dismiss()
+        val deadline = SystemClock.elapsedRealtime() + TIMEOUT_MS
+        while (!done.block(POLL_MS)) {
+            if (ended() || SystemClock.elapsedRealtime() >= deadline) {
+                dismiss()
+                return NO_ANSWER
+            }
         }
-        return if (answered) selectedIndex else 0
+        return selectedIndex
     }
 
     private fun createDialog() {
         val activity = ActivityStack.getInstance().top()
         if (activity == null || activity.isFinishing) {
-            // No foreground Activity to attach to — fail to the same safe default the timeout
-            // path uses, instead of leaving the kernel blocked with nothing on screen at all.
+            // No foreground Activity to attach to: no answer (fail closed), instead of leaving the
+            // kernel blocked with nothing on screen at all.
+            selectedIndex = NO_ANSWER
             done.open()
             return
         }
@@ -64,13 +73,15 @@ internal class AppSelectDialog(private val candidates: List<CandidateAID>) {
         }
     }
 
-    private companion object {
-        /**
-         * Falls back to index 0 (the card's own highest-priority application — same choice the
-         * previous auto-select-first behavior always made) if the cardholder doesn't answer,
-         * rather than blocking the transaction forever.
-         */
-        const val TIMEOUT_MS = 30_000L
+    companion object {
+        /** No answer: the cardholder didn't choose in time, the transaction ended, or no screen. */
+        const val NO_ANSWER = -1
+
+        /** How long the cardholder has to choose; then [NO_ANSWER] — never "pick the first". */
+        private const val TIMEOUT_MS = 30_000L
+
+        /** How often the wait checks whether the transaction ended (a cancel closes the dialog). */
+        private const val POLL_MS = 250L
 
         /**
          * `appName` is the one field `ContactProcess`'s kernel listener actually populates on
@@ -78,7 +89,7 @@ internal class AppSelectDialog(private val candidates: List<CandidateAID>) {
          * `appPreName`/`appLabel`/`issDiscrData` are left at their constructor-initialized zero
          * bytes, so they're not worth reading here.
          */
-        fun label(candidate: CandidateAID): String {
+        private fun label(candidate: CandidateAID): String {
             val name = trimmed(candidate.appName)
             if (name.isNotEmpty()) {
                 return name
@@ -87,7 +98,7 @@ internal class AppSelectDialog(private val candidates: List<CandidateAID>) {
             return "AID " + ConvertUtils.bcd2Str(candidate.aid, aidLen)
         }
 
-        fun trimmed(bytes: ByteArray?): String {
+        private fun trimmed(bytes: ByteArray?): String {
             if (bytes == null) {
                 return ""
             }
