@@ -25,9 +25,6 @@ public interface CardSearchListener {
     /** Operator chose manual PAN entry (no physical card). */
     void onManualEntrySelected(CardPresence card);
 
-    /** Card was removed during search (when the vendor SDK reports it). */
-    void onCardRemoved();
-
     /** No card presented before the vendor timeout. */
     void onSearchTimeout();
 

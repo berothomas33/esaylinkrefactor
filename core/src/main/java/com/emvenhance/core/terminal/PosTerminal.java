@@ -112,14 +112,6 @@ public abstract class PosTerminal {
         initializeVendor();
     }
 
-    public CommunicationBehavior communication() {
-        return communication;
-    }
-
-    public PrinterBehavior printer() {
-        return printer;
-    }
-
     /**
      * Host authorize via the terminal-owned {@link CommunicationBehavior}. This is also where a
      * vendor's {@link EmvBehavior} goes online — {@link EmvEngine#authorize} hands its request
@@ -800,14 +792,6 @@ public abstract class PosTerminal {
             @Override
             public void onManualEntrySelected(CardPresence card) {
                 handleCardFound(card);
-            }
-
-            @Override
-            public void onCardRemoved() {
-                if (isStale("onCardRemoved")) {
-                    return;
-                }
-                publish(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD, "Card removed"));
             }
 
             @Override

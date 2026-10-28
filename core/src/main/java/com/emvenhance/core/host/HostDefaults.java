@@ -17,10 +17,6 @@ public final class HostDefaults {
         });
     }
 
-    public static CommunicationBehavior declineUntilWired() {
-        return config -> Single.just(AuthResult.declined("96", "Host not wired"));
-    }
-
     public static PrinterBehavior logPrinter(String tag) {
         return lines -> Completable.fromAction(() -> {
             for (String line : lines) {
