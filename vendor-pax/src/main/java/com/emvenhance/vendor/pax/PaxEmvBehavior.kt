@@ -362,8 +362,8 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
 
     override fun onIssuerAuthentication(engine: EmvEngine, config: TransactionConfig, card: CardPresence) {
         // Asked by runIssuerAuthentication with the host's answer: the card's 2nd GENERATE AC
-        // (contact) or the 2nd-tap check (contactless). Announced with nothing to run when
-        // there is no ARQC to complete, or the host did not approve a contactless sale.
+        // (contact) or the 2nd-tap check (contactless). With no ARQC to complete, or a
+        // contactless sale the host didn't approve, the card has nothing to do: no step.
         if (tx.issuerResponse != null) {
             completeIssuerAuthentication()
         }
@@ -714,7 +714,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         if (needsHostWithoutArqc(transResultEnum, resultCode)) {
             noteOnlineWithoutArqc(transResultEnum)
             val online = startOnlineProcess()
-            announceIssuerAuthentication()
             val outcome = hostOutcome(online, cvmResult)
             tx.clsTransResult = outcome
             return outcome.resultCode
@@ -725,7 +724,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             val onlineTransResultEnum = onlineResultWrapper.transResultEnum
             // handle online result after second GAC
             if (TransResultEnum.RESULT_ONLINE_APPROVED != onlineTransResultEnum) {
-                announceIssuerAuthentication()
                 val result = tx.clsTransResult!!
                 result.transResult = onlineTransResultEnum
                 result.resultCode = onlineTransResultEnum.ordinal
@@ -1190,7 +1188,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         if (needsHostWithoutArqc(transResultEnum, resultCode)) {
             noteOnlineWithoutArqc(transResultEnum)
             val online = startOnlineProcess()
-            announceIssuerAuthentication()
             val outcome = hostOutcome(online, tx.transResult!!.cvmResult)
             tx.transResult = outcome
             return outcome.resultCode
@@ -1787,11 +1784,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             auth.isFailed -> "online failed: " + auth.message
             else -> "host declined"
         }
-    }
-
-    /** ISSUER_AUTHENTICATION with nothing for the card to complete (no ARQC, or not approved). */
-    private fun announceIssuerAuthentication() {
-        goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())
     }
 
     /**
