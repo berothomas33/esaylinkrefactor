@@ -193,11 +193,11 @@ after**. Each carries docs that match its own code.
   transaction steps (`8843cb1`), the safe end (`9278c35`), docs. **New work goes here**
   unless Ebram says otherwise. Nothing on it is device-tested.
 - **`transactionOwnsSteps-clean`** (`e9ad3a6`) and **`transactionOwnsSteps-clean-oct27`**
-  (`0d018e4`) — code-only twins: no tests, no comments, no `doc/`. Kept in step by porting each
+  (`7ca0535`) — code-only twins: no tests, no comments, no `doc/`. Kept in step by porting each
   code commit (every file outside `src/test` and `doc/`; Java comments stripped by the same tool,
   except `vendor-pax/libs/sdk` and `emvflow`, kept as they are; Java tokens checked equal).
   `-clean` = `transactionOwnsSteps` @ `30cd5aa` without `196af3b` / `85ef5a4`;
-  `-clean-oct27` = `-oct27` @ `2ab85e5` (regenerating `-oct27` gives exactly its tree). Never merge
+  `-clean-oct27` = `-oct27` @ `9278c35` (regenerating `-oct27` gives exactly its tree). Never merge
   them back.
 - Points on the line: `62d889f` = before any `transactionOwnsSteps` commit; `19cc019` = last
   device-tested; `30cd5aa` = end of 25/10 (= `transactionOwnsSteps`' code); `28d79cb` = end of
