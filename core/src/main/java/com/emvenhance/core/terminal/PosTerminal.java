@@ -44,9 +44,6 @@ public abstract class PosTerminal {
     private final Scheduler printScheduler =
             Schedulers.from(Executors.newSingleThreadExecutor());
 
-    private final Scheduler followUpScheduler =
-            Schedulers.from(Executors.newSingleThreadExecutor());
-
     private final AtomicReference<Transaction> current = new AtomicReference<>();
 
     protected PosTerminal(AbstractEmvBehavior behavior,
@@ -93,6 +90,10 @@ public abstract class PosTerminal {
 
     protected long onlineTimeoutMs() {
         return 90_000;
+    }
+
+    protected long followUpTimeoutMs() {
+        return 15_000;
     }
 
     public void printReceipt(List<String> lines) {
@@ -338,12 +339,21 @@ public abstract class PosTerminal {
                     end = errorEvent("Transaction ended without an outcome");
                 }
                 followUps = closeOnline();
-                current.compareAndSet(this, null);
-                deliver(end);
             }
             for (Runnable followUp : followUps) {
                 followUp.run();
             }
+            synchronized (steps) {
+                current.compareAndSet(this, null);
+                deliver(end);
+            }
+        }
+
+        private void followUp(TransactionStep step, String what, Completable call) {
+            synchronized (steps) {
+                deliver(TransactionStepEvent.of(step, what));
+            }
+            sendFollowUp(what, call);
         }
 
         OnlineRequest wentOnline(TransactionConfig sent) {
@@ -363,7 +373,8 @@ public abstract class PosTerminal {
                 String id = request.sent.getAsyncRequestId();
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    followUps.add(() -> sendFollowUp("Acknowledgement " + id,
+                    followUps.add(() -> followUp(TransactionStep.ACKNOWLEDGING,
+                            "Acknowledgement " + id,
                             Completable.defer(() -> communication.acknowledge(request.sent))));
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
@@ -374,7 +385,7 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    followUps.add(() -> sendFollowUp("Reversal " + id,
+                    followUps.add(() -> followUp(TransactionStep.REVERSING, "Reversal " + id,
                             Completable.defer(() -> communication.reverse(request.sent))));
                 }
             }
@@ -394,10 +405,16 @@ public abstract class PosTerminal {
     }
 
     private void sendFollowUp(String what, Completable call) {
-        call.timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
-                .subscribeOn(followUpScheduler)
-                .subscribe(() -> EmvLog.d(what + " sent"),
-                        e -> EmvLog.d(what + " failed: " + e));
+        try {
+            call.timeout(followUpTimeoutMs(), TimeUnit.MILLISECONDS).blockingAwait();
+            EmvLog.d(what + " sent");
+            apduTrace().note("HOST", what + " sent");
+        } catch (RuntimeException e) {
+            EmvLog.d(what + " failed: " + e);
+            apduTrace().note("HOST", what + " failed — not retried: "
+                    + (e.getCause() instanceof TimeoutException
+                            ? "the host didn't answer in time" : e.getMessage()));
+        }
     }
 
     static TransactionStepEvent errorEvent(String error) {
