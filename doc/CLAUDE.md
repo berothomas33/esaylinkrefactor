@@ -156,19 +156,20 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 | What | File |
 |---|---|
 | Transaction thread, busy, cancel, the end (`emvFinished`), host timeout, ack / reversal (`closeOnline`), printing | `core/.../terminal/PosTerminal.java` |
-| Step bus, drop-after-end, APDU trace | `core/.../engine/EmvEngine.java`, `core/.../util/ApduTrace.java` |
-| Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../card/Field55.java` |
+| Step bus, drop-after-end, APDU trace | `core/.../emv/EmvEngine.java`, `core/.../emv/ApduTrace.java` |
+| Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../emv/Field55.java` |
+| Core packages (by owner, `7f59e35`) | `terminal` (PosTerminal + Transaction, EmvBehavior / AbstractEmvBehavior), `transaction` (config, type, its steps), `emv` (engine, EmvStep, result, Field55, ApduTrace), `card`, `host`, `cardholder` (app select, PIN pad), `param`, `util` (EmvLog) |
 | PAX flow (contact / contactless runners, callbacks, PIN, online) | `vendor-pax/.../vendor/pax/PaxEmvBehavior.java` |
 | Card search (polling, ICC retry) | `vendor-pax/.../vendor/pax/PaxTerminal.java` |
-| Contact kernel wrapper + callback adapter | `pax-libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` |
-| Contactless dispatcher, reselect | `pax-libs/sdk/emvlib/.../contactless/ClssProcess.java` |
-| Per-kernel stages | `pax-libs/sdk/emvlib/.../contactless/Clss{PayPass,PayWave,EFT,...}Process.java`, base `ClssKernelProcess` |
-| Parameter cache, DB → kernel conversion, terminal config | `pax-libs/ours/bizentity/.../configservice/impl/EmvParamService.java` |
-| XML parsing | `pax-libs/ours/bizentity/.../configservice/xml/{EmvXmlParamParser,ClssXmlParamParser,XmlDomUtils}.java` |
-| Download apply / delete / result | `pax-libs/ours/bizentity/.../configservice/impl/EmvParamUpdater.java`, `EmvParamUpdateResult.java` |
+| Contact kernel wrapper + callback adapter | `vendor-pax/libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` |
+| Contactless dispatcher, reselect | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` |
+| Per-kernel stages | `vendor-pax/libs/sdk/emvlib/.../contactless/Clss{PayPass,PayWave,EFT,...}Process.java`, base `ClssKernelProcess` |
+| Parameter cache, DB → kernel conversion, terminal config | `vendor-pax/libs/ours/bizentity/.../configservice/impl/EmvParamService.java` |
+| XML parsing | `vendor-pax/libs/ours/bizentity/.../configservice/xml/{EmvXmlParamParser,ClssXmlParamParser,XmlDomUtils}.java` |
+| Download apply / delete / result | `vendor-pax/libs/ours/bizentity/.../configservice/impl/EmvParamUpdater.java`, `EmvParamUpdateResult.java` |
 | EMV Params screen (Cached / DB, download, Downloaded XML) | `app/src/main/.../ui/EmvParamActivity.java`, `EmvParamListFragment.java`; PAX data: `vendor-pax/.../PaxEmvParams.java` (`core` contract `EmvParams`) |
 | Host envelope / sale / ack / reverse / onboarding | `network/...` (`SaleCommunicationBehavior`: `authorize`, `acknowledge`, `reverse`, `classify`; `HostApiConnection`; `OnboardingClient`) |
-| Seeds | `pax-libs/ours/bizentity/src/main/assets/{acquirer,config,...}.json` |
+| Seeds | `vendor-pax/libs/ours/bizentity/src/main/assets/{acquirer,config,...}.json` |
 
 ## 4. Branches (as of 2026-10-27)
 
@@ -182,19 +183,20 @@ after**. Each carries docs that match its own code.
   chip sale, tap again. Its handoff: `doc/handoff-2026-10-23.md` (decision log §2, risks §4, SDK
   plan §5).
 - **`transactionOwnsSteps-oct27`** — `transactionOwnsSteps` + the 27/10 work: the PAX modules
-  under `pax-libs/sdk` and `pax-libs/ours` (`62f5206`, `3622d1d`), the EMV reports and the
+  under `vendor-pax/libs/sdk` and `vendor-pax/libs/ours` (`62f5206`, `3622d1d`, `2ab85e5`), the core's
+  packages by owner (`7f59e35`), the EMV reports and the
   `Transaction` ends the transaction (`28d79cb`, `emvFinished`), docs. **New work goes here**
   unless Ebram says otherwise. Nothing on it is device-tested.
 - **`transactionOwnsSteps-clean`** (`e9ad3a6`) and **`transactionOwnsSteps-clean-oct27`**
   (`e4e5d08`) — code-only twins: no tests, no comments, no `doc/`. Kept in step by porting each
   code commit (its `src/main` files with comments stripped by the same tool; Java tokens checked
   equal). `-clean` = `transactionOwnsSteps` @ `30cd5aa` without `196af3b` / `85ef5a4`;
-  `-clean-oct27` = `-oct27` @ `28d79cb` (222 files, 0 token mismatches; `pax-libs/sdk` keeps its
+  `-clean-oct27` = `-oct27` @ `28d79cb` (222 files, 0 token mismatches; `vendor-pax/libs/sdk` keeps its
   comments). Never merge them back.
 - Points on the line: `62d889f` = before any `transactionOwnsSteps` commit; `19cc019` = last
   device-tested; `30cd5aa` = end of 25/10 (= `transactionOwnsSteps`' code); `28d79cb` = end of
   27/10 (= `-oct27`'s code). `git switch -c <name> <commit>` to work from one; after crossing
-  `62f5206` (the `pax-libs/` move) Android Studio needs Sync + Clean / Rebuild.
+  `62f5206` / `2ab85e5` (the PAX module moves) Android Studio needs Sync + Clean / Rebuild.
 - **`Finalvision`** — device-tested 15/10 (direct dispatch); split from this line at
   `4a74277` (14/10) and has 24 commits of its own (the contactless granular stages, params screen
   work) — catch-up in `catchup-finalvision.md`.
@@ -212,7 +214,7 @@ after**. Each carries docs that match its own code.
 - `~/.gradle/gradle.properties` (never committed): `DATABASE_PWD`, `MTOKEN_TEMP`.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
-  `./gradlew :core:testDebugUnitTest`, `:network:…`, `:pax-libs:ours:bizentity:…`, or the green arrow in
+  `./gradlew :core:testDebugUnitTest`, `:network:…`, `:vendor-pax:libs:ours:bizentity:…`, or the green arrow in
   Android Studio. Core: 102 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `TransactionEmvFinishedTest`, `Field55Test`,
   `PosTerminal*Test` (incl. `PosTerminalHostFollowUpTest`: ack / reverse) (tests
@@ -235,10 +237,11 @@ after**. Each carries docs that match its own code.
 
 - Modules: `app` (vendor source sets), `core` (zero vendor imports), `network`, PAX stack
   (`emvflow emvbase emvlib emvlib:base emvlib:dpas emvservice poslib bizlib bizentity
-  commonutils`) — under `pax-libs/`: `pax-libs/sdk/` = PAX's own SDK code (emvbase, emvlib,
-  emvservice, bizlib, poslib, commonutils; touched only for a clear EMV reason), `pax-libs/ours/` =
-  PAX-only modules we write and change (emvflow, bizentity). The Gradle path is the folder (`:pax-libs:sdk:poslib`, `:pax-libs:ours:bizentity`), so
-  Android Studio's Android view groups them too. Only `vendor-pax` depends on them. Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
+  commonutils`) — inside the PAX vendor (`2ab85e5`): `vendor-pax/libs/sdk/` = PAX's own SDK code
+  (emvbase, emvlib, emvservice, bizlib, poslib, commonutils; touched only for a clear EMV reason),
+  `vendor-pax/libs/ours/` = PAX-only modules we write and change (emvflow, bizentity). The Gradle
+  path is the folder (`:vendor-pax:libs:sdk:poslib`, `:vendor-pax:libs:ours:bizentity`), so Android
+  Studio's Android view groups them too. Only `vendor-pax` depends on them. Vendors are flavors with their own `TerminalFactory`. WMRouter can't run on
   AGP 8 → `new X()`.
 - **`PosTerminal`** owns the transaction's whole life. One transaction thread
   (`transactionScheduler` = `Schedulers.from(Executors.newSingleThreadExecutor())`, never

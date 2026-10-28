@@ -3,7 +3,7 @@
 > مكتوب من الكود على `transactionOwnsSteps-oct27` (`9a590d4`، 2026-10-28). كل اسم method هنا موجود فعلاً.
 > **ده الـ REFERENCE بتاع "بعد 27/10".** الكود اللي قبل 27/10 (`30cd5aa`) على `transactionOwnsSteps`، وليه REFERENCE بتاعه.
 > اتجرّب على الجهاز عند `19cc019`: chip، و tap again (form #11) — الاتنين شغالين. باقي الـ form لسه متجرّبش على الـ branch ده.
-> الجديد من بعد `19cc019` (مش متجرّب على الجهاز): الـ acknowledgement / reversal بعد النهاية (§2.7، `3d5fea1` + `30cd5aa`)، والـ trace بيبدأ عدّ الـ GENERATE AC من الأول مع كل retry (§2.5، `196af3b`)، **الـ EMV بيبلّغ نتيجته والـ `Transaction` هي اللي بتقفل** (§3.5، `28d79cb`)، والـ modules بتاعة PAX في `pax-libs/sdk` و `pax-libs/ours` (§1.1)، **والـ transaction بقت ماشية بالـ steps بتاعتها** (TRANSACTION_STARTED / NEXT_ATTEMPT، §2.3، `2e4fbb4`)، واتشال الكود اللي مش مستخدم (28/10).
+> الجديد من بعد `19cc019` (مش متجرّب على الجهاز): الـ acknowledgement / reversal بعد النهاية (§2.7، `3d5fea1` + `30cd5aa`)، والـ trace بيبدأ عدّ الـ GENERATE AC من الأول مع كل retry (§2.5، `196af3b`)، **الـ EMV بيبلّغ نتيجته والـ `Transaction` هي اللي بتقفل** (§3.5، `28d79cb`)، والـ modules بتاعة PAX جوه الـ vendor: `vendor-pax/libs/sdk` و `vendor-pax/libs/ours` (§1.1)، والـ packages بتاعة الـ core متقسمة حسب صاحبها (§1.2)، **والـ transaction بقت ماشية بالـ steps بتاعتها** (TRANSACTION_STARTED / NEXT_ATTEMPT، §2.3، `2e4fbb4`)، واتشال الكود اللي مش مستخدم (28/10).
 > الرسومات نفسها (mermaid) موجودة كمان كصفحة: https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh
 > ⚠ = الكود لسه مش بيعمل اللي المفروض يعمله — الرقم بين قوسين في `doc/BACKLOG.md`.
 > لو الكود اتغير والمرجع لأ — الكود هو الصح، وحدّث المرجع.
@@ -54,9 +54,9 @@
 - **UI**: الشاشات. بتكلم الـ CORE بس.
 - **CORE**: المايسترو، وهو أكبر طبقة. باب واحد للـ UI (`PosTerminal`)، وبيشغّل الـ vendor اللي اتبنى.
 - **VENDOR PAX** / **VENDOR INGENICO**: كل واحد بيملا عقود الـ CORE بالـ SDK بتاعه. الـ Ingenico لسه stub (الخط المتقطع).
-- **EMV LIBS**: مكتبات PAX والـ kernels الـ native، كلها في فولدر `pax-libs/` (اسم الـ Gradle = الفولدر: `:pax-libs:sdk:poslib`، `:pax-libs:ours:bizentity`…، فالـ Android view في Android Studio بيجمّعهم برضه). `vendor-pax` بس اللي بيعتمد عليها. الـ Ingenico SDK لسه مش موجود.
-  - `pax-libs/sdk/`: كود PAX نفسه — `emvlib` (+ `dpas`، `base`)، `emvbase`، `emvservice`، `bizlib`، `poslib`، `commonutils`. متتلمسش إلا لسبب EMV واضح.
-  - `pax-libs/ours/`: modules بتاعة PAX بس إحنا اللي بنكتبها ونعدّل فيها — `emvflow` (الـ runtime: DAL، APDU، PIN، trace) و `bizentity` (الـ DB والـ params: `EmvParamService`، الـ XML parsers، `EmvParamUpdater`، وعليه tests).
+- **EMV LIBS**: مكتبات PAX والـ kernels الـ native، كلها جوه الـ PAX vendor في `vendor-pax/libs/` (اسم الـ Gradle = الفولدر: `:vendor-pax:libs:sdk:poslib`، `:vendor-pax:libs:ours:bizentity`…، فالـ Android view في Android Studio بيجمّعهم برضه). `vendor-pax` بس اللي بيعتمد عليها. الـ Ingenico SDK لسه مش موجود.
+  - `vendor-pax/libs/sdk/`: كود PAX نفسه — `emvlib` (+ `dpas`، `base`)، `emvbase`، `emvservice`، `bizlib`، `poslib`، `commonutils`. متتلمسش إلا لسبب EMV واضح.
+  - `vendor-pax/libs/ours/`: modules بتاعة PAX بس إحنا اللي بنكتبها ونعدّل فيها — `emvflow` (الـ runtime: DAL، APDU، PIN، trace) و `bizentity` (الـ DB والـ params: `EmvParamService`، الـ XML parsers، `EmvParamUpdater`، وعليه tests).
 
 نفس الهرم بالتفاصيل — وبين كل طبقتين العقد الوحيد اللي بيعدّي:
 
@@ -102,26 +102,24 @@ INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
 
 | package | الكلاس | شغلته |
 |---|---|---|
-| `terminal` (الإدارة) | `PosTerminal` | الـ Facade: الباب الوحيد للـ UI. thread واحد، busy، الـ host (90 s)، الطابعة، ack / reverse |
+| `terminal` (الماكينة) | `PosTerminal` | الـ Facade: الباب الوحيد للـ UI. thread واحد، busy، الـ host (90 s)، الطابعة، ack / reverse |
 | | `PosTerminal.Transaction` | عملية واحدة: `end`، الـ steps، الـ cancel، الـ attempts، الـ requests اللي راحت للـ host |
-| | `EmvBehavior` | العقد: `prepare` · `start` · `dispose` |
-| | `AbstractEmvBehavior` | الـ EMV المشترك: `goToStep`، `askStep`، field 55، والـ 16 `onXxx` اللي الـ vendor بيملاها |
+| | `EmvBehavior` / `AbstractEmvBehavior` | الـ vendor seam: `prepare` · `start` · `dispose`؛ `goToStep`، `askStep`، والـ 16 `onXxx`. هنا مش في `emv` لأنه بيكلم الـ `Transaction` بـ calls مقفولة على الـ package (`publish`، `emvFinished`…) |
 | | `TerminalBusyException` | sale تانية وفيه واحدة شغالة |
-| `terminal` (UI بيستنى شخص) | `AbstractAppSelectDialog` | اختيار الـ app: الانتظار، الـ timeout، ومبيختارش الأول من نفسه |
-| | `PinPadBehavior` / `AbstractPinPadBehavior` / `PinKey` | شاشة الـ PIN: النقط والزراير بس (التشفير شغل الـ SDK) |
-| `engine` | `EmvEngine` | كل EMV step للـ dispatch وللـ banner، الـ APDU trace، طلب الـ retry. مالوش دعوة بحالة العملية |
-| `event` | `TransactionStep(Event)` | مراحل العملية للـ UI |
+| `transaction` (العملية) | `TransactionConfig` / `TransactionType` | النوع، المبلغ، طريقة الكارت، field 55، الـ PIN block، `asyncRequestId`؛ sale / refund / cash in |
+| | `TransactionStep(Event)` | الـ steps بتاعة العملية: بتتعرض للشاشة، و TRANSACTION_STARTED / NEXT_ATTEMPT بيشغّلوها |
+| `emv` | `EmvEngine` | كل EMV step للـ dispatch وللـ banner، الـ APDU trace، طلب الـ retry. مالوش دعوة بحالة العملية |
 | | `EmvStep(Event)` | الـ 17 خطوة بتاعة الـ kernel |
-| `card` | `TransactionConfig` | النوع، المبلغ، طريقة الكارت، field 55، الـ PIN block، `asyncRequestId` |
-| | `CardPresence` / `CardSearchListener` | الكارت اللي اتلقى، و events البحث |
-| | `EmvTransactionResult` | اللي اتقرا من الكارت والـ host محتاجه |
-| | `Field55` | field 55 من الـ tags، نفس الطريقة لكل vendor |
-| | `EntryMethod` / `TransactionType` | chip / tap / swipe / manual؛ sale / refund / cash in |
-| `host` | `CommunicationBehavior` | الـ host: `authorize` · `acknowledge` · `reverse` |
+| | `EmvTransactionResult` / `Field55` | اللي اتقرا من الكارت والـ host محتاجه؛ field 55 من الـ tags |
+| | `ApduTrace` | سجل الـ APDU والـ steps (debug) |
+| `card` | `CardPresence` / `CardSearchListener` / `EntryMethod` | الكارت اللي اتلقى، و events البحث؛ chip / tap / swipe / manual |
+| `host` (البنك) | `CommunicationBehavior` | الـ host: `authorize` · `acknowledge` · `reverse` |
 | | `AuthResult` | approved / declined / failed / notSent |
 | | `HostNotReachedException` | "الـ host مستحيل يكون وافق": مفيش reversal |
 | | `PrinterBehavior` / `HostDefaults` | الطابعة؛ host وطابعة وهميين للـ demo |
-| `param` · `util` | `EmvParams` / `ApduTrace` / `EmvLog` | عقد شاشة الـ params؛ سجل الـ APDU (debug)؛ الـ logs |
+| `cardholder` (بيستنى العميل) | `AbstractAppSelectDialog` | اختيار الـ app: الانتظار، الـ timeout، ومبيختارش الأول من نفسه |
+| | `PinPadBehavior` / `AbstractPinPadBehavior` / `PinKey` | شاشة الـ PIN: النقط والزراير بس (التشفير شغل الـ SDK) |
+| `param` · `util` | `EmvParams` / `EmvLog` | عقد شاشة الـ params؛ الـ logs |
 
 **NETWORK** — `:network`. الكلام مع الـ host بتاعنا. بيملا `CommunicationBehavior` ومبيعرفش أي vendor.
 
@@ -151,7 +149,7 @@ INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
 
 **VENDOR INGENICO** — `:vendor-ingenico`. نفس العقود بس stub (كارت ونتيجة وهميين) لحد ما الـ SDK يتركب: `TerminalFactory`، `VendorApplication`، `IngenicoTerminal` (`extends PosTerminal`)، `IngenicoEmvBehavior` (`extends AbstractEmvBehavior`).
 
-**EMV LIBS (PAX)** — فولدر `pax-libs/` (`sdk/` كود PAX، `ours/` كودنا: `emvflow` و `bizentity`). الـ SDK والـ kernels الـ native المعتمدة؛ الـ vendor-pax بس اللي بيكلمها.
+**EMV LIBS (PAX)** — فولدر `vendor-pax/libs/` (`sdk/` كود PAX، `ours/` كودنا: `emvflow` و `bizentity`). الـ SDK والـ kernels الـ native المعتمدة؛ الـ vendor-pax بس اللي بيكلمها.
 
 | الجزء | الـ module | شغلته |
 |---|---|---|
@@ -184,7 +182,7 @@ INGENICO SDK                   Tetra / Axium — لسه مش في المشروع
 │                     implements IContactCallback, IContactlessCallback                 │
 │                   PaxKernel { params, contact, contactless, mag } · PaxEmvParams      │
 └──────────────────────────────────────┬───────────────────────────────────────────────┘
-┌──────────── pax-libs/ — sdk/ = كود PAX (متتلمسش إلا لسبب EMV) · ours/ = emvflow, bizentity ┐
+┌──────────── vendor-pax/libs/ — sdk/ = كود PAX (متتلمسش إلا لسبب EMV) · ours/ = emvflow, bizentity ┐
 │ :emvlib:dpas   ContactProcess + EmvCallBackListener ──► EMVCallback.EMV* (native)     │
 │ :emvlib        ClssProcess ──► ClssKernelProcessFactory ──► Clss{PayPass,PayWave,EFT,  │
 │                AE,Jcb,Mir,Pboc,Pure,RuPay,Dpas}Process ──► Clss*Api (native)           │
@@ -1133,10 +1131,12 @@ prepare → onTerminalInitialization → prepareKernel(config)
 
 | Package | Contents |
 |---------|----------|
-| `terminal` | `PosTerminal` (owns host + printer), `EmvBehavior` (EMV only) |
-| `engine` | `EmvEngine` |
-| `card` | `EntryMethod`, `CardPresence`, `CardSearchListener`, `TransactionConfig` |
-| `event` | `TransactionStep(Event)`, `EmvStep(Event)` |
+| `terminal` | `PosTerminal` (+ `Transaction`; owns host + printer), `EmvBehavior` / `AbstractEmvBehavior` (the vendor seam), `TerminalBusyException` |
+| `transaction` | `TransactionConfig`, `TransactionType`, `TransactionStep(Event)` |
+| `emv` | `EmvEngine`, `EmvStep(Event)`, `EmvTransactionResult`, `Field55`, `ApduTrace` |
+| `card` | `EntryMethod`, `CardPresence`, `CardSearchListener` |
+| `cardholder` | `AbstractAppSelectDialog`, `PinPadBehavior`, `AbstractPinPadBehavior`, `PinKey` |
+| `param` · `util` | `EmvParams` · `EmvLog` |
 | `host` | `CommunicationBehavior` (`authorize`, `acknowledge`, `reverse`), `PrinterBehavior`, `AuthResult` (`approved` / `declined` / `failed` / `notSent`), `HostNotReachedException` — owned by PosTerminal |
 
 ### `:network` — `com.emvenhance.network.*`

@@ -20,7 +20,7 @@ Re-checked item by item against the code (not device-tested unless said). In the
 ✅ = fixed, ◐ = partly; the rest are still open as written.
 Device-tested on `19cc019`: chip sale and tap again (form #11) — both work. Nothing after
 `19cc019` is device-tested (ack / reversal, not-sent failures, `emvFinished`, the trace retry
-label, the `pax-libs/` move).
+label, the PAX module moves — `pax-libs/`, then `vendor-pax/libs/` — and the core's packages by owner).
 
 **New since 25/10** (`3d5fea1`, `30cd5aa`, `28d79cb`; see `REFERENCE.md` §2.7):
 - **0.5 ◐** acknowledgement / reversal are sent after the end (below).

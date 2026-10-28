@@ -11,7 +11,7 @@ no Rx). Never commit to, push to or rewrite `transactionOwnsSteps-oct27`,
 `git show` / `git diff`.
 
 **Goal.** `coroutineDesign` (today `870eb83`, 22/10) reaches the same stage as
-`transactionOwnsSteps-oct27` (`9a590d4`, 28/10): every fix, every simplification, every removal,
+`transactionOwnsSteps-oct27` (`2ab85e5`, 28/10): every fix, every simplification, every removal,
 the same tests — in Kotlin. The shared Java modules end byte-identical.
 
 **Read first** (on `transactionOwnsSteps-oct27`, fetch it):
@@ -59,7 +59,7 @@ Propose this mapping and wait for his decision:
   still delivered by `onEnd` after `current` is cleared.
 
 **Done when** (`doc/catchup-coroutine.md` §4): the Kotlin does what the Java does, same tests and
-mutation checks; `git diff coroutineDesign:pax-libs transactionOwnsSteps-oct27:pax-libs` is empty;
+mutation checks; `git diff coroutineDesign:vendor-pax/libs transactionOwnsSteps-oct27:vendor-pax/libs` is empty;
 the device form gets a `coroutineDesign` column. Nothing on either branch after `19cc019` is
 device-tested yet — say so in every report.
 

@@ -1,8 +1,8 @@
 # catchup-coroutine.md — bring `coroutineDesign` to `transactionOwnsSteps-oct27`
 
 Compared on 2026-10-28: **`coroutineDesign` @ `870eb83`** (its last commit, 22/10) against
-**`transactionOwnsSteps-oct27` @ `9a590d4`** (everything done so far). Both grew from `ae25378`
-(20/10): `coroutineDesign` has 21 commits of its own, `-oct27` has 73.
+**`transactionOwnsSteps-oct27` @ `2ab85e5`** (everything done so far). Both grew from `ae25378`
+(20/10): `coroutineDesign` has 21 commits of its own, `-oct27` has 77.
 
 **Prompt to paste in the coroutineDesign thread:**
 
@@ -31,7 +31,7 @@ Compared on 2026-10-28: **`coroutineDesign` @ `870eb83`** (its last commit, 22/1
 | EMV dispatch | plain listener (`setEmvStepHandler`) | `EmvStepObserver` on `emvSteps` (synchronous `PublishSubject`) |
 | Engine | lives in `PosTerminal`, passed around | kept only in `AbstractEmvBehavior` (`attach` once, `engine()`); `EmvBehavior` = `prepare` / `start` / `dispose` |
 | Host after the end | nothing (no ack, no reversal) | acknowledgement / reversal; `notSent` failures not reversed; errors name their step |
-| PAX modules | at the repo root (`:emvlib`, `:bizentity`…) | `pax-libs/sdk/*` and `pax-libs/ours/*` (`:pax-libs:sdk:emvlib`…) |
+| PAX modules | at the repo root (`:emvlib`, `:bizentity`…) | `vendor-pax/libs/sdk/*` and `vendor-pax/libs/ours/*` (`:vendor-pax:libs:sdk:emvlib`…); core packages by owner |
 | Payment-safety fixes (step1), params fixes (step2), UI (step3) | not ported | in |
 | Unused code | still there (`RetrofitCommunicationBehavior`, `onCardRemoved`, …) | removed |
 | Device-tested | no | `19cc019` (chip, tap again); nothing after it |
@@ -55,7 +55,7 @@ Net zero on `-oct27`, skip: `be8836f` + `392936b` (moved, then reverted), `0e12c
 
 ## 3. Still to port, in order
 
-Shared Java modules today (`git diff 870eb83:<m> transactionOwnsSteps-oct27:pax-libs/<sdk|ours>/<m>`):
+Shared Java modules today (`git diff 870eb83:<m> transactionOwnsSteps-oct27:vendor-pax/libs/<sdk|ours>/<m>`):
 `bizentity` 8 files, `emvlib` 4 files; `emvbase`, `poslib`, `commonutils`, `bizlib`,
 `emvservice`, `emvflow` only their `build.gradle` (module paths). Apply those diffs as is.
 
@@ -94,7 +94,8 @@ Shared Java modules today (`git diff 870eb83:<m> transactionOwnsSteps-oct27:pax-
 
 | Step | Source | What / Kotlin notes |
 |---|---|---|
-| V1 | `62f5206` + `3622d1d` + `173ebf7` | PAX modules under `pax-libs/sdk` (emvbase, emvlib, emvservice, bizlib, poslib, commonutils) and `pax-libs/ours` (emvflow, bizentity); Gradle paths = folders (`:pax-libs:sdk:poslib`…), 29 `project(...)` lines. Folder moves only (`git mv`) |
+| V1 | `62f5206` + `3622d1d` + `173ebf7` + `2ab85e5` | PAX modules inside the PAX vendor: `vendor-pax/libs/sdk` (emvbase, emvlib, emvservice, bizlib, poslib, commonutils) and `vendor-pax/libs/ours` (emvflow, bizentity); Gradle paths = folders (`:vendor-pax:libs:sdk:poslib`…), 29 `project(...)` lines. Folder moves only (`git mv`) — go straight to the final layout |
+| V1b | `7f59e35` | Core packages by owner: `terminal` (PosTerminal + Transaction, EmvBehavior / AbstractEmvBehavior — kept with the Transaction for its package-private calls), `transaction`, `emv`, `card`, `host`, `cardholder`, `param`, `util`. Kotlin: the same packages; `internal` is module-wide, so package-private here becomes `internal` only if nothing outside `terminal` must be kept out |
 | V2 | `28d79cb` | The EMV reports, the Transaction ends: `finish*` → `Transaction.emvFinished(outcome)` sets outcome + end under one lock; a behavior's `publish` drops outcome / end steps (`TransactionEmvFinishedTest`) |
 | V3 | `2e4fbb4` | **Design decision first.** The transaction runs from its own steps: `begin()` subscribes a step observer on the transaction thread, publishes `TRANSACTION_STARTED`; `NEXT_ATTEMPT` (new step) for a retry; `onEnd` = the old finally. Kotlin: a collector of the transaction's `steps` launched on the single-thread transaction dispatcher, cancelled in `onEnd`. This goes against the Kotlin rule "the transaction on its executor (never `launch`)" below — Ebram decides how it maps before porting |
 | V4 | `3a2a25a` | Tests: wait for the end to reach the list the test reads (`awaitEnd`); copy before `subList` |
@@ -105,7 +106,7 @@ Shared Java modules today (`git diff 870eb83:<m> transactionOwnsSteps-oct27:pax-
 
 - The Kotlin files do what `transactionOwnsSteps-oct27`'s Java does (same tests, same mutations).
 - The shared Java modules are identical:
-  `git diff coroutineDesign:pax-libs transactionOwnsSteps-oct27:pax-libs` is empty.
+  `git diff coroutineDesign:vendor-pax/libs transactionOwnsSteps-oct27:vendor-pax/libs` is empty.
 - Device form: a `coroutineDesign` column with the same rows as `transactionOwnsSteps-oct27`.
 
 ---
