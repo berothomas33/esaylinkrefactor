@@ -34,9 +34,10 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
     /**
      * The transaction this screen started: the one thing it keeps about it. A screen collects its
      * steps ([PosTerminal.Transaction.steps], replayed from its first after a rotation) and
-     * cancels it — that one only, never another's. `null`: none, or the last start was refused
-     * (busy) — a refused screen shows nothing of, and cancels nothing of, the transaction still
-     * there. A `StateFlow` of the handle only; the steps are never in a `StateFlow`.
+     * cancels it — that one only, never another's. `null`: this screen started none. A refused
+     * (busy) start leaves it as it was: if this screen's own earlier sale is what keeps the
+     * terminal busy, it keeps the handle to cancel it (onCleared included) — a second start never
+     * drops the first one. A `StateFlow` of the handle only; the steps are never in a `StateFlow`.
      */
     private val _transaction = MutableStateFlow<PosTerminal.Transaction?>(null)
     val transaction: StateFlow<PosTerminal.Transaction?> = _transaction.asStateFlow()
@@ -88,7 +89,6 @@ class MainViewModel(private val terminal: PosTerminal) : ViewModel() {
         try {
             _transaction.value = terminal.acceptCard(type, amountMinor, referenceNumber)
         } catch (busy: TerminalBusyException) {
-            _transaction.value = null
             _terminalBusy.trySend(Unit)
         }
     }

@@ -11,6 +11,8 @@ import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.annotation.StringRes
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
@@ -85,10 +87,17 @@ class SearchCardFragment : Fragment() {
         }
 
         val btnCancelSearch = view.findViewById<View>(R.id.btnCancelSearch)
-        btnCancelSearch.setOnClickListener {
-            viewModel.cancel()
-            requireActivity().finish()
-        }
+        btnCancelSearch.setOnClickListener { cancelAndClose() }
+        // Back is Cancel: leaving the search screen must not leave its sale running unseen (the
+        // search, the kernel, maybe the host) with no screen to show how it ends.
+        requireActivity().onBackPressedDispatcher.addCallback(
+            viewLifecycleOwner,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    cancelAndClose()
+                }
+            },
+        )
 
         val outcomeGroup = view.findViewById<View>(R.id.outcomeGroup)
         view.findViewById<View>(R.id.btnOutcomeDone).setOnClickListener { requireActivity().finish() }
@@ -145,20 +154,27 @@ class SearchCardFragment : Fragment() {
                 }
             }
 
-            // Final outcome. A card-search timeout, reader failure, kernel/PIN error or host
-            // failure all end in ERROR (never followed by COMPLETED); a decline ends in DECLINED
-            // — the cardholder sees both as a declined transaction, with the reason under it.
+            // Final outcome, each with its own title: a decline (the card or the issuer said no),
+            // a failure (card search timeout, reader, kernel/PIN error, host didn't answer —
+            // never "declined", the card may be fine), or a cancel. The reason goes under it.
             when (step) {
                 TransactionStep.APPROVED -> {
-                    showOutcome(view, true, event.get<Any>(TransactionStepEvent.KEY_RESULT))
+                    showOutcome(view, R.string.outcome_approved, true, event.get<Any>(TransactionStepEvent.KEY_RESULT))
                     btnCancelSearch.visibility = View.GONE
                 }
                 TransactionStep.DECLINED -> {
-                    showOutcome(view, false, event.get<Any>(TransactionStepEvent.KEY_ERROR))
+                    showOutcome(view, R.string.outcome_declined, false, event.get<Any>(TransactionStepEvent.KEY_ERROR))
                     btnCancelSearch.visibility = View.GONE
                 }
-                TransactionStep.ERROR, TransactionStep.CANCELLED -> {
-                    showOutcome(view, false, event.message ?: event.get<Any>(TransactionStepEvent.KEY_ERROR))
+                TransactionStep.ERROR -> {
+                    showOutcome(
+                        view, R.string.outcome_failed, false,
+                        event.message ?: event.get<Any>(TransactionStepEvent.KEY_ERROR),
+                    )
+                    btnCancelSearch.visibility = View.GONE
+                }
+                TransactionStep.CANCELLED -> {
+                    showOutcome(view, R.string.outcome_cancelled, false, null)
                     btnCancelSearch.visibility = View.GONE
                 }
                 TransactionStep.TRANSACTION_STARTED -> {
@@ -262,6 +278,13 @@ class SearchCardFragment : Fragment() {
         return traceText
     }
 
+
+    /** Cancels this screen's transaction (CANCELLING, then CANCELLED once stopped) and closes. */
+    private fun cancelAndClose() {
+        viewModel.cancel()
+        requireActivity().finish()
+    }
+
     companion object {
         private const val ARG_TRANSACTION_TYPE = "transactionType"
         private const val ARG_AMOUNT_MINOR = "amountMinor"
@@ -282,11 +305,10 @@ class SearchCardFragment : Fragment() {
             return fragment
         }
 
-        private fun showOutcome(view: View, approved: Boolean, reason: Any?) {
+        private fun showOutcome(view: View, @StringRes title: Int, approved: Boolean, reason: Any?) {
             val group = view.findViewById<View>(R.id.outcomeGroup)
             group.setBackgroundColor(if (approved) 0xFF2E7D32.toInt() else 0xFFC62828.toInt())
-            view.findViewById<TextView>(R.id.outcomeTitle)
-                .setText(if (approved) R.string.outcome_approved else R.string.outcome_declined)
+            view.findViewById<TextView>(R.id.outcomeTitle).setText(title)
             val reasonText = view.findViewById<TextView>(R.id.outcomeReason)
             reasonText.text = reason?.toString() ?: ""
             reasonText.visibility = if (reason != null) View.VISIBLE else View.GONE
@@ -295,7 +317,7 @@ class SearchCardFragment : Fragment() {
             group.visibility = View.VISIBLE
 
             val banner = view.findViewById<TextView>(R.id.emvStepBanner)
-            banner.setText(if (approved) R.string.outcome_approved else R.string.outcome_declined)
+            banner.setText(title)
         }
 
         /**
@@ -304,9 +326,7 @@ class SearchCardFragment : Fragment() {
          * so nothing to cancel — Try again, or Done.
          */
         private fun showBusy(view: View) {
-            showOutcome(view, false, view.context.getString(R.string.terminal_busy_reason))
-            view.findViewById<TextView>(R.id.outcomeTitle).setText(R.string.outcome_terminal_busy)
-            view.findViewById<TextView>(R.id.emvStepBanner).setText(R.string.outcome_terminal_busy)
+            showOutcome(view, R.string.outcome_terminal_busy, false, view.context.getString(R.string.terminal_busy_reason))
             view.findViewById<View>(R.id.methodSelectionGroup).visibility = View.GONE
             view.findViewById<View>(R.id.btnCancelSearch).visibility = View.GONE
         }

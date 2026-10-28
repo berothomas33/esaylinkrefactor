@@ -112,9 +112,12 @@ class PaxTerminal private constructor(
 
     override fun searchCard(config: TransactionConfig, listener: CardSearchListener): CardPresence? {
         if (config.isManual) {
+            // Manual entry isn't implemented (no PAN entry screen): end it with a clear ERROR. A
+            // card returned with no listener callback ended as "Transaction ended without an
+            // outcome"; starting EMV on it would go online with no PAN.
             listener.onSearchStarted(config)
-            //            listener.onManualEntrySelected(card);
-            return CardPresence.manual(null)
+            listener.onReaderError("Manual entry is not available on this terminal yet")
+            return null
         }
 
         val dal = EmvFlowRuntime.getDal()
