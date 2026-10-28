@@ -17,7 +17,6 @@ import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.cardholder.AbstractAppSelectDialog;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
-import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.device.EmvDeviceImpl;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
@@ -86,28 +85,34 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private final PaxKernel kernel;
 
+    private final PaxCardSearch cardSearch;
+
     private boolean clsLastNeedSeePhone;
 
     private volatile PaxTransactionState tx = new PaxTransactionState();
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
-    }
-
-    @Override
-    public boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
-        tx = new PaxTransactionState();
-        super.prepare(config, transaction);
-        return tx.initOk && isRunning();
+        this.cardSearch = new PaxCardSearch(kernel, () -> !isRunning());
     }
 
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
+        tx = new PaxTransactionState();
         EmvDeviceImpl.getInstance().setApduTrace(engine().apduTrace());
         if (!prepareKernel(config)) {
-            tx.initOk = false;
             finishError("Terminal initialization failed");
         }
+    }
+
+    @Override
+    public void onSearchCard(TransactionConfig config, @Nullable CardPresence card) {
+        cardSearch.search(config, cardSearchListener(), engine().apduTrace());
+    }
+
+    @Override
+    public void cancelCardSearch() {
+        cardSearch.stop();
     }
 
     @Override

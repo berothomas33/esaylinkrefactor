@@ -1,13 +1,10 @@
 package com.emvenhance.core.terminal;
 
 import androidx.annotation.Nullable;
-import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.emv.EmvEngine;
-import com.emvenhance.core.emv.EmvStep;
 import com.emvenhance.core.emv.EmvStepEvent;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
@@ -145,11 +142,6 @@ public abstract class PosTerminal {
         return current.get() != null;
     }
 
-    public final boolean isSearchCancelled() {
-        Transaction transaction = current.get();
-        return transaction != null && !transaction.isRunning();
-    }
-
     private void publish(TransactionStepEvent event) {
         Transaction transaction = current.get();
         if (transaction == null) {
@@ -208,11 +200,6 @@ public abstract class PosTerminal {
         return null;
     }
 
-    @Nullable
-    public abstract CardPresence searchCard(TransactionConfig config, CardSearchListener listener);
-
-    protected abstract void cancelCardSearch();
-
     protected void initializeVendor() {
     }
 
@@ -242,7 +229,7 @@ public abstract class PosTerminal {
                 deliver(TransactionStepEvent.of(TransactionStep.CANCELLING,
                         "Cancelling — finishing with the card"));
             }
-            cancelCardSearch();
+            behavior.cancelCardSearch();
         }
 
         boolean isRunning() {
@@ -311,8 +298,6 @@ public abstract class PosTerminal {
 
         @Nullable
         private DisposableObserver<TransactionStepEvent> dispatch;
-        @Nullable
-        private TransactionConfig nextAttemptConfig;
         private boolean finished;
 
         private final class TransactionStepObserver extends DisposableObserver<TransactionStepEvent> {
@@ -345,9 +330,6 @@ public abstract class PosTerminal {
                 case TRANSACTION_STARTED:
                     onTransactionStarted(event);
                     break;
-                case NEXT_ATTEMPT:
-                    onNextAttempt();
-                    break;
                 default:
                     break;
             }
@@ -356,34 +338,10 @@ public abstract class PosTerminal {
         private void onTransactionStarted(TransactionStepEvent started) {
             behavior.engine().begin();
             traceTransactionStep(started);
-            runAttempt(config);
-        }
-
-        private void onNextAttempt() {
-            TransactionConfig retry = nextAttemptConfig;
-            nextAttemptConfig = null;
-            if (retry == null) {
-                EmvLog.d("NEXT_ATTEMPT with no retry config — ignored");
-                return;
+            if (isRunning()) {
+                behavior.run(config, this);
             }
-            runAttempt(retry);
-        }
-
-        private void runAttempt(TransactionConfig attemptConfig) {
-            TransactionConfig retry = isRunning() ? attempt(attemptConfig) : null;
-            boolean next = false;
-            if (retry != null) {
-                synchronized (steps) {
-                    if (end == null) {
-                        nextAttemptConfig = retry;
-                        deliver(TransactionStepEvent.of(TransactionStep.NEXT_ATTEMPT));
-                        next = true;
-                    }
-                }
-            }
-            if (!next) {
-                onEnd();
-            }
+            onEnd();
         }
 
         private void onEnd() {
@@ -442,121 +400,6 @@ public abstract class PosTerminal {
             }
             return followUps;
         }
-
-        @Nullable
-        private TransactionConfig attempt(TransactionConfig config) {
-            if (!behavior.prepare(config, this)) {
-                publish(errorEvent("Terminal initialization failed"));
-                return null;
-            }
-            searchCard(config, new EngineReportingListener(config));
-            TransactionConfig retry = behavior.engine().consumePendingRetry();
-            if (retry != null && !isRunning()) {
-                EmvLog.d("Retry dropped: the transaction is over");
-                apduTrace().note("EMV", "retry dropped — the transaction is over");
-            }
-            return retry;
-        }
-
-        private final class EngineReportingListener implements CardSearchListener {
-
-            private final TransactionConfig config;
-
-            EngineReportingListener(TransactionConfig config) {
-                this.config = config;
-            }
-
-            private boolean isStale(String callback) {
-                if (!isRunning()) {
-                    EmvLog.d("Ignored " + callback + " from a search whose transaction is over");
-                    return true;
-                }
-                return false;
-            }
-
-            @Override
-            public void onSearchStarted(TransactionConfig config) {
-                if (isStale("onSearchStarted")) {
-                    return;
-                }
-                String prompt = behavior.engine().consumeRetryPrompt();
-                String msg = prompt != null ? prompt : waitingMessage(config);
-                TransactionStepEvent.Builder waiting = TransactionStepEvent
-                        .builder(TransactionStep.WAITING_FOR_CARD).message(msg);
-                if (prompt != null) {
-                    waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt);
-                }
-                publish(waiting.build());
-                behavior.engine().notifyEmvStep(EmvStep.SEARCH_CARD, msg);
-            }
-
-            @Override
-            public void onChipDetected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onContactlessDetected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onMagstripeDetected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onManualEntrySelected(CardPresence card) {
-                handleCardFound(card);
-            }
-
-            @Override
-            public void onSearchTimeout() {
-                if (isStale("onSearchTimeout")) {
-                    return;
-                }
-                publish(errorEvent("No card presented — card search timed out"));
-            }
-
-            @Override
-            public void onSearchCancelled() {
-                if (isStale("onSearchCancelled")) {
-                    return;
-                }
-                publish(errorEvent("Card search cancelled"));
-            }
-
-            @Override
-            public void onReaderError(String message) {
-                if (isStale("onReaderError")) {
-                    return;
-                }
-                publish(errorEvent(message != null ? message : "Reader error"));
-            }
-
-            @Override
-            public void onSearchRetry(String message) {
-                if (isStale("onSearchRetry")) {
-                    return;
-                }
-                publish(TransactionStepEvent.builder(
-                        TransactionStep.WAITING_FOR_CARD).message(message)
-                        .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build());
-                behavior.engine().notifyEmvStep(EmvStep.SEARCH_CARD, message);
-            }
-
-            private void handleCardFound(CardPresence card) {
-                if (isStale("card detected")) {
-                    return;
-                }
-                publish(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                        .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
-                        .put("entryMethod", card.getEntryMethod().name())
-                        .build());
-
-                behavior.start(config, card, Transaction.this);
-            }
-        }
     }
 
     private static final class OnlineRequest {
@@ -582,21 +425,5 @@ public abstract class PosTerminal {
                 .message(error)
                 .put(TransactionStepEvent.KEY_ERROR, error)
                 .build();
-    }
-
-    private static String waitingMessage(TransactionConfig config) {
-        if (config.getMode() == EntryMethod.ANY) {
-            return "Insert, tap, or swipe";
-        }
-        if (config.isContact()) {
-            return "Insert card";
-        }
-        if (config.isMagstripe()) {
-            return "Swipe card";
-        }
-        if (config.isManual()) {
-            return "Enter card number";
-        }
-        return "Tap card";
     }
 }

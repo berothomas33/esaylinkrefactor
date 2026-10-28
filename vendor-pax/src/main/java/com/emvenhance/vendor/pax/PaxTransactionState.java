@@ -65,8 +65,6 @@ final class PaxTransactionState {
     @Nullable
     String lastIccData;
 
-    boolean initOk = true;
-
     boolean onlineRequested;
 
     boolean scriptsProcessed;

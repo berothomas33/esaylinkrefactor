@@ -2,6 +2,8 @@ package com.emvenhance.core.terminal;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
+import com.emvenhance.core.card.CardSearchListener;
+import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.emv.Field55;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.emv.EmvEngine;
@@ -23,6 +25,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected CardPresence activeCard;
     @Nullable
     private PosTerminal.Transaction transaction;
+    @Nullable
+    private CardSearchListener cardSearch;
 
     private final CompositeDisposable disposables = new CompositeDisposable();
 
@@ -35,24 +39,53 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     @Override
-    public boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
+    public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
+        TransactionConfig attempt = config;
+        while (attempt != null) {
+            if (prepare(attempt, transaction)) {
+                searchCard();
+            }
+            attempt = nextAttempt();
+        }
+    }
+
+    boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
         this.transaction = transaction;
         initEmvObserver();
         this.activeConfig = config;
         this.activeCard = null;
-
         enterStep(EmvStep.TERMINAL_INITIALIZATION);
         return isRunning();
     }
 
-    @Override
-    public void start(TransactionConfig config, CardPresence card,
-            PosTerminal.Transaction transaction) {
-        this.transaction = transaction;
-        this.activeConfig = config;
-        this.activeCard = card;
+    private void searchCard() {
+        String prompt = engine.consumeRetryPrompt();
+        String message = prompt != null ? prompt : waitingMessage(activeConfig);
+        cardSearch = new CardSearchReporter(transaction, prompt, message);
+        goToStep(EmvStep.SEARCH_CARD, message);
+    }
 
+    void start(CardPresence card) {
+        this.activeCard = card;
         goToStep(firstStepAfterSearch(card));
+    }
+
+    @Nullable
+    private TransactionConfig nextAttempt() {
+        TransactionConfig retry = engine.consumePendingRetry();
+        if (retry == null) {
+            return null;
+        }
+        if (!isRunning()) {
+            EmvLog.d("Retry dropped: the transaction is over");
+            engine.apduTrace().note("EMV", "retry dropped — the transaction is over");
+            return null;
+        }
+        return retry;
+    }
+
+    protected final CardSearchListener cardSearchListener() {
+        return cardSearch;
     }
 
     @Override
@@ -217,8 +250,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected abstract void onTerminalInitialization(TransactionConfig config);
 
-    protected void onSearchCard(TransactionConfig config, CardPresence card) {
-    }
+    protected abstract void onSearchCard(TransactionConfig config, @Nullable CardPresence card);
 
     protected abstract void onApplicationSelection(TransactionConfig config, CardPresence card);
 
@@ -360,5 +392,122 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return;
         }
         finishError("Unknown EMV step: " + step);
+    }
+    private static String waitingMessage(TransactionConfig config) {
+        if (config.getMode() == EntryMethod.ANY) {
+            return "Insert, tap, or swipe";
+        }
+        if (config.isContact()) {
+            return "Insert card";
+        }
+        if (config.isMagstripe()) {
+            return "Swipe card";
+        }
+        if (config.isManual()) {
+            return "Enter card number";
+        }
+        return "Tap card";
+    }
+
+    private final class CardSearchReporter implements CardSearchListener {
+
+        private final PosTerminal.Transaction owner;
+        @Nullable
+        private final String retryPrompt;
+        private final String message;
+
+        CardSearchReporter(PosTerminal.Transaction owner, @Nullable String retryPrompt,
+                String message) {
+            this.owner = owner;
+            this.retryPrompt = retryPrompt;
+            this.message = message;
+        }
+
+        private boolean isStale(String callback) {
+            if (!owner.isRunning()) {
+                EmvLog.d("Ignored " + callback + " from a search whose transaction is over");
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void onSearchStarted(TransactionConfig config) {
+            if (isStale("onSearchStarted")) {
+                return;
+            }
+            TransactionStepEvent.Builder waiting = TransactionStepEvent
+                    .builder(TransactionStep.WAITING_FOR_CARD).message(message);
+            if (retryPrompt != null) {
+                waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, retryPrompt);
+            }
+            owner.publish(waiting.build());
+        }
+
+        @Override
+        public void onChipDetected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onContactlessDetected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onMagstripeDetected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onManualEntrySelected(CardPresence card) {
+            cardFound(card);
+        }
+
+        @Override
+        public void onSearchTimeout() {
+            if (isStale("onSearchTimeout")) {
+                return;
+            }
+            owner.publish(PosTerminal.errorEvent("No card presented — card search timed out"));
+        }
+
+        @Override
+        public void onSearchCancelled() {
+            if (isStale("onSearchCancelled")) {
+                return;
+            }
+            owner.publish(PosTerminal.errorEvent("Card search cancelled"));
+        }
+
+        @Override
+        public void onReaderError(String message) {
+            if (isStale("onReaderError")) {
+                return;
+            }
+            owner.publish(PosTerminal.errorEvent(message != null ? message : "Reader error"));
+        }
+
+        @Override
+        public void onSearchRetry(String message) {
+            if (isStale("onSearchRetry")) {
+                return;
+            }
+            owner.publish(TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD)
+                    .message(message)
+                    .put(TransactionStepEvent.KEY_RETRY_PROMPT, message)
+                    .build());
+        }
+
+        private void cardFound(CardPresence card) {
+            if (isStale("card detected")) {
+                return;
+            }
+            owner.publish(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+                    .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
+                    .put("entryMethod", card.getEntryMethod().name())
+                    .build());
+            start(card);
+        }
     }
 }
