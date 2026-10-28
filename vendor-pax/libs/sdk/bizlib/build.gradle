@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.pax.emvbase'
+    namespace 'com.pax.bizlib'
     compileSdk rootProject.compileSdkVersion
 
     defaultConfig {
@@ -38,6 +38,9 @@ android {
 }
 
 dependencies {
-    api fileTree(dir: 'libs', include: ['*.jar'])
-    api project(':pax-libs:sdk:commonutils')
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
+    api project(':vendor-pax:libs:sdk:poslib')
+    api project(':vendor-pax:libs:ours:bizentity')
+    api project(':vendor-pax:libs:sdk:commonutils')
 }

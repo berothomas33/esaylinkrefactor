@@ -45,8 +45,8 @@ android {
 dependencies {
 
     api fileTree(include: ["*.jar"], dir: "libs")
-    api project(":pax-libs:sdk:emvbase")
-    api project(":pax-libs:sdk:emvlib:dpas")
+    api project(":vendor-pax:libs:sdk:emvbase")
+    api project(":vendor-pax:libs:sdk:emvlib:dpas")
     testImplementation "junit:junit:$rootProject.junit"
 
 }

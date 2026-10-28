@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.pax.emvservice'
+    namespace 'com.pax.poslib'
     compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
@@ -14,12 +14,12 @@ android {
 
     buildTypes {
         release {
-
+            
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-
+            
         }
     }
 
@@ -36,16 +36,26 @@ android {
         abortOnError false
     }
 
+    packaging {
+        jniLibs {
+            keepDebugSymbols += ["**/libimgprocessing.so"]
+            useLegacyPackaging = true
+        }
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
 }
+
+apply from: rootProject.file("gradle/package-armeabi-as-v7a.gradle")
 
 dependencies {
 
     api fileTree(include: ["*.jar"], dir: "libs")
-    api project(":pax-libs:ours:bizentity")
-    api project(":pax-libs:sdk:emvbase")
-    api project(":pax-libs:sdk:emvlib")
-    api project(":pax-libs:sdk:commonutils")
-    api project(":pax-libs:sdk:bizlib")
-    api project(":pax-libs:sdk:poslib")
+    api files("libs/nativetouchevent-release.aar")
+    api project(":vendor-pax:libs:sdk:commonutils")
+    testImplementation "junit:junit:$rootProject.junit"
 
 }

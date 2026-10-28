@@ -24,18 +24,18 @@ include ':vendor-ingenico'
 include ':vendor-pax'
 include ':network'
 
-// PAX EMV stack, under pax-libs/ — only :vendor-pax depends on it (core, app/src/main, network,
-// fake and ingenico never import com.pax). The Gradle path is the folder, so Android Studio's
-// Android view groups them too:
-//   pax-libs/sdk  — PAX's own SDK code; touched only for a clear EMV reason
-//   pax-libs/ours — PAX-only modules we write and change: the device runtime and the parameters
-include ':pax-libs:sdk:emvbase'
-include ':pax-libs:sdk:emvlib'
-include ':pax-libs:sdk:emvlib:dpas'
-include ':pax-libs:sdk:emvlib:base'
-include ':pax-libs:sdk:emvservice'
-include ':pax-libs:sdk:commonutils'
-include ':pax-libs:sdk:poslib'
-include ':pax-libs:sdk:bizlib'
-include ':pax-libs:ours:emvflow'
-include ':pax-libs:ours:bizentity'
+// PAX EMV stack, inside the PAX vendor: vendor-pax/libs/ — only :vendor-pax depends on it (core,
+// app/src/main, network, fake and ingenico never import com.pax), so everything PAX lives in one
+// folder. The Gradle path is the folder, so Android Studio's Android view groups them too:
+//   vendor-pax/libs/sdk  — PAX's own SDK code; touched only for a clear EMV reason
+//   vendor-pax/libs/ours — PAX-only modules we write and change: the device runtime and the parameters
+include ':vendor-pax:libs:sdk:emvbase'
+include ':vendor-pax:libs:sdk:emvlib'
+include ':vendor-pax:libs:sdk:emvlib:dpas'
+include ':vendor-pax:libs:sdk:emvlib:base'
+include ':vendor-pax:libs:sdk:emvservice'
+include ':vendor-pax:libs:sdk:commonutils'
+include ':vendor-pax:libs:sdk:poslib'
+include ':vendor-pax:libs:sdk:bizlib'
+include ':vendor-pax:libs:ours:emvflow'
+include ':vendor-pax:libs:ours:bizentity'

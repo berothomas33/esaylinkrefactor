@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.pax.bizlib'
+    namespace 'com.pax.bizentity'
     compileSdk rootProject.compileSdkVersion
 
     defaultConfig {
@@ -35,12 +35,18 @@ android {
     lint {
         abortOnError false
     }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
-    api project(':pax-libs:sdk:poslib')
-    api project(':pax-libs:ours:bizentity')
-    api project(':pax-libs:sdk:commonutils')
+    api project(':vendor-pax:libs:sdk:commonutils')
+    api project(':vendor-pax:libs:sdk:emvbase')
+    api project(':vendor-pax:libs:sdk:poslib')
+
+    testImplementation "junit:junit:$rootProject.junit"
 }
