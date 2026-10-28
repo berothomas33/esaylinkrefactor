@@ -20,10 +20,10 @@ import androidx.lifecycle.ViewModelProvider;
 import com.emvenhance.BuildConfig;
 import com.emvenhance.EmvEnhanceApp;
 import com.emvenhance.R;
-import com.emvenhance.core.card.TransactionType;
-import com.emvenhance.core.event.EmvStepEvent;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.transaction.TransactionType;
+import com.emvenhance.core.emv.EmvStepEvent;
+import com.emvenhance.core.transaction.TransactionStep;
+import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.google.android.material.checkbox.MaterialCheckBox;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Shown once the amount is confirmed: a live {@link com.emvenhance.core.event.EmvStep} banner
+ * Shown once the amount is confirmed: a live {@link com.emvenhance.core.emv.EmvStep} banner
  * plus the accepted entry methods, while {@link MainViewModel#acceptCard} searches.
  *
  * <p>The three method rows are informational, not separately actionable — {@code acceptCard}

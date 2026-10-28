@@ -1,4 +1,4 @@
-package com.emvenhance.core.engine;
+package com.emvenhance.core.emv;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -10,11 +10,9 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
-import com.emvenhance.core.event.EmvStep;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.host.AuthResult;
-import com.emvenhance.core.util.ApduTrace;
 import org.junit.Before;
 import org.junit.Test;
 

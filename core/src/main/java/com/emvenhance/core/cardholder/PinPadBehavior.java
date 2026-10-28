@@ -1,4 +1,6 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.cardholder;
+
+import com.emvenhance.core.terminal.EmvBehavior;
 
 /**
  * Vendor PIN-pad contract — same shape of promise as {@link EmvBehavior}: every vendor flavor

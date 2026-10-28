@@ -1,4 +1,8 @@
-package com.emvenhance.core.card;
+package com.emvenhance.core.transaction;
+
+import com.emvenhance.core.emv.EmvTransactionResult;
+
+import com.emvenhance.core.card.EntryMethod;
 
 import androidx.annotation.Nullable;
 

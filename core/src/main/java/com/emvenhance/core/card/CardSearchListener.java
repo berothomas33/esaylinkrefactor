@@ -1,5 +1,7 @@
 package com.emvenhance.core.card;
 
+import com.emvenhance.core.transaction.TransactionConfig;
+
 import androidx.annotation.Nullable;
 
 /**

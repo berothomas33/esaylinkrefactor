@@ -5,10 +5,10 @@ import static org.junit.Assert.assertFalse;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
+import com.emvenhance.core.transaction.TransactionStep;
+import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import java.util.ArrayList;
 import java.util.Arrays;

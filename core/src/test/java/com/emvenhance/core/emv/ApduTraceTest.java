@@ -1,4 +1,4 @@
-package com.emvenhance.core.util;
+package com.emvenhance.core.emv;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;

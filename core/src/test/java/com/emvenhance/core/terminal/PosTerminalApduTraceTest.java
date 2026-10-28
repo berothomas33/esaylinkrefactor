@@ -1,6 +1,6 @@
 package com.emvenhance.core.terminal;
 
-import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.transaction.TransactionStepEvent;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -10,11 +10,11 @@ import static org.junit.Assume.assumeTrue;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
-import com.emvenhance.core.util.ApduTrace;
+import com.emvenhance.core.emv.ApduTrace;
 import java.lang.reflect.Proxy;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;

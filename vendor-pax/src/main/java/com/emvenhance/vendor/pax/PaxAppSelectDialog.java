@@ -3,7 +3,7 @@ package com.emvenhance.vendor.pax;
 import android.app.Activity;
 import android.app.AlertDialog;
 import androidx.annotation.Nullable;
-import com.emvenhance.core.terminal.AbstractAppSelectDialog;
+import com.emvenhance.core.cardholder.AbstractAppSelectDialog;
 import com.pax.commonlib.application.ActivityStack;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.ConvertUtils;

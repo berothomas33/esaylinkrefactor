@@ -1,4 +1,4 @@
-package com.emvenhance.core.card;
+package com.emvenhance.core.transaction;
 
 /**
  * Transaction type selected before a transaction starts — carries the ISO 8583-style processing

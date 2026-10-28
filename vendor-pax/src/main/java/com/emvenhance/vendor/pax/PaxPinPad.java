@@ -5,8 +5,8 @@ import android.app.AlertDialog;
 import android.os.ConditionVariable;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
-import com.emvenhance.core.terminal.AbstractPinPadBehavior;
-import com.emvenhance.core.terminal.PinKey;
+import com.emvenhance.core.cardholder.AbstractPinPadBehavior;
+import com.emvenhance.core.cardholder.PinKey;
 import com.emvenhance.emvflow.pin.IPinTask;
 import com.pax.commonlib.application.ActivityStack;
 import com.pax.commonlib.application.BaseApplication;
@@ -20,7 +20,7 @@ import com.pax.emvservice.export.pin.PinInputCallback;
  * stand-in with the same two roles merged into one class: a dot-per-digit dialog, and the
  * {@code PinInputCallback} key listener that drives it.
  *
- * <p>This is the PAX implementation of {@link com.emvenhance.core.terminal.PinPadBehavior} — see
+ * <p>This is the PAX implementation of {@link com.emvenhance.core.cardholder.PinPadBehavior} — see
  * that interface's javadoc for the vendor-agnostic contract this class satisfies (Ingenico/Fake
  * get their own implementations of the same contract). {@link IPinTask.PinCallback} and
  * {@link PinInputCallback.NormalCallback} are PAX SDK requirements on top of that contract —

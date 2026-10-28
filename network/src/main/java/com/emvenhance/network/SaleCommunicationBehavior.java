@@ -4,10 +4,10 @@ import android.content.Context;
 import android.util.Log;
 import androidx.annotation.Nullable;
 
-import com.emvenhance.core.card.EmvTransactionResult;
+import com.emvenhance.core.emv.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.HostNotReachedException;

@@ -1,4 +1,6 @@
-package com.emvenhance.core.util;
+package com.emvenhance.core.emv;
+
+import com.emvenhance.core.util.EmvLog;
 
 import android.util.Log;
 import androidx.annotation.Nullable;

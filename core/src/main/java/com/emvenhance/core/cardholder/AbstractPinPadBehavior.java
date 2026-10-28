@@ -1,4 +1,4 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.cardholder;
 
 /**
  * Vendor base for {@link PinPadBehavior}: hoists the one piece of logic every vendor needs

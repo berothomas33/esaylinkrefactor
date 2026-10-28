@@ -2,13 +2,13 @@ package com.emvenhance.core.terminal;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.Field55;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.engine.EmvEngine;
-import com.emvenhance.core.event.EmvStep;
-import com.emvenhance.core.event.EmvStepEvent;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.emv.Field55;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.emv.EmvEngine;
+import com.emvenhance.core.emv.EmvStep;
+import com.emvenhance.core.emv.EmvStepEvent;
+import com.emvenhance.core.transaction.TransactionStep;
+import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
@@ -408,7 +408,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * One tag's value bytes, read from this vendor's own kernel in whatever way its SDK offers;
      * empty (or {@code null}) when the kernel has no value for it. That's all a vendor does for
      * field 55: {@link #authorizeOnline} picks the tags
-     * ({@link com.emvenhance.core.card.Field55}), encodes them and logs them.
+     * ({@link com.emvenhance.core.emv.Field55}), encodes them and logs them.
      *
      * <p>Called right after the 1st GENERATE AC returned the ARQC, so the card's cryptogram
      * data (9F26, 9F27, 9F10, 9F36) is there to read. Never called for magstripe or manual.

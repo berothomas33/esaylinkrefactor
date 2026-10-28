@@ -10,7 +10,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import com.emvenhance.R;
-import com.emvenhance.core.card.TransactionType;
+import com.emvenhance.core.transaction.TransactionType;
 import com.google.android.material.tabs.TabLayout;
 
 /**
@@ -97,7 +97,7 @@ public class AmountFragment extends Fragment {
     /**
      * Dollars-and-cents string ("10.00") to minor units (1000). Assumes a 2-decimal currency —
      * this UI is vendor-agnostic and has no access to the PAX-only {@code CurrencyConverter} the
-     * kernel layer uses for the real exponent; {@link com.emvenhance.core.card.TransactionConfig}
+     * kernel layer uses for the real exponent; {@link com.emvenhance.core.transaction.TransactionConfig}
      * only carries a minor-units {@code long} regardless.
      */
     @Nullable

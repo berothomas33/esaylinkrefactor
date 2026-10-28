@@ -1,4 +1,4 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.cardholder;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;

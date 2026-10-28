@@ -1,7 +1,7 @@
 package com.emvenhance.core.terminal;
 
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionConfig;
 
 /**
  * What {@link PosTerminal} drives on a vendor's EMV kernel — and all it can call.

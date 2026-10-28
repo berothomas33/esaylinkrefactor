@@ -4,8 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.network.model.AcknowledgementRequest;
 import com.emvenhance.network.model.AcknowledgementResponse;
 import com.emvenhance.network.model.ReverseRequest;

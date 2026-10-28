@@ -1,7 +1,7 @@
 package com.emvenhance.vendor.pax;
 
 import androidx.annotation.Nullable;
-import com.emvenhance.core.event.TransactionStep;
+import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.host.AuthResult;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.entity.IssuerRspData;

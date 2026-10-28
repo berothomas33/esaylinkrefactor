@@ -1,4 +1,4 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.cardholder;
 
 /**
  * Vendor-agnostic bucket for a raw PIN-pad key event, reported to {@link PinPadBehavior}.

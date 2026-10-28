@@ -5,10 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.emvenhance.core.card.EmvTransactionResult;
+import com.emvenhance.core.emv.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.SaleRequest;
 import com.google.gson.Gson;

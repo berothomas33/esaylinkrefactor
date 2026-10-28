@@ -7,9 +7,9 @@ import static org.junit.Assert.assertTrue;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.EntryMethod;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.card.TransactionType;
-import com.emvenhance.core.engine.EmvEngine;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
+import com.emvenhance.core.emv.EmvEngine;
 import com.emvenhance.core.host.AuthResult;
 import java.util.ArrayList;
 import java.util.List;

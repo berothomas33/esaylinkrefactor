@@ -2,10 +2,10 @@ package com.emvenhance.vendor.fake;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.TransactionConfig;
-import com.emvenhance.core.event.EmvStep;
-import com.emvenhance.core.event.TransactionStep;
-import com.emvenhance.core.event.TransactionStepEvent;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.emv.EmvStep;
+import com.emvenhance.core.transaction.TransactionStep;
+import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 

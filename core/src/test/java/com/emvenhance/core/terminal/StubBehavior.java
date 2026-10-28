@@ -1,7 +1,7 @@
 package com.emvenhance.core.terminal;
 
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionConfig;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 

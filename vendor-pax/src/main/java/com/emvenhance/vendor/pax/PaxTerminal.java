@@ -4,7 +4,7 @@ import android.os.SystemClock;
 import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
-import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
