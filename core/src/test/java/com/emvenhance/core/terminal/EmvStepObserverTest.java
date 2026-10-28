@@ -61,10 +61,25 @@ public class EmvStepObserverTest {
         session.prepare(CONFIG);
         vendor.ran.clear();
 
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe"); // PosTerminal's prompt
+        engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION, "from outside");
 
-        assertEquals(Arrays.asList(EmvStep.SEARCH_CARD), vendor.ran);
-        assertTrue(seen.contains(EmvStep.SEARCH_CARD));
+        assertEquals(Arrays.asList(EmvStep.TRANSACTION_COMPLETION), vendor.ran);
+        assertTrue(seen.contains(EmvStep.TRANSACTION_COMPLETION));
+    }
+
+    @Test
+    public void searchCardPublishedInsideTheEmvIsShownButStartsNoSecondSearch() {
+        List<EmvStep> seen = record(engine);
+        session.begin(CONFIG);
+        session.prepare(CONFIG);
+        vendor.ran.clear();
+
+        // As PaxEmvBehavior.onDetect2ndTap does mid-EMV: the card is asked for again.
+        vendor.go(EmvStep.SEARCH_CARD);
+
+        assertTrue("a second search ran: " + vendor.ran, vendor.ran.isEmpty());
+        assertTrue("the banner still gets it", seen.contains(EmvStep.SEARCH_CARD));
+        assertTrue(session.transaction().isRunning());
     }
 
     @Test
@@ -181,8 +196,8 @@ public class EmvStepObserverTest {
 
         session.begin(CONFIG);
         session.prepare(CONFIG);
-        engine.notifyEmvStep(EmvStep.SEARCH_CARD, "Insert, tap, or swipe");
-        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.SEARCH_CARD),
+        engine.notifyEmvStep(EmvStep.TRANSACTION_COMPLETION, null);
+        assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.TRANSACTION_COMPLETION),
                 vendor.ran);
     }
 

@@ -62,6 +62,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     /** Where this attempt's card search reports — see {@link #cardSearchListener()}. */
     @Nullable
     private CardSearchListener cardSearch;
+    /**
+     * Set by {@link #searchCard} for the SEARCH_CARD it publishes, taken by the dispatch: only
+     * that one runs {@code onSearchCard}. Transaction thread only.
+     */
+    private boolean searchRequested;
 
     /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
     private final CompositeDisposable disposables = new CompositeDisposable();
@@ -117,7 +122,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         String prompt = engine.consumeRetryPrompt();
         String message = prompt != null ? prompt : waitingMessage(activeConfig);
         cardSearch = new CardSearchReporter(transaction, prompt, message);
+        searchRequested = true;
         goToStep(EmvStep.SEARCH_CARD, message);
+        searchRequested = false;
     }
 
     /** The EMV on the card the search found: its first post-search step, then the vendor chain. */
@@ -551,6 +558,17 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 onTerminalInitialization(activeConfig);
                 break;
             case SEARCH_CARD:
+                // The search runs only for the step searchCard() published. SEARCH_CARD published
+                // from inside the EMV (a vendor asking for the card again, e.g. the Visa 2nd tap
+                // prompt) shows on the banner and the trace, but must not start a second poll — and
+                // a second EMV — inside the first.
+                if (!searchRequested) {
+                    EmvLog.d("SEARCH_CARD outside the search step: shown, no second search");
+                    engine.apduTrace().note("EMV",
+                            "SEARCH_CARD published inside the EMV — shown, no second search");
+                    break;
+                }
+                searchRequested = false;
                 onSearchCard(activeConfig, activeCard);
                 break;
             case APPLICATION_SELECTION:
