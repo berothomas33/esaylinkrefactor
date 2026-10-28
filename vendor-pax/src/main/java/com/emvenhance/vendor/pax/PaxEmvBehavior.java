@@ -460,9 +460,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.d(TAG, "selectApplication ret=" + ret);
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
-            if (!proceed) {
-                kernel.contactless.unregisterClssProcessListener();
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless app select failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV app select failed");
@@ -529,9 +526,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
-            if (!proceed) {
-                kernel.contactless.unregisterClssProcessListener();
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless set transaction data failed", e);
             finishError(e.getMessage() != null ? e.getMessage()
@@ -565,9 +559,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
-            if (!proceed) {
-                kernel.contactless.unregisterClssProcessListener();
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless read app data failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV read app data failed");
@@ -606,9 +597,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
-            if (!proceed) {
-                kernel.contactless.unregisterClssProcessListener();
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless offline data authentication failed", e);
             finishError(e.getMessage() != null
@@ -657,9 +645,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             markTryAgainOnCommunicationError(ret);
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
-            if (!proceed) {
-                kernel.contactless.unregisterClssProcessListener();
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless processing restrictions failed", e);
             finishError(e.getMessage() != null
@@ -698,7 +683,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.e(TAG, "contactless execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
         } finally {
-            kernel.contactless.unregisterClssProcessListener();
             finishContactlessStage();
         }
     }
@@ -895,8 +879,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return tx.clsTransResult != null && tx.clsTransResult.getTransResult() != null;
     }
 
-    /** Common tail once a contactless stage chain has reached a terminal outcome. */
+    /**
+     * Common tail once a contactless stage chain has reached a terminal outcome. The one place
+     * the kernel's listener is released ({@link #runContactlessAppSelect} registers it once):
+     * every contactless path ends here, so none is left holding it.
+     */
     private void finishContactlessStage() {
+        kernel.contactless.unregisterClssProcessListener();
         closeReaders(true);
         if (isCancelled()) {
             noteResultNotReported();
@@ -1056,11 +1045,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             int ret = tx.transResult.getResultCode();
             LogUtils.d(TAG, "selectApplication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
-            if (!proceed) {
-                // Selection failed — the transaction ends here; release the listener now since
-                // startTransProcess() (and its own unregister) will never run.
-                kernel.contact.registerEmvProcessListener(null);
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact app select failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV app select failed");
@@ -1118,9 +1102,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             int ret = tx.transResult.getResultCode();
             LogUtils.d(TAG, "readApplicationData ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
-            if (!proceed) {
-                kernel.contact.registerEmvProcessListener(null);
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact read app data failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV read app data failed");
@@ -1147,9 +1128,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             int ret = tx.transResult.getResultCode();
             LogUtils.d(TAG, "setTransactionData ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
-            if (!proceed) {
-                kernel.contact.registerEmvProcessListener(null);
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact set transaction data failed", e);
             finishError(e.getMessage() != null ? e.getMessage()
@@ -1176,9 +1154,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             int ret = tx.transResult.getResultCode();
             LogUtils.d(TAG, "cardAuthentication ret=" + ret);
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
-            if (!proceed) {
-                kernel.contact.registerEmvProcessListener(null);
-            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact card auth failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV card auth failed");
@@ -1222,7 +1197,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             LogUtils.e(TAG, "contact execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
         } finally {
-            kernel.contact.registerEmvProcessListener(null);
             finishContactStage();
         }
     }
@@ -1234,7 +1208,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * verbatim.
      */
     private int startContactTransProcess() {
-        kernel.contact.registerEmvProcessListener(this);
         tx.transResult = kernel.contact.startTransProcess();
         int resultCode = tx.transResult.getResultCode();
         TransResultEnum transResultEnum = tx.transResult.getTransResult();
@@ -1299,8 +1272,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return tx.transResult != null && tx.transResult.getTransResult() != null;
     }
 
-    /** Common tail once a contact stage chain has reached a terminal outcome. */
+    /**
+     * Common tail once a contact stage chain has reached a terminal outcome. The one place the
+     * kernel's listener is released ({@link #runContactAppSelect} registers it once): every
+     * contact path ends here, so none is left holding it.
+     */
     private void finishContactStage() {
+        kernel.contact.registerEmvProcessListener(null);
         closeReaders(false);
         if (tx.activePinPad != null) {
             tx.activePinPad.dismiss();
