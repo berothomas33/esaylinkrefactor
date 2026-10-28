@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.pax.bizentity'
+    namespace 'com.pax.emvbase'
     compileSdk rootProject.compileSdkVersion
 
     defaultConfig {
@@ -35,18 +35,9 @@ android {
     lint {
         abortOnError false
     }
-
-    testOptions {
-        unitTests.returnDefaultValues = true
-    }
 }
 
 dependencies {
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
-    api "androidx.appcompat:appcompat:$rootProject.androidAppcompat"
-    api project(':pax-libs:sdk:commonutils')
-    api project(':pax-libs:sdk:emvbase')
-    api project(':pax-libs:sdk:poslib')
-
-    testImplementation "junit:junit:$rootProject.junit"
+    api fileTree(dir: 'libs', include: ['*.jar'])
+    api project(':vendor-pax:libs:sdk:commonutils')
 }

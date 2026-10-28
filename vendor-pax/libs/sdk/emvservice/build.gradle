@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.pax.emvlib.dpas'
+    namespace 'com.pax.emvservice'
     compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
@@ -14,12 +14,12 @@ android {
 
     buildTypes {
         release {
-            
+
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            
+
         }
     }
 
@@ -41,8 +41,11 @@ android {
 dependencies {
 
     api fileTree(include: ["*.jar"], dir: "libs")
-    api project(":pax-libs:sdk:emvlib:base")
+    api project(":vendor-pax:libs:ours:bizentity")
+    api project(":vendor-pax:libs:sdk:emvbase")
+    api project(":vendor-pax:libs:sdk:emvlib")
+    api project(":vendor-pax:libs:sdk:commonutils")
+    api project(":vendor-pax:libs:sdk:bizlib")
+    api project(":vendor-pax:libs:sdk:poslib")
 
 }
-
-apply from: rootProject.file("gradle/package-armeabi-as-v7a.gradle")
