@@ -133,15 +133,13 @@ abstract class AbstractEmvBehavior : EmvBehavior {
         } finally {
             stepAnswer = outer
         }
-        if (!answer.answered) {
-            engine?.apduTrace()?.note("EMV", "no answer for " + step.title + " — answering " + failClosed)
-            return failClosed
-        }
+        // No answer, or one that came after the transaction ended (a cancel while the cardholder
+        // was choosing): the kernel gets the fail-closed value, never a choice nobody waits for.
         val engine = engine
-        if (engine != null && !engine.isRunning()) {
-            // Answered, but the transaction ended (cancelled) while the cardholder was choosing:
-            // the kernel gets the fail-closed value, not a choice nobody is waiting for.
-            engine.apduTrace().note("EMV", step.title + " answered after the transaction ended — answering " + failClosed)
+        val ended = engine == null || !engine.isRunning()
+        if (!answer.answered || ended) {
+            val why = if (answer.answered) step.title + " answered after the transaction ended" else "no answer for " + step.title
+            engine?.apduTrace()?.note("EMV", "$why — answering $failClosed")
             return failClosed
         }
         return answer.value

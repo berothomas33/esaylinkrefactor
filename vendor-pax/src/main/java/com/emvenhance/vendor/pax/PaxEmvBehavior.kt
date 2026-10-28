@@ -12,11 +12,14 @@ import com.emvenhance.core.event.EmvStep
 import com.emvenhance.core.event.TransactionStep
 import com.emvenhance.core.event.TransactionStepEvent
 import com.emvenhance.core.host.AuthResult
+import com.emvenhance.core.terminal.AbstractAppSelectDialog
 import com.emvenhance.core.terminal.AbstractEmvBehavior
 import com.emvenhance.emvflow.device.EmvDeviceImpl
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor
 import com.emvenhance.network.onboarding.OnboardingState
+import com.emvenhance.vendor.pax.PaxTransactionState.Outcome
+import com.emvenhance.vendor.pax.PaxTransactionState.PinRequest
 import com.pax.configservice.impl.EmvParamService
 import com.emvenhance.settings.PinBypassSettings
 import com.pax.bizentity.entity.SearchMode
@@ -88,12 +91,12 @@ import java.util.Locale
  *
  * **Experiment branch:** talks to [ContactProcess] (emvlib:dpas) directly — no
  * `EmvContactService` service layer. Everything that used to live there — per-transaction state
- * ([TransactionState.transResult], [TransactionState.cachedTrack2Data]), the online-processing
+ * ([PaxTransactionState.transResult], [PaxTransactionState.cachedTrack2Data]), the online-processing
  * decision inside [startContactTransProcess], PAN/track2 derivation ([getContactPan]), and the
  * result-to-callback mapping in [checkContactResult] — now lives here instead. The contactless
  * path got the same treatment: talks to [ClssProcess] (emvlib) directly — no
  * `ContactlessService` layer — with its own mirrored state
- * ([TransactionState.clsTransResult]/[TransactionState.clsCachedTrack2Data]/[clsLastNeedSeePhone]),
+ * ([PaxTransactionState.clsTransResult]/[PaxTransactionState.clsCachedTrack2Data]/[clsLastNeedSeePhone]),
  * online decision ([startContactlessTransProcess]), PAN derivation ([getContactlessPan]), and
  * result mapping ([checkContactlessResult]). See the structure diagram (panel 10/11) for why this
  * was tried and what it cost.
@@ -103,88 +106,13 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
 
     /**
      * See Phone on a tap: the kernel asks for it ([needSeePhone]) on the next tap, which is a
-     * retry — a new attempt — so unlike [TransactionState] it carries over.
+     * retry — a new attempt — so unlike [PaxTransactionState] it carries over.
      */
     private var clsLastNeedSeePhone = false
 
-    /**
-     * What this behavior learns during one attempt (a retry is a new attempt), replaced by a fresh
-     * one in [prepare]. The behavior outlives transactions: kept in plain fields, each had to be
-     * reset by hand, and the kernel results never were — so a stage that failed before recording
-     * its own result had the previous sale's result read as this one's.
-     */
+    /** What this behavior learns during one attempt — see [PaxTransactionState]. */
     @Volatile
-    private var tx = TransactionState()
-
-    private class TransactionState {
-
-        var initOk = true
-
-        var lastAuth: AuthResult? = null
-
-        var transResult: TransResult? = null
-        var cachedTrack2Data: String? = null
-
-        var clsTransResult: TransResult? = null
-        var clsCachedTrack2Data: String? = null
-
-        /**
-         * Encrypted online PIN block from the most recent [PaxEmvBehavior.onCardHolderPwd],
-         * attached to `activeConfig` in [PaxEmvBehavior.startOnlineProcess] for the authorization
-         * message.
-         */
-        var lastOnlinePinBlock: ByteArray? = null
-
-        /**
-         * The online PIN key (PEK) that encrypted [lastOnlinePinBlock], RSA-wrapped with the
-         * host's public key — see [PaxEmvBehavior.provisionOnlinePinKey].
-         */
-        var lastOnlinePinKeyEncrypted: String? = null
-
-        /**
-         * The dialog raised by the most recent [PaxEmvBehavior.onCardHolderPwd], for a defensive
-         * dismiss in [PaxEmvBehavior.finishContactStage] if none of [PaxPinPad]'s own terminal
-         * callbacks fire.
-         */
-        var activePinPad: PaxPinPad? = null
-
-        /**
-         * How a chip/contactless transaction ends, decided by checkContactResult /
-         * checkContactlessResult and reported by [PaxEmvBehavior.onTransactionCompletion].
-         */
-        var outcome: Outcome? = null
-
-        /** True while [PaxEmvBehavior.startOnlineProcess] waits for the host step. */
-        var onlineRequested = false
-
-        /**
-         * The host's answer waiting for the card's 2nd GENERATE AC (contact) or the 2nd-tap check
-         * (contactless), run by [PaxEmvBehavior.onIssuerAuthentication].
-         */
-        var issuerResponse: OnlineResultWrapper? = null
-
-        /** The issuer's scripts waiting for [PaxEmvBehavior.onScriptProcessing] (contactless). */
-        var pendingScripts: IssuerRspData? = null
-
-        /** SCRIPT_PROCESSING already ran in its own step: completeApproved doesn't announce it. */
-        var scriptsProcessed = false
-
-        /** What [PaxEmvBehavior.onCardHolderPwd] is asking, while it waits for the PIN step. */
-        var pinRequest: PinRequest? = null
-
-        /** The kernel's candidate list from [PaxEmvBehavior.onWaitAppSelect], for its step. */
-        var candidates: List<CandidateAID>? = null
-
-        // ─── Transaction result summary — PAN/TVR/TAC/IAC/Field 55, captured by
-        // captureTransactionSummary() while the kernel session is still open, attached to the
-        // APPROVED/DECLINED event by completeApproved()/completeDeclined(). null for mag/manual
-        // (no ICC session) or before a chip/contactless transaction reaches that point.
-        var lastPan: String? = null
-        var lastTvr: String? = null
-        var lastTacDenial: String? = null
-        var lastIacDenial: String? = null
-        var lastIccData: String? = null
-    }
+    private var tx = PaxTransactionState()
 
     private val pinBypass = PinBypassSettings(BaseApplication.getAppContext())
 
@@ -194,7 +122,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         // A fresh state per attempt: nothing from an earlier sale carries over — its online PIN
         // block (and RSA-wrapped key) sent again with this sale, flagged as online PIN; or its
         // kernel result read as this one's.
-        tx = TransactionState()
+        tx = PaxTransactionState()
         super.prepare(engine, config)
         return tx.initOk && engine.isRunning()
     }
@@ -367,7 +295,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     }
 
     /**
-     * The cardholder's choice among the kernel's candidates ([TransactionState.candidates]),
+     * The cardholder's choice among the kernel's candidates ([PaxTransactionState.candidates]),
      * answered to [onWaitAppSelect]'s `askStep`: index 0 with nothing to choose between, else the
      * dialog's choice.
      */
@@ -380,8 +308,10 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             answerStep(EmvConstant.ContactCallbackStatus.CONTACT_OK)
             return
         }
-        val index = AppSelectDialog(candList).selectBlocking { !requireEngine().isRunning() }
-        if (index == AppSelectDialog.NO_ANSWER) {
+        val index = PaxAppSelectDialog().selectBlocking(PaxAppSelectDialog.labels(candList)) {
+            !requireEngine().isRunning()
+        }
+        if (index == AbstractAppSelectDialog.NO_ANSWER) {
             // Not answered: askStep gives the kernel USER_CANCEL and notes it in the trace.
             LogUtils.i(TAG, "Application not selected (timed out, cancelled or no screen)")
             return
@@ -932,7 +862,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     }
 
     /**
-     * Maps the recorded [TransactionState.clsTransResult] to the matching result method on
+     * Maps the recorded [PaxTransactionState.clsTransResult] to the matching result method on
      * `this` — ported from `ContactlessService#checkClsResult`.
      */
     private fun checkContactlessResult() {
@@ -1341,7 +1271,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     }
 
     /**
-     * Maps the recorded [TransactionState.transResult] to the matching result method on `this` —
+     * Maps the recorded [PaxTransactionState.transResult] to the matching result method on `this` —
      * ported from `EmvContactService#checkContactResult`.
      */
     private fun checkContactResult() {
@@ -1648,9 +1578,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         }
     }
 
-    /** What [onCardHolderPwd] was asked, for the step method that collects the PIN. */
-    private class PinRequest(val online: Boolean, val supportPinBypass: Boolean, val leftTimes: Int)
-
     /**
      * The PIN step's work, answered to [onCardHolderPwd]'s `askStep`: online PIN from
      * [onCardholderVerification], offline PIN from [onOfflinePinVerification].
@@ -1784,7 +1711,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
      * cycle, currently dormant — `OnboardingClient#runOnlineCycle` — which would need an AES
      * counterpart if it's ever turned on for this key hierarchy too). If the write fails (no TLK)
      * or no public key has been onboarded yet, this logs and leaves
-     * [TransactionState.lastOnlinePinKeyEncrypted] unset — online PIN entry itself still proceeds
+     * [PaxTransactionState.lastOnlinePinKeyEncrypted] unset — online PIN entry itself still proceeds
      * (matching this method's predecessor's behavior), it just won't have a key the host can
      * decrypt with.
      */
@@ -2179,9 +2106,6 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     private fun completeDeclined(reason: String) {
         finishWithOutcome(TransactionStep.DECLINED, reason, reason)
     }
-
-    /** A chip/contactless transaction's end: APPROVED, DECLINED or ERROR, and its message. */
-    private class Outcome(val step: TransactionStep, val message: String)
 
     /**
      * Ends a chip/contactless transaction through its TRANSACTION_COMPLETION step:
