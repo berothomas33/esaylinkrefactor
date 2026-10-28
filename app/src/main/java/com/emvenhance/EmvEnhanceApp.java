@@ -3,8 +3,6 @@ package com.emvenhance;
 import android.util.Log;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.network.env.EnvironmentProvider;
-import com.emvenhance.network.onboarding.OnboardingClient;
-import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.vendor.TerminalFactory;
 import com.emvenhance.vendor.VendorApplication;
 
@@ -19,10 +17,8 @@ import com.emvenhance.vendor.VendorApplication;
  * building a vendor terminal is what constructs its {@code CommunicationBehavior} (PAX:
  * {@code SaleCommunicationBehavior}).
  *
- * <p>{@link #getOnboarding} / {@link #getOnboardingState} are exposed for a setup screen to run
- * the onboarding cycle and check its status — onboarding isn't auto-run at startup or gated on
- * here, since real onboarding is a one-time provisioning action a technician drives, not
- * something that should fire network calls unconditionally on every launch.
+ * <p>Onboarding isn't run or checked here: it is a one-time provisioning action a technician
+ * drives from {@code OnboardingActivity}, which makes its own client and state.
  *
  * <p>Its base, {@link VendorApplication}, is the vendor's (PAX: {@code BaseApplication}, which the
  * PAX SDK needs), so this class imports nothing of any vendor.
@@ -32,8 +28,6 @@ public class EmvEnhanceApp extends VendorApplication {
     private static final String TAG = "EmvEnhanceApp";
 
     private PosTerminal terminal;
-    private OnboardingClient onboarding;
-    private OnboardingState onboardingState;
 
     @Override
     public void onCreate() {
@@ -41,20 +35,10 @@ public class EmvEnhanceApp extends VendorApplication {
 
         Log.i(TAG, "vendor=" + BuildConfig.VENDOR + " baseUrl=" + BuildConfig.baseUrl);
         EnvironmentProvider.setBaseUrl(BuildConfig.baseUrl);
-        onboarding = new OnboardingClient();
-        onboardingState = new OnboardingState(this);
         terminal = TerminalFactory.create(this);
     }
 
     public PosTerminal getTerminal() {
         return terminal;
-    }
-
-    public OnboardingClient getOnboarding() {
-        return onboarding;
-    }
-
-    public OnboardingState getOnboardingState() {
-        return onboardingState;
     }
 }
