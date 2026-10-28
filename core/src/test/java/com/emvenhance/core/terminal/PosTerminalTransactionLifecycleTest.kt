@@ -143,6 +143,26 @@ class PosTerminalTransactionLifecycleTest {
     }
 
     @Test
+    fun aCancelRacingTheEndNeverSaysCancellingAfterIt() {
+        repeat(200) { i ->
+            val sale = sale(1000L + i)
+            val search = terminal.nextSearch()
+            val canceller = Thread { sale.cancel() }
+            search.release.countDown() // the transaction ends on its own...
+            canceller.start() // ...while the screen cancels it
+            canceller.join(5_000) // cancel() has returned: its CANCELLING, if any, is delivered
+            // The sale's own steps, in delivery order (replayed in full), so a CANCELLING that
+            // landed after the end is seen too.
+            assertTrue("no end", awaitTrue { sale.steps().replayCache.any { it.step.isEnd } })
+            val steps = sale.steps().replayCache.map { it.step }
+            assertEquals("one end: $steps", 1, steps.count { it.isEnd })
+            assertTrue("ends last: $steps", steps.last().isEnd)
+            assertTrue("at most one CANCELLING: $steps", steps.count { it == TransactionStep.CANCELLING } <= 1)
+            assertTrue("terminal stayed busy", awaitTrue { !terminal.isBusy() })
+        }
+    }
+
+    @Test
     fun aTransactionCancelledBeforeItRanStillFreesTheTerminal() {
         val hold = CountDownLatch(1)
         terminal.transactionExecutor().execute { hold.await(5, TimeUnit.SECONDS) }

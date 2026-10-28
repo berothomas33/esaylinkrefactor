@@ -9,6 +9,10 @@ import com.emvenhance.core.event.TransactionStep
 import com.emvenhance.core.event.TransactionStepEvent
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -70,6 +74,43 @@ class PosTerminalConcurrentStepsTest {
 
         assertEquals("two steps at once", 1, maxInFlight.get())
         assertEquals(listOf("ONLINE_PROCESSING on first", "ONLINE_COMPLETED on second"), delivered.toList().subList(1, 3)) // after TRANSACTION_STARTED; a snapshot: the end may still be landing
+    }
+
+    @Test
+    fun aCollectorThatThrowsStopsNeitherTheFlowNorTheTransaction() = runTest {
+        val terminal = TestTerminal()
+        val seen = CopyOnWriteArrayList<TransactionStep>()
+        val ended = CountDownLatch(1)
+        val failures = CopyOnWriteArrayList<Throwable>()
+        // A screen's bug: its collector throws on the publishing thread. It fails its own
+        // coroutine only (caught here), never the emitter or the transaction thread.
+        val screens = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined + CoroutineExceptionHandler { _, t -> failures.add(t) })
+        val sale = terminal.acceptCard(TransactionType.SALE, 1000)
+        screens.launch(start = CoroutineStart.UNDISPATCHED) {
+            sale.steps().collect { throw IllegalStateException("a screen's bug") }
+        }
+        screens.launch(start = CoroutineStart.UNDISPATCHED) {
+            sale.steps().collect {
+                seen.add(it.step)
+                if (it.step.isEnd) ended.countDown()
+            }
+        }
+        assertTrue(terminal.searching.await(5, TimeUnit.SECONDS))
+
+        sale.publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED))
+        sale.publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING))
+        terminal.release.countDown()
+
+        assertTrue("the transaction never ended", ended.await(5, TimeUnit.SECONDS))
+        assertEquals(
+            listOf(
+                TransactionStep.TRANSACTION_STARTED, TransactionStep.ONLINE_REQUIRED,
+                TransactionStep.ONLINE_PROCESSING, TransactionStep.ERROR,
+            ),
+            seen,
+        )
+        assertEquals("the throwing collector failed alone", 1, failures.size)
+        screens.cancel()
     }
 
     /** prepare() succeeds; the search is held open until released. */
