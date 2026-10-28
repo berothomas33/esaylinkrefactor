@@ -670,6 +670,23 @@ protected void onCardholderVerification(...) { answerStep(enterPin(tx.pinRequest
         └─ أبداً: "approve" من غير رد
 ```
 
+نفس الرسمة خطوة بخطوة (offline PIN):
+
+```mermaid
+flowchart TD
+  K["① الكيرنل: onCardHolderPwd(...)<br/>callback — واقف، لازم يرجّع رقم"]
+  K --> A["② askStep(OFFLINE_PIN_VERIFICATION, …, USER_CANCEL)<br/>يحضّر مكان فاضي للرد"]
+  A --> G["③ goToStep(OFFLINE_PIN_VERIFICATION)<br/>الـ step يتنشر: banner + trace"]
+  G --> H["④ onOfflinePinVerification — الـ hook<br/>يفتح الـ PIN pad (UI هنا، مش في الـ callback)"]
+  H --> ANS["⑤ answerStep(CONTACT_OK)<br/>يحط الرد في المكان"]
+  ANS --> CHK{"⑥ askStep يبص:<br/>فيه رد؟ والعملية لسه شغالة؟"}
+  CHK -- "أيوه" --> OK["الرد نفسه → الكيرنل يكمل"]
+  CHK -- "cancel وهو بيكتب" --> UC["USER_CANCEL → الكيرنل يقف بنظافة"]
+  CHK -- "مفيش رد / exception / العملية خلصت" --> UC
+  CHK -. "أبداً" .-> NEVER["approve من غير رد ✗<br/>أو يستنى للأبد ✗"]
+  OK & UC --> R["⑦ setCallBackResult(الرد) → الكيرنل"]
+```
+
 الـ control اللي بتديه:
 1. **الإيقاف:** هي مش اللي بتوقف الـ transaction (الـ cancel هو اللي بيوقفها)، بس هي **نقطة تفتيش**: لما الكيرنل يسأل بعد الـ cancel بتجاوبه "إلغاء" على طول. من غيرها الـ callback ممكن يرجّع رد قديم بعد الـ cancel، أو يفضل مستني.
 2. **fail closed مضمون** (قاعدة 4): أي طريق غلط بيخلص بـ `USER_CANCEL`، في مكان واحد بدل ما كل callback يعملها لوحده.
