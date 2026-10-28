@@ -20,9 +20,8 @@ import io.reactivex.rxjava3.core.Single;
 
 /**
  * Runs the POS onboarding cycle — mirrors {@code OnboardingRepoImpl} + {@code OnboardingUseCase}
- * from the old project's model layer, collapsed into one class the way
- * {@link com.emvenhance.network.RetrofitCommunicationBehavior} already collapsed its
- * purchase-endpoint equivalent, plus the orchestration {@code ConfigurationActivity} layered on
+ * from the old project's model layer, collapsed into one class, plus the orchestration
+ * {@code ConfigurationActivity} layered on
  * top (challenge/SACS threading, HMAC signature verification, completion tracking).
  *
  * <p>Two independent three-step cycles:

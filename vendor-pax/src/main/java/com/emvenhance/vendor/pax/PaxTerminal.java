@@ -10,7 +10,6 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.emvflow.runtime.EmvFlowRuntime;
-import com.emvenhance.network.RetrofitCommunicationBehavior;
 import com.emvenhance.network.SaleCommunicationBehavior;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.currency.CurrencyConverter;
@@ -76,8 +75,6 @@ public class PaxTerminal extends PosTerminal {
      * it builds its headers via {@code HostHeaders.build}, the real confirmed contract, which
      * needs this terminal's own serial number ({@link ModelInfo#getSN()}); {@code :network} stays
      * vendor-agnostic, so that's passed in here rather than fetched from inside it.
-     * {@link RetrofitCommunicationBehavior} ({@code crypto/purchase}) is still available as the
-     * plain-JSON alternative if this app ever needs to switch back.
      */
     public PaxTerminal() {
         this(new PaxKernel(),

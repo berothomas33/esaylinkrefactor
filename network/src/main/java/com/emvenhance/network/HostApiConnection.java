@@ -4,8 +4,6 @@ import com.emvenhance.network.model.AcknowledgementRequest;
 import com.emvenhance.network.model.AcknowledgementResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
-import com.emvenhance.network.model.PurchaseRequest;
-import com.emvenhance.network.model.PurchaseResponse;
 import com.emvenhance.network.model.ReverseRequest;
 
 import java.util.Map;
@@ -19,10 +17,6 @@ import retrofit2.http.POST;
 import retrofit2.http.Path;
 
 public interface HostApiConnection {
-
-    /** Online purchase authorization — see {@code EmvApiConnection#purchase} in the old project. */
-    @POST("crypto/purchase")
-    Single<PurchaseResponse> purchase(@Body PurchaseRequest request);
 
     /**
      * Establishes the encrypted-envelope session (TEK, and PEK if online PIN was collected) for a

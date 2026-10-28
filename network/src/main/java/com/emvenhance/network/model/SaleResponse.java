@@ -28,7 +28,7 @@ public final class SaleResponse {
     @Nullable
     private String authCode;
 
-    /** Bundles issuer EMV tags (91/71/72) the same way {@link PurchaseResponse#getChipData()} does. */
+    /** Bundles the issuer's EMV tags (91/71/72) as one hex BER-TLV blob (see {@code IssuerResponseFields}). */
     @SerializedName("chipData")
     @Nullable
     private String chipData;
