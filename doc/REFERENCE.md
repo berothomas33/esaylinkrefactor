@@ -1119,7 +1119,8 @@ prepare → onTerminalInitialization → prepareKernel(config)
 7. **الـ transaction state في الـ `Transaction` بس** — متعملش flag تاني (busy = `current`، النهاية/الـ cancel = `end`).
 8. **PAX SDK modules** (`emvbase`، `emvlib*`، `poslib`، `commonutils`): تتلمس بس لما الـ kernel نفسه يحتاج، وبنفس ترتيب الـ native calls.
 9. **schema** اتغيرت → DAO بإيدك (ordinal، DDL، bind، read) + uninstall على الجهاز.
-10. اختبر: `:core` (99)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
+10. اختبر: `:core` (102)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
+11. **أسماء الـ packages والفولدرات بالصغير** (`emv` مش `EMV`). Windows مبيفرّقش بين الاتنين: لو فولدر قديم اسمه `EMV` فضل على الجهاز، الـ pull بيحط ملفات `emv` جواه والـ build بيقول `cannot find symbol` لكل class فيه (حصلت 28/10). الحل: اقفل Android Studio، امسح الفولدر والـ `core\build`، `git checkout -- core/src`، وبعدين Sync + Rebuild.
 
 ---
 
