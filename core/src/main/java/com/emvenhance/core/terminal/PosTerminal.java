@@ -18,7 +18,6 @@ import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
-import io.reactivex.rxjava3.observers.DisposableObserver;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
@@ -221,15 +220,16 @@ public abstract class PosTerminal {
         }
 
         public void cancel() {
+            TransactionStepEvent cancelling = TransactionStepEvent.of(TransactionStep.CANCELLING,
+                    "Cancelling — finishing with the card");
             synchronized (steps) {
                 if (end != null) {
                     return;
                 }
                 end = TransactionStepEvent.of(TransactionStep.CANCELLED);
-                deliver(TransactionStepEvent.of(TransactionStep.CANCELLING,
-                        "Cancelling — finishing with the card"));
+                deliver(cancelling);
             }
-            behavior.cancelCardSearch();
+            dispatchTransactionStep(cancelling);
         }
 
         boolean isRunning() {
@@ -255,6 +255,7 @@ public abstract class PosTerminal {
                 }
                 deliver(event);
             }
+            dispatchTransactionStep(event);
         }
 
         void emvFinished(TransactionStepEvent outcome) {
@@ -291,38 +292,7 @@ public abstract class PosTerminal {
         }
 
         private void begin() {
-            dispatch = steps.observeOn(transactionScheduler)
-                    .subscribeWith(new TransactionStepObserver());
             publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
-        }
-
-        @Nullable
-        private DisposableObserver<TransactionStepEvent> dispatch;
-        private boolean finished;
-
-        private final class TransactionStepObserver extends DisposableObserver<TransactionStepEvent> {
-
-            @Override
-            public void onNext(TransactionStepEvent event) {
-                try {
-                    dispatchTransactionStep(event);
-                } catch (Throwable t) {
-                    t.printStackTrace();
-                    publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
-                    onEnd();
-                }
-            }
-
-            @Override
-            public void onError(Throwable error) {
-                publish(errorEvent(error.getMessage() != null ? error.getMessage()
-                        : "Transaction steps failed"));
-                onEnd();
-            }
-
-            @Override
-            public void onComplete() {
-            }
         }
 
         private void dispatchTransactionStep(TransactionStepEvent event) {
@@ -330,28 +300,38 @@ public abstract class PosTerminal {
                 case TRANSACTION_STARTED:
                     onTransactionStarted(event);
                     break;
+                case CANCELLING:
+                    onCancelling();
+                    break;
                 default:
                     break;
             }
         }
 
         private void onTransactionStarted(TransactionStepEvent started) {
-            behavior.engine().begin();
-            traceTransactionStep(started);
-            if (isRunning()) {
-                behavior.run(config, this);
+            transactionScheduler.scheduleDirect(() -> runTransaction(started));
+        }
+
+        private void runTransaction(TransactionStepEvent started) {
+            try {
+                behavior.engine().begin();
+                traceTransactionStep(started);
+                if (isRunning()) {
+                    behavior.run(config, this);
+                }
+            } catch (Throwable t) {
+                t.printStackTrace();
+                publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
+            } finally {
+                onEnd();
             }
-            onEnd();
+        }
+
+        private void onCancelling() {
+            behavior.cancelCardSearch();
         }
 
         private void onEnd() {
-            if (finished) {
-                return;
-            }
-            finished = true;
-            if (dispatch != null) {
-                dispatch.dispose();
-            }
             List<Runnable> followUps;
             synchronized (steps) {
                 if (end == null) {
