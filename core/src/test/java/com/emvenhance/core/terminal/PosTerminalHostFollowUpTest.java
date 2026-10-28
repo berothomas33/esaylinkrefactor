@@ -29,10 +29,11 @@ import java.util.function.Consumer;
 import org.junit.Test;
 
 /**
- * Once a transaction that went online has ended, the terminal closes the host's side of each
- * request it sent: acknowledge the sale the host approved and the card completed, reverse any
- * other the host approved or never answered, nothing for a decline. Sent after the end, on its
- * own thread, named by the asyncRequestId the request went with.
+ * Once a transaction that went online has decided its end, the terminal closes the host's side of
+ * each request it sent: acknowledge the sale the host approved and the card completed, reverse
+ * any other the host approved or never answered, nothing for a decline. The safe end: sent on the
+ * transaction thread, waited for (at most the follow-up timeout), each with its step, before the
+ * terminal is free and the end is published; named by the asyncRequestId the request went with.
  */
 public class PosTerminalHostFollowUpTest {
 
@@ -229,7 +230,8 @@ public class PosTerminalHostFollowUpTest {
     }
 
     @Test(timeout = 10_000)
-    public void sentAfterTheEndOnItsOwnThreadWithTheTerminalFree() throws InterruptedException {
+    public void sentBeforeTheEndOnTheTransactionThreadWithTheTerminalBusy()
+            throws InterruptedException {
         answers.add(approved());
         terminal = new TestTerminal(t -> {
             goOnline();
@@ -237,11 +239,43 @@ public class PosTerminalHostFollowUpTest {
         });
 
         terminal.runOne();
-        followUps.take();
 
-        assertEquals(Collections.singletonList(false), busyAtFollowUp);
-        assertNotEquals("not the transaction thread",
-                terminal.transactionThread, followUpThreads.get(0));
+        assertEquals("ACK " + idSent(0), followUps.poll());
+        assertEquals(Collections.singletonList(true), busyAtFollowUp);
+        assertEquals("the transaction thread", terminal.transactionThread, followUpThreads.get(0));
+        List<TransactionStep> steps = terminal.lastSteps;
+        assertEquals(Arrays.asList(TransactionStep.APPROVED, TransactionStep.ACKNOWLEDGING,
+                TransactionStep.COMPLETED), steps.subList(steps.size() - 3, steps.size()));
+    }
+
+    @Test(timeout = 10_000)
+    public void aFollowUpTheHostNeverAnswersEndsAfterItsTimeout() throws InterruptedException {
+        CommunicationBehavior silent = new CommunicationBehavior() {
+            @Override
+            public Single<AuthResult> authorize(TransactionConfig config) {
+                return host.authorize(config);
+            }
+
+            @Override
+            public Completable reverse(TransactionConfig config) {
+                return Completable.never();
+            }
+        };
+        answers.add(approved());
+        terminal = new TestTerminal(silent, t -> {
+            goOnline();
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED)); // AAC at the 2nd GAC
+        });
+        terminal.followUpTimeoutMs = 200;
+
+        long started = System.currentTimeMillis();
+        terminal.runOne();
+
+        assertTrue("waited " + (System.currentTimeMillis() - started) + " ms",
+                System.currentTimeMillis() - started < 3_000);
+        assertEquals(TransactionStep.COMPLETED, terminal.lastEnd);
+        assertTrue(terminal.lastSteps.contains(TransactionStep.REVERSING));
+        assertTrue("the terminal is free", !terminal.isBusy());
     }
 
     @Test(timeout = 10_000)
@@ -320,7 +354,15 @@ public class PosTerminalHostFollowUpTest {
 
         volatile Consumer<Transaction> script;
         volatile TransactionStep lastEnd;
+        /** The last transaction's steps, its end included. */
+        volatile List<TransactionStep> lastSteps;
         volatile Thread transactionThread;
+        volatile long followUpTimeoutMs = 15_000;
+
+        @Override
+        protected long followUpTimeoutMs() {
+            return followUpTimeoutMs;
+        }
 
         TestTerminal(Consumer<Transaction> script) {
             this(host, script);
@@ -334,11 +376,16 @@ public class PosTerminalHostFollowUpTest {
         /** Runs one transaction to its end. */
         void runOne() throws InterruptedException {
             CountDownLatch ended = new CountDownLatch(1);
+            List<TransactionStep> steps = new CopyOnWriteArrayList<>();
+            lastSteps = steps;
             startTransaction(new TransactionConfig(TransactionType.SALE, 1000,
                     com.emvenhance.core.card.EntryMethod.CHIP))
-                    .steps().filter(e -> e.getStep().isEnd()).subscribe(e -> {
-                        lastEnd = e.getStep();
-                        ended.countDown();
+                    .steps().subscribe(e -> {
+                        steps.add(e.getStep());
+                        if (e.getStep().isEnd()) {
+                            lastEnd = e.getStep();
+                            ended.countDown();
+                        }
                     });
             assertTrue("never ended", ended.await(5, TimeUnit.SECONDS));
         }

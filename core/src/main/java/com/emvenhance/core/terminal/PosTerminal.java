@@ -87,14 +87,6 @@ public abstract class PosTerminal {
             Schedulers.from(Executors.newSingleThreadExecutor());
 
     /**
-     * The one thread a transaction's acknowledgement or reversal goes to the host on, after its
-     * end is published: the screen doesn't wait for it, and the next sale's online request
-     * doesn't wait behind it on the transaction thread.
-     */
-    private final Scheduler followUpScheduler =
-            Schedulers.from(Executors.newSingleThreadExecutor());
-
-    /**
      * The transaction on the transaction thread, from its accepted start until it is done with
      * the reader; empty when the terminal is free (busy = non-empty). Only it may report steps.
      */
@@ -169,6 +161,15 @@ public abstract class PosTerminal {
      */
     protected long onlineTimeoutMs() {
         return 90_000;
+    }
+
+    /**
+     * The longest one acknowledgement or reversal may take. The terminal stays busy while it is
+     * sent (the safe end, {@link Transaction#onEnd}), so it is much shorter than an online
+     * authorization: a host that doesn't answer holds the next sale this long, not 90 s.
+     */
+    protected long followUpTimeoutMs() {
+        return 15_000;
     }
 
     /**
@@ -560,27 +561,42 @@ public abstract class PosTerminal {
         }
 
         /**
-         * The one place a transaction's end is published, on the transaction thread, once (the
-         * last thing {@link #runTransaction} does): the
-         * end (or ERROR "Transaction ended without an outcome" if none was set), the host
-         * follow-up decided ({@link #closeOnline}), the terminal freed, then the end delivered —
-         * a screen that sees COMPLETED / ERROR / CANCELLED can start the next sale at once — and
-         * last the acknowledgement / reversal sent.
+         * The safe end, the one place a transaction's end is published, on the transaction
+         * thread, once (the last thing {@link #runTransaction} does): the end decided (or ERROR
+         * "Transaction ended without an outcome" if none was set) and with it the host's side
+         * ({@link #closeOnline}); then each acknowledgement / reversal, its step (ACKNOWLEDGING /
+         * REVERSING) and the call, waited for — at most {@link #followUpTimeoutMs()} each, the
+         * terminal still busy; then the terminal freed and the end delivered — a screen that sees
+         * COMPLETED / ERROR / CANCELLED can start the next sale at once, its host already told.
          */
         private void onEnd() {
             List<Runnable> followUps;
-            synchronized (steps) { // a cancel's CANCELLING can't land after the end
+            synchronized (steps) { // a cancel's CANCELLING can't land after the end is decided
                 // A search that stopped with no outcome still ends its transaction.
                 if (end == null) {
                     end = errorEvent("Transaction ended without an outcome");
                 }
                 followUps = closeOnline();
-                current.compareAndSet(this, null);
-                deliver(end);
             }
             for (Runnable followUp : followUps) {
                 followUp.run();
             }
+            synchronized (steps) {
+                current.compareAndSet(this, null);
+                deliver(end);
+            }
+        }
+
+        /**
+         * One acknowledgement or reversal, before the terminal is free: its step for the screen
+         * and the trace (the end is decided, so it is delivered as it is, not published), then the
+         * call ({@link #sendFollowUp}).
+         */
+        private void followUp(TransactionStep step, String what, Completable call) {
+            synchronized (steps) {
+                deliver(TransactionStepEvent.of(step, what));
+            }
+            sendFollowUp(what, call);
         }
 
         /** The request it is about to send the host: recorded before it goes. */
@@ -593,7 +609,7 @@ public abstract class PosTerminal {
         /**
          * Closes the host's side of every request this transaction sent, now that it has ended;
          * called under the lock, with {@link #end} set. Notes each in the APDU trace and returns
-         * the calls, which {@link #onEnd} makes once the terminal is free.
+         * the follow-ups, which {@link #onEnd} makes, in order, before the terminal is free.
          *
          * <ul>
          *   <li>Its last request, approved by the host, and the transaction reported APPROVED and
@@ -621,7 +637,8 @@ public abstract class PosTerminal {
                 String id = request.sent.getAsyncRequestId();
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    followUps.add(() -> sendFollowUp("Acknowledgement " + id,
+                    followUps.add(() -> followUp(TransactionStep.ACKNOWLEDGING,
+                            "Acknowledgement " + id,
                             Completable.defer(() -> communication.acknowledge(request.sent))));
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
@@ -632,7 +649,7 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    followUps.add(() -> sendFollowUp("Reversal " + id,
+                    followUps.add(() -> followUp(TransactionStep.REVERSING, "Reversal " + id,
                             Completable.defer(() -> communication.reverse(request.sent))));
                 }
             }
@@ -654,15 +671,22 @@ public abstract class PosTerminal {
     }
 
     /**
-     * Sends a transaction's acknowledgement or reversal on {@link #followUpScheduler}, at most
-     * {@link #onlineTimeoutMs()}, and returns at once. Nobody waits for it: a failure is logged,
-     * and not retried — the host reverses on its own a sale it never got acknowledged.
+     * Sends a transaction's acknowledgement or reversal and waits for it, on the transaction
+     * thread, at most {@link #followUpTimeoutMs()}. A failure is logged and noted in the trace,
+     * not retried — the host reverses on its own a sale it never got acknowledged; a lost
+     * reversal is not stored yet (BACKLOG 0.15).
      */
     private void sendFollowUp(String what, Completable call) {
-        call.timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
-                .subscribeOn(followUpScheduler)
-                .subscribe(() -> EmvLog.d(what + " sent"),
-                        e -> EmvLog.d(what + " failed: " + e));
+        try {
+            call.timeout(followUpTimeoutMs(), TimeUnit.MILLISECONDS).blockingAwait();
+            EmvLog.d(what + " sent");
+            apduTrace().note("HOST", what + " sent");
+        } catch (RuntimeException e) {
+            EmvLog.d(what + " failed: " + e);
+            apduTrace().note("HOST", what + " failed — not retried: "
+                    + (e.getCause() instanceof TimeoutException
+                            ? "the host didn't answer in time" : e.getMessage()));
+        }
     }
 
     /** An ERROR step: the terminal's own, and its behavior's ({@link AbstractEmvBehavior#finishError}). */

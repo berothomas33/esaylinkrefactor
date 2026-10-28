@@ -57,6 +57,19 @@ public enum TransactionStep {
     /** Transaction declined (online or offline). */
     DECLINED("Declined"),
 
+    /**
+     * The end is decided (COMPLETED after APPROVED): the host is told the sale is done before the
+     * terminal is free — part of the end, not after it.
+     */
+    ACKNOWLEDGING("Acknowledging the sale with the host"),
+
+    /**
+     * The end is decided and a request the host may have approved wasn't completed (declined by
+     * the card, cancelled, an error, no host answer): the host is told to reverse it before the
+     * terminal is free.
+     */
+    REVERSING("Reversing the request at the host"),
+
     /** All post-processing done; transaction is finished. */
     COMPLETED("Transaction completed"),
 
