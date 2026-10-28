@@ -27,6 +27,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     private PosTerminal.Transaction transaction;
     @Nullable
     private CardSearchListener cardSearch;
+    private boolean searchRequested;
 
     private final CompositeDisposable disposables = new CompositeDisposable();
 
@@ -62,7 +63,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         String prompt = engine.consumeRetryPrompt();
         String message = prompt != null ? prompt : waitingMessage(activeConfig);
         cardSearch = new CardSearchReporter(transaction, prompt, message);
+        searchRequested = true;
         goToStep(EmvStep.SEARCH_CARD, message);
+        searchRequested = false;
     }
 
     void start(CardPresence card) {
@@ -334,6 +337,13 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 onTerminalInitialization(activeConfig);
                 break;
             case SEARCH_CARD:
+                if (!searchRequested) {
+                    EmvLog.d("SEARCH_CARD outside the search step: shown, no second search");
+                    engine.apduTrace().note("EMV",
+                            "SEARCH_CARD published inside the EMV — shown, no second search");
+                    break;
+                }
+                searchRequested = false;
                 onSearchCard(activeConfig, activeCard);
                 break;
             case APPLICATION_SELECTION:
