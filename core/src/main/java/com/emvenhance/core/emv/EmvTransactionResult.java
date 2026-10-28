@@ -1,4 +1,6 @@
-package com.emvenhance.core.card;
+package com.emvenhance.core.emv;
+
+import com.emvenhance.core.card.EntryMethod;
 
 import androidx.annotation.Nullable;
 

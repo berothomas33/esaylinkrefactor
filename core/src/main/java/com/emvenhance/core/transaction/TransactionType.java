@@ -1,4 +1,4 @@
-package com.emvenhance.core.card;
+package com.emvenhance.core.transaction;
 
 public enum TransactionType {
 

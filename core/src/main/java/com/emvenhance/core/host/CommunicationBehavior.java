@@ -1,6 +1,6 @@
 package com.emvenhance.core.host;
 
-import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionConfig;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 

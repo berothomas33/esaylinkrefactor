@@ -10,7 +10,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import com.emvenhance.R;
-import com.emvenhance.core.card.TransactionType;
+import com.emvenhance.core.transaction.TransactionType;
 import com.google.android.material.tabs.TabLayout;
 
 public class AmountFragment extends Fragment {

@@ -1,4 +1,4 @@
-package com.emvenhance.core.card;
+package com.emvenhance.core.emv;
 
 import androidx.annotation.Nullable;
 import java.io.ByteArrayOutputStream;

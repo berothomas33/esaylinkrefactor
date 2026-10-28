@@ -1,7 +1,7 @@
 package com.emvenhance.core.terminal;
 
 import com.emvenhance.core.card.CardPresence;
-import com.emvenhance.core.card.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionConfig;
 
 public interface EmvBehavior {
 

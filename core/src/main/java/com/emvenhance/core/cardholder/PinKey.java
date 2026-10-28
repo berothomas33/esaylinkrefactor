@@ -1,4 +1,4 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.cardholder;
 
 public enum PinKey {
     INPUT,

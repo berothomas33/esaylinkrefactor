@@ -1,4 +1,4 @@
-package com.emvenhance.core.event;
+package com.emvenhance.core.emv;
 
 public enum EmvStep {
 

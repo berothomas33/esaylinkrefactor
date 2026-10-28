@@ -17,7 +17,7 @@ package com.emvenhance.emvflow.device;
 
 import android.os.SystemClock;
 import androidx.annotation.Nullable;
-import com.emvenhance.core.util.ApduTrace;
+import com.emvenhance.core.emv.ApduTrace;
 import com.emvenhance.emvflow.BuildConfig;
 import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.application.ActivityStack;

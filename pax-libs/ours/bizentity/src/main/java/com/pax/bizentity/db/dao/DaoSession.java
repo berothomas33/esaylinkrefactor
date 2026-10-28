@@ -31,29 +31,6 @@ import com.pax.bizentity.entity.clss.pboc.PBOCAidBean;
 import com.pax.bizentity.entity.clss.pure.PureAidBean;
 import com.pax.bizentity.entity.clss.rupay.RupayAidBean;
 
-import com.pax.bizentity.db.dao.AcquirerDao;
-import com.pax.bizentity.db.dao.CapkRevokeBeanDao;
-import com.pax.bizentity.db.dao.CardBinDao;
-import com.pax.bizentity.db.dao.CardBinBlackDao;
-import com.pax.bizentity.db.dao.CardRangeDao;
-import com.pax.bizentity.db.dao.ClssTornLogDao;
-import com.pax.bizentity.db.dao.EmvAidDao;
-import com.pax.bizentity.db.dao.EmvCapkDao;
-import com.pax.bizentity.db.dao.IssuerDao;
-import com.pax.bizentity.db.dao.TransDataDao;
-import com.pax.bizentity.db.dao.TransTotalDao;
-import com.pax.bizentity.db.dao.AmexAidBeanDao;
-import com.pax.bizentity.db.dao.AmexDrlBeanDao;
-import com.pax.bizentity.db.dao.DpasAidBeanDao;
-import com.pax.bizentity.db.dao.EFTAidBeanDao;
-import com.pax.bizentity.db.dao.JcbAidBeanDao;
-import com.pax.bizentity.db.dao.MirAidBeanDao;
-import com.pax.bizentity.db.dao.PayPassAidBeanDao;
-import com.pax.bizentity.db.dao.PaywaveAidBeanDao;
-import com.pax.bizentity.db.dao.PBOCAidBeanDao;
-import com.pax.bizentity.db.dao.PureAidBeanDao;
-import com.pax.bizentity.db.dao.RupayAidBeanDao;
-
 public class DaoSession extends AbstractDaoSession {
 
     private final DaoConfig acquirerDaoConfig;

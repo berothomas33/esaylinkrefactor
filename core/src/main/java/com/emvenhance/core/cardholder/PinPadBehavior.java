@@ -1,4 +1,6 @@
-package com.emvenhance.core.terminal;
+package com.emvenhance.core.cardholder;
+
+import com.emvenhance.core.terminal.EmvBehavior;
 
 public interface PinPadBehavior {
 
