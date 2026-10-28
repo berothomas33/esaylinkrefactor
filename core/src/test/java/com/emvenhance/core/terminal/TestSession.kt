@@ -52,7 +52,7 @@ internal class TestSession(
     /** Every step the transaction reported, its end included once it has ended. */
     fun steps(): List<TransactionStepEvent> {
         val steps = ArrayList(recorder?.values.orEmpty())
-        transaction.end.get()?.let { steps.add(it) }
+        transaction.end?.let { steps.add(it) }
         return steps
     }
 

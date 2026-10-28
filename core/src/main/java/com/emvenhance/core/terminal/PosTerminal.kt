@@ -215,7 +215,7 @@ abstract class PosTerminal protected constructor(
             EmvLog.d("POS terminal is busy: the previous transaction hasn't finished")
             throw TerminalBusyException()
         }
-        transactionExecutor.execute { process(transaction) }
+        transactionExecutor.execute { transaction.run() }
         return transaction
     }
 
@@ -234,7 +234,7 @@ abstract class PosTerminal protected constructor(
     fun isBusy(): Boolean = current.get() != null
 
     /** Whether the vendor search polling for the current transaction should stop: it is over. */
-    fun isSearchCancelled(): Boolean = current.get()?.isOver() == true
+    fun isSearchCancelled(): Boolean = current.get()?.isRunning() == false
 
     /** [authorize]'s steps, on the transaction going online: the current one. */
     private fun publish(event: TransactionStepEvent) {
@@ -315,14 +315,15 @@ abstract class PosTerminal protected constructor(
     // ─── Orchestration (fixed for all vendors) ───────────────────────────
 
     /**
-     * One accepted [startTransaction]: everything about it, in one place. The terminal outlives
-     * every transaction, so what belongs to one lives here — a search still running for an
-     * earlier transaction can then tell it is over, instead of acting on the next.
+     * One accepted [startTransaction]: everything about it, in one place, and it runs itself
+     * ([run], on [transactionExecutor]). The terminal outlives every transaction, so what belongs
+     * to one lives here — a search still running for an earlier transaction can then tell it is
+     * over, instead of acting on the next.
      *
      * - [end] is its whole state: `null` while it runs (and the terminal is busy with it); the
-     *   first COMPLETED / ERROR, or the cancel's CANCELLED, once it has ended. One
-     *   compare-and-set decides it, so a cancel racing the end, or two ends from two threads, end
-     *   it exactly once.
+     *   first COMPLETED / ERROR, or the cancel's CANCELLED, once it has ended. Written only under
+     *   the [steps] lock, so a cancel racing the end, or two ends from two threads, end it exactly
+     *   once.
      * - [steps] is what it reports, for a screen: its own flow, so a new transaction never shows
      *   the last one's outcome. It replays all its steps to a collector that starts late or again
      *   (a rotation): APPROVED's data is still there after COMPLETED, and nothing is missed
@@ -335,7 +336,9 @@ abstract class PosTerminal protected constructor(
      */
     inner class Transaction internal constructor(internal val config: TransactionConfig) {
 
-        internal val end = AtomicReference<TransactionStepEvent?>(null)
+        @Volatile
+        internal var end: TransactionStepEvent? = null
+            private set
 
         internal val steps = MutableSharedFlow<TransactionStepEvent>(replay = Int.MAX_VALUE)
 
@@ -354,27 +357,25 @@ abstract class PosTerminal protected constructor(
          */
         fun cancel() {
             synchronized(steps) {
-                if (!end.compareAndSet(null, TransactionStepEvent.of(TransactionStep.CANCELLED))) {
+                if (end != null) {
                     return
                 }
+                end = TransactionStepEvent.of(TransactionStep.CANCELLED)
                 // Under the lock: before the end, whichever thread is first.
-                publishNow(TransactionStepEvent.of(TransactionStep.CANCELLING, "Cancelling — finishing with the card"))
+                deliver(TransactionStepEvent.of(TransactionStep.CANCELLING, "Cancelling — finishing with the card"))
             }
             cancelCardSearch()
         }
 
-        internal fun isRunning(): Boolean = end.get() == null
+        internal fun isRunning(): Boolean = end == null
 
-        internal fun isCancelled(): Boolean = end.get()?.step == TransactionStep.CANCELLED
-
-        /** Ended, or no longer the terminal's transaction: nothing it reports reaches the UI. */
-        internal fun isOver(): Boolean = !isRunning() || current.get() !== this
+        internal fun isCancelled(): Boolean = end?.step == TransactionStep.CANCELLED
 
         /**
          * Every step of this transaction comes through here — the terminal's own and its
          * behavior's ([AbstractEmvBehavior.publish]). Published only while it is running; the
-         * first end ends it ([end]) and is published by [process] once the terminal is free;
-         * anything after it is dropped.
+         * first end ends it ([end]) and is delivered by [run] once the terminal is free; anything
+         * after it is dropped.
          */
         internal fun publish(event: TransactionStepEvent) {
             synchronized(steps) {
@@ -384,189 +385,177 @@ abstract class PosTerminal protected constructor(
                     return
                 }
                 if (event.step.isEnd) {
-                    end(event)
+                    end = event
                     return
                 }
-                publishNow(event)
+                deliver(event)
             }
         }
 
-        /** The first end wins; a later one (a stage noticing the cancel, say) is dropped. */
-        internal fun end(event: TransactionStepEvent) {
-            if (!end.compareAndSet(null, event)) {
-                EmvLog.d("TransactionStep dropped, the transaction has ended: $event")
+        /** Emits `event` on [steps]; every caller holds the [steps] lock. */
+        private fun deliver(event: TransactionStepEvent) {
+            EmvLog.d("TransactionStep: $event")
+            traceTransactionStep(event)
+            steps.tryEmit(event)
+        }
+
+        /**
+         * Runs on [transactionExecutor] — always, even for a transaction cancelled before it got
+         * there, so it always frees the terminal. Blocking, never `suspend`. One
+         * [EmvEngine.begin] for the whole transaction, including any retries a behavior requests
+         * via [EmvEngine.requestRetry] (PAX fallback / try-another-interface / try-again). Never
+         * throws: nothing above it would catch it.
+         *
+         * Its `finally` is the one place a transaction's end is delivered: frees the terminal
+         * first, then delivers the end, so a screen that sees COMPLETED/ERROR/CANCELLED can start
+         * the next sale at once.
+         */
+        internal fun run() {
+            try {
+                engine.begin()
+                publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)) // once
+                // Each attempt: prepare, search, EMV. A retry the behavior asked for (fallback, try
+                // another interface, try again, See Phone) is the next turn of this loop — not a
+                // search started from inside the previous search's callback.
+                var next: TransactionConfig? = config
+                while (next != null && isRunning()) {
+                    next = attempt(next)
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                publish(errorEvent(t.message ?: "Transaction failed"))
+            } finally {
+                synchronized(steps) { // a cancel's CANCELLING can't land after the end
+                    // A search that stopped with no outcome still ends its transaction.
+                    val ended = end ?: errorEvent("Transaction ended without an outcome").also { end = it }
+                    current.compareAndSet(this, null)
+                    deliver(ended)
+                }
             }
         }
 
-        /** Emits `event` on [steps], holding its lock. */
-        internal fun publishNow(event: TransactionStepEvent) {
-            synchronized(steps) {
-                EmvLog.d("TransactionStep: $event")
-                traceTransactionStep(event)
-                steps.tryEmit(event)
+        /**
+         * One attempt: terminal initialization, then card search. Every [CardSearchListener]
+         * implementation (Pax/Ingenico/Fake) calls exactly one listener method before it stops
+         * searching, and that callback drives what happens next:
+         * [EngineReportingListener.handleCardFound] runs EMV the moment a card is found.
+         *
+         * @return the adjusted config of a retry the behavior asked for ([EmvEngine.requestRetry]),
+         *      or `null`: the transaction is done
+         */
+        private fun attempt(config: TransactionConfig): TransactionConfig? {
+            if (!behavior.prepare(config, this)) {
+                publish(errorEvent("Terminal initialization failed")) // dropped if it already ended
+                return null
             }
-        }
-    }
-
-    /**
-     * Runs on [transactionExecutor] — always, even for a transaction cancelled before it got
-     * here, so it always frees the terminal. Blocking, never `suspend`. One [EmvEngine.begin] for
-     * the whole transaction, including any retries a behavior requests via
-     * [EmvEngine.requestRetry] (PAX fallback / try-another-interface / try-again). Never throws:
-     * nothing above it would catch it.
-     *
-     * Its `finally` is the one place a transaction's end is published: frees the terminal first,
-     * then publishes the end, so a screen that sees COMPLETED/ERROR/CANCELLED can start the next
-     * sale at once.
-     */
-    private fun process(transaction: Transaction) {
-        try {
-            engine.begin()
-            transaction.publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)) // once
-            // Each attempt: prepare, search, EMV. A retry the behavior asked for (fallback, try
-            // another interface, try again, See Phone) is the next turn of this loop — not a
-            // search started from inside the previous search's callback.
-            var config: TransactionConfig? = transaction.config
-            while (config != null && transaction.isRunning()) {
-                config = attempt(transaction, config)
+            searchCard(config, EngineReportingListener(config))
+            // Consumed either way; run's loop drops it if the transaction is over (cancelled).
+            val retry = engine.consumePendingRetry()
+            if (retry != null && !isRunning()) {
+                EmvLog.d("Retry dropped: the transaction is over")
+                engine.apduTrace().note("EMV", "retry dropped — the transaction is over")
             }
-        } catch (t: Throwable) {
-            t.printStackTrace()
-            transaction.end(errorEvent(t.message ?: "Transaction failed"))
-        } finally {
-            synchronized(transaction.steps) { // a cancel's CANCELLING can't land after the end
-                // A search that stopped with no outcome still ends its transaction.
-                transaction.end.compareAndSet(null, errorEvent("Transaction ended without an outcome"))
-                current.compareAndSet(transaction, null)
-                transaction.publishNow(transaction.end.get()!!)
+            return retry
+        }
+
+        /**
+         * Maps reader events → this transaction's steps, and starts EMV once a card is found.
+         * Once the transaction is over, its callbacks are dropped, so a search that outlived it
+         * can't fail, or start EMV for, the next one.
+         */
+        private inner class EngineReportingListener(private val config: TransactionConfig) : CardSearchListener {
+
+            private fun isStale(callback: String): Boolean {
+                if (!isRunning()) {
+                    EmvLog.d("Ignored $callback from a search whose transaction is over")
+                    return true
+                }
+                return false
             }
-        }
-    }
 
-    /**
-     * One attempt: terminal initialization, then card search. Every [CardSearchListener]
-     * implementation (Pax/Ingenico/Fake) calls exactly one listener method before it stops
-     * searching, and that callback drives what happens next:
-     * [EngineReportingListener.handleCardFound] runs EMV the moment a card is found.
-     *
-     * @return the adjusted config of a retry the behavior asked for ([EmvEngine.requestRetry]),
-     *      or `null`: the transaction is done
-     */
-    private fun attempt(transaction: Transaction, config: TransactionConfig): TransactionConfig? {
-        if (!behavior.prepare(config, transaction)) {
-            transaction.publish(errorEvent("Terminal initialization failed")) // dropped if it already ended
-            return null
-        }
-        searchCard(config, EngineReportingListener(transaction, config))
-        // Consumed either way; process's loop drops it if the transaction is over (cancelled).
-        val retry = engine.consumePendingRetry()
-        if (retry != null && !transaction.isRunning()) {
-            EmvLog.d("Retry dropped: the transaction is over")
-            engine.apduTrace().note("EMV", "retry dropped — the transaction is over")
-        }
-        return retry
-    }
-
-    /**
-     * Maps reader events → its transaction's steps, and starts EMV once a card is found. Belongs
-     * to one [Transaction]: once that is over, its callbacks are dropped, so a search that
-     * outlived it can't fail, or start EMV for, the next one.
-     */
-    private inner class EngineReportingListener(
-        private val transaction: Transaction,
-        private val config: TransactionConfig,
-    ) : CardSearchListener {
-
-        private fun isStale(callback: String): Boolean {
-            if (transaction.isOver()) {
-                EmvLog.d("Ignored $callback from a search whose transaction is over")
-                return true
+            override fun onSearchStarted(config: TransactionConfig) {
+                if (isStale("onSearchStarted")) {
+                    return
+                }
+                val prompt = engine.consumeRetryPrompt()
+                val msg = prompt ?: waitingMessage(config)
+                val waiting = TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(msg)
+                if (prompt != null) {
+                    waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt)
+                }
+                publish(waiting.build())
+                engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg)
             }
-            return false
-        }
 
-        override fun onSearchStarted(config: TransactionConfig) {
-            if (isStale("onSearchStarted")) {
-                return
+            override fun onChipDetected(card: CardPresence) {
+                handleCardFound(card)
             }
-            val prompt = engine.consumeRetryPrompt()
-            val msg = prompt ?: waitingMessage(config)
-            val waiting = TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(msg)
-            if (prompt != null) {
-                waiting.put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt)
+
+            override fun onContactlessDetected(card: CardPresence) {
+                handleCardFound(card)
             }
-            transaction.publish(waiting.build())
-            engine.notifyEmvStep(EmvStep.SEARCH_CARD, msg)
-        }
 
-        override fun onChipDetected(card: CardPresence) {
-            handleCardFound(card)
-        }
-
-        override fun onContactlessDetected(card: CardPresence) {
-            handleCardFound(card)
-        }
-
-        override fun onMagstripeDetected(card: CardPresence) {
-            handleCardFound(card)
-        }
-
-        override fun onManualEntrySelected(card: CardPresence) {
-            handleCardFound(card)
-        }
-
-        override fun onCardRemoved() {
-            if (isStale("onCardRemoved")) {
-                return
+            override fun onMagstripeDetected(card: CardPresence) {
+                handleCardFound(card)
             }
-            transaction.publish(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD, "Card removed"))
-        }
 
-        override fun onSearchTimeout() {
-            if (isStale("onSearchTimeout")) {
-                return
+            override fun onManualEntrySelected(card: CardPresence) {
+                handleCardFound(card)
             }
-            transaction.publish(errorEvent("No card presented — card search timed out"))
-        }
 
-        override fun onSearchCancelled() {
-            if (isStale("onSearchCancelled")) {
-                return
+            override fun onCardRemoved() {
+                if (isStale("onCardRemoved")) {
+                    return
+                }
+                publish(TransactionStepEvent.of(TransactionStep.WAITING_FOR_CARD, "Card removed"))
             }
-            transaction.publish(errorEvent("Card search cancelled"))
-        }
 
-        override fun onReaderError(message: String?) {
-            if (isStale("onReaderError")) {
-                return
+            override fun onSearchTimeout() {
+                if (isStale("onSearchTimeout")) {
+                    return
+                }
+                publish(errorEvent("No card presented — card search timed out"))
             }
-            transaction.publish(errorEvent(message ?: "Reader error"))
-        }
 
-        override fun onSearchRetry(message: String) {
-            if (isStale("onSearchRetry")) {
-                return
+            override fun onSearchCancelled() {
+                if (isStale("onSearchCancelled")) {
+                    return
+                }
+                publish(errorEvent("Card search cancelled"))
             }
-            transaction.publish(
-                TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(message)
-                    .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build(),
-            )
-            engine.notifyEmvStep(EmvStep.SEARCH_CARD, message)
-        }
 
-        /** Runs EMV right here; a retry it asks for is [attempt]'s to return. */
-        private fun handleCardFound(card: CardPresence) {
-            if (isStale("card detected")) {
-                return
+            override fun onReaderError(message: String?) {
+                if (isStale("onReaderError")) {
+                    return
+                }
+                publish(errorEvent(message ?: "Reader error"))
             }
-            transaction.publish(
-                TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
-                    .put(TransactionStepEvent.KEY_MODE, card.modeLabel)
-                    .put("entryMethod", card.entryMethod.name)
-                    .build(),
-            )
 
-            behavior.start(config, card, transaction)
+            override fun onSearchRetry(message: String) {
+                if (isStale("onSearchRetry")) {
+                    return
+                }
+                publish(
+                    TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(message)
+                        .put(TransactionStepEvent.KEY_RETRY_PROMPT, message).build(),
+                )
+                engine.notifyEmvStep(EmvStep.SEARCH_CARD, message)
+            }
+
+            /** Runs EMV right here; a retry it asks for is [attempt]'s to return. */
+            private fun handleCardFound(card: CardPresence) {
+                if (isStale("card detected")) {
+                    return
+                }
+                publish(
+                    TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+                        .put(TransactionStepEvent.KEY_MODE, card.modeLabel)
+                        .put("entryMethod", card.entryMethod.name)
+                        .build(),
+                )
+
+                behavior.start(config, card, this@Transaction)
+            }
         }
     }
 
