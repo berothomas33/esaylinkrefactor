@@ -31,14 +31,16 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 **Who does what (one sentence each):**
 - `PosTerminal` (core) — the POS machine, and the only API the UI uses: start / cancel a
   transaction (`PosTerminal.Transaction`: its steps, cancel and end — it, not the EMV, ends the
-  transaction), card search, host (authorize, then acknowledge / reverse), printer; one
-  transaction at a time on one thread. Its parts: `behavior` = the card (EMV),
+  transaction, after acknowledging / reversing at the host — the safe end), host (authorize),
+  printer; one transaction at a time on one thread. Its parts: `behavior` = the card (EMV),
   `communication` = HTTP to the bank / facilitator, `printer`.
 - `EmvEngine` (core) — the EMV steps bus (the dispatch, the banner, the APDU trace), the trace,
   the retry request, the way to the host. No EMV logic, no transaction state.
-- `AbstractEmvBehavior` (core) — the 16 EMV step hooks a vendor implements, `goToStep`,
-  `askStep`, field 55, `authorizeOnline`; keeps the engine (`attach` / `engine()`); reports the
-  EMV's outcome with `finish*` (it doesn't end the transaction).
+- `AbstractEmvBehavior` (core) — the whole EMV of a transaction (`run`): terminal
+  initialization, the card search (`onSearchCard`, the vendor's polling) and the retries the
+  kernel asks for; the 17 EMV step hooks a vendor implements, `goToStep`, `askStep`, field 55,
+  `authorizeOnline`; keeps the engine (`attach` / `engine()`); reports the EMV's outcome with
+  `finish*` (it doesn't end the transaction).
 - `PaxEmvBehavior` (`vendor-pax`) — PAX's implementation: drives `ContactProcess` /
   `ClssProcess` one native call per step.
 - `ContactProcess`, `Clss*Process` (emvlib) — PAX's wrappers over the certified native kernels.
@@ -110,12 +112,12 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
    `Transaction`: `isRunning()` / `isCancelled()`), never its own copy.
    Prefer removing redundant code over adding abstractions.
 10. **Separation of responsibilities.** `PosTerminal`: the transaction's whole life — thread,
-    busy, cancel, its steps and its end — plus card search, host, printer. `EmvEngine`: the EMV
+    busy, cancel, its steps and its (safe) end — plus host, printer. `EmvEngine`: the EMV
     steps stream, the APDU trace, the retry request; no transaction state (whether a step may
     still run is asked of the `Transaction` before it is published).
-    `AbstractEmvBehavior` + vendor: EMV steps and kernel work, nothing about threads, busy or
-    the host. UI: observes and asks, owns no transaction state. When a change makes a class do
-    another's job, move the job, don't bridge it — remove the redundant copy rather than add a
+    `AbstractEmvBehavior` + vendor: the EMV — card search, retries, EMV steps and kernel
+    work — nothing about threads, busy or the host. UI: observes and asks, owns no transaction
+    state. When a change makes a class do another's job, move the job, don't bridge it — remove the redundant copy rather than add a
     layer to reconcile two.
 11. **A step exists only where the kernel does that work.** Before publishing or moving a step
     (`SET_TRANSACTION_DATA`, `READ_APPLICATION_DATA`, …) check the SDK: which native call runs
@@ -134,8 +136,9 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
     vendor-independent: they import no vendor class, so the same code runs on any POS. All
     vendor-specific SDK code belongs in its vendor flavor. Adding a vendor must not require
     changing the core transaction flow. A new POS = a flavor with a `TerminalFactory`, a
-    `PosTerminal` subclass (`searchCard`, `cancelCardSearch`), an `AbstractEmvBehavior`
-    subclass (the `onXxx` hooks, `readIccTag`), and optionally its own `CommunicationBehavior` /
+    `PosTerminal` subclass (setup: serial number, permissions, countries, EMV params), an
+    `AbstractEmvBehavior` subclass (the `onXxx` hooks — `onSearchCard` is its card search —
+    `cancelCardSearch`, `readIccTag`), and optionally its own `CommunicationBehavior` /
     `PrinterBehavior`. `pax`, `ingenico` and `fake` are the implementors that justify the seam;
     do not add unnecessary layers or abstractions — rule 5 still forbids every other facade or
     single-implementor interface. Keep `fake` compiling and testable: it is the proof that core
@@ -160,7 +163,7 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 | Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../emv/Field55.java` |
 | Core packages (by owner, `7f59e35`) | `terminal` (PosTerminal + Transaction, EmvBehavior / AbstractEmvBehavior), `transaction` (config, type, its steps), `emv` (engine, EmvStep, result, Field55, ApduTrace), `card`, `host`, `cardholder` (app select, PIN pad), `param`, `util` (EmvLog) |
 | PAX flow (contact / contactless runners, callbacks, PIN, online) | `vendor-pax/.../vendor/pax/PaxEmvBehavior.java` |
-| Card search (polling, ICC retry) | `vendor-pax/.../vendor/pax/PaxTerminal.java` |
+| Card search (polling, ICC retry) — the SEARCH_CARD step | `vendor-pax/.../vendor/pax/PaxCardSearch.java` (run by `PaxEmvBehavior.onSearchCard`) |
 | Contact kernel wrapper + callback adapter | `vendor-pax/libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` |
 | Contactless dispatcher, reselect | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` |
 | Per-kernel stages | `vendor-pax/libs/sdk/emvlib/.../contactless/Clss{PayPass,PayWave,EFT,...}Process.java`, base `ClssKernelProcess` |
@@ -185,7 +188,9 @@ after**. Each carries docs that match its own code.
 - **`transactionOwnsSteps-oct27`** — `transactionOwnsSteps` + the 27/10 work: the PAX modules
   under `vendor-pax/libs/sdk` and `vendor-pax/libs/ours` (`62f5206`, `3622d1d`, `2ab85e5`), the core's
   packages by owner (`7f59e35`), the EMV reports and the
-  `Transaction` ends the transaction (`28d79cb`, `emvFinished`), docs. **New work goes here**
+  `Transaction` ends the transaction (`28d79cb`, `emvFinished`), and the 28/10 design session:
+  the kernel's listener once (`ca1b16a`), search + retry in the EMV (`9a911d1`), synchronous
+  transaction steps (`8843cb1`), the safe end (`9278c35`), docs. **New work goes here**
   unless Ebram says otherwise. Nothing on it is device-tested.
 - **`transactionOwnsSteps-clean`** (`e9ad3a6`) and **`transactionOwnsSteps-clean-oct27`**
   (`0d018e4`) — code-only twins: no tests, no comments, no `doc/`. Kept in step by porting each
@@ -216,10 +221,11 @@ after**. Each carries docs that match its own code.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:vendor-pax:libs:ours:bizentity:…`, or the green arrow in
-  Android Studio. Core: 102 — `AskStepTest`, `EmvStepObserverTest`,
+  Android Studio. Core: 103 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `TransactionEmvFinishedTest`, `Field55Test`,
-  `PosTerminal*Test` (incl. `PosTerminalHostFollowUpTest`: ack / reverse) (tests
-  drive a behavior as `PosTerminal` does: `TestSession.attempt` = `prepare` + `start`).
+  `PosTerminal*Test` (incl. `PosTerminalHostFollowUpTest`: ack / reverse, the safe end) (EMV
+  tests drive a behavior as its run loop does: `TestSession.attempt` = `prepare` + the card's
+  `start`; terminal tests use `StubBehavior`: the real run loop, the search a test lambda).
   Network: 20 — `SaleRefundGuardTest`, `OldAppSaleRequestTest`, `SalePinBlockTest`,
   `ReverseAcknowledgementTest`, `OnlineFailureClassifyTest`.
   Bizentity: 25 — XML parser tests on the host's real sections (`clss_param_paypass.xml`,
@@ -255,22 +261,32 @@ after**. Each carries docs that match its own code.
   state — `null` = running; the first COMPLETED / ERROR, or the cancel's CANCELLED, = ended.
   `steps()`: its own `ReplaySubject` (replays everything to a late subscriber, never completes;
   each subscriber a `SafeObserver`); the subject is also the lock, so a cancel's CANCELLING never
-  lands after the end. `cancel()` = CANCELLED as the end + CANCELLING at once +
-  `cancelCardSearch()`; the EMV winds down at its next `goToStep`.
+  lands after the end. `cancel()` = CANCELLED as the end + CANCELLING at once, whose method
+  stops the card search (`behavior.cancelCardSearch()`); the EMV winds down at its next `goToStep`.
 - **The transaction runs from its own steps** (`2e4fbb4`, design idea 2 — Ebram's goal: the
   transaction has its own TransactionStep events that drive it, as EmvSteps drive the EMV).
-  `begin()` (caller's thread): a `TransactionStepObserver` subscribes to its steps with
-  `observeOn(transactionScheduler)`, then TRANSACTION_STARTED is published.
-  `dispatchTransactionStep` on the transaction thread: TRANSACTION_STARTED → `onTransactionStarted`
-  (`engine.begin()`, the start step written into the new trace, first attempt); NEXT_ATTEMPT (a
-  retry the behavior asked for) → `onNextAttempt`; any other step runs nothing. `runAttempt` =
-  `attempt` (`behavior.prepare` → `searchCard` → `behavior.start` on the card found, unchanged),
-  then NEXT_ATTEMPT (published under the lock only while running; a cancel first ends it) or
-  `onEnd`. `onEnd` (once): end or "Transaction ended without an outcome", `closeOnline`, the
-  terminal freed, the end delivered, the dispatch observer disposed, ack / reversal sent on
-  `followUpScheduler`. Any exception in a step method → ERROR + `onEnd`. Unlike the EMV
-  dispatch, a step published from a step method is queued (it runs once the current method
-  returns); nothing here waits for an answer. Not device-tested.
+  Since `8843cb1` they run like EmvSteps: `publish` delivers under the lock, then
+  `dispatchTransactionStep` runs the step's method at once, on the publishing thread, outside
+  the lock. TRANSACTION_STARTED (published by `begin()` on the caller's thread) →
+  `onTransactionStarted`: `transactionScheduler.scheduleDirect(runTransaction)` —
+  `engine.begin()`, `behavior.run(config, this)` if still running, any exception → ERROR, and
+  `onEnd()` in a `finally` (the executor never drops a task, so a transaction cancelled before
+  its turn still ends and frees the terminal). CANCELLING → `onCancelling`:
+  `behavior.cancelCardSearch()`. Every other step is a report. Not device-tested.
+- **The EMV owns its flow, search and retries included** (`9a911d1`, 28/10 — as EMV Book B's
+  Entry Point): `AbstractEmvBehavior.run` loops over attempts: `prepare` (TERMINAL_INITIALIZATION)
+  → `searchCard()` → SEARCH_CARD → the vendor's `onSearchCard` polls and reports through
+  `cardSearchListener()` (WAITING_FOR_CARD, CARD_DETECTED, the timeout / reader ERRORs; bound to
+  its transaction, late callbacks dropped) → `start(card)`: the EMV chain. When the kernel has
+  returned: `engine.consumePendingRetry()` + a plain `if (isRunning())` → the next attempt from
+  SEARCH_CARD. No NEXT_ATTEMPT, no attempt loop in the `Transaction`. PAX: `PaxCardSearch`
+  (moved from `PaxTerminal`); a new `PaxTransactionState` per attempt in
+  `onTerminalInitialization`. Not device-tested.
+- **The safe end** (`9278c35`): `onEnd` (once, transaction thread): the end decided +
+  `closeOnline` under the lock; then each acknowledgement / reversal in order — step
+  ACKNOWLEDGING / REVERSING, the call waited for (`followUpTimeoutMs()` = 15 s) — with the
+  terminal still busy; then the terminal freed and the end delivered. `followUpScheduler` is
+  gone (two schedulers left: transaction, print). Not device-tested, not tried on the host.
 - **Who ends a transaction** (`28d79cb`): the EMV reports, the `Transaction` ends.
   `AbstractEmvBehavior.finishApproved / finishDeclined / finishError` →
   `Transaction.emvFinished(outcome)`: APPROVED / DECLINED delivered + end COMPLETED, ERROR as the
@@ -281,12 +297,15 @@ after**. Each carries docs that match its own code.
   retry request, `authorize` → `PosTerminal::authorize`. No transaction state. Made in
   `PosTerminal`'s constructor and handed once to the behavior (`attach`); kept only in
   `AbstractEmvBehavior` (private field); everyone reads it through `engine()`.
-- **Contracts**: `EmvBehavior` = `prepare` / `start` / `dispose` only (`EmvBehaviorContractTest`);
-  `attach` / `engine()` are `AbstractEmvBehavior`'s, so `PosTerminal.behavior` is an
-  `AbstractEmvBehavior`. `AbstractEmvBehavior`: 16 `protected abstract onXxx`, optional
-  `onSearchCard`, `readIccTag`, `goToStep` (the one cancel check), `askStep(step, detail,
-  failClosed)` / `answerStep`, `publish`, `finish*`. `initEmvObserver()` runs in `prepare` only
-  (it keeps the dispatch observer the last subscriber). `TransactionStep.isEnd()` = COMPLETED,
+- **Contracts**: `EmvBehavior` = `run` / `cancelCardSearch` / `dispose` only
+  (`EmvBehaviorContractTest`); `attach` / `engine()` are `AbstractEmvBehavior`'s, so
+  `PosTerminal.behavior` is an `AbstractEmvBehavior`. `AbstractEmvBehavior`: 17 `protected
+  abstract onXxx` (`onSearchCard` included — no optional hook left), `readIccTag`,
+  `cardSearchListener()`, `goToStep` (the one cancel check), `askStep(step, detail,
+  failClosed)` / `answerStep`, `publish`, `finish*`. `initEmvObserver()` runs at the start of
+  each attempt (`prepare`; it keeps the dispatch observer the last subscriber). The kernel's
+  listener (PAX) is registered once per flow and released once, in `finishContactStage` /
+  `finishContactlessStage` (`ca1b16a`). `TransactionStep.isEnd()` = COMPLETED,
   ERROR or CANCELLED.
 - **Removed on 28/10** (nothing used them; searched by bare name and `::name`):
   `PosTerminal.communication()` / `printer()`, `CardSearchListener.onCardRemoved`,
@@ -388,8 +407,9 @@ app (`OldAppSaleRequestTest`): posEntryMode chip 051 / contactless 071 / swipe 9
 names each request (`asyncRequestId`, a UUID, on `TransactionConfig`) before sending; after the
 end `closeOnline` sends `orchestration/acknowledgement` (host approved + APPROVED + COMPLETED,
 last request) or `orchestration/reverse` (host approved but not completed, or no usable answer);
-plain JSON `{asyncRequestId, transactionType}`, the sale's headers (mToken assumed), fire-and-
-forget (no journal: BACKLOG 0.15). Not reversed — `AuthResult.notSent` /
+plain JSON `{asyncRequestId, transactionType}`, the sale's headers (mToken assumed); sent and
+waited for (15 s) before the terminal is free — the safe end, `9278c35` — not retried and not
+stored (no journal: BACKLOG 0.15). Not reversed — `AuthResult.notSent` /
 `HostNotReachedException`: never sent, token refresh, any exchange failure, sale/refund HTTP
 401/403, no connection. Errors name their step (`Exchange: HTTP 403 Forbidden`). Not tried on the
 host yet.
@@ -446,7 +466,10 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 - Payment safety: ack / reversal are sent now but never stored or retried (BACKLOG 0.15); Retry
   is offered after "the host didn't answer" (1.5); 4xx other than 401/403 still reversed (1.16).
 - Mastercard single tap (BACKLOG 4.11): waiting for the host's exact "PIN required" answer.
-- Design idea 2 is built (`2e4fbb4`); the end itself is still a direct `onEnd()` call, not a step.
+- Design idea 2 is built (`2e4fbb4`, synchronous since `8843cb1`); the end itself is still a
+  direct `onEnd()` call (the `finally` of `runTransaction`), not a step. Search + retry in the
+  EMV (`9a911d1`) and the safe end (`9278c35`): not device-tested — chip, tap, swipe, tap again,
+  See Phone, fallback, cancel while searching, a host that doesn't answer the reversal.
 - `coroutineDesign` must catch up with this branch: `doc/catchup-coroutine.md` (steps S → V) and
   `doc/prompt-coroutineDesign.md` (the prompt for that thread).
 - Bugs still open: #10 See Phone not device-tested on this branch; the Visa 2nd tap doesn't wait

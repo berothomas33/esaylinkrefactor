@@ -11,7 +11,7 @@ no Rx). Never commit to, push to or rewrite `transactionOwnsSteps-oct27`,
 `git show` / `git diff`.
 
 **Goal.** `coroutineDesign` (today `870eb83`, 22/10) reaches the same stage as
-`transactionOwnsSteps-oct27` (`2ab85e5`, 28/10): every fix, every simplification, every removal,
+`transactionOwnsSteps-oct27` (`9278c35`, 28/10): every fix, every simplification, every removal,
 the same tests — in Kotlin. The shared Java modules end byte-identical.
 
 **Read first** (on `transactionOwnsSteps-oct27`, fetch it):
@@ -42,7 +42,12 @@ the same tests — in Kotlin. The shared Java modules end byte-identical.
 - delete anything before saying what and why in one line and waiting.
 - put credentials, tokens, keys, PANs, track data or serial numbers in code, docs or commits.
 
-**The one step that needs a design decision first — V3 (`2e4fbb4`, the transaction runs from its
+**Note (28/10, later):** V3's `NEXT_ATTEMPT` and its collector were replaced the same day —
+V8 (`9a911d1`): the retries are the EMV's run loop; V9 (`8843cb1`): the transaction steps run
+their methods synchronously (no collector, no observer); V10 (`9278c35`): the safe end. Port V3
+straight to its final shape (V8–V10), not to the collector below.
+
+**The one step that needed a design decision first — V3 (`2e4fbb4`, the transaction runs from its
 own steps).** Ebram's goal: the transaction has its own TransactionStep events that drive it, the
 way EmvSteps drive the EMV (`TRANSACTION_STARTED` → `onTransactionStarted`, `NEXT_ATTEMPT` →
 `onNextAttempt`, then `onEnd`). The old Kotlin rule says "the transaction on its executor, never

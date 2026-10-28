@@ -20,8 +20,8 @@ app (src/main: every screen)  ──►  core (PosTerminal, AbstractEmvBehavior,
 |---|---|---|
 | `com.emvenhance.vendor.TerminalFactory` | **By name.** `EmvEnhanceApp` calls `TerminalFactory.create(this)`. Same package and class name in every vendor — no interface | the flavor's build fails: `cannot find symbol TerminalFactory` |
 | `com.emvenhance.vendor.VendorApplication` | **By name.** `EmvEnhanceApp extends VendorApplication`. PAX: `extends BaseApplication` (the PAX SDK reads `BaseApplication.getAppContext()`); others: `extends Application` | the flavor's build fails: `cannot find symbol VendorApplication` |
-| a `PosTerminal` subclass (`PaxTerminal`) | **By inheritance.** `create()` returns a `PosTerminal`, which is abstract: `searchCard`, `cancelCardSearch` | can't instantiate `PosTerminal`; the compiler asks for both methods |
-| an `AbstractEmvBehavior` subclass (`PaxEmvBehavior`) | **By inheritance.** `PosTerminal`'s constructor takes the behavior, gives it the EMV engine once (`attach`; the base's `engine` field is the only place it is kept, `PosTerminal` reaches it through `engine()`) and runs it for each attempt (`prepare` / `start`, handed the attempt's `Transaction`): 16 step hooks + `readIccTag` | the compiler asks for all 17 |
+| a `PosTerminal` subclass (`PaxTerminal`) | **By inheritance.** `create()` returns a `PosTerminal`, which is abstract; the subclass picks its behavior, host and printer and overrides the setup it has (serial number, permissions, countries, EMV params) | can't instantiate `PosTerminal` |
+| an `AbstractEmvBehavior` subclass (`PaxEmvBehavior`) | **By inheritance.** `PosTerminal`'s constructor takes the behavior, gives it the EMV engine once (`attach`; the base's `engine` field is the only place it is kept, `PosTerminal` reaches it through `engine()`) and runs it once per transaction (`run`, handed the `Transaction`; the base loops over attempts): 17 step hooks (`onSearchCard` = the card search) + `cancelCardSearch` + `readIccTag` | the compiler asks for all 19 |
 
 Not required as a class: the **printer**. `PosTerminal`'s constructor needs a `PrinterBehavior`
 object — `HostDefaults.logPrinter("Xyz")` is enough (Fake does that). A real printer is a class
@@ -52,19 +52,27 @@ organizes its own; a core base for them would be an empty layer (rule 5).
 ## 4. How the pieces work
 
 **The transaction (`PosTerminal`, core — the vendor doesn't touch it).** One transaction thread;
-`startTransaction` → `process`: TRANSACTION_STARTED, then per attempt `prepare` (terminal
-initialization) → `searchCard` → EMV; a retry is the next turn of the loop; the end is published
-once, after the terminal is free. The vendor never starts threads for it, never decides busy or
-cancel.
+`startTransaction` → TRANSACTION_STARTED → on the transaction thread `behavior.run(config,
+transaction)` → the safe end (ack / reversal, then the terminal free, then the end published
+once). The vendor never starts threads for it, never decides busy or cancel.
 
-**`searchCard(config, listener)`** — on the transaction thread, may block:
-- call `listener.onSearchStarted(config)`, then poll the reader;
+**The EMV's run loop (`AbstractEmvBehavior.run`, core).** Per attempt: TERMINAL_INITIALIZATION →
+SEARCH_CARD (your `onSearchCard`) → the card found starts your first post-search hook → … →
+`finish*`. A retry your kernel asks for (`engine().requestRetry(config, prompt)`) is the next
+attempt, from TERMINAL_INITIALIZATION, once your kernel has returned.
+
+**`onSearchCard(config, card)`** — the card search, on the transaction thread, may block
+(`card` is `null`):
+- `CardSearchListener listener = cardSearchListener();` call `listener.onSearchStarted(config)`,
+  then poll the reader;
 - report **exactly one** of `onChipDetected` / `onContactlessDetected` / `onMagstripeDetected` /
-  `onManualEntrySelected` / `onSearchTimeout` / `onSearchCancelled` / `onReaderError`, then return;
-- stop when `isSearchCancelled()` turns true. `cancelCardSearch()` is called from the UI thread
-  to stop the polling.
+  `onManualEntrySelected` / `onSearchTimeout` / `onSearchCancelled` / `onReaderError`, then return
+  (a card found runs the EMV inside that callback); `onSearchRetry(message)` for a read the
+  cardholder can fix, the search going on;
+- stop when `isRunning()` turns false. `cancelCardSearch()` is called from the UI thread to stop
+  the polling.
 
-**The EMV steps (`AbstractEmvBehavior`).** The 16 hooks are the EMV stages in EMV Book 3 order.
+**The EMV steps (`AbstractEmvBehavior`).** The 17 hooks are the EMV stages in EMV Book 3 order.
 Each hook does **its own kernel call** (rule 1) and moves on with `goToStep(next)`; the kernel's
 real order wins (rule 2). A kernel that runs everything in one call (atomic) does it in one hook
 and leaves the others empty with a comment (rule 11). Tools the base gives:
@@ -111,19 +119,20 @@ they answer the kernel with a fail-closed value. Nothing is approved without a h
            super(new XyzEmvBehavior(), new SaleCommunicationBehavior(/* context, serial */),
                    HostDefaults.logPrinter("XyzPrinter"));
        }
-       @Override public CardPresence searchCard(TransactionConfig config, CardSearchListener listener) {
-           listener.onSearchStarted(config);
-           while (!isSearchCancelled()) {
-               // poll the XYZ reader; on a card: listener.onChipDetected(card); return card;
-           }
-           listener.onSearchCancelled();
-           return null;
-       }
-       @Override protected void cancelCardSearch() { /* xyzSdk.stopSearch() */ }
    }
 
    public class XyzEmvBehavior extends AbstractEmvBehavior {
-       // onTerminalInitialization … onTransactionCompletion: each stage's kernel call, then goToStep(next)
+       @Override protected void onSearchCard(TransactionConfig config, CardPresence card) {
+           CardSearchListener listener = cardSearchListener();
+           listener.onSearchStarted(config);
+           while (isRunning()) {
+               // poll the XYZ reader; on a card: listener.onChipDetected(card); return;
+           }
+           listener.onSearchCancelled();
+       }
+       @Override public void cancelCardSearch() { /* xyzSdk.stopSearch() */ }
+       // onTerminalInitialization, onApplicationSelection … onTransactionCompletion: each stage's
+       //   kernel call, then goToStep(next)
        // onStartOnlineProcess: lastAuth = authorizeOnline();
        // onTransactionCompletion: finishApproved / finishDeclined from lastAuth (no answer = declined)
        // readIccTag(tag): the kernel's TLV
