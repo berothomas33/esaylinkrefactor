@@ -223,7 +223,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         if (card.isMagstripe()) {
             String track2 = card.getTrack2() != null ? card.getTrack2() : "";
-            String pan = panFromTrack2(track2);
+            String pan = PaxCardData.panFromTrack2(track2);
             publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MAG")
@@ -994,10 +994,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return TrackUtils.getPan(track2Data);
         }
         // some cards don't have track2 data
-        byte[] panBytes = kernel.contactless.getTlv(TagsTable.PAN);
-        String pan = ConvertUtils.bcd2Str(panBytes, panBytes.length);
-        int indexF = pan.indexOf('F');
-        return pan.substring(0, indexF != -1 ? indexF : pan.length());
+        return PaxCardData.panFromTag(kernel.contactless.getTlv(TagsTable.PAN));
     }
 
     /** Ported from {@code ContactlessService#getTrack2Data}. */
@@ -1008,7 +1005,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Cardholder name (5F20) as text, e.g. "MTIP06 MCD 25A", as the old app sent it. */
     private String getContactlessCardholderName() {
-        return asciiText(kernel.contactless.getTlv(TagsTable.CARDHOLDER_NAME));
+        return PaxCardData.asciiText(kernel.contactless.getTlv(TagsTable.CARDHOLDER_NAME));
     }
 
     /**
@@ -1376,10 +1373,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return TrackUtils.getPan(track2Data);
         }
         // some cards don't have track2 data
-        byte[] panBytes = kernel.contact.getTlv(TagsTable.PAN);
-        String pan = ConvertUtils.bcd2Str(panBytes, panBytes.length);
-        int indexF = pan.indexOf('F');
-        return pan.substring(0, indexF != -1 ? indexF : pan.length());
+        return PaxCardData.panFromTag(kernel.contact.getTlv(TagsTable.PAN));
     }
 
     /** Ported from {@code EmvContactService#getTrack2Data}. */
@@ -1390,11 +1384,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /** Cardholder name (5F20) as text, e.g. "MTIP06 MCD 25A", as the old app sent it. */
     private String getContactCardholderName() {
-        return asciiText(kernel.contact.getTlv(TagsTable.CARDHOLDER_NAME));
-    }
-
-    private static String asciiText(byte[] value) {
-        return new String(value, StandardCharsets.US_ASCII).trim();
+        return PaxCardData.asciiText(kernel.contact.getTlv(TagsTable.CARDHOLDER_NAME));
     }
 
     // ─── SHARED — kernel bring-up used by both contact and contactless ───
@@ -1971,7 +1961,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         return new EmvTransactionResult.Builder()
                 .pan(pan)
-                .maskedPan(maskPan(pan))
+                .maskedPan(PaxCardData.maskPan(pan))
                 .track2(track2)
                 .expDate(expDate)
                 .cardHolderName(cardHolderName)
@@ -1991,23 +1981,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .build();
     }
 
-    /** {@code null} pan (kernel hasn't read one) masks to {@code null} rather than throwing. */
-    @Nullable
-    private static String maskPan(@Nullable String pan) {
-        if (pan == null || pan.length() <= 10) {
-            return pan;
-        }
-        int visibleTail = 4;
-        int visibleHead = 6;
-        StringBuilder masked = new StringBuilder(pan.length());
-        masked.append(pan, 0, visibleHead);
-        for (int i = visibleHead; i < pan.length() - visibleTail; i++) {
-            masked.append('*');
-        }
-        masked.append(pan.substring(pan.length() - visibleTail));
-        return masked.toString();
-    }
-
     /**
      * Unlike {@link #readKernelTlvHex} (numeric/binary tags rendered as hex), {@code APP_LABEL}/
      * {@code APP_NAME} are ASCII text per the EMV spec — decoded as such rather than hex-dumped so
@@ -2018,7 +1991,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Nullable
     private String readKernelAsciiTlv(int tag) {
         byte[] value = readKernelTlv(tag);
-        return value.length == 0 ? null : asciiText(value);
+        return value.length == 0 ? null : PaxCardData.asciiText(value);
     }
 
     /** {@link ContactProcess#getTlv}/{@link ClssProcess#getTlv} both return only value bytes. */
@@ -2356,13 +2329,5 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private static String safe(@Nullable String s) {
         return s == null ? "" : s;
-    }
-
-    private static String panFromTrack2(String track2) {
-        int sep = track2.indexOf('=');
-        if (sep <= 0) {
-            sep = track2.indexOf('D');
-        }
-        return sep > 0 ? track2.substring(0, sep) : track2;
     }
 }
