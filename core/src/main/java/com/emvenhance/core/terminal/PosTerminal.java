@@ -445,33 +445,20 @@ public abstract class PosTerminal {
         }
 
         /**
-         * The EMV is done with the card and reports how ({@code AbstractEmvBehavior#finish*}).
-         * APPROVED or DECLINED is published: its step's method, {@link #onOutcome}, decides the
-         * end. ERROR becomes the end as it is; anything else, an ERROR end — never an approval.
+         * The EMV is done with the card and reports how ({@code AbstractEmvBehavior#finish*}),
+         * published like any step: APPROVED or DECLINED runs {@link #onOutcome}, which decides
+         * the end; ERROR is the end as it is; anything else, an ERROR end — never an approval.
          * Dropped, with a trace note, once the transaction has ended (a cancel was first).
          */
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
-            if (isOutcome(step)) {
+            if (isOutcome(step) || step == TransactionStep.ERROR) {
                 publish(outcome);
                 return;
             }
-            synchronized (steps) {
-                if (end != null) {
-                    EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
-                    apduTrace().note("EMV", "EMV outcome dropped, the transaction has ended ("
-                            + end.getStep() + "): " + step);
-                    return;
-                }
-                if (step == TransactionStep.ERROR) {
-                    apduTrace().note("EMV", "EMV finished with an error — the transaction ends");
-                    end = outcome;
-                } else {
-                    apduTrace().note("EMV", "EMV finished with no outcome (" + step
-                            + ") — the transaction ends with an error");
-                    end = errorEvent("EMV finished with no outcome: " + step);
-                }
-            }
+            apduTrace().note("EMV", "EMV finished with no outcome (" + step
+                    + ") — the transaction ends with an error");
+            publish(errorEvent("EMV finished with no outcome: " + step));
         }
 
         /** The card's outcome: APPROVED or DECLINED — run by {@link #onOutcome}. */
