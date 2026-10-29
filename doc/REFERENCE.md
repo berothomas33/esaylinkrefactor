@@ -1,9 +1,9 @@
 # EasyLink / EmvEnhance — مرجع المشروع
 
-> كُتب من الكود على `transactionOwnsSteps-oct27` (2026-10-28). كل اسم دالة هنا موجود فعلًا في الكود.
+> كُتب من الكود على `transactionOwnsSteps-oct27` (2026-10-29). كل اسم دالة هنا موجود فعلًا في الكود.
 > **هذا هو المرجع الخاص بالكود بعد 27/10.** كود ما قبل 27/10 (`30cd5aa`) على الفرع `transactionOwnsSteps` وله مرجعه الخاص.
 > آخر تجربة على الجهاز عند `19cc019`: الـ chip و tap again (البند #11)، وكلاهما نجح. باقي بنود نموذج الاختبار لم تُجرَّب على هذا الفرع بعد.
-> ما أُضيف بعد `19cc019` (لم يُجرَّب على الجهاز): التأكيد / الإلغاء عند الـ host (§2.7)؛ ترقيم الـ GENERATE AC من جديد مع كل إعادة محاولة (§2.5)؛ الـ EMV يبلّغ بنتيجته والـ `Transaction` هي التي تُنهي العملية (§3.5، `28d79cb`)؛ مكتبات PAX داخل الـ vendor في `vendor-pax/libs` (§1.1)؛ تقسيم packages الـ core حسب المالك (§1.2)؛ العملية تسير بخطواتها الخاصة (§2.3)؛ وفي 28/10: البحث عن البطاقة وإعادة المحاولة داخل الـ EMV (`9a911d1`)، وتشغيل خطوات العملية بشكل متزامن (`8843cb1`)، والنهاية الآمنة (`9278c35`)، وتسجيل الـ listener الخاص بالـ kernel مرة واحدة (`ca1b16a`).
+> ما أُضيف بعد `19cc019` (لم يُجرَّب على الجهاز): التأكيد / الإلغاء عند الـ host (§2.7)؛ ترقيم الـ GENERATE AC من جديد مع كل إعادة محاولة (§2.5)؛ الـ EMV يبلّغ بنتيجته والـ `Transaction` هي التي تُنهي العملية (§3.5، `28d79cb`)؛ مكتبات PAX داخل الـ vendor في `vendor-pax/libs` (§1.1)؛ تقسيم packages الـ core حسب المالك (§1.2)؛ العملية تسير بخطواتها الخاصة (§2.3)؛ وفي 28/10: البحث عن البطاقة وإعادة المحاولة داخل الـ EMV (`9a911d1`)، وتشغيل خطوات العملية بشكل متزامن (`8843cb1`)، والنهاية الآمنة (`9278c35`)، وتسجيل الـ listener الخاص بالـ kernel مرة واحدة (`ca1b16a`)؛ وفي 29/10: كل خطوة تقود العملية لها دالتها في `dispatchTransactionStep`، ومنها النتيجة والنهاية والتأكيد / الإلغاء (`7403d1e`، `be471e4`، §2.6)، وحالة إعادة المحاولة في `AbstractEmvBehavior` (`962eac7`)، و `PaxKernelSession` (`3962bc1`) و `PaxCardData` (`b6df905`)، وتصنيف فشل الـ host في `failureOf` (`73de5b6`).
 > الرسوم نفسها (mermaid) متاحة كصفحة أيضًا: https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh
 > ⚠ = سلوك لم يُصلَح بعد، والرقم بين القوسين هو رقمه في `doc/BACKLOG.md`.
 > إذا تغيّر الكود ولم يتغير المرجع، فالكود هو الصحيح، ويجب تحديث المرجع.
@@ -17,9 +17,9 @@
 4. [ردود الـ kernel و askStep](#4-ردود-الـ-kernel-و-askstep)
 5. [مسار الـ contact](#5-مسار-الـ-contact)
 6. [مسار الـ contactless](#6-مسار-الـ-contactless)
-7. [الـ EMV params](#7-emv-param-apply-flow)
+7. [الـ EMV params](#7-الـ-emv-params)
 8. [الـ Threads](#8-الـ-threads)
-9. [قبل أي تعديل](#9-قبل-أي-تعديل)
+9. [عند التعديل](#9-عند-التعديل)
 
 ---
 
@@ -109,7 +109,7 @@ INGENICO SDK                   Tetra / Axium — not in the project yet
 | | `TerminalBusyException` | محاولة بدء عملية بينما أخرى قيد التنفيذ |
 | `transaction` (العملية) | `TransactionConfig` / `TransactionType` | النوع، المبلغ، طريقة البطاقة، field 55، الـ PIN block، `asyncRequestId`؛ sale / refund / cash in |
 | | `TransactionStep(Event)` | خطوات العملية: تُعرض على الشاشة، و TRANSACTION_STARTED / CANCELLING تشغّلان دالتيهما (بشكل متزامن)؛ و ACKNOWLEDGING / REVERSING جزء من النهاية الآمنة |
-| `emv` | `EmvEngine` | يرسل كل خطوة EMV إلى من يشغّلها وإلى الشريط العلوي، ويحتفظ بالـ APDU trace وطلب الإعادة. لا علاقة له بحالة العملية |
+| `emv` | `EmvEngine` | يرسل كل خطوة EMV إلى من يشغّلها وإلى الشريط العلوي، ويحتفظ بالـ APDU trace. لا علاقة له بحالة العملية |
 | | `EmvStep(Event)` | الخطوات الـ 17 الخاصة بالـ kernel |
 | | `EmvTransactionResult` / `Field55` | ما قُرئ من البطاقة ويحتاجه الـ host؛ وبناء field 55 من الـ tags |
 | | `ApduTrace` | سجل الـ APDU والخطوات (debug) |
@@ -146,6 +146,7 @@ INGENICO SDK                   Tetra / Axium — not in the project yet
 | | `PaxEmvBehavior` | `extends AbstractEmvBehavior`: الـ 17 `onXxx` (استدعاء native لكل خطوة)، وردود الـ kernel |
 | | `PaxCardSearch` | البحث عن البطاقة (polling): عمل الخطوة `SEARCH_CARD`، و `stop()` عند الإلغاء |
 | | `PaxKernelSession` | ملاحظات الـ kernel خلال محاولة واحدة على بطاقة واحدة (ليست العملية نفسها)؛ تُنشأ من جديد في كل محاولة |
+| | `PaxCardData` | بيانات البطاقة كنص (دوال ثابتة بلا حالة ولا استدعاء kernel): الـ PAN من track 2 أو من tag 5A، وإخفاء الـ PAN، والـ tags النصية؛ عليها أول اختبارات PAX (`PaxCardDataTest`) |
 | | `PaxKernel` | params، contact، contactless، mag |
 | الشاشات والأجهزة | `PaxPinPad` / `PaxAppSelectDialog` / `PaxPrinter` / `PaxEmvParams` | الـ PIN، اختيار التطبيق، الطابعة، بيانات شاشة EMV Params |
 
@@ -247,10 +248,10 @@ private   final Scheduler             transactionScheduler; // one sale at a tim
 | الكلاس | ما يمثله في الواقع | مسؤول عن (وحده) | ممنوع عليه |
 |---|---|---|---|
 | `PosTerminal` | الجهاز | • عملية واحدة في كل مرة: thread واحد، و `current` = مشغول<br>• البنك: `authorize` (بحد أقصى 90 ثانية)، وتسمية كل طلب (`asyncRequestId`)<br>• النهاية الآمنة: التأكيد أو الإلغاء قبل أن يصبح متاحًا (15 ثانية)<br>• الطابعة | أي منطق EMV، والبحث عن البطاقة (من مهام الـ EMV) |
-| `PosTerminal.Transaction` | العملية الواحدة (بيع / استرداد) | • حالتها: `end` (`null` = قيد التنفيذ)<br>• الخطوات التي تراها الشاشة (`ReplaySubject`، وهو أيضًا الـ lock)<br>• الإلغاء<br>• الطلبات المرسلة إلى البنك وردودها (`online`، `approvedReported`) | نشر أي شيء بعد انتهائها |
+| `PosTerminal.Transaction` | العملية الواحدة (بيع / استرداد) | • حالتها: `end` (`null` = قيد التنفيذ)<br>• الخطوات التي تراها الشاشة (`ReplaySubject`، وهو أيضًا الـ lock)<br>• الإلغاء<br>• الطلبات المرسلة إلى البنك وردودها (`online`) | نشر أي شيء بعد انتهائها |
 | `AbstractEmvBehavior` | التعامل مع البطاقة (المشترك بين الـ vendors) | • `run`: المحاولات، والبحث عن البطاقة (`SEARCH_CARD`)، وإعادة المحاولة<br>• الـ 17 خطوة (`onXxx`)، و `goToStep` (نقطة فحص الإلغاء الوحيدة)، و `askStep` / `answerStep`، و `publish`، و `finish*`<br>• field 55، والطلب إلى البنك (`authorizeOnline`)<br>• الـ engine: field من نوع `private`، لا يكتب فيه إلا `attach`، والجميع يقرؤه بـ `engine()` | الـ threads، حالة الانشغال، البنك مباشرة |
 | `PaxEmvBehavior` | التعامل مع البطاقة على PAX | • الـ `onXxx`: استدعاء native لكل خطوة، `runContact*` / `runContactless*`<br>• ردود الـ kernel<br>• `onSearchCard` ← `PaxCardSearch`<br>• `PaxKernelSession tx` جديد في كل محاولة (في `onTerminalInitialization`) | أن يستدعيه أحد غير الـ dispatch |
-| `EmvEngine` | شريط خطوات الـ EMV | • `emvSteps` (التشغيل والشريط العلوي)<br>• `ApduTrace`<br>• طلب الإعادة<br>• الطريق إلى البنك (`Authorizer` = `PosTerminal::authorize`)<br>يُنشأ في constructor الـ `PosTerminal` ويُسلَّم مرة واحدة: `behavior.attach(engine)` | أي حالة للعملية |
+| `EmvEngine` | شريط خطوات الـ EMV | • `emvSteps` (التشغيل والشريط العلوي)<br>• `ApduTrace`<br>• الطريق إلى البنك (`Authorizer` = `PosTerminal::authorize`)<br>يُنشأ في constructor الـ `PosTerminal` ويُسلَّم مرة واحدة: `behavior.attach(engine)` | أي حالة للعملية |
 | `SaleCommunicationBehavior` | اتصال HTTP بالبنك / الـ facilitator | • exchange ← sale / refund (envelope)<br>• التأكيد / الإلغاء (JSON عادي، وheaders البيع)<br>• تصنيف الفشل: هل وصل إلى البنك أم لا (`classify`) | أن يقرر التأكيد أو الإلغاء (هذا قرار `PosTerminal`) |
 | `PaxPrinter` | الطابعة | • طباعة الإيصال | — |
 | `EmvEnhanceApp` | تشغيل التطبيق | • جهاز واحد (`PosTerminal`) طوال عمر التطبيق (`TerminalFactory.create`) | — |
@@ -276,9 +277,9 @@ private   final Scheduler             transactionScheduler; // one sale at a tim
 |---|---|
 | البدء / الانشغال | `startTransaction(config)`: `current.compareAndSet(null, t)` على الـ thread المستدعي (الـ main). إن كان مشغولًا تُرمى `TerminalBusyException` فورًا دون طابور. وإن كان متاحًا: `t.begin()` (TRANSACTION_STARTED) ثم يعيد `t` |
 | thread واحد | `Executors.newSingleThreadExecutor()`: قارئ واحد و kernel واحد، ولا يُقاطَع أبدًا |
-| العملية نفسها | `Transaction`: `begin()`، `dispatchTransactionStep` (TRANSACTION_STARTED ← `onTransactionStarted`، CANCELLING ← `onCancelling`)، `runTransaction`، `emvFinished`، `onEnd()` (النهاية الآمنة)، `cancel()`، `publish(event)`، `steps()` |
+| العملية نفسها | `Transaction`: `begin()`، `publish(event)`، `dispatchTransactionStep` (§2.6)، `runTransaction`، `emvFinished`، `onOutcome`، `onEnd()` (النهاية الآمنة)، `cancel()`، `steps()` |
 | الـ EMV كله (بما فيه البحث والإعادة) | `behavior.run(config, transaction)` — ليس من مسؤولية `PosTerminal` (§2.3، §2.5) |
-| الـ host | `authorize(config)`: تنشر `ONLINE_REQUIRED` / `ONLINE_PROCESSING`، وتسمّي الطلب (`asyncRequestId` = UUID) وتسجّله على الـ `Transaction`، ثم `communication.authorize(sent).timeout(90 s).blockingGet()`، ثم `ONLINE_COMPLETED`. `HostNotReachedException` تعني `AuthResult.notSent`؛ وأي استثناء آخر يعني `AuthResult.failed` (وكلاهما ليس رفضًا) |
+| الـ host | `authorize(config)`: تنشر `ONLINE_REQUIRED` / `ONLINE_PROCESSING`، وتسمّي الطلب (`asyncRequestId` = UUID) وتسجّله على الـ `Transaction`، ثم `communication.authorize(sent).timeout(90 s).blockingGet()`، ثم `ONLINE_COMPLETED`. وعند الفشل تصنّفه `failureOf(e)`: `HostNotReachedException` (مباشرة أو كسبب) تعني `AuthResult.notSent`؛ وانتهاء المهلة أو أي استثناء آخر يعني `AuthResult.failed` (وكلاهما ليس رفضًا) |
 | النهاية الآمنة | تقرر `Transaction.closeOnline()` التأكيد أو الإلغاء لكل طلب، ويُرسل الاستدعاء ويُنتظر على الـ transaction thread (ACKNOWLEDGING / REVERSING، بحد أقصى 15 ثانية) **قبل** أن يصبح الجهاز متاحًا (§2.7) |
 | الطابعة | `printReceipt(lines)` على thread طباعة مستقل، بالترتيب |
 | إعدادات الـ vendor | `serialNumber()`، `requiredPermissions()`، `countries()` / `setCountry()`، `emvParams()` (VENDOR.md §2) |
@@ -317,9 +318,9 @@ sequenceDiagram
     BH->>CS: SEARCH_CARD → onSearchCard → cardSearch.search(config, cardSearchListener())
     CS->>BH: onSearchStarted → WAITING_FOR_CARD
     CS->>BH: onChipDetected(card) → CARD_DETECTED → start(card): the whole EMV here (§5) → finish* → emvFinished
-    BH->>BH: the kernel returned → engine.consumePendingRetry() → next attempt, or done
+    BH->>BH: the kernel returned → nextAttempt(): a retry asked for and still running → next attempt, or done
   end
-  TX->>TX: onEnd: end ?: ERROR "ended without an outcome" · closeOnline() (ack / reverse + note)
+  TX->>TX: finally: dispatch(decideEnd()) → onEnd: closeOnline() (ack / reverse + note)
   TX->>PT: ACKNOWLEDGING / REVERSING → the call, waited for (max 15 s)
   TX->>PT: current.compareAndSet(t, null)
   TX-->>UI: deliver(end)
@@ -337,10 +338,10 @@ sequenceDiagram
                      → returns t at once (MainViewModel.transaction)
 ──────────────────────────────────────────────────────────────────────────────────
 [tx]    runTransaction:
-          engine.begin() (retry = 0, a new trace) + TRANSACTION_STARTED written into the new trace
+          engine.begin() (a new trace) + TRANSACTION_STARTED written into the new trace
           still running → behavior.run(config, this)        ← the whole EMV, retries included
-          any exception → ERROR; in the finally, always → onEnd()
-[tx]    AbstractEmvBehavior.run — attempt after attempt:
+          any exception → ERROR; in the finally, always → dispatch(decideEnd()) → onEnd()
+[tx]    AbstractEmvBehavior.run — retry state reset (no retry pending, count 0), then attempt after attempt:
           prepare(config, t)   → TERMINAL_INITIALIZATION → onTerminalInitialization
                                   (PAX: a new PaxKernelSession + prepareKernel; failure → finishError)
           searchCard()         → SEARCH_CARD (prompt: the retry's own, or the entry mode's)
@@ -351,11 +352,14 @@ sequenceDiagram
                     first post-search step → the whole EMV, synchronous, here → finish* → emvFinished
                onSearchTimeout / onSearchCancelled / onReaderError → ERROR
                (a callback after its own transaction ended → ignored)
-          nextAttempt()        → engine.consumePendingRetry(): a retry and still running (a plain if)
-                                  → next attempt; cancelled → "retry dropped — the transaction is over"
-[tx]    onEnd() — the safe end, once:
-          [lock] end == null → ERROR "Transaction ended without an outcome"; closeOnline() (§2.7)
-          each ack / reverse in order: ACKNOWLEDGING / REVERSING, the call waited for (max 15 s)
+          nextAttempt()        → the retry requestRetry recorded, and still running (a plain if)
+                                  → "RETRY #n" in the trace → next attempt;
+                                  cancelled → "retry dropped — the transaction is over"
+[tx]    decideEnd() [lock]: end == null → ERROR "Transaction ended without an outcome"
+        dispatch(end) → onEnd() — the safe end, once:
+          [lock] closeOnline() (§2.7)
+          each ack / reverse in order: ACKNOWLEDGING / REVERSING delivered, then dispatched →
+            onAcknowledging / onReversing: the call waited for (max 15 s)
           [lock] current.compareAndSet(this, null) ← terminal free; deliver(end), once
 ──────────────────────────────────────────────────────────────────────────────────
 [main]  SearchCardFragment: transaction.steps() (observeOn main) → outcome / result panel
@@ -383,7 +387,7 @@ sequenceDiagram
 
 ### 2.5 إعادة المحاولة (fallback / try again / see phone / try another interface)
 
-من مسؤولية الـ EMV (28/10): ينتهي الـ kernel بـ Outcome ويعود، ثم يبدأ الـ EMV من جديد من `SEARCH_CARD`، كما يفعل الـ Entry Point في EMV Book B. لا يوجد `startTransaction` جديد ولا خطوة خاصة بالعملية (أُزيلت `NEXT_ATTEMPT`). يطلب الـ behavior الإعادة من داخل الـ kernel عبر `engine.requestRetry(config.withMode(X), prompt)`؛ وعند عودة المحاولة بالكامل، تأخذ `AbstractEmvBehavior.run` الطلب عبر `consumePendingRetry()`، فإن كانت العملية ما زالت قائمة (شرط بسيط دون lock) تبدأ محاولة جديدة **على الـ thread نفسه وللعملية نفسها**: `TERMINAL_INITIALIZATION` ثم `SEARCH_CARD`. يستمر الـ trace بـ `RETRY #n` (ثم `ApduTrace.beginAttempt()`: أول GENERATE AC في المحاولة الجديدة يُسمّى 1st من جديد، والثاني `ISSUER AUTHENTICATION (2nd GENERATE AC)`)، وتظهر الرسالة في `SEARCH_CARD` وفي `WAITING_FOR_CARD` بالمفتاح `KEY_RETRY_PROMPT`. تُتجاهل إعادة المحاولة بعد الإلغاء ("retry dropped — the transaction is over").
+من مسؤولية الـ EMV (28/10): ينتهي الـ kernel بـ Outcome ويعود، ثم يبدأ الـ EMV من جديد من `SEARCH_CARD`، كما يفعل الـ Entry Point في EMV Book B. لا يوجد `startTransaction` جديد ولا خطوة خاصة بالعملية (أُزيلت `NEXT_ATTEMPT`). يطلب الـ behavior الإعادة من داخل الـ kernel عبر `requestRetry(config.withMode(X), prompt)` (دالة `protected` في `AbstractEmvBehavior`)؛ وعند عودة المحاولة بالكامل، تأخذ `AbstractEmvBehavior.run` الطلب عبر `nextAttempt()`، فإن كانت العملية ما زالت قائمة (شرط بسيط دون lock) تبدأ محاولة جديدة **على الـ thread نفسه وللعملية نفسها**: `TERMINAL_INITIALIZATION` ثم `SEARCH_CARD`. يستمر الـ trace بـ `RETRY #n` (ثم `ApduTrace.beginAttempt()`: أول GENERATE AC في المحاولة الجديدة يُسمّى 1st من جديد، والثاني `ISSUER AUTHENTICATION (2nd GENERATE AC)`)، وتظهر الرسالة في `SEARCH_CARD` وفي `WAITING_FOR_CARD` بالمفتاح `KEY_RETRY_PROMPT`. تُتجاهل إعادة المحاولة بعد الإلغاء ("retry dropped — the transaction is over").
 
 | النتيجة | طريقة الإدخال الجديدة | الرسالة |
 |---|---|---|
@@ -392,14 +396,31 @@ sequenceDiagram
 | `tryAgain()` | الطريقة نفسها | Card not read — tap again… |
 | `seePhone()` | `CONTACTLESS` | See phone — verify on your phone, then tap again |
 
-تشترك `seePhone` و `tryAgain` (ومعهما `markTryAgainOnCommunicationError` التي تطلب `tryAgain`) في الحد `MAX_TAP_RETRIES = 3` على `engine.getRetryCount()`، وبعده يكون الرفض.
-⚠ حالة الإعادة (العدد، الـ config، الرسالة) موجودة في الـ engine لا في الـ `Transaction`.
+تشترك `seePhone` و `tryAgain` (ومعهما `markTryAgainOnCommunicationError` التي تطلب `tryAgain`) في الحد `MAX_TAP_RETRIES = 3` على `retryCount()`، وبعده يكون الرفض.
+حالة الإعادة كلها (الـ config التالي، الرسالة، العدد) في `AbstractEmvBehavior` منذ `962eac7`، فكاتبها وقارئها هو الـ EMV نفسه؛ وتُصفَّر في بداية `run` لكل عملية.
 
 ### 2.6 خطوات العملية (TransactionSteps) ومن ينشرها
 
 `IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD (مرة أخرى مع كل إعادة) → CARD_DETECTED → APPLICATION_SELECTED → CARD_READ → CARDHOLDER_VERIFIED → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → (ACKNOWLEDGING|REVERSING) → COMPLETED`، أو `ERROR` في أي لحظة، أو `CANCELLING` ثم `CANCELLED`.
 
-الخطوات التي تشغّل دالة (`dispatchTransactionStep`، بشكل متزامن على الـ thread الذي نشرها): **TRANSACTION_STARTED** ← `onTransactionStarted` (تنتقل العملية إلى الـ thread الخاص بها)، و**CANCELLING** ← `onCancelling` (يتوقف البحث). أما الباقي فتقارير للشاشة. لا تشغّل APPROVED / DECLINED أي دالة لأن النتيجة والنهاية يجب أن تُضبطا معًا داخل الـ lock (`emvFinished`)؛ و `ONLINE_*` تقارير داخل استدعاء يعيد الرد إلى الـ kernel (§5.5).
+الخطوات التي تشغّل دالة (`dispatchTransactionStep`، بشكل متزامن على الـ thread الذي نشرها، كما تفعل خطوات الـ EMV):
+
+```java
+switch (event.getStep()) {
+    case TRANSACTION_STARTED:            onTransactionStarted(event); // the transaction goes to its thread
+    case CANCELLING:                     onCancelling();              // the card search stops
+    case ACKNOWLEDGING:                  onAcknowledging(event);      // the host is told the sale is done
+    case REVERSING:                      onReversing(event);          // the host reverses a request
+    case APPROVED: case DECLINED:        onOutcome(event);            // the card's outcome decides the end
+    case COMPLETED: case ERROR: case CANCELLED: onEnd();              // the safe end
+    default: // a report for the screen
+}
+```
+
+- الخطوة العادية تُسلَّم أولًا (داخل الـ lock) ثم تُشغَّل دالتها خارج الـ lock.
+- **استثناءان تسلّمهما دالتهما بنفسها:** النتيجة (`onOutcome` تسلّم APPROVED / DECLINED وتضبط النهاية COMPLETED في مسكة واحدة للـ lock، فلا يقع إلغاء بينهما)، والنهاية (`onEnd` تسلّمها بعد أن يصبح الجهاز متاحًا).
+- خطوة النهاية لا يرسلها إلى الـ dispatch إلا الـ `finally` الخاص بـ `runTransaction` (عبر `decideEnd()`)؛ أما `publish` لخطوة نهاية فيحفظها في `end` فقط.
+- `ONLINE_*` تبقى تقارير: هي داخل `authorize` التي تعيد الرد مباشرة إلى الـ kernel من أجل الـ 2nd GENERATE AC (§5.5)، ودالة خطوة لا تعيد قيمة.
 
 | الخطوة | من ينشرها |
 |---|---|
@@ -410,12 +431,12 @@ sequenceDiagram
 | CARD_READ | contact: `showConfirmCard`؛ contactless: `confirmCard`؛ mag/manual: `onReadApplicationData` |
 | CARDHOLDER_VERIFIED | `enterPin` (`KEY_ONLINE_PIN`، `KEY_PIN_BYPASS`، `KEY_PIN_TRIES_LEFT`) |
 | ONLINE_REQUIRED / PROCESSING / COMPLETED | `PosTerminal.authorize`، حول استدعاء الـ host |
-| APPROVED / DECLINED + COMPLETED | `Transaction.emvFinished`، حين يبلّغ الـ EMV عبر `reportOutcome` ← `finishApproved/Declined(event)` (PAN/TVR/TAC/IAC/field 55)، أو `finishApproved/Declined(String)` (mag/manual) |
-| ACKNOWLEDGING / REVERSING | `Transaction.onEnd` ← `followUp`، بعد تحديد النهاية وقبل أن يصبح الجهاز متاحًا (§2.7) |
+| APPROVED / DECLINED + COMPLETED | `Transaction.emvFinished` ← `publish` ← `onOutcome`، حين يبلّغ الـ EMV عبر `reportOutcome` ← `finishApproved/Declined(event)` (PAN/TVR/TAC/IAC/field 55)، أو `finishApproved/Declined(String)` (mag/manual) |
+| ACKNOWLEDGING / REVERSING | `Transaction.onEnd` (من قائمة `closeOnline`)، بعد تحديد النهاية وقبل أن يصبح الجهاز متاحًا؛ كل خطوة تحمل `KEY_REQUEST_ID` (§2.7) |
 | ERROR | الـ EMV: `finishError` ← `Transaction.emvFinished`؛ البحث: `CardSearchReporter` (انتهاء المهلة، القارئ، الإلغاء)؛ الجهاز: `PosTerminal.errorEvent` (استثناء في `runTransaction`) |
 | CANCELLING / CANCELLED | `Transaction.cancel()` |
 
-تُضبط النتيجة والنهاية معًا في `emvFinished` (داخل الـ lock): إلغاء يسبقها يجعل النتيجة تُتجاهل فلا ترى الشاشة إلا CANCELLED (ومع الـ host: إلغاء إن كان قد وافق، §2.7)؛ وإلغاء بعدها لا يفعل شيئًا. (كانت ⚠ "APPROVED ثم CANCELLED" قائمة حتى `28d79cb`.)
+تُضبط النتيجة والنهاية معًا في `onOutcome` (داخل الـ lock): إلغاء يسبقها يجعل النتيجة تُتجاهل فلا ترى الشاشة إلا CANCELLED (ومع الـ host: إلغاء إن كان قد وافق، §2.7)؛ وإلغاء بعدها لا يفعل شيئًا. (كانت ⚠ "APPROVED ثم CANCELLED" قائمة حتى `28d79cb`.)
 
 ### 2.7 النهاية الآمنة: التأكيد أو الإلغاء عند الـ host
 
@@ -426,12 +447,12 @@ flowchart TD
   A["PosTerminal.authorize(config)"] --> N["sent = config.withAsyncRequestId(UUID)<br/>transaction.wentOnline(sent)"]
   N --> C["communication.authorize(sent).timeout(90 s)"]
   C -- "AuthResult" --> R["request.answer = result"]
-  C -- "HostNotReachedException" --> NS["request.answer = AuthResult.notSent"]
+  C -- "HostNotReachedException (failureOf)" --> NS["request.answer = AuthResult.notSent"]
   C -- "any other error / timeout" --> F["request.answer = AuthResult.failed"]
   R & NS & F --> E["the EMV carries on → the end"]
-  E --> CO["onEnd(), under the lock, end set:<br/>closeOnline() for each request"]
+  E --> CO["onEnd(), under the lock, end decided:<br/>closeOnline() for each request"]
   CO --> D{"answer?"}
-  D -- "approved + last request + APPROVED published + end COMPLETED" --> ACK["ACKNOWLEDGEMENT"]
+  D -- "approved + last request + APPROVED delivered + end COMPLETED" --> ACK["ACKNOWLEDGEMENT"]
   D -- "approved, any other end" --> REV["REVERSAL"]
   D -- "failed / no answer" --> REV
   D -- "notSent" --> NO1["nothing (trace: no reversal + why)"]
@@ -449,7 +470,7 @@ flowchart TD
 | رفض الـ host (declined) | لا شيء | لا شيء يُلغى |
 | لم تتصل العملية بالـ host | لا شيء | لا يوجد طلب |
 
-**`notSent`** (`HostNotReachedException` ← `AuthResult.notSent`، وكل من `isFailed()` و `isNotSent()` صحيحة): لا يقررها إلا الـ network، والافتراضي هو الإلغاء:
+**`notSent`** (`HostNotReachedException` ← `AuthResult.notSent`، وكل من `isFailed()` و `isNotSent()` صحيحة؛ تُعرف في `PosTerminal.failureOf` سواء جاء الاستثناء مباشرة أو كسبب): لا يقررها إلا الـ network، والافتراضي هو الإلغاء:
 
 | مكان الفشل (`SaleCommunicationBehavior`) | النتيجة |
 |---|---|
@@ -472,7 +493,7 @@ flowchart TD
 ```
 
 - لا يتغير شيء بالنسبة للبطاقة: `failed` و `notSent` كلاهما `RESULT_ONLINE_FAILED` (2nd GENERATE AC بـ AAC). الفرق في الإلغاء فقط.
-- الاستدعاء (`9278c35`، النهاية الآمنة): `Completable.defer(() -> communication.acknowledge/reverse(sent))` على الـ transaction thread، تسبقه الخطوة `ACKNOWLEDGING` / `REVERSING`، مع `timeout(followUpTimeoutMs())` = 15 ثانية و `blockingAwait`. يبقى الجهاز مشغولًا حتى ينتهي، فترى الشاشة `APPROVED ← ACKNOWLEDGING ← COMPLETED`، وأي محاولة بيع في أثناء ذلك تُرفض بـ `TerminalBusyException`. تُسجَّل النتيجة في `EmvLog` وفي الـ trace. (حتى `9278c35` كان الإرسال على `followUpScheduler` مستقل، بعد أن يصبح الجهاز متاحًا، بمهلة 90 ثانية ودون انتظار.)
+- الاستدعاء (`9278c35`، النهاية الآمنة؛ خطوات لها دوال منذ `7403d1e`): تُسلَّم الخطوة `ACKNOWLEDGING` / `REVERSING` (وتحمل `asyncRequestId` في `KEY_REQUEST_ID`)، ثم تشغّل `onAcknowledging` / `onReversing` الاستدعاء `Completable.defer(() -> communication.acknowledge/reverse(sent))` على الـ transaction thread، مع `timeout(followUpTimeoutMs())` = 15 ثانية و `blockingAwait`. يبقى الجهاز مشغولًا حتى ينتهي، فترى الشاشة `APPROVED ← ACKNOWLEDGING ← COMPLETED`، وأي محاولة بيع في أثناء ذلك تُرفض بـ `TerminalBusyException`. تُسجَّل النتيجة في `EmvLog` وفي الـ trace. (حتى `9278c35` كان الإرسال على `followUpScheduler` مستقل، بعد أن يصبح الجهاز متاحًا، بمهلة 90 ثانية ودون انتظار.)
 - لـ `CommunicationBehavior.acknowledge` / `reverse` قيمة افتراضية `Completable.complete()`، فلا يتأثر أي host لا ينفّذهما. ولا يرسل `SaleCommunicationBehavior` شيئًا لطلب بلا اسم أو لم يُرسل أصلًا (`whyNotSent`).
 - ⚠ لا يوجد سجل محفوظ (حفظ وإعادة إرسال بعد إعادة التشغيل). إلغاء فاشل يُسجَّل في الـ trace فقط، وعلى الـ host أن يلغي العملية بنفسه حين لا يصله تأكيد (BACKLOG 0.15).
 - ⚠ لم يُجرَّب على الجهاز ولا مع الـ host. احتياج الإلغاء والتأكيد إلى `mToken` افتراض ("headers البيع نفسها").
@@ -490,14 +511,14 @@ flowchart TD
 | مكانها | `Transaction.steps()` (واحد لكل عملية) | `EmvEngine.emvSteps` (واحد للجهاز) |
 | الـ subject | `ReplaySubject`، كل نشر داخل الـ lock، وكل مشترك `SafeObserver` | `PublishSubject` **غير serialized** ودون `observeOn` |
 | إعادة العرض للمتأخر؟ | نعم، كل خطوات العملية | لا |
-| تشغّل كودًا؟ | خطوتان فقط (TRANSACTION_STARTED، CANCELLING)، بشكل متزامن | **نعم**، كل خطوة تشغّل دالة `onXxx` الخاصة بها |
+| تشغّل كودًا؟ | الخطوات التي تقود العملية (البداية، الإلغاء، التأكيد / الإلغاء عند الـ host، النتيجة، النهاية — §2.6)، بشكل متزامن؛ والباقي تقارير | **نعم**، كل خطوة تشغّل دالة `onXxx` الخاصة بها |
 | بعد النهاية | تُتجاهل مع ملاحظة | لا تُنشر (`enterStep` يتحقق من `isRunning()`) |
 
 ### 3.2 `EmvEngine`: ناقل الخطوات فقط
 
 - `notifyEmvStep(step, detail)`: `apduTrace.kernelStep(...)` ثم `emvSteps.onNext(event)`، ويتلقاها كل مشترك قبل أن تعود.
-- `begin()`: عداد الإعادة = 0، والرسالة وطلب الإعادة المعلّق = null، و `apduTrace.beginTransaction()`.
-- `requestRetry` / `consumePendingRetry` / `consumeRetryPrompt` / `getRetryCount`. حلقة `AbstractEmvBehavior.run` هي التي تستهلك طلب الإعادة.
+- `begin()`: `apduTrace.beginTransaction()` (trace جديد لكل عملية).
+- لا يحمل حالة إعادة المحاولة: انتقلت إلى `AbstractEmvBehavior` (`requestRetry` / `retryCount()`، §2.5) في `962eac7`.
 - `authorize(config)` ← الـ `Authorizer` الذي أعطاه إياه `PosTerminal` (`PosTerminal::authorize`).
 - لا يحتوي على `isRunning` ولا على أي حالة للعملية: سؤال "هل يمكن نشر هذه الخطوة؟" يُطرح على الـ `Transaction` قبل `notifyEmvStep`.
 
@@ -592,26 +613,27 @@ sequenceDiagram
 
 ```text
 EMV  (AbstractEmvBehavior)                         Transaction
-finishApproved / finishDeclined / finishError  ──► emvFinished(outcome)   [under the lock]
-                                                     end != null (a cancel came first) → dropped + note
-                                                     APPROVED / DECLINED       → delivered, end = COMPLETED
-                                                     ERROR                     → end = ERROR
-                                                     anything else             → end = ERROR "EMV finished with no outcome"
+finishApproved / finishDeclined / finishError  ──► emvFinished(outcome) → publish(...)
+                                                     APPROVED / DECLINED → dispatch → onOutcome [lock]:
+                                                         end != null (a cancel came first) → dropped + note
+                                                         otherwise → delivered, end = COMPLETED
+                                                     ERROR         → publish: end = ERROR (dropped if ended)
+                                                     anything else → publish(ERROR "EMV finished with no outcome")
 ```
 
 لا تقلب قرار البطاقة أبدًا (الرفض لا يصبح موافقة). وهذا هو المكان الذي سيُتخذ فيه قرار Mastercard single tap (يطلب الـ host PIN بعد انتهاء الـ EMV — BACKLOG 4.11).
 
 | المصدر | ماذا يحدث |
 |---|---|
-| `finishApproved/Declined(String)` (mag/manual) | ← `emvFinished`: APPROVED/DECLINED ثم COMPLETED |
+| `finishApproved/Declined(String)` (mag/manual) | ← `emvFinished` ← `onOutcome`: APPROVED/DECLINED ثم COMPLETED |
 | `finishWithOutcome(step, detail, msg)` (chip / contactless) | `tx.outcome` ← `goToStep(TRANSACTION_COMPLETION)` ← `onTransactionCompletion` ← `reportOutcome` ← `finishApproved/Declined(event)` ← `emvFinished` |
 | `finishError(msg)` | ← `emvFinished`: ERROR |
 | استثناء داخل أي `onXxx` | يلتقطه `EmvStepObserver.onNext` ← `finishError` |
 | `publish(APPROVED / DECLINED / خطوة نهاية)` من الـ behavior | تُتجاهل مع ملاحظة في الـ trace: النهاية لـ `finish*` وحدها |
 | `Transaction.cancel()` | `end = CANCELLED` + CANCELLING ← `onCancelling` ← `behavior.cancelCardSearch()` |
-| انتهى البحث أو الـ EMV دون نتيجة | `onEnd` (في `finally` الخاص بـ `runTransaction`): ERROR "Transaction ended without an outcome" |
+| انتهى البحث أو الـ EMV دون نتيجة | `decideEnd` (في `finally` الخاص بـ `runTransaction`): ERROR "Transaction ended without an outcome" |
 
-أول نهاية تُحفظ في `Transaction.end`، وأي خطوة بعدها تُتجاهل (خطوات الـ EMV وخطوات العملية معًا)، وتُنشر النهاية مرة واحدة من `onEnd`.
+أول نهاية تُحفظ في `Transaction.end`، وأي خطوة بعدها تُتجاهل (خطوات الـ EMV وخطوات العملية معًا)، وتُسلَّم النهاية مرة واحدة من `onEnd`.
 
 ### 3.6 جدول الخطوات الـ 17 في PAX
 
@@ -630,7 +652,7 @@ finishApproved / finishDeclined / finishError  ──► emvFinished(outcome)   
 | 10 | OFFLINE_PIN_VERIFICATION | `onCardHolderPwd(offline)` ← askStep | `enterPin` (الشاشة فقط، والـ kernel يتحقق) | غير مدعومة | — | — |
 | 11 | TERMINAL_RISK_MANAGEMENT | **لا تُنشر في PAX** | فارغة (داخل EMVStartTrans) | فارغة | فارغة | — |
 | 12 | TERMINAL_ACTION_ANALYSIS | **لا تُنشر في PAX** | فارغة | فارغة | فارغة | — |
-| 13 | START_ONLINE_PROCESS | `startOnlineProcess()`؛ mag: من 5 | `authorizeOnline()` إن كان `tx.onlineRequested` | = | = | `authorizeOnline()` ← 16 |
+| 13 | START_ONLINE_PROCESS | `startOnlineProcess()` (الوحيد للـ chip / contactless)؛ mag: من 5 | `authorizeOnline()` | = | = | `authorizeOnline()` ← 16 |
 | 14 | ISSUER_AUTHENTICATION | `runIssuerAuthentication` | `EMVCompleteTrans` (2nd GAC) إن وُجد `tx.issuerResponse` | الـ tap الثاني + `completeTransProcess` | = | — |
 | 15 | SCRIPT_PROCESSING | `runIssuerScriptProcessing` (الـ tap الثاني)؛ `completeApproved` (إعلان) | فارغة (تمت داخل EMVCompleteTrans) | `processIssuerScripts` | = | — |
 | 16 | TRANSACTION_COMPLETION | `finishWithOutcome`؛ mag: من 13 | `reportOutcome(tx.outcome)` | = | = | `finishApproved/Declined` |
@@ -640,17 +662,17 @@ finishApproved / finishDeclined / finishError  ──► emvFinished(outcome)   
 
 ---
 
-## 4. الـ kernel callbacks و askStep
+## 4. ردود الـ kernel و askStep
 
-### 4.1 تلت طبقات
+### 4.1 ثلاث طبقات
 
-الـ native kernel وهو جوه `EMVAppSelect` أو `EMVStartTrans` بيوقف ويستنى رد على callback، والرد لازم يرجع بـ `setCallBackResult` على **كل** طريق (وإلا الـ kernel يفضل مستني).
+حين يكون الـ native kernel داخل `EMVAppSelect` أو `EMVStartTrans` فإنه يتوقف وينتظر ردًا على callback. ويجب أن يعود الرد عبر `setCallBackResult` في **كل** المسارات، وإلا بقي الـ kernel ينتظر.
 
-| الطبقة | فين | بتعمل إيه |
+| الطبقة | المكان | ما تفعله |
 |---|---|---|
-| native callback | `ContactProcess.EmvCallBackListener` (implements `EMVCallback.EmvCallbackListener`؛ بيتسجّل في `setEmvAndMCKParam` جوه `preTransProcess`) | بتترجم البيانات (`EMV_APPLIST[]` → `CandidateAID`)، تنادي الـ `IContactCallback`، وترد بـ `emvCallback.setCallBackResult(...)`. الـ listener رمى exception → `EMV_USER_CANCEL`؛ مفيش listener → `EMV_DATA_ERR` |
-| thin adapter | `PaxEmvBehavior` كـ `IContactCallback`: `onWaitAppSelect`، `onCardHolderPwd`، `showConfirmCard` (اتسجّل بـ `kernel.contact.registerEmvProcessListener(this)`) | مفيش UI. بيحط الطلب في `tx` (`tx.candidates`، `tx.pinRequest`) ويسأل الـ step: `askStep(step, detail, USER_CANCEL)` |
-| step method | `onWaitApplicationSelection` / `onFinalApplicationSelection`، `onCardholderVerification`، `onOfflinePinVerification` | الشغل الحقيقي (dialog، PIN pad) ثم `answerStep(value)` |
+| الـ native callback | `ContactProcess.EmvCallBackListener` (ينفّذ `EMVCallback.EmvCallbackListener`، ويُسجَّل في `setEmvAndMCKParam` داخل `preTransProcess`) | تحوّل البيانات (`EMV_APPLIST[]` ← `CandidateAID`)، وتستدعي الـ `IContactCallback`، وترد بـ `emvCallback.setCallBackResult(...)`. إن رمى الـ listener استثناءً فالرد `EMV_USER_CANCEL`؛ وإن لم يوجد listener فالرد `EMV_DATA_ERR` |
+| المحوّل الرفيع | `PaxEmvBehavior` بصفته `IContactCallback`: `onWaitAppSelect`، `onCardHolderPwd`، `showConfirmCard`. يُسجَّل مرة واحدة في `runContactAppSelect` (`registerEmvProcessListener(this)`) ويُلغى مرة واحدة في `finishContactStage` (`ca1b16a`) | لا واجهة مستخدم فيه. يضع الطلب في `tx` (`tx.candidates`، `tx.pinRequest`) ثم يسأل الخطوة: `askStep(step, detail, USER_CANCEL)` |
+| دالة الخطوة | `onWaitApplicationSelection` / `onFinalApplicationSelection`، `onCardholderVerification`، `onOfflinePinVerification` | العمل الفعلي (نافذة الاختيار، لوحة الـ PIN) ثم `answerStep(value)` |
 
 ### 4.2 `askStep` / `answerStep`
 
@@ -662,47 +684,47 @@ return askStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN", USER_CANCEL /* fai
 protected void onCardholderVerification(...) { answerStep(enterPin(tx.pinRequest)); }
 ```
 
-- `askStep` بيعمل stack من `StepAnswer` (يدعم nesting)، يعمل `goToStep`، ويرجّع اللي اتعمله `answerStep`.
-- محدش جاوب (cancel، الـ transaction خلصت، exception، أو نسيت `answerStep`)، أو جاوب بعد النهاية → بيرجّع **`failClosed`** ويكتب `no answer for …` في الـ trace. **الـ kernel عمره ما يستنى للأبد.**
-- شغال بس لأن الـ step بيخلص قبل ما `goToStep` يرجع (§3.3).
-- `answerStep` من غير `askStep` = ولا حاجة.
+- `askStep` يضع مكانًا للرد (`StepAnswer`) في stack، فيدعم التداخل، ثم يستدعي `goToStep`، ويعيد ما وضعته `answerStep`.
+- إن لم يُجب أحد (إلغاء، أو انتهاء العملية، أو استثناء، أو نسيان `answerStep`)، أو جاء الرد بعد النهاية، تعيد **`failClosed`** وتكتب `no answer for …` في الـ trace. **لا ينتظر الـ kernel إلى الأبد أبدًا.**
+- تعمل فقط لأن الخطوة تنتهي قبل أن تعود `goToStep` (§3.3).
+- `answerStep` دون `askStep` لا تفعل شيئًا.
 
-**ليه لازمة لو الـ transaction بتمشي من غيرها؟** (اتناقش 28/10) على الطريق الطبيعي (الـ PIN اتكتب صح) مش هتفرق. فايدتها في الحالات الوحشة: الكيرنل في لحظات معينة **بيقف مستني شخص** (الـ PIN، اختيار الـ app)، و `askStep` هي المكان الوحيد اللي بيضمن إنه ياخد رد صح مهما حصل:
+**لماذا نحتاجها والعملية تعمل بدونها؟** (نوقش 28/10) في المسار الطبيعي (أُدخل الـ PIN صحيحًا) لا فرق. فائدتها في الحالات السيئة: يتوقف الـ kernel في لحظات معيّنة **منتظرًا شخصًا** (الـ PIN، اختيار التطبيق)، و `askStep` هي المكان الوحيد الذي يضمن أن يأخذ ردًا صحيحًا مهما حدث:
 
-```
-الكيرنل: "هات الـ PIN" (واقف مستني رقم)
+```text
+the kernel: "give me the PIN" (stopped, waiting for a number)
    └─ askStep
-        ├─ الـ PIN اتكتب                      → CONTACT_OK  → يكمل
-        ├─ cancel والعميل بيكتب                → USER_CANCEL → الكيرنل يقف بنظافة
-        ├─ مفيش رد / exception / العملية خلصت → USER_CANCEL → عمره ما يستنى للأبد
-        └─ أبداً: "approve" من غير رد
+        ├─ the PIN was entered                          → CONTACT_OK  → goes on
+        ├─ cancel while the cardholder types             → USER_CANCEL → the kernel stops cleanly
+        ├─ no answer / exception / the transaction ended → USER_CANCEL → never waits forever
+        └─ never: "approve" with no answer
 ```
 
-نفس الرسمة خطوة بخطوة (offline PIN):
+الرسم نفسه خطوة بخطوة (offline PIN):
 
 ```mermaid
 flowchart TD
-  K["① الكيرنل: onCardHolderPwd(...)<br/>callback — واقف، لازم يرجّع رقم"]
-  K --> A["② askStep(OFFLINE_PIN_VERIFICATION, …, USER_CANCEL)<br/>يحضّر مكان فاضي للرد"]
-  A --> G["③ goToStep(OFFLINE_PIN_VERIFICATION)<br/>الـ step يتنشر: banner + trace"]
-  G --> H["④ onOfflinePinVerification — الـ hook<br/>يفتح الـ PIN pad (UI هنا، مش في الـ callback)"]
-  H --> ANS["⑤ answerStep(CONTACT_OK)<br/>يحط الرد في المكان"]
-  ANS --> CHK{"⑥ askStep يبص:<br/>فيه رد؟ والعملية لسه شغالة؟"}
-  CHK -- "أيوه" --> OK["الرد نفسه → الكيرنل يكمل"]
-  CHK -- "cancel وهو بيكتب" --> UC["USER_CANCEL → الكيرنل يقف بنظافة"]
-  CHK -- "مفيش رد / exception / العملية خلصت" --> UC
-  CHK -. "أبداً" .-> NEVER["approve من غير رد ✗<br/>أو يستنى للأبد ✗"]
-  OK & UC --> R["⑦ setCallBackResult(الرد) → الكيرنل"]
+  K["① kernel: onCardHolderPwd(...)<br/>callback — stopped, must return a number"]
+  K --> A["② askStep(OFFLINE_PIN_VERIFICATION, …, USER_CANCEL)<br/>an empty place for the answer"]
+  A --> G["③ goToStep(OFFLINE_PIN_VERIFICATION)<br/>the step is published: banner + trace"]
+  G --> H["④ onOfflinePinVerification — the hook<br/>opens the PIN pad (UI here, not in the callback)"]
+  H --> ANS["⑤ answerStep(CONTACT_OK)<br/>puts the answer in its place"]
+  ANS --> CHK{"⑥ askStep checks:<br/>an answer? the transaction still running?"}
+  CHK -- "yes" --> OK["that answer → the kernel goes on"]
+  CHK -- "cancelled while typing" --> UC["USER_CANCEL → the kernel stops cleanly"]
+  CHK -- "no answer / exception / ended" --> UC
+  CHK -. "never" .-> NEVER["approve with no answer ✗<br/>or wait forever ✗"]
+  OK & UC --> R["⑦ setCallBackResult(answer) → kernel"]
 ```
 
-الـ control اللي بتديه:
-1. **الإيقاف:** هي مش اللي بتوقف الـ transaction (الـ cancel هو اللي بيوقفها)، بس هي **نقطة تفتيش**: لما الكيرنل يسأل بعد الـ cancel بتجاوبه "إلغاء" على طول. من غيرها الـ callback ممكن يرجّع رد قديم بعد الـ cancel، أو يفضل مستني.
-2. **fail closed مضمون** (قاعدة 4): أي طريق غلط بيخلص بـ `USER_CANCEL`، في مكان واحد بدل ما كل callback يعملها لوحده.
-3. **الرؤية:** الـ step (`CARDHOLDER_VERIFICATION`) بيظهر في الـ banner والـ trace، فتعرف الكيرنل وقف فين وليه.
+ما تقدّمه:
+1. **نقطة تفتيش للإيقاف:** ليست هي التي توقف العملية (الإلغاء يفعل ذلك)، لكنها حين يسأل الـ kernel بعد الإلغاء تجيبه "إلغاء" فورًا. بدونها قد يعيد الـ callback ردًا قديمًا بعد الإلغاء، أو يبقى منتظرًا.
+2. **الإغلاق الآمن مضمون** (القاعدة 4): كل مسار خاطئ ينتهي بـ `USER_CANCEL`، في مكان واحد بدل أن يكرره كل callback.
+3. **الوضوح:** الخطوة (`CARDHOLDER_VERIFICATION`) تظهر في الشريط العلوي والـ trace، فيُعرف أين توقف الـ kernel ولماذا.
 
-حدودها: مبتقفلش شاشة الـ PIN نفسها — cancel والشاشة مفتوحة → تفضل لحد ما العميل يكتب أو الـ timeout بتاعها، وبعدين الرد يبقى `USER_CANCEL`؛ ومبتقدرش توقف native call وهو شغال — الإيقاف بيحصل **بين** الخطوات بس.
+حدودها: لا تغلق شاشة الـ PIN نفسها؛ فعند الإلغاء والشاشة مفتوحة تبقى حتى يُدخل حامل البطاقة الرقم أو تنتهي مهلتها، ثم يكون الرد `USER_CANCEL`. ولا تستطيع إيقاف استدعاء native أثناء تنفيذه: الإيقاف يحدث **بين** الخطوات فقط.
 
-**الخلاصة:** مش لازمة علشان العملية تمشي، لازمة علشان العملية **تقف صح** — وده اللي بيفرق في الفلوس. ومش هتبقى أبسط بكتير: كل جزء فيها (الـ `goToStep`، مكان الرد، `failClosed`، فحص "لسه شغالة؟"، الـ nesting اللي عليه test) ليه سبب؛ البديل الوحيد الأبسط إن الـ callback يفتح الـ PIN pad بنفسه، وده بيكسر القواعد 1 و 3.
+**الخلاصة:** ليست ضرورية لكي تعمل العملية، بل لكي **تتوقف بشكل صحيح**، وهذا ما يهم حين يتعلق الأمر بالمال. ولا يمكن تبسيطها كثيرًا: لكل جزء فيها (`goToStep`، مكان الرد، `failClosed`، فحص "ما زالت قائمة؟"، التداخل المغطى باختبار) سبب. والبديل الأبسط الوحيد أن يفتح الـ callback لوحة الـ PIN بنفسه، وهذا يخالف القاعدتين 1 و 3.
 
 ### 4.3 مثال: online PIN (contact)
 
@@ -727,28 +749,29 @@ sequenceDiagram
 ```text
 [tx] runContactStartTransaction → startContactTransProcess → kernel.contact.startTransProcess()
        → EMVCallback.EMVStartTrans (native)
-       native يحتاج PIN → EmvCallBackListener.emvGetHolderPwd
+       the native call needs a PIN → EmvCallBackListener.emvGetHolderPwd
          → emvProcessListener.onCardHolderPwd(true, bypass, remain, null)   ← PaxEmvBehavior
               tx.pinRequest = new PinRequest(...)
-              askStep(CARDHOLDER_VERIFICATION, "online PIN", USER_CANCEL)
+              if online:  askStep(CARDHOLDER_VERIFICATION, "online PIN", USER_CANCEL)
+              else:       goToStep(CARDHOLDER_VERIFICATION, "PIN"); askStep(OFFLINE_PIN_VERIFICATION, …)
                 → goToStep → emvSteps → onCardholderVerification
-                     → enterPin(request): CARDHOLDER_VERIFIED، provisionOnlinePinKey،
+                     → enterPin(request): CARDHOLDER_VERIFIED, provisionOnlinePinKey,
                        PaxPinPad + PinService.getEncryptedPinData (blocking)
                      → answerStep(CONTACT_OK | NO_PASSWORD | USER_CANCEL)
-              ← الإجابة   (finally: tx.pinRequest = null)
+              ← the answer   (finally: tx.pinRequest = null)
          ← emvCallback.setCallBackResult(result)
-       native يكمل: CVM → TRM → TAA → 1st GAC
+       the native call goes on: CVM → TRM → TAA → 1st GAC
 ```
 
-- **Offline PIN**: `goToStep(CARDHOLDER_VERIFICATION, "PIN")` إعلان بس، ثم `askStep(OFFLINE_PIN_VERIFICATION)`؛ الـ pad بس، والـ kernel بيعمل verify مع الكارت. pin تاني (`pinData[0] != 0`) بيرد عليه الـ listener من غير ما يسأل.
-- **App selection**: `emvWaitAppSel` → `onWaitAppSelect(tryCnt <= 0, cands)` → `askStep(WAIT_ / FINAL_APPLICATION_SELECTION)` → `answerApplicationSelection` (APPLICATION_SELECTED، dialog `PaxAppSelectDialog.selectBlocking` لو `showsAppSelectDialog`، وإلا `CONTACT_OK` = index 0). `showsAppSelectDialog`: candidate واحد بيتختار لوحده في الـ release، والـ dialog بيظهر ليه في الـ debug بس.
-- **Data callbacks** بتفضل في `ContactProcess` ومبتسألش step: `emvInputAmount`، `emvSetParam` (→ `resetParam(AID)`)، `emvUnknowTLVData`. `certVerify` (`EMV_DATA_ERR`) و `emvVerifyPINfailed` (`EMV_OK`) بيردوا بـ `setCallBackResult`.
+- **Offline PIN:** `onCardHolderPwd` فيها فرعان صريحان (if / else، `cebe400`). في الـ offline تُعلَن `goToStep(CARDHOLDER_VERIFICATION, "PIN")` فقط، ثم `askStep(OFFLINE_PIN_VERIFICATION)`؛ تفتح اللوحة فقط، والـ kernel هو الذي يتحقق من الرقم مع البطاقة. أما الطلب الثاني للـ PIN (`pinData[0] != 0`) فيرد عليه الـ listener دون أن يسأل خطوة.
+- **اختيار التطبيق:** `emvWaitAppSel` ← `onWaitAppSelect(tryCnt <= 0, cands)` ← `askStep(WAIT_ / FINAL_APPLICATION_SELECTION)` ← `answerApplicationSelection` (تنشر APPLICATION_SELECTED، وتفتح `PaxAppSelectDialog.selectBlocking` إن كانت `showsAppSelectDialog` صحيحة، وإلا فالرد `CONTACT_OK` أي الفهرس 0). في نسخة الإصدار يُختار التطبيق الوحيد تلقائيًا، وفي نسخة الـ debug تظهر النافذة حتى لتطبيق واحد.
+- **ردود البيانات** تبقى في `ContactProcess` ولا تسأل خطوة: `emvInputAmount`، `emvSetParam` (← `resetParam(AID)`)، `emvUnknowTLVData`. و `certVerify` (`EMV_DATA_ERR`) و `emvVerifyPINfailed` (`EMV_OK`) ترد بـ `setCallBackResult`.
 
 ---
 
-## 5. Contact flow
+## 5. مسار الـ contact
 
-### 5.1 الرسمة كاملة (ترتيب الـ kernel نفسه)
+### 5.1 الرسم الكامل (بترتيب الـ kernel نفسه)
 
 ```mermaid
 sequenceDiagram
@@ -757,11 +780,11 @@ sequenceDiagram
   participant C as ContactProcess
   participant K as native kernel
   participant H as PosTerminal.authorize → host
-  Note over B: TERMINAL_INITIALIZATION → SEARCH_CARD (onSearchCard = الـ polling)
-  B->>C: preTransProcess(params من الـ cache)
+  Note over B: TERMINAL_INITIALIZATION → SEARCH_CARD (onSearchCard = the polling)
+  B->>C: preTransProcess(params from the cache)
   C->>K: EMVCoreInit · EMVSetParameter/MCK (AID[0]) · EMVSetPCIModeParam · EMVAddApp ×n
   Note over B: start → APPLICATION_SELECTION
-  B->>C: runContactAppSelect → selectApplication (≤ 3، power-cycle)
+  B->>C: runContactAppSelect → selectApplication (≤ 3, power-cycle)
   C->>K: EMVAppSelect
   K-->>C: emvWaitAppSel → askStep WAIT_APPLICATION_SELECTION
   B->>C: READ_APPLICATION_DATA → readApplicationData
@@ -779,9 +802,9 @@ sequenceDiagram
     B->>H: START_ONLINE_PROCESS → authorizeOnline (field 55 + PAN / PIN block)
     H-->>B: AuthResult → OnlineResultWrapper
     B->>C: ISSUER_AUTHENTICATION → completeTransProcess
-    C->>K: EMVCompleteTrans = 89/91 + scripts + 2nd GAC (دايماً، AET-146)
-  else TC أو refund
-    B->>H: host من غير ARQC — رد الـ host هو النتيجة، مفيش 2nd GAC
+    C->>K: EMVCompleteTrans = 89/91 + scripts + 2nd GAC (always, AET-146)
+  else TC or refund
+    B->>H: host without an ARQC — the host's answer is the result, no 2nd GAC
   else AAC
     B->>B: declined
   end
@@ -789,114 +812,114 @@ sequenceDiagram
   B->>B: finishWithOutcome → TRANSACTION_COMPLETION → reportOutcome
 ```
 
-### 5.2 الـ stages (كل stage = native call واحد = EmvStep واحد)
+### 5.2 المراحل (كل مرحلة = استدعاء native واحد = EmvStep واحدة)
 
-| EmvStep | runner في `PaxEmvBehavior` | `ContactProcess` | native | callbacks جوّاه |
+| EmvStep | الـ runner في `PaxEmvBehavior` | `ContactProcess` | native | الـ callbacks داخله |
 |---|---|---|---|---|
 | TERMINAL_INITIALIZATION | `onTerminalInitialization` → `prepareKernel` → `runPreTransProcess` | `preTransProcess` | `EMVCoreInit`، `EMVSetParameter` / `EMVSetMCKParam` (AID[0])، `EMVSetPCIModeParam`، `EMVAddApp` | — |
-| APPLICATION_SELECTION | `runContactAppSelect` (+ `selectApplicationWithRetry`: 3 محاولات، power-cycle 200ms) | `selectApplication` | `EMVAppSelect` | `emvWaitAppSel` → `onWaitAppSelect` (WAIT/FINAL) |
+| APPLICATION_SELECTION | `runContactAppSelect` (+ `selectApplicationWithRetry`: 3 محاولات، power-cycle لمدة 200ms) | `selectApplication` | `EMVAppSelect` | `emvWaitAppSel` → `onWaitAppSelect` (WAIT/FINAL) |
 | READ_APPLICATION_DATA | `runContactReadAppData` | `readApplicationData` | `EMVReadAppData` (GPO + read records) | `emvSetParam` → `resetParam(AID)` |
 | SET_TRANSACTION_DATA | `runContactSetTransactionData` | `setTransactionData` | — | `showConfirmCard` (CARD_READ) + `changeTAG9CValue` (9C) |
 | OFFLINE_DATA_AUTHENTICATION | `runContactCardAuth` | `cardAuthentication` | `addCapk` + `EMVCardAuth` | — |
 | PROCESS_RESTRICTIONS | `runContactStartTransaction` → `startContactTransProcess` | `startTransProcess` | `EMVStartTrans` = PR → CVM → TRM → TAA → **1st GAC** | `emvGetHolderPwd` → `onCardHolderPwd` |
 | START_ONLINE_PROCESS | `startOnlineProcess()` → `onStartOnlineProcess` → `authorizeOnline` | — | — (host) | — |
 | ISSUER_AUTHENTICATION | `runIssuerAuthentication` → `completeContactIssuerAuthentication` | `completeTransProcess` | `EMVCompleteTrans` = 89/91 + scripts + **2nd GAC** | — |
-| SCRIPT_PROCESSING | إعلان بس من `completeApproved` | — | (اتعمل جوه EMVCompleteTrans) | — |
+| SCRIPT_PROCESSING | إعلان فقط من `completeApproved` | — | (تمت داخل EMVCompleteTrans) | — |
 | TRANSACTION_COMPLETION | `finishContactStage` → `checkContactResult` → `finishWithOutcome` → `onTransactionCompletion` → `reportOutcome` | — | — | — |
 
-كل runner بنفس الشكل:
+كل runner له الشكل نفسه:
 
 ```text
 tx.transResult = kernel.contact.xxx()
 proceed = ret == EMV_OK && !isContactTransactionFinished()   (transResult.getTransResult() == null)
 exception → finishError
-!proceed → registerEmvProcessListener(null) + finishContactStage   (يقفل الـ readers + الـ PIN pad، ثم checkContactResult)
-proceed  → advanceContactStage(NEXT)   = goToStep(NEXT)، ولو مرجعش true → finishContactStage
+!proceed → finishContactStage   (releases the kernel's listener, closes the readers + the PIN pad, then checkContactResult)
+proceed  → advanceContactStage(NEXT)   = goToStep(NEXT); if it doesn't return true → finishContactStage
 ```
 
-الـ ICC reader فاضل مفتوح من app select لحد start transaction، عشان كده `advanceContactStage` بيقفل بنفسه لو `goToStep` اتلغى — وإلا الـ cleanup كان هيضيع. `finishContactStage` بعد cancel: بيقفل ومبيبلّغش نتيجة ("result not reported").
+- يبقى قارئ الـ ICC مفتوحًا من اختيار التطبيق حتى بدء العملية، ولذلك تغلق `advanceContactStage` بنفسها إن أُلغيت `goToStep`؛ وإلا ضاع التنظيف.
+- `finishContactStage` هي المكان الوحيد الذي يُلغى فيه تسجيل الـ listener (`registerEmvProcessListener(null)`)؛ والتسجيل مرة واحدة في `runContactAppSelect` (`ca1b16a`).
+- بعد الإلغاء: تغلق `finishContactStage` القارئات ولا تبلّغ نتيجة ("result not reported").
 
-### 5.3 الترتيب ده ليه
+### 5.3 لماذا هذا الترتيب
 
-ده ترتيب الـ PAX contact kernel نفسه: `EMVAppSelect` → `EMVReadAppData` → (confirm card + 9C) → `EMVCardAuth` → `EMVStartTrans` → `EMVCompleteTrans`. الـ SET_TRANSACTION_DATA في الـ contact **بعد** الـ read (عكس الـ contactless) لأن الـ contact kernel بياخد المبلغ في `preTransProcess` / `EMVStartTrans` (`emvInputAmount`)، والـ stage دي بتأكد الكارت وتظبط 9C بعد ما الـ PAN اتقرا.
+هو ترتيب الـ contact kernel الخاص بـ PAX نفسه: `EMVAppSelect` ← `EMVReadAppData` ← (تأكيد البطاقة + 9C) ← `EMVCardAuth` ← `EMVStartTrans` ← `EMVCompleteTrans`. تأتي SET_TRANSACTION_DATA في الـ contact **بعد** القراءة (عكس الـ contactless) لأن الـ contact kernel يأخذ المبلغ في `preTransProcess` / `EMVStartTrans` (`emvInputAmount`)، وهذه المرحلة تؤكد البطاقة وتضبط 9C بعد قراءة الـ PAN.
 
-### 5.4 الـ parameters جوه الـ contact kernel
+### 5.4 الـ parameters داخل الـ contact kernel
 
-- `preTransProcess` (كل attempt، `ContactProcess` جديد): `EMVCoreInit` → `setEmvAndMCKParam` بـ **أول AID** كـ default (+ `forceOnline = 1`، وبيسجّل `EmvCallBackListener`) → `EMVSetPCIModeParam` → `EMVAddApp` لكل AID. الـ params جاية من `kernel.params.getCachedEmvParam()` (§7.3).
-- بعد اختيار الـ application: `emvSetParam` → `resetParam(aid)`: يدوّر على الـ AID (full أو partial) ويحط 9F33 / 9F40 / 9F35 بتوعه بـ `EMVSetParameter` **و** `EMVSetTLVData`.
-  ومعاهم الـ MCK بتاع الـ AID المختار (PIN bypass) بـ `EMVSetMCKParam` (كانت BACKLOG 0.7، اتصلحت).
-- **9F03 عمره ما يتكتب في الـ contact kernel**؛ `readIccTag` بيرد عليه zeros.
+- `preTransProcess` (في كل محاولة، مع `ContactProcess` جديد): `EMVCoreInit` ← `setEmvAndMCKParam` بـ **أول AID** كقيمة افتراضية (مع `forceOnline = 1`، وتسجيل `EmvCallBackListener`) ← `EMVSetPCIModeParam` ← `EMVAddApp` لكل AID. تأتي الـ params من `kernel.params.getCachedEmvParam()` (§7.3).
+- بعد اختيار التطبيق: `emvSetParam` ← `resetParam(aid)`: يبحث عن الـ AID (كاملًا أو جزئيًا) ويضع 9F33 / 9F40 / 9F35 الخاصة به عبر `EMVSetParameter` **و** `EMVSetTLVData`، ومعها الـ MCK الخاص بالـ AID المختار (تجاوز الـ PIN) عبر `EMVSetMCKParam` (كانت BACKLOG 0.7، وأُصلحت).
+- **لا يُكتب 9F03 في الـ contact kernel أبدًا**؛ و `readIccTag` تعيده أصفارًا.
 
-### 5.5 الـ online والـ 2nd GAC (`startContactTransProcess`)
+### 5.5 الاتصال بالـ host والـ 2nd GAC (`startContactTransProcess`)
 
-| الكارت قال إيه في 1st GAC | بيحصل إيه |
+| ما قالته البطاقة في الـ 1st GAC | ما يحدث |
 |---|---|
-| `ret != EMV_OK` | يرجع الكود → decline/error |
-| refund (أي حاجة) أو TC "offline approved" | `needsHostWithoutArqc` → host من غير ARQC → `hostOutcome` → **رد الـ host هو النتيجة** (مفيش 2nd GAC) |
-| ARQC (`RESULT_REQ_ONLINE`) | `startOnlineProcess` → `runIssuerAuthentication` → **2nd GAC دايماً** (EMV Book 3، AET-146) حتى لو الـ host رفض أو فشل |
-| AAC (مش refund) | decline |
+| `ret != EMV_OK` | يُعاد الكود ← رفض / خطأ |
+| استرداد (أي نتيجة)، أو TC "offline approved" | `needsHostWithoutArqc` ← الـ host دون ARQC ← `hostOutcome` ← **رد الـ host هو النتيجة** (دون 2nd GAC) |
+| ARQC (`RESULT_REQ_ONLINE`) | `startOnlineProcess` ← `runIssuerAuthentication` ← **2nd GAC دائمًا** (EMV Book 3، AET-146)، حتى إن رفض الـ host أو فشل الاتصال |
+| AAC (ليس استردادًا) | رفض |
 
-`startOnlineProcess()`: `tx.onlineRequested = true` → `goToStep(START_ONLINE_PROCESS)` → `onStartOnlineProcess` → `tx.lastAuth = authorizeOnline()` (field 55 من `readIccTag`، فاضي → online failed من غير ما يبعت؛ `addOnlineRequestData`: PAN، PIN block، المفتاح المشفّر، `EmvTransactionResult`) → `engine.authorize` → `PosTerminal.authorize`. الـ step متلغي → `lastAuth = null` → "online step did not run — online failed". `toOnlineResultWrapper`: null/failed → FAILED، approved → APPROVE (auth code، RC، ARPC، scripts)، غير كده → DENIAL.
+`startOnlineProcess()` (الـ callback بعد الـ 1st GAC، وهو المكان الوحيد الذي ينشر هذه الخطوة للـ chip والـ contactless): `tx.lastAuth = null` ← `goToStep(START_ONLINE_PROCESS)` ← `onStartOnlineProcess` ← `tx.lastAuth = authorizeOnline()` (field 55 من `readIccTag`، وإن كان فارغًا فالنتيجة online failed دون إرسال؛ و `addOnlineRequestData` تضيف الـ PAN والـ PIN block والمفتاح المشفّر و `EmvTransactionResult`) ← `engine.authorize` ← `PosTerminal.authorize`. إن أُلغيت الخطوة بقي `lastAuth = null` ← "online step did not run — online failed". ثم `toOnlineResultWrapper`: null / failed ← FAILED؛ approved ← APPROVE (auth code، RC، ARPC، scripts)؛ وغير ذلك ← DENIAL.
 
-**رد الـ host بيرجع للـ behavior إزاي (علشان الـ 2nd GENERATE AC)** — نداء بيرجّع رد، مش callback؛ كله على الـ transaction thread وبالترتيب، والكيرنل مستني في النص:
+**كيف يعود رد الـ host إلى الـ behavior (من أجل الـ 2nd GENERATE AC):** استدعاء يعيد ردًا، لا callback؛ وكل شيء على الـ transaction thread وبالترتيب، والـ kernel ينتظر في المنتصف:
 
-```
+```text
 PaxEmvBehavior.onStartOnlineProcess
    tx.lastAuth = authorizeOnline();
          │
-         └─ engine.authorize → PosTerminal.authorize → الـ host
-         │      (PosTerminal: ONLINE_* steps، يسمّي الـ request ويسجّله للـ ack / reversal، 90 ث)
+         └─ engine.authorize → PosTerminal.authorize → the host
+         │      (PosTerminal: ONLINE_* steps, names the request and records it for the ack / reversal, 90 s)
          │
-   ◄──── AuthResult راجع هنا مباشرة (approved / declined / failed + ARPC + scripts + auth code)
+   ◄──── the AuthResult comes straight back here (approved / declined / failed + ARPC + scripts + auth code)
    │
-toOnlineResultWrapper(auth)                  ← يحوّله لشكل PAX
+toOnlineResultWrapper(auth)                  ← into PAX's shape
    │   ARPC          → rsp.setAuthData
    │   scripts       → rsp.setScript
    │   response code → rsp.setRespCode
    │
-kernel.contact.completeTransProcess(rsp)     ← الـ 2nd GENERATE AC (completeContactIssuerAuthentication)
+kernel.contact.completeTransProcess(rsp)     ← the 2nd GENERATE AC (completeContactIssuerAuthentication)
    │
-الكارت: TC (approved) أو AAC (declined)
+the card: TC (approved) or AAC (declined)
    │
 finishApproved / finishDeclined
 ```
 
-اتناقش 28/10: الشكل ده آمن (الـ request بيتسجل قبل ما يتبعت) ومريح للـ 2nd GAC، فاتساب زي ما هو؛ `PosTerminal.authorize` مش هيتقسم.
+نوقش في 28/10: هذا الشكل آمن (يُسجَّل الطلب قبل إرساله) ومريح للـ 2nd GAC، فبقي كما هو؛ ولن تُقسَّم `PosTerminal.authorize`. ولذلك تبقى `ONLINE_*` تقارير لا خطوات لها دوال (§2.6).
 
-`runIssuerAuthentication`: `tx.issuerResponse = online` → `goToStep(ISSUER_AUTHENTICATION)` → `onIssuerAuthentication` → `completeIssuerAuthentication`. الـ step متلغي (cancel) → الـ 2nd GAC بيتعمل برضه ("issuer authentication step did not run — completing with the card anyway").
+`runIssuerAuthentication`: `tx.issuerResponse = online` ← `goToStep(ISSUER_AUTHENTICATION)` ← `onIssuerAuthentication` ← `completeIssuerAuthentication`. إن أُلغيت الخطوة يُنفَّذ الـ 2nd GAC مع ذلك ("issuer authentication step did not run — completing with the card anyway").
 
 بعد الـ 2nd GAC (`completeContactIssuerAuthentication`):
 
-| الـ host | الكارت في 2nd GAC | النتيجة | بعد النهاية (§2.7) |
+| الـ host | البطاقة في الـ 2nd GAC | النتيجة | بعد النهاية (§2.7) |
 |---|---|---|---|
 | APPROVE | TC | `RESULT_ONLINE_APPROVED` | acknowledge |
-| APPROVE | غير كده | `RESULT_ONLINE_CARD_DENIED` | reverse |
-| FAILED | أي حاجة (الـ terminal بيطلب AAC) | `RESULT_ONLINE_FAILED` / `..._CARD_APPROVED` → **online failed** | reverse، إلا لو `notSent` |
-| DENIAL | — | `RESULT_ONLINE_DENIED` | مفيش |
+| APPROVE | غير ذلك | `RESULT_ONLINE_CARD_DENIED` | reverse |
+| FAILED | أي نتيجة (يطلب الجهاز AAC) | `RESULT_ONLINE_FAILED` / `..._CARD_APPROVED` ← **online failed** | reverse، إلا إن كان `notSent` |
+| DENIAL | — | `RESULT_ONLINE_DENIED` | لا شيء |
 
-### 5.6 النتيجة (`checkContactResult` → outcome)
+### 5.6 النتيجة (`checkContactResult` ← outcome)
 
-| TransResultEnum | method | Outcome |
+| TransResultEnum | الدالة | Outcome |
 |---|---|---|
-| ONLINE_APPROVED | `onlineApproved` → `completeApproved` (+ SCRIPT_PROCESSING إعلان) | APPROVED |
+| ONLINE_APPROVED | `onlineApproved` ← `completeApproved` (+ إعلان SCRIPT_PROCESSING) | APPROVED |
 | ONLINE_DENIED | `onlineDenied` | DECLINED |
 | ONLINE_CARD_DENIED | `onlineCardDenied` | DECLINED |
 | ONLINE_FAILED / FAILED_CARD_APPROVED | `onlineFailed` | ERROR |
-| OFFLINE_APPROVED | `offlineApproved` → **online failed** (مفيش offline approve) | ERROR |
+| OFFLINE_APPROVED | `offlineApproved` ← **online failed** (لا موافقة offline) | ERROR |
 | OFFLINE_DENIED / default / `null` | `offlineDenied` | DECLINED |
 | SIMPLE_FLOW_END | `simpleFlowEnd` | APPROVED |
-| FALLBACK | `fallback()` → retry MAGSTRIPE | — |
+| FALLBACK | `fallback()` ← إعادة بـ MAGSTRIPE | — |
 
 ---
 
+## 6. مسار الـ contactless
 
-## 6. Contactless flow
+التشغيل نفسه (§3) و `askStep` نفسها (§4). الفرق أن الـ kernel يُختار بعد اختيار التطبيق (`ClssKernelProcessFactory`). وهناك نوعان (`ClssKernelProcess.supportsGranularSteps()`):
+- **granular: EFT، PayPass، PayWave.** في الـ SDK الخاص بها استدعاء native لكل مرحلة، فلكل مرحلة خطوتها.
+- **atomic: Amex، JCB، Mir، PBOC، Pure، RuPay، DPAS.** العملية كلها استدعاء واحد (`startTransProcess`). تُنشر الخطوات من الـ callbacks (`onReadCardOk` ← READ_APPLICATION_DATA، `confirmCard` ← SET_TRANSACTION_DATA)، ودوال `onXxx` الخاصة بها فارغة.
 
-نفس الـ dispatch (§3) ونفس الـ `askStep` (§4). الفرق إن الـ kernel بيتختار بعد الـ application selection (`ClssKernelProcessFactory`). فيه نوعين (`ClssKernelProcess.supportsGranularSteps()`):
-- **granular: EFT، PayPass، PayWave.** الـ SDK بتاعهم فيه native call لكل phase، فكل phase step لوحده.
-- **atomic: Amex، JCB، Mir، PBOC، Pure، RuPay، DPAS.** الـ transaction كلها call واحد (`startTransProcess`). الـ steps بتتنشر من الـ callbacks (`onReadCardOk` → READ_APPLICATION_DATA، `confirmCard` → SET_TRANSACTION_DATA)، والـ `onXxx` بتاعها فاضي.
-
-### 6.1 الرسمة: الـ stages
+### 6.1 الرسم: المراحل
 
 ```mermaid
 flowchart TD
@@ -926,44 +949,44 @@ flowchart TD
 
 ### 6.2 قبل الـ tap: الـ entry point
 
-`prepareKernel` → `runPreTransProcess` → `ClssProcess.preTransProcess`:
-`Clss_CoreInit_Entry` → `Clss_DelAllAidList_Entry` / `DelAllPreProcInfo` → `ClssEntryAddAid.addApp()` (AIDs كل kernel عنده rows؛ kernel اتمسح = مفيش AIDs = مش بيتختار) → `Clss_SetMCVersion_Entry(3)` → `Clss_PreTransProc_Entry` (limits per AID).
-لو فشل → `kernel.contactlessReady = false` → `PaxTerminal` مش هيسمع على الـ PICC خالص في الـ transaction دي ("contactless disabled for this transaction").
+`prepareKernel` ← `runPreTransProcess` ← `ClssProcess.preTransProcess`:
+`Clss_CoreInit_Entry` ← `Clss_DelAllAidList_Entry` / `DelAllPreProcInfo` ← `ClssEntryAddAid.addApp()` (الـ AIDs لكل kernel له صفوف؛ والـ kernel المحذوف لا AIDs له فلا يُختار) ← `Clss_SetMCVersion_Entry(3)` ← `Clss_PreTransProc_Entry` (الحدود لكل AID).
+إن فشل: `kernel.contactlessReady = false`، فلا يستمع `PaxCardSearch` إلى الـ PICC في هذه العملية ("contactless disabled for this transaction").
 
-### 6.3 Application selection (`runContactlessAppSelect`)
+### 6.3 اختيار التطبيق (`runContactlessAppSelect`)
 
-`kernel.contactless.registerClssProcessListener(this)` → `ClssProcess.selectApplication`: `Clss_AppSlt_Entry` → loop على `Clss_FinalSelect_Entry` (`EMV_RSP_ERR` / `APP_BLOCK` / `ICC_BLOCK` / `CLSS_RESELECT_APP` → `Clss_DelCurCandApp_Entry` والـ candidate الجاي) → `Clss_GetPreProcInterFlg_Entry` + `Clss_GetFinalSelectData_Entry` → `ClssKernelProcessFactory(kernType).build()` بالـ params والـ listener.
-بعدها: `firstStageAfterAppSelect()` → granular: `SET_TRANSACTION_DATA`؛ atomic: `PROCESS_RESTRICTIONS`.
+`kernel.contactless.registerClssProcessListener(this)` (مرة واحدة؛ ويُلغى مرة واحدة في `finishContactlessStage`، `ca1b16a`) ← `ClssProcess.selectApplication`: `Clss_AppSlt_Entry` ← حلقة على `Clss_FinalSelect_Entry` (`EMV_RSP_ERR` / `APP_BLOCK` / `ICC_BLOCK` / `CLSS_RESELECT_APP` ← `Clss_DelCurCandApp_Entry` ثم المرشح التالي) ← `Clss_GetPreProcInterFlg_Entry` + `Clss_GetFinalSelectData_Entry` ← `ClssKernelProcessFactory(kernType).build()` بالـ params والـ listener.
+بعدها: `firstStageAfterAppSelect()` ← granular: `SET_TRANSACTION_DATA`؛ atomic: `PROCESS_RESTRICTIONS`.
 
-كل runner contactless بنفس شكل الـ contact (§5.2)، وزيادة عليه:
+لكل runner في الـ contactless شكل الـ contact نفسه (§5.2)، مع زيادة:
 
 ```text
 tx.clsTransResult = kernel.contactless.xxx()
-ret == CLSS_RESELECT_APP → reselectApplication() (Clss_DelCurCandApp_Entry + select تاني) → firstStageAfterAppSelect()
+ret == CLSS_RESELECT_APP → reselectApplication() (Clss_DelCurCandApp_Entry + select again) → firstStageAfterAppSelect()
 markTryAgainOnCommunicationError(ret)   ICC_CMD_ERR / ICC_RESET_ERR / CLSS_TRY_AGAIN → RESULT_TRY_AGAIN
 proceed = ret == EMV_OK && !isContactlessTransactionFinished()
-!proceed → unregisterClssProcessListener + captureSummaryAfterCardRead (بعد الـ READ) + finishContactlessStage
+!proceed → captureSummaryAfterCardRead (after READ) + finishContactlessStage (releases the listener)
 proceed  → advanceContactlessStage(NEXT)
 ```
 
-الـ atomic بيعمل نفس الـ reselect loop جوه `ClssProcess.startTransProcess`.
+ويجري الـ atomic حلقة إعادة الاختيار نفسها داخل `ClssProcess.startTransProcess`.
 
 ### 6.4 ترتيب كل kernel (= ترتيب الـ kernel نفسه)
 
 | EmvStep | PayPass (`ClssPayPassProcess`) | PayWave (`ClssPayWaveProcess`) | EFT (`ClssEFTProcess`) |
 |---|---|---|---|
-| SET_TRANSACTION_DATA | `coreInit` (`Clss_CoreInit_MC`، `SetParam_MC`، FinalSelectData) + `setPayPassParam` (DF8117/18/19/1F، limits) | `coreInit` (`CoreInit_Wave`، **ReaderParam** فيه `aucTmCap` = 9F33، FinalSelectData) + `setTransParam` (`SetVisaAidParam_Wave` floor/limits، `SetTransData_Wave`) | `CoreInit_EFT` + ReaderParam + AidParam + `SetTransData_EFT` |
-| READ_APPLICATION_DATA | `Clss_InitiateApp_MC` + `Clss_ReadData_MC` | `Clss_Proctrans_Wave` (GPO + records + الـ AC type) — see phone / use contact / AAC هنا | `Clss_InitApp_EFT` + `Clss_ReadAppData_EFT` |
+| SET_TRANSACTION_DATA | `coreInit` (`Clss_CoreInit_MC`، `SetParam_MC`، FinalSelectData) + `setPayPassParam` (DF8117/18/19/1F، limits) | `coreInit` (`CoreInit_Wave`، **ReaderParam** وفيه `aucTmCap` = 9F33، FinalSelectData) + `setTransParam` (`SetVisaAidParam_Wave` floor/limits، `SetTransData_Wave`) | `CoreInit_EFT` + ReaderParam + AidParam + `SetTransData_EFT` |
+| READ_APPLICATION_DATA | `Clss_InitiateApp_MC` + `Clss_ReadData_MC` | `Clss_Proctrans_Wave` (GPO + records + نوع الـ AC)؛ see phone / use contact / AAC تظهر هنا | `Clss_InitApp_EFT` + `Clss_ReadAppData_EFT` |
 | ↓ الترتيب | ODA ثم PR | **PR ثم ODA** (`restrictionsBeforeOfflineDataAuth() = true`) | ODA ثم PR |
-| OFFLINE_DATA_AUTHENTICATION | تحميل CAPK + revocation بس (M/Chip) — الـ ODA نفسه جوه `TransProc` | `Clss_CardAuth_Wave` (لو TC ومش refund، أو TTQ byte1 bit1) | `PreTAAProc` + CAPK + `Clss_CardAuth_EFT` |
-| PROCESS_RESTRICTIONS | ولا حاجة (مفيش call) | `Clss_ProcRestric_Wave` (qVSDC/Wave2) | `Clss_ProcRestrict_EFT` |
-| الـ bundle (`startTransProcess`) | `Clss_TransProc_MC_MChip`/`_Mag` = ODA+PR+CVM+TRM+TAA+GAC، ثم see phone (UIRD 0x20 أو DF4B)، `outcomeParamSet` → `genTransResult` | `genTransResult`: `Clss_GetCvmType_Wave` + الـ AC type (AAC من READ → decline) | `Clss_CVMProc_EFT` + `Clss_PostTAAProc_EFT` |
-| 2nd tap / completion | `completeTransProcess` | FinalSelect + `Clss_IssuerAuth_Wave` | `Clss_CompleteOnlineTrans_EFT` — ⚠ مبيتناداش: `isNeedSecondTap` بيرجع false لـ EFT (و Amex / JCB / Pure / PBOC)، فالـ approve بيفضل زي ما هو (BACKLOG 2.3) |
+| OFFLINE_DATA_AUTHENTICATION | تحميل CAPK + revocation فقط (M/Chip)؛ الـ ODA نفسه داخل `TransProc` | `Clss_CardAuth_Wave` (إن كانت TC وليست استردادًا، أو TTQ byte1 bit1) | `PreTAAProc` + CAPK + `Clss_CardAuth_EFT` |
+| PROCESS_RESTRICTIONS | لا شيء (لا استدعاء) | `Clss_ProcRestric_Wave` (qVSDC/Wave2) | `Clss_ProcRestrict_EFT` |
+| الـ bundle (`startTransProcess`) | `Clss_TransProc_MC_MChip`/`_Mag` = ODA+PR+CVM+TRM+TAA+GAC، ثم see phone (UIRD 0x20 أو DF4B)، `outcomeParamSet` → `genTransResult` | `genTransResult`: `Clss_GetCvmType_Wave` + نوع الـ AC (AAC من READ ← رفض) | `Clss_CVMProc_EFT` + `Clss_PostTAAProc_EFT` |
+| 2nd tap / completion | `completeTransProcess` | FinalSelect + `Clss_IssuerAuth_Wave` | `Clss_CompleteOnlineTrans_EFT` — ⚠ لا تُستدعى: `isNeedSecondTap` تعيد false لـ EFT (و Amex / JCB / Pure / PBOC)، فتبقى الموافقة كما هي (BACKLOG 2.3) |
 | SCRIPT_PROCESSING | default (OK) | `Clss_IssScriptProc_Wave` + `onRemoveCard` | default |
 
-> **9F33**: Visa / contact = قيمة واحدة 3 bytes. PayPass = tags منفصلة (DF8117 card data input، DF8118 CVM required، DF8119 no CVM، DF811F security) والـ kernel هو اللي بيبني 9F33. متجمعهمش في قيمة واحدة.
+> **9F33:** في Visa والـ contact قيمة واحدة من 3 bytes. أما PayPass فـ tags منفصلة (DF8117 إدخال بيانات البطاقة، DF8118 مع CVM، DF8119 دون CVM، DF811F الأمان)، والـ kernel هو الذي يبني 9F33. لا تُجمع في قيمة واحدة.
 
-### 6.5 بعد الـ stages: `startContactlessTransProcess`
+### 6.5 بعد المراحل: `startContactlessTransProcess`
 
 ```mermaid
 sequenceDiagram
@@ -1004,59 +1027,61 @@ sequenceDiagram
 
 ```text
 tx.clsTransResult = kernel.contactless.startTransProcess()
-ret != OK → markTryAgainOnCommunicationError (ICC_CMD_ERR / ICC_RESET_ERR / CLSS_TRY_AGAIN → TRY_AGAIN)؛ return
-SEE_PHONE / TRY_AGAIN مع EMV_OK (PayPass) → return (الـ retry في checkContactlessResult)
-confirmCard()               ← بننادي الـ callback بنفسنا: SET_TRANSACTION_DATA (atomic بس)،
-                              9F1C = TID من الـ cache، CARD_READ
-CVM online PIN؟ → onCardHolderPwd(true, bypass, 0, null)
-        NO_PASSWORD = bypass → online من غير PIN؛ أي رد تاني غير OK → ERROR "Online PIN not entered"
-refund / offline approved → needsHostWithoutArqc → startOnlineProcess → hostOutcome (رد الـ host هو النتيجة)
+ret != OK → markTryAgainOnCommunicationError (ICC_CMD_ERR / ICC_RESET_ERR / CLSS_TRY_AGAIN → TRY_AGAIN); return
+SEE_PHONE / TRY_AGAIN with EMV_OK (PayPass) → return (the retry is in checkContactlessResult)
+confirmCard()               ← we call the callback ourselves: SET_TRANSACTION_DATA (atomic only),
+                              9F1C = TID from the cache, CARD_READ
+CVM online PIN? → onCardHolderPwd(true, bypass, 0, null)
+        NO_PASSWORD = bypass → online without a PIN; any other answer but OK → ERROR "Online PIN not entered"
+refund / offline approved → needsHostWithoutArqc → startOnlineProcess → hostOutcome (the host's answer is the result)
 ARQC → startOnlineProcess()
-        host مش approved → النتيجة = رد الـ host (onlineDenied / onlineFailed بيعلنوا ISSUER_AUTHENTICATION)
+        host not approved → the result = the host's answer (onlineDenied / onlineFailed announce ISSUER_AUTHENTICATION)
         approved → runIssuerAuthentication → completeContactlessIssuerAuthentication:
              isNeedSecondTap? → onDetect2ndTap → completeTransProcess → OK → runIssuerScriptProcessing
-             مش محتاج → ONLINE_APPROVED زي ما هو
+             not needed → ONLINE_APPROVED as it is
 ```
 
-⚠ `onDetect2ndTap` بينشر الـ prompt بس — مفيش polling ولا استنا للكارت قبل `Clss_FinalSelect_Entry` (BACKLOG 1.4، form #12).
+- `onDetect2ndTap` تنشر WAITING_FOR_CARD ("Tap the same card again to finish") و `SEARCH_CARD`؛ وهذه الـ `SEARCH_CARD` **للعرض فقط** (الشريط العلوي والـ trace) ولا تبدأ بحثًا ثانيًا (§3.3، `4ca6040`).
+- ⚠ لا يوجد polling ولا انتظار للبطاقة قبل `Clss_FinalSelect_Entry` (BACKLOG 1.4، form #12).
+- `scriptsProcessed` (في `PaxKernelSession`) يمنع `completeApproved` من إعلان SCRIPT_PROCESSING مرة ثانية بعد أن نُفّذت في خطوتها مع الـ tap الثاني. ولا يغني عنه `pendingScripts`، لأنه يكون null قبل تسليم الـ scripts وبعد تنفيذها معًا.
 
 ### 6.6 النتيجة (`checkContactlessResult`)
 
-| الحالة | method | النهاية |
+| الحالة | الدالة | النهاية |
 |---|---|---|
-| `RESULT_CLSS_SEE_PHONE` (أي ret) | `seePhone` (+ `clsLastNeedSeePhone = true` للـ tap الجاي) | retry CONTACTLESS، وبعد 3 decline |
-| `RESULT_TRY_AGAIN` (أي ret) | `tryAgain` | retry نفس الـ mode، وبعد 3 decline |
+| `RESULT_CLSS_SEE_PHONE` (أي ret) | `seePhone` (+ `clsLastNeedSeePhone = true` للـ tap التالي) | إعادة CONTACTLESS، والرفض بعد 3 |
+| `RESULT_TRY_AGAIN` (أي ret) | `tryAgain` | إعادة بالطريقة نفسها، والرفض بعد 3 |
 | OK + ONLINE_APPROVED | `onlineApproved` | APPROVED |
-| OK + OFFLINE_APPROVED | `offlineApproved` → online failed | ERROR |
+| OK + OFFLINE_APPROVED | `offlineApproved` ← online failed | ERROR |
 | OK + SIMPLE_FLOW_END | `simpleFlowEnd` | APPROVED |
-| OK + غير كده | `offlineDenied(CLSS_DECLINE)` | DECLINED |
-| TRY_ANOTHER_INTERFACE / `CLSS_USE_CONTACT` | `tryAnotherInterface` | retry CHIP |
-| ONLINE_DENIED / CARD_DENIED / OFFLINE_DENIED | زي الـ contact | DECLINED |
+| OK + غير ذلك | `offlineDenied(CLSS_DECLINE)` | DECLINED |
+| TRY_ANOTHER_INTERFACE / `CLSS_USE_CONTACT` | `tryAnotherInterface` | إعادة بـ CHIP |
+| ONLINE_DENIED / CARD_DENIED / OFFLINE_DENIED | كما في الـ contact | DECLINED |
 | ONLINE_FAILED | `onlineFailed` | ERROR |
 
-الـ See Phone والـ Try Again بيتشافوا قبل ما نبص على الـ result code، فلما PayPass أو Mir يرجّعوهم مع `EMV_OK` بيعملوا retry مش decline (كانت BACKLOG 0.6). `tryAgain` و `seePhone` الاتنين ليهم حد `MAX_TAP_RETRIES = 3` (كانت BACKLOG 0.14)، والعدّاد هو `engine.getRetryCount()` (بيعدّ أي retry، حتى الـ fallback).
-CDCVM (`CVM_CONSUMER_DEVICE`) مع OK = الموبايل عمل verify خلاص = CVM ناجح عادي. `RESULT_CLSS_SEE_PHONE` بس هو اللي معناه "اعمل verify على الموبايل وتاب تاني".
+يُفحص See Phone و Try Again قبل كود النتيجة، فحين يعيدهما PayPass أو Mir مع `EMV_OK` تكون النتيجة إعادة لا رفضًا (كانت BACKLOG 0.6). ولـ `tryAgain` و `seePhone` حد `MAX_TAP_RETRIES = 3` (كانت BACKLOG 0.14)، والعدّاد هو `retryCount()` في `AbstractEmvBehavior` (يعد كل إعادة، حتى الـ fallback).
+CDCVM (`CVM_CONSUMER_DEVICE`) مع OK يعني أن الهاتف أتم التحقق، فهو CVM ناجح عادي. أما `RESULT_CLSS_SEE_PHONE` وحدها فتعني "تحقق على الهاتف ثم أعد الـ tap".
 
-### 6.7 الـ callbacks بتاعة `IContactlessCallback`
+### 6.7 ردود `IContactlessCallback`
 
-| callback | مين بيناديه | بيعمل |
+| الـ callback | من يستدعيه | ما يفعله |
 |---|---|---|
-| `onReadCardOk` | الـ kernel بعد ما يقرا | atomic: `goToStep(READ_APPLICATION_DATA)`؛ `APPLICATION_SELECTED` |
-| `confirmCard` | `startContactlessTransProcess` (إحنا) | atomic: `goToStep(SET_TRANSACTION_DATA)`؛ 9F1C؛ `CARD_READ` |
-| `onWaitAppSelect` | shared مع الـ contact | askStep |
-| `onCardHolderPwd` | shared | askStep |
-| `startOnlineProcess` | shared | §5.5 |
-| `onRemoveCard` | PayPass / PayWave | log بس |
-| `onDetect2ndTap` | الـ completion | prompt + SEARCH_CARD |
-| `needSeePhone` | الـ kernel في الـ tap الجاي — Amex / Mir / Pure بس | بيرجّع `clsLastNeedSeePhone` ويصفّره |
+| `onReadCardOk` | الـ kernel بعد القراءة | atomic: `goToStep(READ_APPLICATION_DATA)`؛ `APPLICATION_SELECTED` |
+| `confirmCard` | `startContactlessTransProcess` (نحن) | atomic: `goToStep(SET_TRANSACTION_DATA)`؛ 9F1C؛ `CARD_READ` |
+| `onWaitAppSelect` | مشترك مع الـ contact | askStep |
+| `onCardHolderPwd` | مشترك | askStep |
+| `startOnlineProcess` | مشترك | §5.5 |
+| `onRemoveCard` | PayPass / PayWave | سطر في الـ log فقط |
+| `onDetect2ndTap` | مرحلة الإكمال | الرسالة + SEARCH_CARD (للعرض فقط) |
+| `needSeePhone` | الـ kernel في الـ tap التالي — Amex / Mir / Pure فقط | تعيد `clsLastNeedSeePhone` وتصفّره |
 
-⚠ `clsLastNeedSeePhone` بيفضل من transaction للي بعدها، وPayPass و PayWave مبيقروهوش (BACKLOG 2.1). ⚠ `finishContactlessStage` بيقفل الـ readers بس، مبيقفلش أي dialog.
+⚠ يبقى `clsLastNeedSeePhone` من عملية إلى التي تليها، ولا يقرؤه PayPass ولا PayWave (BACKLOG 2.1). ⚠ `finishContactlessStage` تغلق القارئات فقط، ولا تغلق أي نافذة.
 
-> الـ contact والـ contactless **مفصولين عن قصد** (runners منفصلة، state منفصلة: `transResult` / `clsTransResult`). الحاجات الـ shared هي الـ callbacks اللي الـ interfaces الاتنين بيطلبوها بنفس الـ signature بس.
+> الـ contact والـ contactless **منفصلان عمدًا** (runners منفصلة، وحالة منفصلة: `transResult` / `clsTransResult`). المشترك بينهما هو الـ callbacks التي تطلبها الواجهتان بالتوقيع نفسه فقط.
 
 ---
 
-## 7. EMV param apply flow
+## 7. الـ EMV params
 
 **ما هي الـ params؟** هي القواعد التي يحتاجها الـ kernel ليتخذ قراره في كل عملية: البطاقات المقبولة (الـ AIDs)، والمفاتيح التي يُتحقَّق بها من أن البطاقة أصلية (الـ CAPKs)، والحدود المالية (مثل المبلغ الذي يُطلب بعده PIN في الدفع اللاتلامسي).
 
@@ -1084,146 +1109,147 @@ flowchart LR
 
 شاشة EMV Params: **DB** = القيم المحفوظة؛ **Cached** = القيم التي سيستلمها الـ kernel الآن (إن كانت فارغة فلم تتم أي عملية منذ آخر تغيير، وليس هناك خطأ).
 
-التفاصيل التقنية تحت (للمراجعة):
+التفاصيل التقنية (للمراجعة):
 
-الـ params متخزنة في مكانين بس، والـ kernel مش واحد منهم:
-- **GreenDAO** هو الـ source of truth. بيتملي من الـ XML بتاع الـ host، ومن الـ **JSON assets** مرة واحدة في أول تشغيل كـ seed احتياطي.
-- **الـ cache** (`EmvParamService.cache`، static، نسخة واحدة للـ process) نسخة من الـ DB في الـ memory، وهو المصدر الوحيد اللي بيتعمل منه **apply على الـ kernel** في كل attempt (`runPreTransProcess`). الـ kernel مبيخزنش params: بيستلمها من الـ cache في `preTransProcess` وبتتمسح مع `CoreInit` الجاي.
+تُحفظ الـ params في مكانين فقط، وليس الـ kernel أحدهما:
+- **GreenDAO** هو المصدر الأساسي. يُملأ من الـ XML القادم من الـ host، ومن **ملفات JSON** مرة واحدة عند أول تشغيل كبداية احتياطية.
+- **الـ cache** (`EmvParamService.cache`، static، نسخة واحدة لكل process) نسخة من قاعدة البيانات في الذاكرة، وهو المصدر الوحيد الذي تُحمَّل منه الـ params **إلى الـ kernel** في كل محاولة (`runPreTransProcess`). لا يخزّن الـ kernel شيئًا: يستلمها من الـ cache في `preTransProcess`، وتُمسح مع `CoreInit` التالي.
 
 ```text
 download zip → parse XML (EmvXmlParamParser / ClssXmlParamParser)
-            → GreenDAO (section واحد = DB transaction واحدة: delete + insert)
+            → GreenDAO (one section = one DB transaction: delete + insert)
             → EmvParamService.invalidate()          (cache = null)
-            → أول transaction: getCachedEmvParam() → loadFromDatabase() → toEmvProcessParam (الـ 13 param)
+            → first transaction: getCachedEmvParam() → loadFromDatabase() → toEmvProcessParam (الـ 13 param)
             → preTransProcess (contact / contactless)
 ```
 
-### 7.1 أول boot: الـ seed
+### 7.1 أول تشغيل: البيانات الأولية
 
 ```text
 EmvEnhanceApp.onCreate → TerminalFactory.create → new PaxTerminal → PosTerminal ctor → initializeVendor
-  → ensureEmvConfigInitialized: pref "emv_config_initialized"؟ آه → skip
-       لأ → thread "ConfigInit": new ConfigInit().init() ثم pref = true (بعد ما الـ seed يخلص)
+  → ensureEmvConfigInitialized: pref "emv_config_initialized"? yes → skip
+       no → thread "ConfigInit": new ConfigInit().init(), then pref = true (once the seed is done)
          config.json → ConfigParamService
          acquirer.json / issuer.json / card_range.json → AcquirerIssuerService
          contactAid.json, capk.json, amex/paypass/paywave/dpas/eft/jcb/mir/pboc/pure/rupay.json
-           → EmvParamService.insertXxx → GreenDAO   (الأخطاء بتتكتب في الـ log بس)
+           → EmvParamService.insertXxx → GreenDAO   (errors go to the log only)
          EmvParamService.invalidate()
 ```
 
-⚠ الـ seed على thread لوحده، و sale ممكن تبدأ في النص (BACKLOG 3.1). ⚠ 76 من 88 CAPK في `capk.json` منتهية.
+⚠ تعمل البيانات الأولية على thread مستقل، وقد تبدأ عملية بيع في أثنائها (BACKLOG 3.1). ⚠ 76 من 88 CAPK في `capk.json` منتهية الصلاحية.
 
-### 7.2 الـ download من الـ host
+### 7.2 التحميل من الـ host
 
 ```text
 [main] EmvParamActivity "Download EMV params" → params.download()   (PaxEmvParams)
-[io]   refuseWhileBusy()   ← terminal.isBusy() → IllegalStateException، مفيش حاجة اتكتبت
+[io]   refuseWhileBusy()   ← terminal.isBusy() → IllegalStateException, nothing written
        OnboardingClient.ensureValidAccessToken(HostHeaders.build(sn), state)
        → EmvParamDownloadClient.download(buildAuthenticated(sn, token), "pax") → byte[]
-       refuseWhileBusy()   ← تاني، قبل الـ apply مباشرة
+       refuseWhileBusy()   ← again, right before the apply
        → EmvParamUpdater.applyFromZip(bytes)
            unzip: *.emv → emvXml ، *.clss → clssXml
-           saveForDiagnosis (debug بس) → Android/data/<pkg>/files/emv_param/
+           saveForDiagnosis (debug only) → Android/data/<pkg>/files/emv_param/
            applyEmvXml: EmvXmlParamParser.parse   (EMVPARAM/AIDLIST/AID، EMVPARAM/CAPKLIST/CAPK، REVOCATIONLIST)
-               AIDs موجودة؟  → replace("contact AID"): EmvAid deleteAll + insertEmvAid
-               CAPKs موجودة؟ → replace: Capk + CapkRevoke deleteAll + insertEmvCapk
-               (section مش موجود أو فاضي = يتساب زي ما هو، BACKLOG 3.4)
+               AIDs present?  → replace("contact AID"): EmvAid deleteAll + insertEmvAid
+               CAPKs present? → replace: Capk + CapkRevoke deleteAll + insertEmvCapk
+               (a section missing or empty = left as it is, BACKLOG 3.4)
            applyClssXml: ClssXmlParamParser.parse(xml, TerminalWideValues(contactAids))
                PayPass / PayWave / Amex(+DRL): replace
-               removeKernelsNotInPackage: الـ clss package هو الحقيقة كلها
-                   PayPass/PayWave/Amex مش في الـ package → اتمسحوا
-                   DPAS/EFT/JCB/Mir/PBOC/Pure/RuPay (مالهمش parser) → اتمسحوا
-           replace = DB transaction واحدة (callInTx): insert فشل → الـ delete بيرجع
+               removeKernelsNotInPackage: the clss package is the whole truth
+                   PayPass/PayWave/Amex not in the package → deleted
+                   DPAS/EFT/JCB/Mir/PBOC/Pure/RuPay (no parser) → deleted
+           replace = one DB transaction (callInTx): an insert fails → the delete is rolled back
            result.changedDatabase() → EmvParamService.invalidate()
-[main] result.summarize() على الشاشة
+[main] result.summarize() on the screen
 ```
 
-جوه الـ parser:
-- CAPK من غير RID / KeyID صح بيتساب ("CAPK without a valid RID/KeyID — skipped").
-- PayWave: `TERMINALCAPABILITIES` (مشتركة لكل الـ AIDs) → `terminalType` (9F35)، `securityCapability`، `terminalCapability` (9F33 كاملة 3 bytes).
-- PayWave floor limit = `ContactlessFloorLimit` (+Supported)، ولو مش موجود → `TerminalFloorLimit`.
-- **`OTHERCONFIGURATION` (TID/MCC/merchant) مش بيتاخد من الـ XML** — قرار.
-- Terminal-wide values (9F35، 9F40، security) لـ clss AIDs اللي ناقصاها: من الـ contact XML في نفس الـ package، وإلا من الـ contact AIDs اللي في الـ DB.
+داخل الـ parser:
+- يُتجاوز أي CAPK بلا RID / KeyID صحيحين ("CAPK without a valid RID/KeyID — skipped").
+- PayWave: `TERMINALCAPABILITIES` (مشتركة بين كل الـ AIDs) ← `terminalType` (9F35)، `securityCapability`، `terminalCapability` (9F33 كاملة، 3 bytes).
+- حد الـ floor في PayWave = `ContactlessFloorLimit` (+Supported)، وإن لم يوجد ← `TerminalFloorLimit`.
+- **لا يُؤخذ `OTHERCONFIGURATION` (TID / MCC / التاجر) من الـ XML**، وهذا قرار مقصود.
+- القيم العامة للجهاز (9F35، 9F40، الأمان) للـ clss AIDs التي ينقصها شيء منها: من الـ contact XML في الحزمة نفسها، وإلا من الـ contact AIDs الموجودة في قاعدة البيانات.
 
-### 7.3 التحميل للـ kernel (كل attempt)
+### 7.3 التحميل إلى الـ kernel (في كل محاولة)
 
 ```text
 prepare → onTerminalInitialization → prepareKernel(config)
   EmvDeviceImpl.setApduTrace(engine.apduTrace())
   EmvFlowRuntime.init / isReady   (DAL)
   initializeTerminalIfNeeded:
-      EmvParamService.isLoaded()؟ آه → ولا حاجة
-      لأ → kernel.params.getCachedEmvParam()   ← loadFromDatabase، والـ trace بيكتب الوقت
+      EmvParamService.isLoaded()? yes → nothing
+      no → kernel.params.getCachedEmvParam()   ← loadFromDatabase; the trace notes the time
   closeReaders(true)              (defensive)
   kernel.contact = new ContactProcess()
   runPreTransProcess(config, INSERT|INTERNAL_WAVE):
-      EmvTransParam: 9C من procCode، المبلغ، amount other = 0، TID (من الـ cache)، currency، date/time،
-                     trace no = 0، FLOWTYPE_COMPLETE، PCI mode، PIN lengths، 60 s timeout
-      EmvProcessParam: termConfig + CAPKs + transParam (+ contact AIDs | + الـ 10 clss params)
-      kernel.contact.preTransProcess      فشل → يشيل INSERT
-      kernel.contactless.preTransProcess  فشل → يشيل WAVE ("contactless disabled for this transaction")
-  kernel.contactReady / contactlessReady  → PaxCardSearch.search يختار الـ readers
+      EmvTransParam: 9C from procCode, the amount, amount other = 0, TID (from the cache), currency, date/time,
+                     trace no = 0, FLOWTYPE_COMPLETE, PCI mode, PIN lengths, 60 s timeout
+      EmvProcessParam: termConfig + CAPKs + transParam (+ contact AIDs | + the 10 clss params)
+      kernel.contact.preTransProcess      fails → INSERT dropped
+      kernel.contactless.preTransProcess  fails → WAVE dropped ("contactless disabled for this transaction")
+  kernel.contactReady / contactlessReady  → PaxCardSearch.search picks the readers
 ```
 
-`getCachedEmvParam()`: الـ `cache` static واحد (`synchronized`)؛ `null` → `loadFromDatabase()`: بيقرا كل الجداول، و `toEmvProcessParam(...)` بيحط الـ 13 param (AIDs، CAPK + revocations، termConfig، Amex، PayPass، PayWave، DPAS، EFT، JCB، Mir، PBOC، Pure، RuPay) — جدول فاضي = list فاضية، عمره ما `null`. أي كتابة في الـ DB (download، seed) → `invalidate()` → الـ transaction الجاية بتحمّل تاني. ليه مش كل مرة: التحميل من الـ DB تقيل.
+`getCachedEmvParam()`: الـ `cache` static واحد (`synchronized`)؛ إن كان `null` ← `loadFromDatabase()`: تقرأ كل الجداول، و `toEmvProcessParam(...)` تضبط الـ 13 param (AIDs، CAPK + revocations، termConfig، Amex، PayPass، PayWave، DPAS، EFT، JCB، Mir، PBOC، Pure، RuPay). الجدول الفارغ = قائمة فارغة، لا `null` أبدًا. أي كتابة في قاعدة البيانات (تحميل، بيانات أولية) ← `invalidate()` ← تعيد العملية التالية التحميل. ولا يُحمَّل في كل مرة لأن القراءة من قاعدة البيانات ثقيلة.
 
-> `5755adb` رجّع الـ `setXxxParam` اللي `03b1cde` شالها من `loadFromDatabase` (كل sale كانت بتقع بـ NPE في `ContactProcess.preTransProcess`). الحارس: `EmvParamServiceCacheTest`.
+> أعاد `5755adb` دوال `setXxxParam` التي حذفها `03b1cde` من `loadFromDatabase` (كانت كل عملية بيع تسقط بـ NPE في `ContactProcess.preTransProcess`). والحارس هو `EmvParamServiceCacheTest`.
 
-### 7.4 الـ params بتوصل للكارت إمتى
+### 7.4 متى تصل الـ params إلى البطاقة
 
-| param | بيدخل الـ kernel فين |
+| الـ param | أين يدخل الـ kernel |
 |---|---|
-| contact AIDs + أول AID كـ default | `ContactProcess.preTransProcess` (`EMVAddApp`، `setEmvAndMCKParam`) |
-| 9F33/9F40/9F35 بتاعة الـ AID المختار | `emvSetParam` → `resetParam` (بعد الـ selection، جوه `EMVReadAppData`) |
-| CAPK + revocation | contact: `cardAuthentication` → `addCapk`؛ clss: ODA stage → `addCapkRevList` |
-| clss AIDs + limits | `ClssEntryAddAid.addApp` + `Clss_PreTransProc_Entry` |
-| params الـ kernel نفسه (TTQ، 9F33، floor، CVM limit، DF81xx) | `setTransactionData` بتاع كل kernel (granular) أو جوه الـ bundle (atomic) |
-| TID لـ field 55 في clss | `confirmCard` → `setTlv(9F1C)` |
+| contact AIDs + أول AID كقيمة افتراضية | `ContactProcess.preTransProcess` (`EMVAddApp`، `setEmvAndMCKParam`) |
+| 9F33/9F40/9F35 الخاصة بالـ AID المختار | `emvSetParam` ← `resetParam` (بعد الاختيار، داخل `EMVReadAppData`) |
+| CAPK + revocation | contact: `cardAuthentication` ← `addCapk`؛ clss: مرحلة الـ ODA ← `addCapkRevList` |
+| clss AIDs + الحدود | `ClssEntryAddAid.addApp` + `Clss_PreTransProc_Entry` |
+| params الـ kernel نفسه (TTQ، 9F33، floor، CVM limit، DF81xx) | `setTransactionData` لكل kernel (granular) أو داخل الاستدعاء الواحد (atomic) |
+| الـ TID لـ field 55 في الـ clss | `confirmCard` ← `setTlv(9F1C)` |
 
-### 7.5 تشوف إيه اللي محمّل (شاشة EMV Params)
+### 7.5 معرفة ما هو محمّل (شاشة EMV Params)
 
-- زرارين فوق الـ categories (`MaterialButtonToggleGroup`):
-  - **Cached EMV params** (الـ default): `EmvParams.cachedRows(category)` → `PaxTerminal.kernelParams()` = `EmvParamService.loaded()` — **عمره ما بيحمّل**. فاضي → "The cache is empty — it loads at the first transaction"؛ category `null` في cache متحمّل → "… is not in the kernel's cache" (bug).
-  - **DB EMV params**: `EmvParams.rows(category)` → GreenDAO بس.
-  - دوسة على row → كل الـ fields من نفس المصدر (`describe`: hex، nested). مفيش رجوع من الـ cache للـ DB.
-- زرار "Downloaded XML" (debug): آخر `emv_param.emv` / `clss_param.clss` اتحمّلوا.
-- تغيير في الـ schema = `SCHEMA_VERSION` 1 من غير migrations → **uninstall**.
+- زرّان فوق الفئات (`MaterialButtonToggleGroup`):
+  - **Cached EMV params** (الافتراضي): `EmvParams.cachedRows(category)` ← `PaxTerminal.kernelParams()` = `EmvParamService.loaded()`، و**لا يحمّل أبدًا**. إن كان فارغًا: "The cache is empty — it loads at the first transaction"؛ وفئة قيمتها `null` في cache محمّل: "… is not in the kernel's cache" (خطأ برمجي).
+  - **DB EMV params**: `EmvParams.rows(category)` ← GreenDAO فقط.
+  - الضغط على صف يعرض كل الحقول من المصدر نفسه (`describe`: hex، وحقول متداخلة). ولا رجوع من الـ cache إلى قاعدة البيانات.
+- زر "Downloaded XML" (debug): آخر `emv_param.emv` / `clss_param.clss` تم تحميلهما.
+- أي تغيير في الـ schema = `SCHEMA_VERSION` 1 دون migrations ← يلزم **uninstall**.
 
 ---
 
 ## 8. الـ Threads
 
-| Thread | بيشغّل | ممنوع |
+| الـ Thread | ما يشغّله | الممنوع عليه |
 |---|---|---|
-| main | الـ UI، `acceptCard` (+ الـ busy CAS)، `transaction.cancel()`، الـ LiveData، الـ dialogs (`PaxAppSelectDialog`، `PaxPinPad`) | أي blocking (EMV، host، print، DB) |
-| transaction (`transactionScheduler` = `Schedulers.from(newSingleThreadExecutor)`) | `runTransaction` (TRANSACTION_STARTED بيحطه هنا): الـ EMV كله (init → search → EMV → host `blockingGet`، والـ retries) → `onEnd` (ack / reversal `blockingAwait`، 15 s) | interrupt؛ أكتر من transaction (`current`) |
-| print (single thread) | `printReceipt` بالترتيب | — |
-| `Schedulers.io()` | download الـ params، onboarding | — |
-| `ConfigInit` | seed أول boot | — |
-| thread لكل list في شاشة EMV Params | `rows` / `cachedRows` / `details` | — |
+| main | الواجهة، `acceptCard` (+ فحص الانشغال بـ CAS)، `transaction.cancel()`، الـ LiveData، النوافذ (`PaxAppSelectDialog`، `PaxPinPad`) | أي عمل blocking (EMV، host، طباعة، قاعدة بيانات) |
+| transaction (`transactionScheduler` = `Schedulers.from(newSingleThreadExecutor)`) | `runTransaction` (تضعه هنا TRANSACTION_STARTED): الـ EMV كله (التهيئة ← البحث ← الـ EMV ← الـ host بـ `blockingGet`، والإعادات) ← `onEnd` (التأكيد / الإلغاء بـ `blockingAwait`، 15 ثانية) | المقاطعة؛ وأكثر من عملية في وقت واحد (`current`) |
+| print (thread واحد) | `printReceipt` بالترتيب | — |
+| `Schedulers.io()` | تحميل الـ params، التسجيل (onboarding) | — |
+| `ConfigInit` | البيانات الأولية عند أول تشغيل | — |
+| thread لكل قائمة في شاشة EMV Params | `rows` / `cachedRows` / `details` | — |
 
-الـ kernel وكل الـ callbacks على الـ transaction thread بس. الـ transaction thread **بيستنى** الـ main: `PaxAppSelectDialog.selectBlocking()` والـ PIN pad. عشان كده الـ dialog لازم يتقفل في كل نهاية (`finishContactStage` بيعمل `activePinPad.dismiss()`).
-⚠ (BACKLOG 1.2): الـ cancel مبيقطعش الـ online PIN (60 ثانية)؛ `finishContactlessStage` مبيقفلش أي dialog. (الـ offline PIN pad القديم بيتقفل قبل الجديد: 1.3 اتصلحت.)
-
----
-
-## 9. لما تيجي تعدّل
-
-1. **phase جديدة أو ترتيب جديد**: ابدأ من ترتيب الـ native kernel (الـ SDK doc / الـ ClssXxxProcess)، مش من ترتيب الـ enum. الـ step اسمه = اللي الـ kernel بيعمله فعلاً.
-2. **شغل حقيقي جوه الـ `onXxx`**، والـ callback يرجّع الإجابة بس (`askStep`). متحطش شغل UI جوه الـ callback.
-3. **fail closed**: أي إجابة مش واصلة = `USER_CANCEL` / online failed / decline. مفيش offline approve. كل callback بيرد بـ `setCallBackResult`.
-4. **contact ≠ contactless**: runner جديد لكل واحد، حتى لو الكود شبه بعض.
-5. **متناديش `onXxx` مباشرة** — `goToStep`.
-6. **متعملش `observeOn` على `emvSteps` في الـ behavior** ولا تـ serialize الـ subject (الـ dispatch لازم synchronous).
-7. **الـ transaction state في الـ `Transaction` بس** — متعملش flag تاني (busy = `current`، النهاية/الـ cancel = `end`).
-8. **PAX SDK modules** (`emvbase`، `emvlib*`، `poslib`، `commonutils`): تتلمس بس لما الـ kernel نفسه يحتاج، وبنفس ترتيب الـ native calls.
-9. **schema** اتغيرت → DAO بإيدك (ordinal، DDL، bind، read) + uninstall على الجهاز.
-10. اختبر: `:core` (103)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`) — وبعدين الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
-11. **أسماء الـ packages والفولدرات بالصغير** (`emv` مش `EMV`). Windows مبيفرّقش بين الاتنين: لو فولدر قديم اسمه `EMV` فضل على الجهاز، الـ pull بيحط ملفات `emv` جواه والـ build بيقول `cannot find symbol` لكل class فيه (حصلت 28/10). الحل: اقفل Android Studio، امسح الفولدر والـ `core\build`، `git checkout -- core/src`، وبعدين Sync + Rebuild.
+يعمل الـ kernel وكل الـ callbacks على الـ transaction thread فقط. وهذا الـ thread **ينتظر** الـ main في `PaxAppSelectDialog.selectBlocking()` ولوحة الـ PIN؛ ولذلك يجب أن تُغلق النافذة في كل نهاية (`finishContactStage` تستدعي `activePinPad.dismiss()`).
+⚠ (BACKLOG 1.2): الإلغاء لا يقطع إدخال الـ online PIN (60 ثانية)؛ و `finishContactlessStage` لا تغلق أي نافذة. (لوحة الـ offline PIN القديمة تُغلق قبل الجديدة: أُصلحت 1.3.)
 
 ---
 
-# Appendix — package layout (merged from the old doc/README.md; the vendor part predates the vendor modules, see VENDOR.md)
+## 9. عند التعديل
+
+1. **مرحلة جديدة أو ترتيب جديد:** ابدأ من ترتيب الـ native kernel (وثائق الـ SDK / `ClssXxxProcess`)، لا من ترتيب الـ enum. اسم الخطوة = ما يفعله الـ kernel فعلًا.
+2. **العمل الفعلي داخل `onXxx`**، والـ callback يعيد الإجابة فقط (`askStep`). لا عمل واجهة داخل الـ callback.
+3. **الإغلاق الآمن:** أي إجابة لم تصل = `USER_CANCEL` / online failed / رفض. لا موافقة offline. وكل callback يرد بـ `setCallBackResult`.
+4. **contact ≠ contactless:** runner جديد لكل منهما، حتى إن تشابه الكود.
+5. **لا تستدعِ `onXxx` مباشرة**، بل `goToStep`.
+6. **لا `observeOn` على `emvSteps` داخل الـ behavior** ولا serialize للـ subject (التشغيل يجب أن يبقى متزامنًا).
+7. **حالة العملية في الـ `Transaction` فقط:** لا flag ثانٍ (الانشغال = `current`، النهاية / الإلغاء = `end`). وحالة إعادة المحاولة في `AbstractEmvBehavior` فقط (`requestRetry` / `retryCount()`).
+8. **خطوة عملية جديدة تقود العملية** (لا مجرد تقرير): أضف لها حالة في `dispatchTransactionStep` ودالة `onXxx` في الـ `Transaction` (§2.6).
+9. **وحدات الـ PAX SDK** (`emvbase`، `emvlib*`، `poslib`، `commonutils`): لا تُلمس إلا حين يحتاج الـ kernel نفسه، وبترتيب الاستدعاءات الـ native نفسه.
+10. **تغيير الـ schema:** الـ DAO يُعدَّل يدويًا (ordinal، DDL، bind، read) + uninstall على الجهاز.
+11. **الاختبار:** `:core` (102)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`)، `:vendor-pax` (8: `PaxCardDataTest`)، ثم الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
+12. **أسماء الـ packages والمجلدات بأحرف صغيرة** (`emv` لا `EMV`). لا يفرّق Windows بينهما: إن بقي مجلد قديم باسم `EMV` على الجهاز، يضع الـ pull ملفات `emv` داخله ويعطي الـ build الخطأ `cannot find symbol` لكل class فيه (حدث في 28/10). الحل: أغلق Android Studio، احذف المجلد و `core\build`، ثم `git checkout -- core/src`، ثم Sync + Rebuild.
+
+---
+
+# Appendix — package layout (merged from the old doc/README.md; vendors: VENDOR.md)
 
 ### Package layout
 
@@ -1246,9 +1272,9 @@ prepare → onTerminalInitialization → prepareKernel(config)
 | *(root)* | `HostApiConnection` (Retrofit), `HostApiClient`; `SaleCommunicationBehavior` — the `CommunicationBehavior` in use: encrypted envelope (`orchestration/exchange` + `sale` / `refund`), acknowledgement / reversal, see below |
 | `env` | `EnvironmentProvider` — holds `BuildConfig.baseUrl` from `:app`'s "environment" flavor dimension |
 | `model` | `ReverseRequest`, `AcknowledgementRequest`, `AcknowledgementResponse` (plain JSON, `orchestration/reverse` / `orchestration/acknowledgement`);  `GeneralRequest`/`GeneralResponse`/`DataModel` (the generic encrypted envelope, shared with `onboarding`) and `ExchangeRequest`/`ExchangeResponse`/`SaleRequest`/`SaleExtraData`/`SaleResponse` (the payloads that travel inside that envelope for `SaleCommunicationBehavior`) |
-| `tlv` | `BerTlv`, `IssuerResponseFields` — minimal BER-TLV reader plus the shared ARPC/issuer-script tag extraction both `CommunicationBehavior` impls use |
+| `tlv` | `BerTlv`, `IssuerResponseFields` — minimal BER-TLV reader plus the ARPC/issuer-script tag extraction `SaleCommunicationBehavior` uses |
 | `onboarding` | `OnboardingClient`, `OnboardingApiConnection`, `OnboardingState`, `ChallengeGenerator`, `OnboardingException` — the offline (pair terminal) and online (per-bank TMK provisioning) onboarding cycles; see `onboarding.model` for the six endpoints' request/response shapes |
-| `crypto` | `RsaPublicKeyEncryptor` — RSA-wraps a symmetric session key (online PIN key or transaction key) with the host's public key from onboarding, so the host can independently recover it; `AesEnvelopeCrypto` — AES-encrypts/decrypts the `encSerializedRequest`/`encSerializedResponse` body under that key. See `app/src/pax/.../PaxEmvBehavior#provisionOnlinePinKey` for the PIN-key use, `SaleCommunicationBehavior` for the transaction-key use |
+| `crypto` | `RsaPublicKeyEncryptor` — RSA-wraps a symmetric session key (online PIN key or transaction key) with the host's public key from onboarding, so the host can independently recover it; `AesEnvelopeCrypto` — AES-encrypts/decrypts the `encSerializedRequest`/`encSerializedResponse` body under that key. See `vendor-pax/.../PaxEmvBehavior#provisionOnlinePinKey` for the PIN-key use, `SaleCommunicationBehavior` for the transaction-key use |
 
 `HostApiConnection.emvFileDownload` + `EmvParamDownloadClient` fetch the EMV/CLSS parameter
 package as raw bytes only — see `:bizentity` below for where those bytes get unzipped, parsed,
@@ -1280,15 +1306,15 @@ is a separate, repeatable path:
 | `configservice.xml` | `EmvXmlParamParser` (contact: `emv_param.emv` → AID/CAPK/revocation, with the ICS/CARDSCHEME profile join `contactAid.json`'s per-AID fields need), `ClssXmlParamParser` (contactless: `clss_param.clss` → PayPass/PayWave/Amex — DPAS/EFT/JCB/MIR/PBOC/PURE/RUPAY aren't covered, see its javadoc) |
 | `configservice.impl.EmvParamUpdater` | Unzips a downloaded package, parses each file, and re-applies it through the same `EmvParamService` insert methods `ConfigInit` uses — clearing each affected table first so a repeat download replaces rather than accumulates |
 
-`app/src/pax/.../PaxEmvParamUpdateService` wires the two together (`EmvParamDownloadClient` for
-the bytes, `EmvParamUpdater` to apply them), returning `EmvParamUpdateResult` (which sections
-applied, with row counts, or the first error) rather than a bare boolean so a caller can show what
-actually happened.
+`vendor-pax/.../PaxEmvParams.download()` wires the two together (`EmvParamDownloadClient` for
+the bytes, `EmvParamUpdater` to apply them, refusing while the terminal is busy), returning
+`EmvParamUpdateResult` (which sections applied, with row counts, or the first error) rather than a
+bare boolean so a caller can show what actually happened.
 
-`app/src/pax/.../ui/EmvParamActivity` is that caller — the EMV-param category browser screen also
+`app/src/main/.../ui/EmvParamActivity` is that caller (through the core `EmvParams` contract) — the EMV-param category browser screen also
 has a "Download EMV params" button above the browser (shows `EmvParamUpdateResult.summarize()`).
 It has no credentials UI of its own: its `Account-Id`/bearer-token headers come from
-`OnboardingState#getAccountId`/`#getToken`, entered on the separate `app/src/pax/.../ui/OnboardingActivity`
+`OnboardingState#getAccountId`/`#getToken`, entered on the separate `app/src/main/.../ui/OnboardingActivity`
 screen — Account ID / Token fields plus a single "Start onboarding" button
 (runs `OnboardingClient#runOfflineCycle`, shows success or the failure message), saving the
 credentials on every successful run. Neither screen is wired into app startup — both are
@@ -1334,11 +1360,11 @@ update.
 
 `constant` · `param` (common/contact/clss) · `process` (contact/contactless/entity/enums) · `utils`
 
-### `:app` — vendors
+### Vendors are modules
 
 ```text
-vendor.TerminalFactory
-vendor.pax / vendor.fake / vendor.ingenico
+vendor-pax / vendor-fake / vendor-ingenico      each: com.emvenhance.vendor.TerminalFactory + its classes
+:app picks one through its "vendor" flavor (pax / ingenico / fake)
 ```
 
 ### Vendors
@@ -1350,10 +1376,10 @@ TerminalFactory.create(VENDOR)
   FAKE     → FakeTerminal → FakeEmvBehavior
 ```
 
-Gradle: `./gradlew :app:assembleDebug -PVENDOR=PAX`
+Gradle: `./gradlew :app:assemblePaxEnvtestDevDebug` (vendor × environment × production flavors)
 
 PAX card readers (chip / mag / contactless / PIN) need Neptune Lite permissions in
-the **pax** flavor manifest (`app/src/pax/AndroidManifest.xml`):
+the PAX vendor's manifest (`vendor-pax/src/main/AndroidManifest.xml`):
 
 ```xml
 <uses-permission android:name="com.pax.permission.ICC" />
@@ -1370,4 +1396,4 @@ these as signature permissions on some firmware.
 
 ### Card search events
 
-`CardSearchListener`: started · chip · contactless · mag · manual · removed · timeout · cancelled · error.
+`CardSearchListener` (reported by the vendor's `onSearchCard` through `AbstractEmvBehavior.cardSearchListener()`): started · chip · contactless · mag · manual · timeout · cancelled · error · retry (`onSearchRetry`, same search).
