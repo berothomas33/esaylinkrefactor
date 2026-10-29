@@ -157,6 +157,22 @@ public class PosTerminalHostFollowUpTest {
     }
 
     @Test(timeout = 10_000)
+    public void hostNotReachedAsTheCauseIsNotReversedEither() throws InterruptedException {
+        hostError = new RuntimeException(new HostNotReachedException("Exchange: no connection"));
+        AtomicReference<AuthResult> answer = new AtomicReference<>();
+        terminal = new TestTerminal(t -> {
+            answer.set(goOnline());
+            t.emvFinished(PosTerminal.errorEvent("Online Failed"));
+        });
+
+        terminal.runOne();
+
+        assertTrue(answer.get().isNotSent());
+        assertEquals("Exchange: no connection", answer.get().getMessage());
+        assertNoMoreFollowUps();
+    }
+
+    @Test(timeout = 10_000)
     public void aNotSentAnswerIsNotReversed() throws InterruptedException {
         answers.add(AuthResult.notSent("Cash In isn't supported online yet"));
         terminal = new TestTerminal(t -> {

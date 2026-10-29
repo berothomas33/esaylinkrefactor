@@ -131,18 +131,7 @@ public abstract class PosTerminal {
                     .timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
                     .blockingGet();
         } catch (Exception e) {
-            // No usable host answer: online failed, not a host decline. Reversed, unless the
-            // host side says the host could not have approved it.
-            HostNotReachedException notReached = e instanceof HostNotReachedException
-                    ? (HostNotReachedException) e
-                    : e.getCause() instanceof HostNotReachedException
-                            ? (HostNotReachedException) e.getCause() : null;
-            result = notReached != null
-                    ? AuthResult.notSent(notReached.getMessage() != null
-                            ? notReached.getMessage() : "Online failed: not sent to the host")
-                    : AuthResult.failed(e.getCause() instanceof TimeoutException
-                    ? "Online failed: the host didn't answer in time"
-                    : e.getMessage() != null ? e.getMessage() : "Online failed");
+            result = failureOf(e);
         }
         if (request != null) {
             request.answer = result;
@@ -151,6 +140,24 @@ public abstract class PosTerminal {
                 .put(TransactionStepEvent.KEY_RESULT, result.getMessage())
                 .build());
         return result;
+    }
+
+    /**
+     * No usable host answer: online failed, not a host decline. Not sent — never reversed — only
+     * when the host side says the host could not have approved it ({@link HostNotReachedException},
+     * as it is or as the cause); otherwise failed, and reversed at the end.
+     */
+    private static AuthResult failureOf(Exception e) {
+        Throwable notReached = e instanceof HostNotReachedException ? e : e.getCause();
+        if (notReached instanceof HostNotReachedException) {
+            String message = notReached.getMessage();
+            return AuthResult.notSent(message != null ? message
+                    : "Online failed: not sent to the host");
+        }
+        if (e.getCause() instanceof TimeoutException) {
+            return AuthResult.failed("Online failed: the host didn't answer in time");
+        }
+        return AuthResult.failed(e.getMessage() != null ? e.getMessage() : "Online failed");
     }
 
     /**
