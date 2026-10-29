@@ -70,7 +70,7 @@ class AuthorizeOnlineFieldFiftyFiveTest {
         fun goOnline(session: TestSession, card: CardPresence): AuthResult {
             val config = TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP)
             session.begin(config)
-            session.start(config, card)
+            session.attempt(config, card)
             return authorizeOnline()
         }
 

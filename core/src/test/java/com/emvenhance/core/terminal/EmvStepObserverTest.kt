@@ -79,6 +79,9 @@ class EmvStepObserverTest {
     fun stepsRunOnThePublishingThreadBeforeStartReturns() {
         val caller = Thread.currentThread()
         session.begin(CONFIG)
+        session.prepare(CONFIG)
+        vendor.ran.clear()
+        vendor.threads.clear()
 
         session.start(CONFIG, CardPresence.chip())
 
@@ -101,7 +104,7 @@ class EmvStepObserverTest {
     @Test
     fun disposeStopsTheObserver() {
         session.begin(CONFIG)
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
         vendor.ran.clear()
 
         vendor.dispose()
@@ -115,10 +118,10 @@ class EmvStepObserverTest {
         val seen = record(engine)
         session.begin(CONFIG)
 
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(
-            listOf(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION),
+            listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION),
             seen,
         )
     }
@@ -126,15 +129,15 @@ class EmvStepObserverTest {
     @Test
     fun subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
         session.begin(CONFIG)
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
         session.transaction.publish(TransactionStepEvent.of(TransactionStep.COMPLETED))
         val seen = record(engine) // e.g. a new MainViewModel
 
         session.begin(CONFIG)
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(
-            listOf(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION),
+            listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION),
             seen,
         )
     }
@@ -142,7 +145,7 @@ class EmvStepObserverTest {
     @Test
     fun cancelledStepsAreNotRun() {
         session.begin(CONFIG)
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
         vendor.ran.clear()
 
         session.cancel()
@@ -158,7 +161,7 @@ class EmvStepObserverTest {
         vendor.approveOnCompletion = true
         val seen = record(engine)
         session.begin(CONFIG)
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(listOf(TransactionStep.APPROVED, TransactionStep.COMPLETED), steps())
         assertEquals(EmvStep.TRANSACTION_COMPLETION, seen[seen.size - 1])
@@ -176,10 +179,10 @@ class EmvStepObserverTest {
         session.begin(CONFIG)
         vendor.failOn = EmvStep.READ_APPLICATION_DATA
 
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(listOf(TransactionStep.ERROR), steps())
-        assertEquals(listOf(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA), vendor.ran)
+        assertEquals(listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA), vendor.ran)
 
         vendor.failOn = null
         vendor.ran.clear()
@@ -198,10 +201,10 @@ class EmvStepObserverTest {
         session.begin(CONFIG)
         vendor.errorOn = EmvStep.APPLICATION_SELECTION // finishError, then carries on to READ
 
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
 
-        assertEquals(listOf(EmvStep.APPLICATION_SELECTION), vendor.ran)
-        assertEquals(listOf(EmvStep.APPLICATION_SELECTION), seen)
+        assertEquals(listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION), vendor.ran)
+        assertEquals(listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION), seen)
         assertEquals(listOf(TransactionStep.ERROR), steps())
         assertFalse(session.transaction.isRunning())
     }
@@ -212,13 +215,13 @@ class EmvStepObserverTest {
         session.begin(CONFIG)
         vendor.afterApplicationSelection = null // a step with no method to run
 
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
         vendor.go(EmvStep.TRANSACTION_COMPLETION) // code still unwinding
 
         assertEquals(listOf(TransactionStep.ERROR), steps())
         assertEquals("Unknown EMV step: null", session.steps()[0].message)
-        assertEquals(listOf(EmvStep.APPLICATION_SELECTION), vendor.ran)
-        assertEquals(listOf(EmvStep.APPLICATION_SELECTION), seen)
+        assertEquals(listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION), vendor.ran)
+        assertEquals(listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION), seen)
         assertFalse(session.transaction.isRunning())
     }
 
@@ -239,14 +242,15 @@ class EmvStepObserverTest {
     @Test
     fun aRetryInTheSameTransactionKeepsObserving() {
         session.begin(CONFIG)
-        session.start(CONFIG, CardPresence.chip())
+        session.attempt(CONFIG, CardPresence.chip())
         vendor.ran.clear()
 
         engine.requestRetry(CONFIG, "Card not read — tap again") // no ERROR, no COMPLETED
-        session.start(engine.consumePendingRetry()!!, CardPresence.chip()) // as PosTerminal does
+        // The retry is the next attempt, as PosTerminal runs it: prepare, then start.
+        session.attempt(engine.consumePendingRetry()!!, CardPresence.chip())
 
         assertEquals(
-            listOf(EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION),
+            listOf(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION, EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION),
             vendor.ran,
         )
         assertTrue(steps().isEmpty())

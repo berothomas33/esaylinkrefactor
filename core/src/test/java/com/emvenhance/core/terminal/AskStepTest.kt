@@ -47,7 +47,7 @@ class AskStepTest {
         val seen = engine.emvSteps.recordIn(scope)
         vendor.selectionAnswer = 1
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(1, vendor.callbackGot)
         assertEquals(Thread.currentThread(), vendor.answeredOn)
@@ -58,7 +58,7 @@ class AskStepTest {
     fun noAnswerGivesTheFailClosedValue() {
         vendor.selectionAnswer = null
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
     }
@@ -68,7 +68,7 @@ class AskStepTest {
         assumeTrue("trace records in debug builds only", engine.apduTrace().isEnabled())
         vendor.selectionAnswer = null
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertTrue(engine.apduTrace().text().contains("no answer for"))
     }
@@ -78,7 +78,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.cancelBeforeAsking = true
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
         assertEquals(0, vendor.selectionRuns)
@@ -89,7 +89,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.cancelWhileChoosing = true
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(1, vendor.selectionRuns)
         assertEquals(USER_CANCEL, vendor.callbackGot)
@@ -100,7 +100,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.throwInSelection = true
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
     }
@@ -110,7 +110,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.askFinalInsideSelection = true
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(7, vendor.innerGot)
         assertEquals(1, vendor.callbackGot)
@@ -121,7 +121,7 @@ class AskStepTest {
         vendor.selectionAnswer = 1
         vendor.goWithoutAsking = true
 
-        vendor.session.start(CONFIG, CardPresence.chip())
+        vendor.session.attempt(CONFIG, CardPresence.chip())
 
         assertEquals(USER_CANCEL, vendor.callbackGot)
     }

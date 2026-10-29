@@ -44,6 +44,12 @@ internal class TestSession(
         behavior.start(config, card, transaction)
     }
 
+    /** One attempt as `PosTerminal` runs it: [prepare], then [start]. */
+    fun attempt(config: TransactionConfig, card: CardPresence) {
+        prepare(config)
+        start(config, card)
+    }
+
     /** As the screen's Cancel: [PosTerminal.Transaction.cancel]. */
     fun cancel() {
         transaction.cancel()

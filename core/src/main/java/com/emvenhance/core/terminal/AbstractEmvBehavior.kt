@@ -83,7 +83,8 @@ abstract class AbstractEmvBehavior : EmvBehavior {
 
     override fun start(config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) {
         this.transaction = transaction
-        initEmvObserver(engine)
+        // No initEmvObserver here: prepare, which always runs first in the same attempt,
+        // registered the handler; nothing in the app collects emvSteps during a card search.
         this.activeConfig = config
         this.activeCard = card
 
@@ -97,7 +98,8 @@ abstract class AbstractEmvBehavior : EmvBehavior {
 
     /**
      * Makes this behavior the engine's step handler, replacing any earlier registration. Called
-     * at the start of every [prepare] and [start].
+     * at the start of every [prepare]. [start] doesn't repeat it: `PosTerminal` always runs
+     * [prepare] first in the same attempt (a retry is a new attempt).
      *
      * The engine always runs the handler after the flow has the step, so every observer sees a
      * step before its method publishes the next one — the UI ends on the last step, not the
