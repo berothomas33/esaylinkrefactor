@@ -171,9 +171,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
-        if (tx.onlineRequested) {
-            tx.lastAuth = authorizeOnline();
-        }
+        tx.lastAuth = authorizeOnline();
     }
 
     @Override
@@ -1325,12 +1323,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public OnlineResultWrapper startOnlineProcess() {
         tx.lastAuth = null;
-        tx.onlineRequested = true;
-        try {
-            goToStep(EmvStep.START_ONLINE_PROCESS, null);
-        } finally {
-            tx.onlineRequested = false;
-        }
+        goToStep(EmvStep.START_ONLINE_PROCESS, null);
         if (tx.lastAuth == null) {
             engine().apduTrace().note("EMV", "online step did not run — online failed");
         }

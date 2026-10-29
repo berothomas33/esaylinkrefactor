@@ -65,8 +65,6 @@ final class PaxKernelSession {
     @Nullable
     String lastIccData;
 
-    boolean onlineRequested;
-
     boolean scriptsProcessed;
 
     static final class PinRequest {
