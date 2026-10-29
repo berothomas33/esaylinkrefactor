@@ -210,7 +210,6 @@ public abstract class PosTerminal {
         private volatile TransactionStepEvent end;
         private final ReplaySubject<TransactionStepEvent> steps = ReplaySubject.create();
         private final List<OnlineRequest> online = new ArrayList<>();
-        private boolean approvedReported;
 
         private Transaction(TransactionConfig config) {
             this.config = config;
@@ -243,6 +242,10 @@ public abstract class PosTerminal {
         }
 
         void publish(TransactionStepEvent event) {
+            if (isOutcome(event.getStep())) {
+                dispatchTransactionStep(event);
+                return;
+            }
             synchronized (steps) {
                 if (end != null) {
                     EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
@@ -261,6 +264,10 @@ public abstract class PosTerminal {
 
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
+            if (isOutcome(step)) {
+                publish(outcome);
+                return;
+            }
             synchronized (steps) {
                 if (end != null) {
                     EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
@@ -268,11 +275,7 @@ public abstract class PosTerminal {
                             + end.getStep() + "): " + step);
                     return;
                 }
-                if (step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
-                    apduTrace().note("EMV", "EMV finished: " + step + " — the transaction completes");
-                    deliver(outcome);
-                    end = TransactionStepEvent.of(TransactionStep.COMPLETED);
-                } else if (step == TransactionStep.ERROR) {
+                if (step == TransactionStep.ERROR) {
                     apduTrace().note("EMV", "EMV finished with an error — the transaction ends");
                     end = outcome;
                 } else {
@@ -283,10 +286,20 @@ public abstract class PosTerminal {
             }
         }
 
-        private void deliver(TransactionStepEvent event) {
-            if (event.getStep() == TransactionStep.APPROVED) {
-                approvedReported = true;
+        private boolean isOutcome(TransactionStep step) {
+            return step == TransactionStep.APPROVED || step == TransactionStep.DECLINED;
+        }
+
+        private boolean delivered(TransactionStep step) {
+            for (TransactionStepEvent e : steps.getValues(new TransactionStepEvent[0])) {
+                if (e.getStep() == step) {
+                    return true;
+                }
             }
+            return false;
+        }
+
+        private void deliver(TransactionStepEvent event) {
             EmvLog.d("TransactionStep: " + event);
             traceTransactionStep(event);
             steps.onNext(event);
@@ -310,6 +323,15 @@ public abstract class PosTerminal {
                 case REVERSING:
                     onReversing(event);
                     break;
+                case APPROVED:
+                case DECLINED:
+                    onOutcome(event);
+                    break;
+                case COMPLETED:
+                case ERROR:
+                case CANCELLED:
+                    onEnd();
+                    break;
                 default:
                     break;
             }
@@ -330,7 +352,22 @@ public abstract class PosTerminal {
                 t.printStackTrace();
                 publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
-                onEnd();
+                dispatchTransactionStep(decideEnd());
+            }
+        }
+
+        private void onOutcome(TransactionStepEvent outcome) {
+            synchronized (steps) {
+                if (end != null) {
+                    EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
+                    apduTrace().note("EMV", "EMV outcome dropped, the transaction has ended ("
+                            + end.getStep() + "): " + outcome.getStep());
+                    return;
+                }
+                apduTrace().note("EMV", "EMV finished: " + outcome.getStep()
+                        + " — the transaction completes");
+                deliver(outcome);
+                end = TransactionStepEvent.of(TransactionStep.COMPLETED);
             }
         }
 
@@ -338,12 +375,18 @@ public abstract class PosTerminal {
             behavior.cancelCardSearch();
         }
 
-        private void onEnd() {
-            List<TransactionStepEvent> followUps;
+        private TransactionStepEvent decideEnd() {
             synchronized (steps) {
                 if (end == null) {
                     end = errorEvent("Transaction ended without an outcome");
                 }
+                return end;
+            }
+        }
+
+        private void onEnd() {
+            List<TransactionStepEvent> followUps;
+            synchronized (steps) {
                 followUps = closeOnline();
             }
             for (TransactionStepEvent followUp : followUps) {
@@ -404,8 +447,8 @@ public abstract class PosTerminal {
 
         private List<TransactionStepEvent> closeOnline() {
             List<TransactionStepEvent> followUps = new ArrayList<>();
-            boolean completedApproved = approvedReported
-                    && end.getStep() == TransactionStep.COMPLETED;
+            boolean completedApproved = end.getStep() == TransactionStep.COMPLETED
+                    && delivered(TransactionStep.APPROVED);
             for (int i = 0; i < online.size(); i++) {
                 OnlineRequest request = online.get(i);
                 AuthResult answer = request.answer;
