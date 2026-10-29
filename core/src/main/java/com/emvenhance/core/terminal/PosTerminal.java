@@ -290,18 +290,6 @@ public abstract class PosTerminal {
         apduTrace().transactionEvent(sb.toString());
     }
 
-    /**
-     * Debug switch for the {@link #apduTrace()}: whether to record every APDU command/response
-     * and step. Always off in a release build (the trace holds card data).
-     */
-    public final void setApduLoggingEnabled(boolean enabled) {
-        apduTrace().setEnabled(enabled);
-    }
-
-    public final boolean isApduLoggingEnabled() {
-        return apduTrace().isEnabled();
-    }
-
     // ─── Terminal setup (a vendor overrides what it has) ─────────────────
 
     /** This terminal's serial number, which the host identifies it by; empty if the vendor has none. */

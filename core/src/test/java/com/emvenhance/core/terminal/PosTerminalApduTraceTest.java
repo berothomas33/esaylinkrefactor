@@ -2,8 +2,6 @@ package com.emvenhance.core.terminal;
 
 import com.emvenhance.core.transaction.TransactionStepEvent;
 import io.reactivex.rxjava3.subjects.PublishSubject;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
@@ -26,26 +24,6 @@ public class PosTerminalApduTraceTest {
         PosTerminal terminal = new TestTerminal();
 
         assertSame(terminal.behavior.engine().apduTrace(), terminal.apduTrace());
-    }
-
-    @Test
-    public void loggingSwitchControlsTheEnginesTrace() {
-        PosTerminal terminal = new TestTerminal();
-        ApduTrace trace = terminal.apduTrace();
-        assumeTrue("trace records in debug builds only", trace.isEnabled());
-        assertTrue(terminal.isApduLoggingEnabled());
-
-        terminal.setApduLoggingEnabled(false);
-        terminal.behavior.engine().begin();
-        trace.note("ICC", "not recorded");
-
-        assertFalse(terminal.isApduLoggingEnabled());
-        assertFalse(trace.isEnabled());
-        assertEquals("", trace.text());
-
-        terminal.setApduLoggingEnabled(true);
-        trace.note("ICC", "recorded");
-        assertTrue(trace.text().contains("recorded"));
     }
 
     @Test

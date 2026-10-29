@@ -106,13 +106,16 @@ public class MainViewModel extends ViewModel {
         terminal.printReceipt(lines);
     }
 
-    /** Switches APDU trace recording on/off — see {@link PosTerminal#setApduLoggingEnabled}. */
+    /**
+     * Switches APDU trace recording on/off ({@link ApduTrace#setEnabled}). Always off in a
+     * release build: the trace holds card data.
+     */
     public void setApduLoggingEnabled(boolean enabled) {
-        terminal.setApduLoggingEnabled(enabled);
+        terminal.apduTrace().setEnabled(enabled);
     }
 
     public boolean isApduLoggingEnabled() {
-        return terminal.isApduLoggingEnabled();
+        return terminal.apduTrace().isEnabled();
     }
 
     @Override
