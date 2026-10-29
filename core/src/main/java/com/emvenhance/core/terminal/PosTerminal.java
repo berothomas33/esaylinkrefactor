@@ -306,9 +306,6 @@ public abstract class PosTerminal {
                 case REVERSING:
                     onReversing(event);
                     break;
-                case ONLINE_REQUIRED:
-                    onOnlineRequired(event);
-                    break;
                 case APPROVED:
                 case DECLINED:
                     onOutcome(event);
@@ -355,9 +352,6 @@ public abstract class PosTerminal {
                 deliver(outcome);
                 end = TransactionStepEvent.of(TransactionStep.COMPLETED);
             }
-        }
-
-        private void onOnlineRequired(TransactionStepEvent onlineRequired) {
         }
 
         private void onCancelling() {
