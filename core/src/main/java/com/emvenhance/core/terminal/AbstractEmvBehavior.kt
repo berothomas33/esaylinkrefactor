@@ -45,8 +45,11 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     /** The terminal's engine, from [attach]; the one place it is kept. */
     private var attached: EmvEngine? = null
 
-    /** The terminal's engine ([attach]); a behavior is always attached before any step runs. */
-    protected val engine: EmvEngine
+    /**
+     * The terminal's engine ([attach]); a behavior is always attached before any step runs.
+     * Private: a vendor reads [engine], and nothing but [attach] can set it.
+     */
+    private val engine: EmvEngine
         get() = attached ?: throw IllegalStateException("EmvBehavior used before attach()")
 
     @JvmField

@@ -130,7 +130,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
 
     override fun onTerminalInitialization(config: TransactionConfig) {
         // The kernel calls EmvDeviceImpl directly, so hand it this transaction's APDU trace.
-        EmvDeviceImpl.getInstance().setApduTrace(engine.apduTrace())
+        EmvDeviceImpl.getInstance().setApduTrace(engine().apduTrace())
         if (!prepareKernel(config)) {
             tx.initOk = false
             finishError("Terminal initialization failed")
@@ -444,7 +444,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
      */
     private fun reselectApplication(): Int {
         LogUtils.d(TAG, "CLSS_RESELECT_APP — selecting the next candidate")
-        engine.apduTrace().note("EMV", "kernel asked to reselect — next application")
+        engine().apduTrace().note("EMV", "kernel asked to reselect — next application")
         val result = kernel.contactless.reselectApplication()
         tx.clsTransResult = result
         val ret = result.resultCode
@@ -700,7 +700,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
                 // No PIN (cancelled, timed out, PIN pad error): an error, not a card decline. The
                 // end is this ERROR; the decline recorded below (so nothing goes online) is
                 // dropped by the end guard.
-                engine.apduTrace().note("PICC", "online PIN not entered ($ret)")
+                engine().apduTrace().note("PICC", "online PIN not entered ($ret)")
                 finishError("Online PIN not entered — cancelled or timed out")
                 tx.clsTransResult = TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult)
                 return ret
@@ -769,7 +769,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         tx.scriptsProcessed = true
         goToStep(EmvStep.SCRIPT_PROCESSING, null)
         if (tx.pendingScripts != null) {
-            engine.apduTrace().note("EMV", "script processing step did not run — running the scripts anyway")
+            engine().apduTrace().note("EMV", "script processing step did not run — running the scripts anyway")
             processIssuerScripts()
         }
     }
@@ -801,7 +801,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     private fun noteOnlineWithoutArqc(cardResult: TransResultEnum?) {
         val why = if (isRefund()) "refund" else "kernel approved offline"
         LogUtils.i(TAG, "Going online without an ARQC ($why, card result $cardResult)")
-        engine.apduTrace().note(
+        engine().apduTrace().note(
             "EMV", "$why — card result $cardResult, sending to the host (online-only terminal)",
         )
     }
@@ -824,7 +824,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         // The cap is tryAgain()'s: it declines once MAX_TAP_RETRIES taps were tried, whichever
         // way the try-again was reported (here, or by the kernel itself: JCB, Mir, RuPay).
         LogUtils.w(TAG, "Contactless communication error ret=$ret — asking to tap again")
-        engine.apduTrace().note("PICC", "card communication error $ret — tap again")
+        engine().apduTrace().note("PICC", "card communication error $ret — tap again")
         tx.clsTransResult = TransResult(ret, TransResultEnum.RESULT_TRY_AGAIN, CvmResultEnum.CVM_NO_CVM)
     }
 
@@ -848,7 +848,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
 
     private fun noteResultNotReported() {
         LogUtils.i(TAG, "Cancelled — the card's result is not reported")
-        engine.apduTrace().note("EMV", "cancelled — the card's result is not reported")
+        engine().apduTrace().note("EMV", "cancelled — the card's result is not reported")
     }
 
     /** Advances to `next`; see [advanceContactStage] for why a step that didn't run still cleans up. */
@@ -1373,13 +1373,13 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             kernel.contact = ContactProcess()
             val setUpStart = SystemClock.elapsedRealtime()
             val adjusted = runPreTransProcess(config, requested.toByte())
-            engine.apduTrace().note(
+            engine().apduTrace().note(
                 "EMV", "kernel set-up for this transaction: " + (SystemClock.elapsedRealtime() - setUpStart) + " ms",
             )
             kernel.contactReady = SearchMode.isSupportIcc(adjusted)
             kernel.contactlessReady = SearchMode.isWave(adjusted)
             if (config.allowsContactless() && !kernel.contactlessReady) {
-                engine.apduTrace().note("PICC", "contactless disabled for this transaction: pre-processing failed")
+                engine().apduTrace().note("PICC", "contactless disabled for this transaction: pre-processing failed")
             }
             if (adjusted.toInt() == 0) {
                 LogUtils.e(TAG, "preTransProcess disabled every search mode")
@@ -1407,7 +1407,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         }
         val start = SystemClock.elapsedRealtime()
         kernel.params.cachedEmvParam
-        engine.apduTrace().note(
+        engine().apduTrace().note(
             "EMV",
             "terminal initialization (EMV parameters loaded from the database): " +
                 (SystemClock.elapsedRealtime() - start) + " ms",
@@ -1766,7 +1766,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             tx.onlineRequested = false
         }
         if (tx.lastAuth == null) {
-            engine.apduTrace().note("EMV", "online step did not run — online failed")
+            engine().apduTrace().note("EMV", "online step did not run — online failed")
         }
         return toOnlineResultWrapper(tx.lastAuth)
     }
@@ -1791,7 +1791,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         tx.issuerResponse = online
         goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())
         if (tx.issuerResponse != null) {
-            engine.apduTrace().note("EMV", "issuer authentication step did not run — completing with the card anyway")
+            engine().apduTrace().note("EMV", "issuer authentication step did not run — completing with the card anyway")
             completeIssuerAuthentication()
         }
     }
@@ -1940,7 +1940,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
         // Visa issuer update needs the same card tapped a second time — show the card UI again
         // with the reason, like every other re-presentment (KEY_RETRY_PROMPT).
         val prompt = "Tap the same card again to finish"
-        engine.apduTrace().note("PICC", "2nd tap requested — $prompt")
+        engine().apduTrace().note("PICC", "2nd tap requested — $prompt")
         publish(
             TransactionStepEvent.builder(TransactionStep.WAITING_FOR_CARD).message(prompt)
                 .put(TransactionStepEvent.KEY_RETRY_PROMPT, prompt).build(),
@@ -1968,7 +1968,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     @Suppress("UNUSED_PARAMETER")
     fun offlineApproved(needSignature: Boolean) {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed")
-        engine.apduTrace().note("EMV", "offline approval without the host — online failed")
+        engine().apduTrace().note("EMV", "offline approval without the host — online failed")
         finishWithOutcome(TransactionStep.ERROR, "Online Failed", "Online Failed: not sent to the host")
     }
 
@@ -2022,13 +2022,13 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
      */
     // [CONTACTLESS — only checkContactlessResult() calls this; no CDCVM concept in contact]
     fun seePhone() {
-        val retries = engine.getRetryCount()
+        val retries = engine().getRetryCount()
         if (retries >= MAX_TAP_RETRIES) {
-            engine.apduTrace().note("PICC", "SEE PHONE again after $retries retries — declining")
+            engine().apduTrace().note("PICC", "SEE PHONE again after $retries retries — declining")
             completeDeclined("See Phone: verification on the phone not completed")
             return
         }
-        engine.apduTrace().note("PICC", "SEE PHONE — verify on the phone, then tap again")
+        engine().apduTrace().note("PICC", "SEE PHONE — verify on the phone, then tap again")
         retryWithMode(
             EntryMethod.CONTACTLESS, "See Phone: waiting for the re-tap",
             "See phone — verify on your phone, then tap again",
@@ -2044,11 +2044,11 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
     // [CONTACTLESS — only checkContactlessResult() calls this]
     fun tryAgain() {
-        val retries = engine.getRetryCount()
+        val retries = engine().getRetryCount()
         if (retries >= MAX_TAP_RETRIES) {
             // A card that always fails ends in a decline, not an endless "tap again".
             LogUtils.w(TAG, "Try Again after $retries retries — declining")
-            engine.apduTrace().note("PICC", "card not read after $retries retries — declining")
+            engine().apduTrace().note("PICC", "card not read after $retries retries — declining")
             completeDeclined("Card not read — tried ${retries + 1} times")
             return
         }
@@ -2073,7 +2073,7 @@ class PaxEmvBehavior(private val kernel: PaxKernel) :
             return
         }
         LogUtils.i(TAG, reason)
-        engine.requestRetry(config.withMode(mode), prompt)
+        engine().requestRetry(config.withMode(mode), prompt)
     }
 
     // [SHARED — both checkContactResult() and checkContactlessResult() call this]
