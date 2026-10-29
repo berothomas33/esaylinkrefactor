@@ -21,6 +21,7 @@ public final class TransactionStepEvent {
     public static final String KEY_IAC_DENIAL       = "iacDenial";
     public static final String KEY_ICC_DATA         = "iccData";
     public static final String KEY_RETRY_PROMPT     = "retryPrompt";
+    public static final String KEY_REQUEST_ID       = "asyncRequestId";
 
     private final TransactionStep step;
     private final String message;

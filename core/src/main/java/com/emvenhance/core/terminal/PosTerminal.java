@@ -304,6 +304,12 @@ public abstract class PosTerminal {
                 case CANCELLING:
                     onCancelling();
                     break;
+                case ACKNOWLEDGING:
+                    onAcknowledging(event);
+                    break;
+                case REVERSING:
+                    onReversing(event);
+                    break;
                 default:
                     break;
             }
@@ -333,15 +339,18 @@ public abstract class PosTerminal {
         }
 
         private void onEnd() {
-            List<Runnable> followUps;
+            List<TransactionStepEvent> followUps;
             synchronized (steps) {
                 if (end == null) {
                     end = errorEvent("Transaction ended without an outcome");
                 }
                 followUps = closeOnline();
             }
-            for (Runnable followUp : followUps) {
-                followUp.run();
+            for (TransactionStepEvent followUp : followUps) {
+                synchronized (steps) {
+                    deliver(followUp);
+                }
+                dispatchTransactionStep(followUp);
             }
             synchronized (steps) {
                 current.compareAndSet(this, null);
@@ -349,11 +358,42 @@ public abstract class PosTerminal {
             }
         }
 
-        private void followUp(TransactionStep step, String what, Completable call) {
-            synchronized (steps) {
-                deliver(TransactionStepEvent.of(step, what));
+        private void onAcknowledging(TransactionStepEvent acknowledging) {
+            TransactionConfig sent = sentRequest(acknowledging);
+            if (sent == null) {
+                return;
             }
-            sendFollowUp(what, call);
+            sendFollowUp(acknowledging.getMessage(),
+                    Completable.defer(() -> communication.acknowledge(sent)));
+        }
+
+        private void onReversing(TransactionStepEvent reversing) {
+            TransactionConfig sent = sentRequest(reversing);
+            if (sent == null) {
+                return;
+            }
+            sendFollowUp(reversing.getMessage(),
+                    Completable.defer(() -> communication.reverse(sent)));
+        }
+
+        @Nullable
+        private TransactionConfig sentRequest(TransactionStepEvent followUp) {
+            String id = followUp.get(TransactionStepEvent.KEY_REQUEST_ID);
+            for (OnlineRequest request : online) {
+                if (request.sent.getAsyncRequestId().equals(id)) {
+                    return request.sent;
+                }
+            }
+            apduTrace().note("HOST", followUp.getStep() + " not sent: no request " + id);
+            return null;
+        }
+
+        private static TransactionStepEvent followUpStep(TransactionStep step, String what,
+                String id) {
+            return TransactionStepEvent.builder(step)
+                    .message(what + " " + id)
+                    .put(TransactionStepEvent.KEY_REQUEST_ID, id)
+                    .build();
         }
 
         OnlineRequest wentOnline(TransactionConfig sent) {
@@ -362,8 +402,8 @@ public abstract class PosTerminal {
             return request;
         }
 
-        private List<Runnable> closeOnline() {
-            List<Runnable> followUps = new ArrayList<>();
+        private List<TransactionStepEvent> closeOnline() {
+            List<TransactionStepEvent> followUps = new ArrayList<>();
             boolean completedApproved = approvedReported
                     && end.getStep() == TransactionStep.COMPLETED;
             for (int i = 0; i < online.size(); i++) {
@@ -373,9 +413,8 @@ public abstract class PosTerminal {
                 String id = request.sent.getAsyncRequestId();
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    followUps.add(() -> followUp(TransactionStep.ACKNOWLEDGING,
-                            "Acknowledgement " + id,
-                            Completable.defer(() -> communication.acknowledge(request.sent))));
+                    followUps.add(
+                            followUpStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id));
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
                             + ": the host could not have approved it — " + answer.getMessage());
@@ -385,8 +424,7 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    followUps.add(() -> followUp(TransactionStep.REVERSING, "Reversal " + id,
-                            Completable.defer(() -> communication.reverse(request.sent))));
+                    followUps.add(followUpStep(TransactionStep.REVERSING, "Reversal", id));
                 }
             }
             return followUps;
