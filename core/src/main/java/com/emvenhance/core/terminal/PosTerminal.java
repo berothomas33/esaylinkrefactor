@@ -171,14 +171,6 @@ public abstract class PosTerminal {
         apduTrace().transactionEvent(sb.toString());
     }
 
-    public final void setApduLoggingEnabled(boolean enabled) {
-        apduTrace().setEnabled(enabled);
-    }
-
-    public final boolean isApduLoggingEnabled() {
-        return apduTrace().isEnabled();
-    }
-
     public String serialNumber() {
         return "";
     }

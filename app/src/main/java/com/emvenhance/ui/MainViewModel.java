@@ -82,11 +82,11 @@ public class MainViewModel extends ViewModel {
     }
 
     public void setApduLoggingEnabled(boolean enabled) {
-        terminal.setApduLoggingEnabled(enabled);
+        terminal.apduTrace().setEnabled(enabled);
     }
 
     public boolean isApduLoggingEnabled() {
-        return terminal.isApduLoggingEnabled();
+        return terminal.apduTrace().isEnabled();
     }
 
     @Override
