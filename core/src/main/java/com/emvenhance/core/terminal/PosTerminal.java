@@ -506,6 +506,8 @@ public abstract class PosTerminal {
          *   TRANSACTION_STARTED → onTransactionStarted: on the transaction thread, the EMV, then
          *                         the end ({@link #onEnd})
          *   CANCELLING          → onCancelling: the card search stops
+         *   ACKNOWLEDGING       → onAcknowledging: the host is told the sale is done
+         *   REVERSING           → onReversing: the host is told to reverse a request
          * </pre>
          */
         private void dispatchTransactionStep(TransactionStepEvent event) {
@@ -515,6 +517,12 @@ public abstract class PosTerminal {
                     break;
                 case CANCELLING:
                     onCancelling();
+                    break;
+                case ACKNOWLEDGING:
+                    onAcknowledging(event);
+                    break;
+                case REVERSING:
+                    onReversing(event);
                     break;
                 default:
                     break;
@@ -564,13 +572,14 @@ public abstract class PosTerminal {
          * The safe end, the one place a transaction's end is published, on the transaction
          * thread, once (the last thing {@link #runTransaction} does): the end decided (or ERROR
          * "Transaction ended without an outcome" if none was set) and with it the host's side
-         * ({@link #closeOnline}); then each acknowledgement / reversal, its step (ACKNOWLEDGING /
-         * REVERSING) and the call, waited for — at most {@link #followUpTimeoutMs()} each, the
-         * terminal still busy; then the terminal freed and the end delivered — a screen that sees
+         * ({@link #closeOnline}); then each acknowledgement / reversal step (ACKNOWLEDGING /
+         * REVERSING), delivered and run like any step ({@link #dispatchTransactionStep}) — its
+         * call waited for, at most {@link #followUpTimeoutMs()} each, the terminal still busy;
+         * then the terminal freed and the end delivered — a screen that sees
          * COMPLETED / ERROR / CANCELLED can start the next sale at once, its host already told.
          */
         private void onEnd() {
-            List<Runnable> followUps;
+            List<TransactionStepEvent> followUps;
             synchronized (steps) { // a cancel's CANCELLING can't land after the end is decided
                 // A search that stopped with no outcome still ends its transaction.
                 if (end == null) {
@@ -578,8 +587,12 @@ public abstract class PosTerminal {
                 }
                 followUps = closeOnline();
             }
-            for (Runnable followUp : followUps) {
-                followUp.run();
+            for (TransactionStepEvent followUp : followUps) {
+                // The end is decided, so it is delivered as it is, not published.
+                synchronized (steps) {
+                    deliver(followUp);
+                }
+                dispatchTransactionStep(followUp);
             }
             synchronized (steps) {
                 current.compareAndSet(this, null);
@@ -587,16 +600,49 @@ public abstract class PosTerminal {
             }
         }
 
-        /**
-         * One acknowledgement or reversal, before the terminal is free: its step for the screen
-         * and the trace (the end is decided, so it is delivered as it is, not published), then the
-         * call ({@link #sendFollowUp}).
-         */
-        private void followUp(TransactionStep step, String what, Completable call) {
-            synchronized (steps) {
-                deliver(TransactionStepEvent.of(step, what));
+        /** The sale is done: its last request is acknowledged at the host, waited for. */
+        private void onAcknowledging(TransactionStepEvent acknowledging) {
+            TransactionConfig sent = sentRequest(acknowledging);
+            if (sent == null) {
+                return;
             }
-            sendFollowUp(what, call);
+            sendFollowUp(acknowledging.getMessage(),
+                    Completable.defer(() -> communication.acknowledge(sent)));
+        }
+
+        /** A request the host may have approved wasn't completed: it is reversed, waited for. */
+        private void onReversing(TransactionStepEvent reversing) {
+            TransactionConfig sent = sentRequest(reversing);
+            if (sent == null) {
+                return;
+            }
+            sendFollowUp(reversing.getMessage(),
+                    Completable.defer(() -> communication.reverse(sent)));
+        }
+
+        /**
+         * The request a follow-up step names ({@link TransactionStepEvent#KEY_REQUEST_ID}), or
+         * {@code null}, noted in the trace, if this transaction sent none by that id — never a
+         * throw: {@link #onEnd} must still free the terminal.
+         */
+        @Nullable
+        private TransactionConfig sentRequest(TransactionStepEvent followUp) {
+            String id = followUp.get(TransactionStepEvent.KEY_REQUEST_ID);
+            for (OnlineRequest request : online) {
+                if (request.sent.getAsyncRequestId().equals(id)) {
+                    return request.sent;
+                }
+            }
+            apduTrace().note("HOST", followUp.getStep() + " not sent: no request " + id);
+            return null;
+        }
+
+        private static TransactionStepEvent followUpStep(TransactionStep step, String what,
+                String id) {
+            return TransactionStepEvent.builder(step)
+                    .message(what + " " + id)
+                    .put(TransactionStepEvent.KEY_REQUEST_ID, id)
+                    .build();
         }
 
         /** The request it is about to send the host: recorded before it goes. */
@@ -609,7 +655,8 @@ public abstract class PosTerminal {
         /**
          * Closes the host's side of every request this transaction sent, now that it has ended;
          * called under the lock, with {@link #end} set. Notes each in the APDU trace and returns
-         * the follow-ups, which {@link #onEnd} makes, in order, before the terminal is free.
+         * the follow-up steps (ACKNOWLEDGING / REVERSING), which {@link #onEnd} runs, in order,
+         * before the terminal is free.
          *
          * <ul>
          *   <li>Its last request, approved by the host, and the transaction reported APPROVED and
@@ -626,8 +673,8 @@ public abstract class PosTerminal {
          *       one is noted in the trace with why.</li>
          * </ul>
          */
-        private List<Runnable> closeOnline() {
-            List<Runnable> followUps = new ArrayList<>();
+        private List<TransactionStepEvent> closeOnline() {
+            List<TransactionStepEvent> followUps = new ArrayList<>();
             boolean completedApproved = approvedReported
                     && end.getStep() == TransactionStep.COMPLETED;
             for (int i = 0; i < online.size(); i++) {
@@ -637,9 +684,8 @@ public abstract class PosTerminal {
                 String id = request.sent.getAsyncRequestId();
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    followUps.add(() -> followUp(TransactionStep.ACKNOWLEDGING,
-                            "Acknowledgement " + id,
-                            Completable.defer(() -> communication.acknowledge(request.sent))));
+                    followUps.add(
+                            followUpStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id));
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
                             + ": the host could not have approved it — " + answer.getMessage());
@@ -649,8 +695,7 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    followUps.add(() -> followUp(TransactionStep.REVERSING, "Reversal " + id,
-                            Completable.defer(() -> communication.reverse(request.sent))));
+                    followUps.add(followUpStep(TransactionStep.REVERSING, "Reversal", id));
                 }
             }
             return followUps;

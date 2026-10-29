@@ -38,6 +38,8 @@ public final class TransactionStepEvent {
      * phone, chip not read...) — absent on a first search.
      */
     public static final String KEY_RETRY_PROMPT     = "retryPrompt";
+    /** On {@code ACKNOWLEDGING} / {@code REVERSING}: the request it is about (its asyncRequestId). */
+    public static final String KEY_REQUEST_ID       = "asyncRequestId";
 
     private final TransactionStep step;
     private final String message;
