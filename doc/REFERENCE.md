@@ -145,7 +145,7 @@ INGENICO SDK                   Tetra / Axium — not in the project yet
 | البطاقة والـ EMV | `PaxTerminal` | `extends PosTerminal`: الـ host والطابعة الفعليان، والإعدادات |
 | | `PaxEmvBehavior` | `extends AbstractEmvBehavior`: الـ 17 `onXxx` (استدعاء native لكل خطوة)، وردود الـ kernel |
 | | `PaxCardSearch` | البحث عن البطاقة (polling): عمل الخطوة `SEARCH_CARD`، و `stop()` عند الإلغاء |
-| | `PaxTransactionState` | ما عُرف خلال المحاولة الحالية؛ يُنشأ من جديد في كل محاولة |
+| | `PaxKernelSession` | ملاحظات الـ kernel خلال محاولة واحدة على بطاقة واحدة (ليست العملية نفسها)؛ تُنشأ من جديد في كل محاولة |
 | | `PaxKernel` | params، contact، contactless، mag |
 | الشاشات والأجهزة | `PaxPinPad` / `PaxAppSelectDialog` / `PaxPrinter` / `PaxEmvParams` | الـ PIN، اختيار التطبيق، الطابعة، بيانات شاشة EMV Params |
 
@@ -249,7 +249,7 @@ private   final Scheduler             transactionScheduler; // one sale at a tim
 | `PosTerminal` | الجهاز | • عملية واحدة في كل مرة: thread واحد، و `current` = مشغول<br>• البنك: `authorize` (بحد أقصى 90 ثانية)، وتسمية كل طلب (`asyncRequestId`)<br>• النهاية الآمنة: التأكيد أو الإلغاء قبل أن يصبح متاحًا (15 ثانية)<br>• الطابعة | أي منطق EMV، والبحث عن البطاقة (من مهام الـ EMV) |
 | `PosTerminal.Transaction` | العملية الواحدة (بيع / استرداد) | • حالتها: `end` (`null` = قيد التنفيذ)<br>• الخطوات التي تراها الشاشة (`ReplaySubject`، وهو أيضًا الـ lock)<br>• الإلغاء<br>• الطلبات المرسلة إلى البنك وردودها (`online`، `approvedReported`) | نشر أي شيء بعد انتهائها |
 | `AbstractEmvBehavior` | التعامل مع البطاقة (المشترك بين الـ vendors) | • `run`: المحاولات، والبحث عن البطاقة (`SEARCH_CARD`)، وإعادة المحاولة<br>• الـ 17 خطوة (`onXxx`)، و `goToStep` (نقطة فحص الإلغاء الوحيدة)، و `askStep` / `answerStep`، و `publish`، و `finish*`<br>• field 55، والطلب إلى البنك (`authorizeOnline`)<br>• الـ engine: field من نوع `private`، لا يكتب فيه إلا `attach`، والجميع يقرؤه بـ `engine()` | الـ threads، حالة الانشغال، البنك مباشرة |
-| `PaxEmvBehavior` | التعامل مع البطاقة على PAX | • الـ `onXxx`: استدعاء native لكل خطوة، `runContact*` / `runContactless*`<br>• ردود الـ kernel<br>• `onSearchCard` ← `PaxCardSearch`<br>• `PaxTransactionState tx` جديد في كل محاولة (في `onTerminalInitialization`) | أن يستدعيه أحد غير الـ dispatch |
+| `PaxEmvBehavior` | التعامل مع البطاقة على PAX | • الـ `onXxx`: استدعاء native لكل خطوة، `runContact*` / `runContactless*`<br>• ردود الـ kernel<br>• `onSearchCard` ← `PaxCardSearch`<br>• `PaxKernelSession tx` جديد في كل محاولة (في `onTerminalInitialization`) | أن يستدعيه أحد غير الـ dispatch |
 | `EmvEngine` | شريط خطوات الـ EMV | • `emvSteps` (التشغيل والشريط العلوي)<br>• `ApduTrace`<br>• طلب الإعادة<br>• الطريق إلى البنك (`Authorizer` = `PosTerminal::authorize`)<br>يُنشأ في constructor الـ `PosTerminal` ويُسلَّم مرة واحدة: `behavior.attach(engine)` | أي حالة للعملية |
 | `SaleCommunicationBehavior` | اتصال HTTP بالبنك / الـ facilitator | • exchange ← sale / refund (envelope)<br>• التأكيد / الإلغاء (JSON عادي، وheaders البيع)<br>• تصنيف الفشل: هل وصل إلى البنك أم لا (`classify`) | أن يقرر التأكيد أو الإلغاء (هذا قرار `PosTerminal`) |
 | `PaxPrinter` | الطابعة | • طباعة الإيصال | — |
@@ -313,7 +313,7 @@ sequenceDiagram
   TX->>TX: runTransaction: engine.begin()
   TX->>BH: behavior.run(config, t)
   loop each attempt: the first, then each retry the kernel asked for (once it returned, if still running)
-    BH->>BH: TERMINAL_INITIALIZATION → onTerminalInitialization (new PaxTransactionState + prepareKernel)
+    BH->>BH: TERMINAL_INITIALIZATION → onTerminalInitialization (new PaxKernelSession + prepareKernel)
     BH->>CS: SEARCH_CARD → onSearchCard → cardSearch.search(config, cardSearchListener())
     CS->>BH: onSearchStarted → WAITING_FOR_CARD
     CS->>BH: onChipDetected(card) → CARD_DETECTED → start(card): the whole EMV here (§5) → finish* → emvFinished
@@ -342,7 +342,7 @@ sequenceDiagram
           any exception → ERROR; in the finally, always → onEnd()
 [tx]    AbstractEmvBehavior.run — attempt after attempt:
           prepare(config, t)   → TERMINAL_INITIALIZATION → onTerminalInitialization
-                                  (PAX: a new PaxTransactionState + prepareKernel; failure → finishError)
+                                  (PAX: a new PaxKernelSession + prepareKernel; failure → finishError)
           searchCard()         → SEARCH_CARD (prompt: the retry's own, or the entry mode's)
                                   → onSearchCard → the vendor's polling, blocking
                onSearchStarted → WAITING_FOR_CARD (+ retry prompt)
@@ -617,7 +617,7 @@ finishApproved / finishDeclined / finishError  ──► emvFinished(outcome)   
 
 | # | EmvStep | من ينشرها | Contact (ماذا تفعل `onXxx`) | Contactless granular (EFT/PayPass/PayWave) | Contactless atomic | Mag / Manual |
 |---|---|---|---|---|---|---|
-| 0 | TERMINAL_INITIALIZATION | `AbstractEmvBehavior.prepare` (بداية كل محاولة) | `PaxTransactionState` جديد + `prepareKernel` | = | = | = (تعيد true مبكرًا) |
+| 0 | TERMINAL_INITIALIZATION | `AbstractEmvBehavior.prepare` (بداية كل محاولة) | `PaxKernelSession` جديد + `prepareKernel` | = | = | = (تعيد true مبكرًا) |
 | 1 | SEARCH_CARD | `AbstractEmvBehavior.searchCard` (بعد التهيئة، ومرة أخرى مع كل إعادة)؛ و `onDetect2ndTap` (للعرض فقط) | `PaxCardSearch.search` (الـ polling) | = | = | = |
 | 2 | APPLICATION_SELECTION | `start(card)` ← `firstStepAfterSearch` | `runContactAppSelect` | `runContactlessAppSelect` | = | لا تُستدعى |
 | 3 | WAIT_APPLICATION_SELECTION | `onWaitAppSelect(first)` ← askStep | `answerApplicationSelection` | = (نادرًا) | = | — |

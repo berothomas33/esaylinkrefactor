@@ -280,7 +280,7 @@ after**. Each carries docs that match its own code.
   its transaction, late callbacks dropped) → `start(card)`: the EMV chain. When the kernel has
   returned: `engine.consumePendingRetry()` + a plain `if (isRunning())` → the next attempt from
   SEARCH_CARD. No NEXT_ATTEMPT, no attempt loop in the `Transaction`. PAX: `PaxCardSearch`
-  (moved from `PaxTerminal`); a new `PaxTransactionState` per attempt in
+  (moved from `PaxTerminal`); a new `PaxKernelSession` per attempt in
   `onTerminalInitialization`. Not device-tested.
 - **The safe end** (`9278c35`): `onEnd` (once, transaction thread): the end decided +
   `closeOnline` under the lock; then each acknowledgement / reversal in order — step

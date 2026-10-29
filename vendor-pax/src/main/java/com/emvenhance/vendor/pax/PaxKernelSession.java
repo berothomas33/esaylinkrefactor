@@ -10,12 +10,14 @@ import com.pax.emvbase.process.entity.TransResult;
 import java.util.List;
 
 /**
- * What {@link PaxEmvBehavior} learns during one attempt (a retry is a new attempt): one object,
- * replaced by a fresh one in {@code PaxEmvBehavior#prepare}, so nothing of a sale is ever read by
- * the next — no field to reset by hand. Its steps write it and read it, all on the transaction
- * thread.
+ * The PAX kernel's notes for one attempt on one card (a retry is a new attempt): what the kernel
+ * returned, the host's answer for the 2nd GENERATE AC, what a callback hands its step. Not the
+ * transaction — that is {@code PosTerminal.Transaction}, which outlives every attempt. One
+ * object, replaced by a fresh one in {@code PaxEmvBehavior#onTerminalInitialization}, so nothing
+ * of an attempt is ever read by the next — no field to reset by hand. Its steps write it and read
+ * it, all on the transaction thread.
  */
-final class PaxTransactionState {
+final class PaxKernelSession {
 
     // ─── The kernel's result ─────────────────────────────────────────────
 

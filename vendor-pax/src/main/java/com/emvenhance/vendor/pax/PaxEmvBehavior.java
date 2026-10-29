@@ -40,8 +40,8 @@ import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.EmvTransParam;
-import com.emvenhance.vendor.pax.PaxTransactionState.Outcome;
-import com.emvenhance.vendor.pax.PaxTransactionState.PinRequest;
+import com.emvenhance.vendor.pax.PaxKernelSession.Outcome;
+import com.emvenhance.vendor.pax.PaxKernelSession.PinRequest;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.contact.IContactCallback;
 import com.pax.emvbase.process.contactless.IContactlessCallback;
@@ -96,12 +96,12 @@ import java.util.Locale;
  *
  * <p><b>Experiment branch:</b> talks to {@link ContactProcess} (emvlib:dpas) directly — no
  * {@code EmvContactService} service layer. Everything that used to live there — per-transaction
- * state ({@link PaxTransactionState#transResult}, {@link PaxTransactionState#cachedTrack2Data}), the online-processing decision inside
+ * state ({@link PaxKernelSession#transResult}, {@link PaxKernelSession#cachedTrack2Data}), the online-processing decision inside
  * {@link #startContactTransProcess}, PAN/track2 derivation ({@link #getContactPan}), and the
  * result-to-callback mapping in {@link #checkContactResult()} — now lives here instead. The
  * contactless path got the same treatment: talks to {@link ClssProcess} (emvlib) directly — no
  * {@code ContactlessService} layer — with its own mirrored state
- * ({@link PaxTransactionState#clsTransResult}/{@link PaxTransactionState#clsCachedTrack2Data}/{@link #clsLastNeedSeePhone}), online
+ * ({@link PaxKernelSession#clsTransResult}/{@link PaxKernelSession#clsCachedTrack2Data}/{@link #clsLastNeedSeePhone}), online
  * decision ({@link #startContactlessTransProcess}), PAN derivation
  * ({@link #getContactlessPan}), and result mapping ({@link #checkContactlessResult()}). See the
  * structure diagram (panel 10/11) for why this was tried and what it cost.
@@ -146,12 +146,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     /**
      * See Phone on a tap: the kernel asks for it ({@link #needSeePhone}) on the next tap, which is
-     * a retry — a new attempt — so unlike {@link PaxTransactionState} it carries over.
+     * a retry — a new attempt — so unlike {@link PaxKernelSession} it carries over.
      */
     private boolean clsLastNeedSeePhone;
 
-    /** What this behavior learns during one attempt — see {@link PaxTransactionState}. */
-    private volatile PaxTransactionState tx = new PaxTransactionState();
+    /** What this behavior learns during one attempt — see {@link PaxKernelSession}. */
+    private volatile PaxKernelSession tx = new PaxKernelSession();
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
@@ -165,7 +165,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // The first step of every attempt: a fresh state, so nothing from an earlier sale or
         // attempt carries over — its online PIN block (and RSA-wrapped key) sent again with this
         // sale, flagged as online PIN; or its kernel result read as this one's.
-        tx = new PaxTransactionState();
+        tx = new PaxKernelSession();
         // The kernel calls EmvDeviceImpl directly, so hand it this transaction's APDU trace.
         EmvDeviceImpl.getInstance().setApduTrace(engine().apduTrace());
         if (!prepareKernel(config)) {
@@ -348,7 +348,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * The cardholder's choice among the kernel's candidates ({@link PaxTransactionState#candidates}),
+     * The cardholder's choice among the kernel's candidates ({@link PaxKernelSession#candidates}),
      * answered to {@link #onWaitAppSelect}'s {@code askStep}: index 0 with nothing to choose
      * between, else the dialog's choice.
      */
@@ -920,7 +920,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link PaxTransactionState#clsTransResult} to the matching result method on {@code this} —
+     * Maps the recorded {@link PaxKernelSession#clsTransResult} to the matching result method on {@code this} —
      * ported from {@code ContactlessService#checkClsResult}.
      */
     private void checkContactlessResult() {
@@ -1304,7 +1304,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Maps the recorded {@link PaxTransactionState#transResult} to the matching result method on {@code this} —
+     * Maps the recorded {@link PaxKernelSession#transResult} to the matching result method on {@code this} —
      * ported from {@code EmvContactService#checkContactResult}.
      */
     private void checkContactResult() {
@@ -1799,7 +1799,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * cycle, currently dormant — {@code OnboardingClient#runOnlineCycle} — which would need an AES
      * counterpart if it's ever turned on for this key hierarchy too). If the write fails (no TLK)
      * or no public key has been onboarded yet, this logs and leaves
-     * {@link PaxTransactionState#lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
+     * {@link PaxKernelSession#lastOnlinePinKeyEncrypted} unset — online PIN entry itself still proceeds (matching
      * this method's predecessor's behavior), it just won't have a key the host can decrypt with.
      */
     private void provisionOnlinePinKey() {

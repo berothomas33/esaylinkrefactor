@@ -43,7 +43,7 @@ too: `SaleCommunicationBehavior` (`:network`) for the real host.
 
 ## 3. What stays inside the vendor (no core contract)
 
-Anything only that vendor's kernel understands: PAX's `PaxTransactionState` (what one attempt
+Anything only that vendor's kernel understands: PAX's `PaxKernelSession` (what one attempt
 learns between EMV stages), `PaxKernel` (the SDK wrapper), `PaxHardwarePermissions`. Each vendor
 organizes its own; a core base for them would be an empty layer (rule 5).
 
