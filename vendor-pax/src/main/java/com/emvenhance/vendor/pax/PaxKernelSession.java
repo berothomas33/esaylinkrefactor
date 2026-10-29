@@ -9,7 +9,7 @@ import com.pax.emvbase.process.entity.OnlineResultWrapper;
 import com.pax.emvbase.process.entity.TransResult;
 import java.util.List;
 
-final class PaxTransactionState {
+final class PaxKernelSession {
 
     @Nullable
     TransResult transResult;

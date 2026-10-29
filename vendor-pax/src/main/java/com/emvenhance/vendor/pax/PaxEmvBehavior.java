@@ -40,8 +40,8 @@ import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.EmvTransParam;
-import com.emvenhance.vendor.pax.PaxTransactionState.Outcome;
-import com.emvenhance.vendor.pax.PaxTransactionState.PinRequest;
+import com.emvenhance.vendor.pax.PaxKernelSession.Outcome;
+import com.emvenhance.vendor.pax.PaxKernelSession.PinRequest;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.contact.IContactCallback;
 import com.pax.emvbase.process.contactless.IContactlessCallback;
@@ -89,7 +89,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private boolean clsLastNeedSeePhone;
 
-    private volatile PaxTransactionState tx = new PaxTransactionState();
+    private volatile PaxKernelSession tx = new PaxKernelSession();
 
     public PaxEmvBehavior(PaxKernel kernel) {
         this.kernel = kernel;
@@ -98,7 +98,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
-        tx = new PaxTransactionState();
+        tx = new PaxKernelSession();
         EmvDeviceImpl.getInstance().setApduTrace(engine().apduTrace());
         if (!prepareKernel(config)) {
             finishError("Terminal initialization failed");
