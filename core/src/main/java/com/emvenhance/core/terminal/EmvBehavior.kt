@@ -2,22 +2,19 @@ package com.emvenhance.core.terminal
 
 import com.emvenhance.core.card.CardPresence
 import com.emvenhance.core.card.TransactionConfig
-import com.emvenhance.core.engine.EmvEngine
 
 /**
  * What [PosTerminal] drives on a vendor's EMV kernel — and all it can call.
  *
- * Lifecycle: [attach] once, when the terminal is built — the terminal's one [EmvEngine], kept by
- * the behavior and read back through [engine]; then [prepare] → (PosTerminal search) → [start],
- * once per attempt, each handed the attempt's [PosTerminal.Transaction]; [dispose] once, when the
- * terminal itself goes away. A cancel isn't a call into the behavior: it reads that transaction
+ * Lifecycle: [prepare] → (PosTerminal search) → [start] once per attempt, each handed the
+ * attempt's [PosTerminal.Transaction]; [dispose] once, when the terminal itself goes away. The EMV
+ * engine isn't part of this contract: [AbstractEmvBehavior] keeps it (`attach` / `engine()`). A cancel isn't a call into the behavior: it reads that transaction
  * ([AbstractEmvBehavior.isCancelled]) at each step.
  *
  * A vendor doesn't implement this directly: it extends [AbstractEmvBehavior], which implements
  * it and declares the EMV step methods (`onApplicationSelection`, …) every vendor writes. Those
  * are `protected` there, not part of this contract, so nothing holding an `EmvBehavior` can run
- * a step: steps run only through [AbstractEmvBehavior.goToStep]. Tests stub this interface to
- * drive the terminal with no EMV behind it.
+ * a step: steps run only through [AbstractEmvBehavior.goToStep].
  *
  * All of it runs on the transaction thread and blocks there — never `suspend`: the native
  * kernel calls back into it and needs every answer on the same call stack.
@@ -25,12 +22,6 @@ import com.emvenhance.core.engine.EmvEngine
  * EMV only — no host / printer logic here.
  */
 interface EmvBehavior {
-
-    /** The terminal's engine, given once when the terminal is built; kept for its whole life. */
-    fun attach(engine: EmvEngine)
-
-    /** The engine [attach] gave: the one place it is kept. */
-    fun engine(): EmvEngine
 
     /**
      * Terminal initialization for one attempt.

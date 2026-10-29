@@ -64,11 +64,13 @@ abstract class AbstractEmvBehavior : EmvBehavior {
     /** This behavior's step handler on the engine — see [initEmvObserver]. */
     private val stepHandler = EmvEngine.Listener<EmvStepEvent> { event -> handleEmvStep(event) }
 
-    final override fun attach(engine: EmvEngine) {
+    /** The EMV engine, given once by [PosTerminal]'s constructor; it never changes. */
+    fun attach(engine: EmvEngine) {
         attached = engine
     }
 
-    final override fun engine(): EmvEngine = engine
+    /** The engine [attach] gave: the one place it is kept. */
+    fun engine(): EmvEngine = engine
 
     override fun prepare(config: TransactionConfig, transaction: PosTerminal.Transaction): Boolean {
         this.transaction = transaction

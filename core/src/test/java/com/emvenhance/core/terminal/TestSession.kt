@@ -16,7 +16,7 @@ import kotlinx.coroutines.Dispatchers
  * no transaction thread to free first).
  */
 internal class TestSession(
-    private val behavior: EmvBehavior,
+    private val behavior: AbstractEmvBehavior,
     authorizer: EmvEngine.Authorizer,
 ) {
 
@@ -63,7 +63,7 @@ internal class TestSession(
     }
 
     /** Never searches; goes online through the test's authorizer. */
-    private class Terminal(behavior: EmvBehavior, private val authorizer: EmvEngine.Authorizer) :
+    private class Terminal(behavior: AbstractEmvBehavior, private val authorizer: EmvEngine.Authorizer) :
         PosTerminal(behavior, stub(), stub()) {
 
         fun engine(): EmvEngine = behavior.engine()

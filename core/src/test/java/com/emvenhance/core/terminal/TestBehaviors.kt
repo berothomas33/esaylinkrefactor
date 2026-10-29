@@ -30,18 +30,13 @@ internal abstract class NoOpStepsBehavior : AbstractEmvBehavior() {
 }
 
 /**
- * An [EmvBehavior] whose `prepare` returns `prepared`, keeping the engine `attach` gives it (as every
- * behavior does); every other call does nothing.
+ * A behavior for terminal tests: `prepare` returns `prepared` and `start` calls `onStart`; it keeps
+ * the engine `attach` gives it (as every behavior does) and runs no EMV step.
  */
 internal fun stubBehavior(
     prepared: Boolean = false,
     onStart: (TransactionConfig) -> Unit = {},
-): EmvBehavior = object : EmvBehavior {
-    private var engine: EmvEngine? = null
-    override fun attach(engine: EmvEngine) {
-        this.engine = engine
-    }
-    override fun engine(): EmvEngine = engine!!
+): AbstractEmvBehavior = object : NoOpStepsBehavior() {
     override fun prepare(config: TransactionConfig, transaction: PosTerminal.Transaction) = prepared
     override fun start(config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) =
         onStart(config)

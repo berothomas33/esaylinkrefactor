@@ -116,12 +116,7 @@ class PosTerminalRetryLoopTest {
     }
 
     /** prepare() succeeds; start() does what the test set in [onStart]. */
-    private fun behavior(): EmvBehavior = object : EmvBehavior {
-        private var engine: EmvEngine? = null
-        override fun attach(engine: EmvEngine) {
-            this.engine = engine
-        }
-        override fun engine(): EmvEngine = engine!!
+    private fun behavior(): AbstractEmvBehavior = object : NoOpStepsBehavior() {
         override fun prepare(config: TransactionConfig, transaction: PosTerminal.Transaction) = true
         override fun start(config: TransactionConfig, card: CardPresence, transaction: PosTerminal.Transaction) {
             onStart.get()(engine(), transaction)

@@ -17,7 +17,7 @@ class EmvBehaviorContractTest {
     fun theEngineSeesOnlyTheLifecycle() {
         val names = EmvBehavior::class.java.methods.mapTo(TreeSet()) { it.name }
 
-        assertEquals(TreeSet(listOf("attach", "dispose", "engine", "prepare", "start")), names)
+        assertEquals(TreeSet(listOf("dispose", "prepare", "start")), names)
     }
 
     @Test

@@ -63,10 +63,10 @@ import java.util.concurrent.atomic.AtomicReference
 abstract class PosTerminal protected constructor(
     /**
      * The vendor's EMV: this terminal runs it for each attempt, handing it the transaction. It
-     * keeps the terminal's one [EmvEngine] ([EmvBehavior.attach] in `init`, read back through
-     * [EmvBehavior.engine]).
+     * keeps the terminal's one [EmvEngine] ([AbstractEmvBehavior.attach] in `init`, read back
+     * through [AbstractEmvBehavior.engine]).
      */
-    @JvmField protected val behavior: EmvBehavior,
+    @JvmField protected val behavior: AbstractEmvBehavior,
     @JvmField protected val communication: CommunicationBehavior,
     @JvmField protected val printer: PrinterBehavior,
 ) {
