@@ -10,7 +10,6 @@ import com.emvenhance.core.emv.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
-import com.emvenhance.core.emv.EmvEngine;
 import com.emvenhance.core.emv.EmvStep;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
@@ -1527,7 +1526,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     public void seePhone() {
-        int retries = engine().getRetryCount();
+        int retries = retryCount();
         if (retries >= MAX_TAP_RETRIES) {
             engine().apduTrace().note("PICC", "SEE PHONE again after " + retries
                     + " retries — declining");
@@ -1545,7 +1544,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     public void tryAgain() {
-        int retries = engine().getRetryCount();
+        int retries = retryCount();
         if (retries >= MAX_TAP_RETRIES) {
             LogUtils.w(TAG, "Try Again after " + retries + " retries — declining");
             engine().apduTrace().note("PICC", "card not read after " + retries
@@ -1570,7 +1569,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         LogUtils.i(TAG, reason);
-        engine().requestRetry(activeConfig.withMode(mode), prompt);
+        requestRetry(activeConfig.withMode(mode), prompt);
     }
 
     public void simpleFlowEnd() {

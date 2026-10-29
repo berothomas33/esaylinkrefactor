@@ -29,6 +29,12 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     private CardSearchListener cardSearch;
     private boolean searchRequested;
 
+    @Nullable
+    private volatile TransactionConfig pendingRetry;
+    @Nullable
+    private volatile String retryPrompt;
+    private int retryCount;
+
     private final CompositeDisposable disposables = new CompositeDisposable();
 
     public final void attach(EmvEngine engine) {
@@ -41,6 +47,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     @Override
     public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
+        pendingRetry = null;
+        retryPrompt = null;
+        retryCount = 0;
         TransactionConfig attempt = config;
         while (attempt != null) {
             if (prepare(attempt, transaction)) {
@@ -60,7 +69,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     private void searchCard() {
-        String prompt = engine.consumeRetryPrompt();
+        String prompt = retryPrompt;
         String message = prompt != null ? prompt : waitingMessage(activeConfig);
         cardSearch = new CardSearchReporter(transaction, prompt, message);
         searchRequested = true;
@@ -75,7 +84,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     @Nullable
     private TransactionConfig nextAttempt() {
-        TransactionConfig retry = engine.consumePendingRetry();
+        TransactionConfig retry = pendingRetry;
+        pendingRetry = null;
         if (retry == null) {
             return null;
         }
@@ -84,7 +94,18 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             engine.apduTrace().note("EMV", "retry dropped — the transaction is over");
             return null;
         }
+        engine.apduTrace().transactionEvent("RETRY #" + ++retryCount);
+        engine.apduTrace().beginAttempt();
         return retry;
+    }
+
+    protected final void requestRetry(TransactionConfig adjustedConfig, @Nullable String prompt) {
+        pendingRetry = adjustedConfig;
+        retryPrompt = prompt;
+    }
+
+    protected final int retryCount() {
+        return retryCount;
     }
 
     protected final CardSearchListener cardSearchListener() {
