@@ -146,7 +146,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         if (card.isMagstripe()) {
             String track2 = card.getTrack2() != null ? card.getTrack2() : "";
-            String pan = panFromTrack2(track2);
+            String pan = PaxCardData.panFromTrack2(track2);
             publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
                     .put(TransactionStepEvent.KEY_PAN, pan)
                     .put(TransactionStepEvent.KEY_ISSUER_NAME, "MAG")
@@ -711,10 +711,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (track2Data != null && !track2Data.isEmpty()) {
             return TrackUtils.getPan(track2Data);
         }
-        byte[] panBytes = kernel.contactless.getTlv(TagsTable.PAN);
-        String pan = ConvertUtils.bcd2Str(panBytes, panBytes.length);
-        int indexF = pan.indexOf('F');
-        return pan.substring(0, indexF != -1 ? indexF : pan.length());
+        return PaxCardData.panFromTag(kernel.contactless.getTlv(TagsTable.PAN));
     }
 
     private String getContactlessTrack2Data() {
@@ -723,7 +720,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private String getContactlessCardholderName() {
-        return asciiText(kernel.contactless.getTlv(TagsTable.CARDHOLDER_NAME));
+        return PaxCardData.asciiText(kernel.contactless.getTlv(TagsTable.CARDHOLDER_NAME));
     }
 
     private void runContactAppSelect() {
@@ -986,10 +983,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (track2Data != null && !track2Data.isEmpty()) {
             return TrackUtils.getPan(track2Data);
         }
-        byte[] panBytes = kernel.contact.getTlv(TagsTable.PAN);
-        String pan = ConvertUtils.bcd2Str(panBytes, panBytes.length);
-        int indexF = pan.indexOf('F');
-        return pan.substring(0, indexF != -1 ? indexF : pan.length());
+        return PaxCardData.panFromTag(kernel.contact.getTlv(TagsTable.PAN));
     }
 
     private String getContactTrack2Data() {
@@ -998,11 +992,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private String getContactCardholderName() {
-        return asciiText(kernel.contact.getTlv(TagsTable.CARDHOLDER_NAME));
-    }
-
-    private static String asciiText(byte[] value) {
-        return new String(value, StandardCharsets.US_ASCII).trim();
+        return PaxCardData.asciiText(kernel.contact.getTlv(TagsTable.CARDHOLDER_NAME));
     }
 
     private boolean prepareKernel(@NonNull TransactionConfig config) {
@@ -1411,7 +1401,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
         return new EmvTransactionResult.Builder()
                 .pan(pan)
-                .maskedPan(maskPan(pan))
+                .maskedPan(PaxCardData.maskPan(pan))
                 .track2(track2)
                 .expDate(expDate)
                 .cardHolderName(cardHolderName)
@@ -1432,25 +1422,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Nullable
-    private static String maskPan(@Nullable String pan) {
-        if (pan == null || pan.length() <= 10) {
-            return pan;
-        }
-        int visibleTail = 4;
-        int visibleHead = 6;
-        StringBuilder masked = new StringBuilder(pan.length());
-        masked.append(pan, 0, visibleHead);
-        for (int i = visibleHead; i < pan.length() - visibleTail; i++) {
-            masked.append('*');
-        }
-        masked.append(pan.substring(pan.length() - visibleTail));
-        return masked.toString();
-    }
-
-    @Nullable
     private String readKernelAsciiTlv(int tag) {
         byte[] value = readKernelTlv(tag);
-        return value.length == 0 ? null : asciiText(value);
+        return value.length == 0 ? null : PaxCardData.asciiText(value);
     }
 
     private byte[] readKernelTlv(int tag) {
@@ -1711,13 +1685,5 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private static String safe(@Nullable String s) {
         return s == null ? "" : s;
-    }
-
-    private static String panFromTrack2(String track2) {
-        int sep = track2.indexOf('=');
-        if (sep <= 0) {
-            sep = track2.indexOf('D');
-        }
-        return sep > 0 ? track2.substring(0, sep) : track2;
     }
 }
