@@ -370,8 +370,6 @@ public abstract class PosTerminal {
         private final ReplaySubject<TransactionStepEvent> steps = ReplaySubject.create();
         /** What it sent the host, in order; written on the transaction thread only. */
         private final List<OnlineRequest> online = new ArrayList<>();
-        /** Whether it reported APPROVED; written under the lock. */
-        private boolean approvedReported;
 
         private Transaction(TransactionConfig config) {
             this.config = config;
@@ -424,6 +422,12 @@ public abstract class PosTerminal {
          * anything after it is dropped.
          */
         void publish(TransactionStepEvent event) {
+            if (isOutcome(event.getStep())) {
+                // Not delivered here: onOutcome delivers it and sets the end under one hold of
+                // the lock, so a cancel can't land between them.
+                dispatchTransactionStep(event);
+                return;
+            }
             synchronized (steps) {
                 if (end != null) {
                     EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
@@ -441,19 +445,17 @@ public abstract class PosTerminal {
         }
 
         /**
-         * The EMV is done with the card and reports how ({@code AbstractEmvBehavior#finish*}):
-         * APPROVED, DECLINED or ERROR. The transaction, not the EMV, ends itself here. Today the
-         * end follows the card's outcome — APPROVED or DECLINED then COMPLETED, ERROR as it is —
-         * and never turns a decline or an error into an approval. This is where an outcome that
-         * still needs the host (e.g. Mastercard single tap: the host asks for a PIN) will be
-         * decided.
-         *
-         * <p>The outcome and the end are set under one hold of the lock, so a cancel can't land
-         * between them (APPROVED then CANCELLED). Dropped, with a trace note, once the transaction
-         * has ended (a cancel was first).
+         * The EMV is done with the card and reports how ({@code AbstractEmvBehavior#finish*}).
+         * APPROVED or DECLINED is published: its step's method, {@link #onOutcome}, decides the
+         * end. ERROR becomes the end as it is; anything else, an ERROR end — never an approval.
+         * Dropped, with a trace note, once the transaction has ended (a cancel was first).
          */
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
+            if (isOutcome(step)) {
+                publish(outcome);
+                return;
+            }
             synchronized (steps) {
                 if (end != null) {
                     EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
@@ -461,11 +463,7 @@ public abstract class PosTerminal {
                             + end.getStep() + "): " + step);
                     return;
                 }
-                if (step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
-                    apduTrace().note("EMV", "EMV finished: " + step + " — the transaction completes");
-                    deliver(outcome);
-                    end = TransactionStepEvent.of(TransactionStep.COMPLETED);
-                } else if (step == TransactionStep.ERROR) {
+                if (step == TransactionStep.ERROR) {
                     apduTrace().note("EMV", "EMV finished with an error — the transaction ends");
                     end = outcome;
                 } else {
@@ -476,14 +474,26 @@ public abstract class PosTerminal {
             }
         }
 
+        /** The card's outcome: APPROVED or DECLINED — run by {@link #onOutcome}. */
+        private boolean isOutcome(TransactionStep step) {
+            return step == TransactionStep.APPROVED || step == TransactionStep.DECLINED;
+        }
+
+        /** Whether {@code step} has been delivered — what a screen has seen; under the lock. */
+        private boolean delivered(TransactionStep step) {
+            for (TransactionStepEvent e : steps.getValues(new TransactionStepEvent[0])) {
+                if (e.getStep() == step) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /**
          * Delivers {@code event} to every subscriber; its caller holds the lock. A subscriber
          * that throws doesn't reach here: its {@link SafeObserver} ({@link #steps()}) takes it.
          */
         private void deliver(TransactionStepEvent event) {
-            if (event.getStep() == TransactionStep.APPROVED) {
-                approvedReported = true;
-            }
             EmvLog.d("TransactionStep: " + event);
             traceTransactionStep(event);
             steps.onNext(event);
@@ -500,12 +510,17 @@ public abstract class PosTerminal {
         /**
          * Runs the method of a step that drives the transaction, the way {@code goToStep} runs
          * an EMV step's: synchronously, on the thread that published it, once it is delivered
-         * (outside the lock). Every other step is a report for the screen and runs nothing.
+         * (outside the lock). Two kinds are delivered by their method instead, under the lock:
+         * the outcome (with the end it decides) and the end (once the terminal is free). Every
+         * other step is a report for the screen and runs nothing.
          *
          * <pre>
          *   TRANSACTION_STARTED → onTransactionStarted: on the transaction thread, the EMV, then
-         *                         the end ({@link #onEnd})
+         *                         the end
          *   CANCELLING          → onCancelling: the card search stops
+         *   APPROVED / DECLINED → onOutcome: the card's outcome decides the end
+         *   COMPLETED / ERROR /
+         *   CANCELLED           → onEnd: the safe end — the host closed, the terminal freed
          *   ACKNOWLEDGING       → onAcknowledging: the host is told the sale is done
          *   REVERSING           → onReversing: the host is told to reverse a request
          * </pre>
@@ -523,6 +538,15 @@ public abstract class PosTerminal {
                     break;
                 case REVERSING:
                     onReversing(event);
+                    break;
+                case APPROVED:
+                case DECLINED:
+                    onOutcome(event);
+                    break;
+                case COMPLETED:
+                case ERROR:
+                case CANCELLED:
+                    onEnd();
                     break;
                 default:
                     break;
@@ -559,7 +583,34 @@ public abstract class PosTerminal {
                 t.printStackTrace();
                 publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
-                onEnd();
+                dispatchTransactionStep(decideEnd());
+            }
+        }
+
+        /**
+         * The EMV is done with the card: APPROVED or DECLINED
+         * ({@code AbstractEmvBehavior#finish*}).
+         * The transaction, not the EMV, decides its end here. Today the end follows the card's
+         * outcome — then COMPLETED — and never turns a decline into an approval. This is where an
+         * outcome that still needs the host (e.g. Mastercard single tap: the host asks for a PIN)
+         * will be decided.
+         *
+         * <p>The outcome is delivered and the end set under one hold of the lock, so a cancel
+         * can't land between them (APPROVED then CANCELLED). Dropped, with a trace note, once the
+         * transaction has ended (a cancel was first).
+         */
+        private void onOutcome(TransactionStepEvent outcome) {
+            synchronized (steps) {
+                if (end != null) {
+                    EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
+                    apduTrace().note("EMV", "EMV outcome dropped, the transaction has ended ("
+                            + end.getStep() + "): " + outcome.getStep());
+                    return;
+                }
+                apduTrace().note("EMV", "EMV finished: " + outcome.getStep()
+                        + " — the transaction completes");
+                deliver(outcome);
+                end = TransactionStepEvent.of(TransactionStep.COMPLETED);
             }
         }
 
@@ -569,22 +620,31 @@ public abstract class PosTerminal {
         }
 
         /**
-         * The safe end, the one place a transaction's end is published, on the transaction
-         * thread, once (the last thing {@link #runTransaction} does): the end decided (or ERROR
-         * "Transaction ended without an outcome" if none was set) and with it the host's side
-         * ({@link #closeOnline}); then each acknowledgement / reversal step (ACKNOWLEDGING /
-         * REVERSING), delivered and run like any step ({@link #dispatchTransactionStep}) — its
-         * call waited for, at most {@link #followUpTimeoutMs()} each, the terminal still busy;
+         * The end, once the EMV has returned (or never ran): the one an outcome, an error or a
+         * cancel set — or ERROR "Transaction ended without an outcome" if none did (a search that
+         * stopped with no card). Under the lock, so a cancel's CANCELLING can't land after it.
+         */
+        private TransactionStepEvent decideEnd() {
+            synchronized (steps) {
+                if (end == null) {
+                    end = errorEvent("Transaction ended without an outcome");
+                }
+                return end;
+            }
+        }
+
+        /**
+         * The safe end, the one place a transaction's end is delivered, on the transaction
+         * thread, once: its step ({@link #decideEnd}) is the last thing {@link #runTransaction}
+         * dispatches. The host's side closed ({@link #closeOnline}); then each acknowledgement /
+         * reversal step (ACKNOWLEDGING / REVERSING), delivered and run like any step
+         * ({@link #dispatchTransactionStep}) — its call waited for, at most {@link #followUpTimeoutMs()} each, the terminal still busy;
          * then the terminal freed and the end delivered — a screen that sees
          * COMPLETED / ERROR / CANCELLED can start the next sale at once, its host already told.
          */
         private void onEnd() {
             List<TransactionStepEvent> followUps;
-            synchronized (steps) { // a cancel's CANCELLING can't land after the end is decided
-                // A search that stopped with no outcome still ends its transaction.
-                if (end == null) {
-                    end = errorEvent("Transaction ended without an outcome");
-                }
+            synchronized (steps) {
                 followUps = closeOnline();
             }
             for (TransactionStepEvent followUp : followUps) {
@@ -675,8 +735,8 @@ public abstract class PosTerminal {
          */
         private List<TransactionStepEvent> closeOnline() {
             List<TransactionStepEvent> followUps = new ArrayList<>();
-            boolean completedApproved = approvedReported
-                    && end.getStep() == TransactionStep.COMPLETED;
+            boolean completedApproved = end.getStep() == TransactionStep.COMPLETED
+                    && delivered(TransactionStep.APPROVED);
             for (int i = 0; i < online.size(); i++) {
                 OnlineRequest request = online.get(i);
                 AuthResult answer = request.answer;
