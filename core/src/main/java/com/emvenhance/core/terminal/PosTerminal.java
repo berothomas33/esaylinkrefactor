@@ -264,26 +264,13 @@ public abstract class PosTerminal {
 
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
-            if (isOutcome(step)) {
+            if (isOutcome(step) || step == TransactionStep.ERROR) {
                 publish(outcome);
                 return;
             }
-            synchronized (steps) {
-                if (end != null) {
-                    EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
-                    apduTrace().note("EMV", "EMV outcome dropped, the transaction has ended ("
-                            + end.getStep() + "): " + step);
-                    return;
-                }
-                if (step == TransactionStep.ERROR) {
-                    apduTrace().note("EMV", "EMV finished with an error — the transaction ends");
-                    end = outcome;
-                } else {
-                    apduTrace().note("EMV", "EMV finished with no outcome (" + step
-                            + ") — the transaction ends with an error");
-                    end = errorEvent("EMV finished with no outcome: " + step);
-                }
-            }
+            apduTrace().note("EMV", "EMV finished with no outcome (" + step
+                    + ") — the transaction ends with an error");
+            publish(errorEvent("EMV finished with no outcome: " + step));
         }
 
         private boolean isOutcome(TransactionStep step) {
