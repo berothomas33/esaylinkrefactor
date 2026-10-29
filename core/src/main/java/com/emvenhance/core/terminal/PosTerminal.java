@@ -500,6 +500,7 @@ public abstract class PosTerminal {
          *   TRANSACTION_STARTED → onTransactionStarted: on the transaction thread, the EMV, then
          *                         the end
          *   CANCELLING          → onCancelling: the card search stops
+         *   ONLINE_REQUIRED     → onOnlineRequired: before the request is named and sent (DCC)
          *   APPROVED / DECLINED → onOutcome: the card's outcome decides the end
          *   COMPLETED / ERROR /
          *   CANCELLED           → onEnd: the safe end — the host closed, the terminal freed
@@ -520,6 +521,9 @@ public abstract class PosTerminal {
                     break;
                 case REVERSING:
                     onReversing(event);
+                    break;
+                case ONLINE_REQUIRED:
+                    onOnlineRequired(event);
                     break;
                 case APPROVED:
                 case DECLINED:
@@ -594,6 +598,16 @@ public abstract class PosTerminal {
                 deliver(outcome);
                 end = TransactionStepEvent.of(TransactionStep.COMPLETED);
             }
+        }
+
+        /**
+         * The EMV is about to go online ({@link PosTerminal#authorize}): this runs on the
+         * transaction thread, before the request is named, recorded and sent, while the kernel
+         * waits for the host's answer. Nothing to do today. This is where a step the terminal
+         * owns before going online belongs — e.g. a DCC offer to the cardholder that changes the
+         * currency and amount sent.
+         */
+        private void onOnlineRequired(TransactionStepEvent onlineRequired) {
         }
 
         /** The transaction was cancelled: its card search stops; the EMV winds down at its next step. */

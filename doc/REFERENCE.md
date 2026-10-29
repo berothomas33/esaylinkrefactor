@@ -411,6 +411,7 @@ switch (event.getStep()) {
     case CANCELLING:                     onCancelling();              // the card search stops
     case ACKNOWLEDGING:                  onAcknowledging(event);      // the host is told the sale is done
     case REVERSING:                      onReversing(event);          // the host reverses a request
+    case ONLINE_REQUIRED:                onOnlineRequired(event);     // before the request is sent (DCC later)
     case APPROVED: case DECLINED:        onOutcome(event);            // the card's outcome decides the end
     case COMPLETED: case ERROR: case CANCELLED: onEnd();              // the safe end
     default: // a report for the screen
@@ -420,7 +421,7 @@ switch (event.getStep()) {
 - الخطوة العادية تُسلَّم أولًا (داخل الـ lock) ثم تُشغَّل دالتها خارج الـ lock.
 - **استثناءان تسلّمهما دالتهما بنفسها:** النتيجة (`onOutcome` تسلّم APPROVED / DECLINED وتضبط النهاية COMPLETED في مسكة واحدة للـ lock، فلا يقع إلغاء بينهما)، والنهاية (`onEnd` تسلّمها بعد أن يصبح الجهاز متاحًا).
 - خطوة النهاية لا يرسلها إلى الـ dispatch إلا الـ `finally` الخاص بـ `runTransaction` (عبر `decideEnd()`)؛ أما `publish` لخطوة نهاية فيحفظها في `end` فقط.
-- `ONLINE_*` تبقى تقارير: هي داخل `authorize` التي تعيد الرد مباشرة إلى الـ kernel من أجل الـ 2nd GENERATE AC (§5.5)، ودالة خطوة لا تعيد قيمة.
+- `ONLINE_REQUIRED` ← `onOnlineRequired` (29/10): تُنشر في أول `authorize`، فتعمل دالتها على الـ transaction thread **قبل** تسمية الطلب وتسجيله وإرساله، والـ kernel ينتظر رد الـ host. فارغة اليوم، وهي المكان المحجوز لأي عمل يملكه الجهاز قبل الاتصال بالـ host، مثل عرض **DCC** على حامل البطاقة (يغيّر العملة والمبلغ المرسلين). أما `authorize` نفسها فتبقى استدعاءً يعيد الرد مباشرة إلى الـ kernel من أجل الـ 2nd GENERATE AC (§5.5)، ولذلك تبقى `ONLINE_PROCESSING` / `ONLINE_COMPLETED` تقارير.
 
 | الخطوة | من ينشرها |
 |---|---|
@@ -885,7 +886,7 @@ the card: TC (approved) or AAC (declined)
 finishApproved / finishDeclined
 ```
 
-نوقش في 28/10: هذا الشكل آمن (يُسجَّل الطلب قبل إرساله) ومريح للـ 2nd GAC، فبقي كما هو؛ ولن تُقسَّم `PosTerminal.authorize`. ولذلك تبقى `ONLINE_*` تقارير لا خطوات لها دوال (§2.6).
+نوقش في 28/10: هذا الشكل آمن (يُسجَّل الطلب قبل إرساله) ومريح للـ 2nd GAC، فبقي كما هو؛ ولن تُقسَّم `PosTerminal.authorize`. لـ `ONLINE_REQUIRED` دالة (`onOnlineRequired`، المكان المحجوز لـ DCC قبل الإرسال)، أما `ONLINE_PROCESSING` / `ONLINE_COMPLETED` فتقارير (§2.6).
 
 `runIssuerAuthentication`: `tx.issuerResponse = online` ← `goToStep(ISSUER_AUTHENTICATION)` ← `onIssuerAuthentication` ← `completeIssuerAuthentication`. إن أُلغيت الخطوة يُنفَّذ الـ 2nd GAC مع ذلك ("issuer authentication step did not run — completing with the card anyway").
 
