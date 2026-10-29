@@ -256,11 +256,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
-        // Chip/CLSS: asked by startOnlineProcess() after the 1st GENERATE AC — the host round
-        // trip runs here, in its own step.
-        if (tx.onlineRequested) {
-            tx.lastAuth = authorizeOnline();
-        }
+        // Chip/CLSS: asked by startOnlineProcess() after the 1st GENERATE AC (the only place
+        // it publishes this step) — the host round trip runs here, in its own step.
+        tx.lastAuth = authorizeOnline();
     }
 
     @Override
@@ -1853,12 +1851,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         // Fail closed: if that step doesn't run (the transaction was cancelled), nothing goes
         // to the host and the answer is online failed.
         tx.lastAuth = null;
-        tx.onlineRequested = true;
-        try {
-            goToStep(EmvStep.START_ONLINE_PROCESS, null);
-        } finally {
-            tx.onlineRequested = false;
-        }
+        goToStep(EmvStep.START_ONLINE_PROCESS, null);
         if (tx.lastAuth == null) {
             engine().apduTrace().note("EMV", "online step did not run — online failed");
         }

@@ -95,13 +95,12 @@ final class PaxKernelSession {
     String lastIccData;
 
     // ─── Flags ───────────────────────────────────────────────────────────
-    // Each repeats something another field already says (BACKLOG 28 / 41): onlineRequested =
-    // always true where it's read, scriptsProcessed = pendingScripts. Kept for now.
 
-    /** True while startOnlineProcess waits for the host step. */
-    boolean onlineRequested;
-
-    /** SCRIPT_PROCESSING already ran in its own step: completeApproved doesn't announce it. */
+    /**
+     * SCRIPT_PROCESSING already ran in its own step (contactless 2nd tap): completeApproved
+     * doesn't announce it again. Not the same as {@link #pendingScripts}, which is null both
+     * before the scripts are handed over and after they ran.
+     */
     boolean scriptsProcessed;
 
     // ─── The types it holds ──────────────────────────────────────────────
