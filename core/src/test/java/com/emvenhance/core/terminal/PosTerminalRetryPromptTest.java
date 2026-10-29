@@ -59,7 +59,7 @@ public class PosTerminalRetryPromptTest {
 
     @Test
     public void searchAfterARetryCarriesThePrompt() throws Exception {
-        engine.requestRetry(config(), "See phone — verify on your phone, then tap again");
+        terminal.behavior.requestRetry(config(), "See phone — verify on your phone, then tap again");
 
         terminal.releases.release(); // the first search returns: the kernel has returned
         assertTrue("no second search", terminal.searches.tryAcquire(5, TimeUnit.SECONDS));

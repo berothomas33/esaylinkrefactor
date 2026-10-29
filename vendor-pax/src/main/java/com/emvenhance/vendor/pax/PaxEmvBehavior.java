@@ -10,7 +10,6 @@ import com.emvenhance.core.emv.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
-import com.emvenhance.core.emv.EmvEngine;
 import com.emvenhance.core.emv.EmvStep;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
@@ -2126,7 +2125,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     // [CONTACTLESS — only checkContactlessResult() calls this; no CDCVM concept in contact]
     public void seePhone() {
-        int retries = engine().getRetryCount();
+        int retries = retryCount();
         if (retries >= MAX_TAP_RETRIES) {
             engine().apduTrace().note("PICC", "SEE PHONE again after " + retries
                     + " retries — declining");
@@ -2148,7 +2147,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     /** Incomplete/glitchy tap (card pulled early, read error) — re-present the same interface. */
     // [CONTACTLESS — only checkContactlessResult() calls this]
     public void tryAgain() {
-        int retries = engine().getRetryCount();
+        int retries = retryCount();
         if (retries >= MAX_TAP_RETRIES) {
             // A card that always fails ends in a decline, not an endless "tap again".
             LogUtils.w(TAG, "Try Again after " + retries + " retries — declining");
@@ -2171,7 +2170,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * Requests a same-transaction retry through {@link EmvEngine#requestRetry} — never a new
+     * Requests a same-transaction retry ({@link #requestRetry}) — never a new
      * {@code startTransaction()} call, so it can't race the attempt that's still unwinding.
      */
     private void retryWithMode(EntryMethod mode, String reason, String prompt) {
@@ -2180,7 +2179,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             return;
         }
         LogUtils.i(TAG, reason);
-        engine().requestRetry(activeConfig.withMode(mode), prompt);
+        requestRetry(activeConfig.withMode(mode), prompt);
     }
 
     // [SHARED — both checkContactResult() and checkContactlessResult() call this]

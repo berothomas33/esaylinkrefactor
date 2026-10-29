@@ -4,13 +4,14 @@ import io.reactivex.rxjava3.subjects.PublishSubject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
-import com.emvenhance.core.emv.EmvEngine;
+import com.emvenhance.core.emv.ApduTrace;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.CommunicationBehavior;
@@ -40,7 +41,7 @@ public class PosTerminalRetryLoopTest {
     private final AtomicInteger deepestNesting = new AtomicInteger();
     private final CountDownLatch ended = new CountDownLatch(1);
     /** What the EMV on the card found does: ask for a retry, maybe cancel first. */
-    private final AtomicReference<java.util.function.BiConsumer<EmvEngine, PosTerminal.Transaction>>
+    private final AtomicReference<java.util.function.BiConsumer<AbstractEmvBehavior, PosTerminal.Transaction>>
             onStart = new AtomicReference<>();
     private final AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
     private final List<Thread> searchThreads = new CopyOnWriteArrayList<>();
@@ -51,9 +52,9 @@ public class PosTerminalRetryLoopTest {
     @Test
     public void aRetryIsTheNextTurnOfTheLoopNotASearchInsideTheLastOne() throws Exception {
         AtomicInteger starts = new AtomicInteger();
-        onStart.set((engine, transaction) -> {
+        onStart.set((behavior, transaction) -> {
             if (starts.incrementAndGet() == 1) {
-                engine.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
+                behavior.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
                         EntryMethod.MAGSTRIPE), "Chip not readable — swipe the card");
             } else {
                 transaction.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
@@ -80,9 +81,9 @@ public class PosTerminalRetryLoopTest {
     @Test
     public void everyAttemptRunsOnTheTransactionThreadNotTheCaller() throws Exception {
         AtomicInteger starts = new AtomicInteger();
-        onStart.set((engine, transaction) -> {
+        onStart.set((behavior, transaction) -> {
             if (starts.incrementAndGet() == 1) {
-                engine.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
+                behavior.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
                         EntryMethod.MAGSTRIPE), "Chip not readable — swipe the card");
             } else {
                 transaction.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
@@ -114,7 +115,7 @@ public class PosTerminalRetryLoopTest {
 
     @Test
     public void anAttemptWithNoOutcomeEndsWithAnError() throws Exception {
-        onStart.set((engine, transaction) -> { }); // EMV reports nothing
+        onStart.set((behavior, transaction) -> { }); // EMV reports nothing
         TestTerminal terminal = new TestTerminal();
 
         terminal.acceptCard(TransactionType.SALE, 1000);
@@ -129,10 +130,10 @@ public class PosTerminalRetryLoopTest {
     @Test
     public void aRetryAskedForByACancelledTransactionNeverSearches() throws Exception {
         CountDownLatch saleKnown = new CountDownLatch(1);
-        onStart.set((engine, transaction) -> {
+        onStart.set((behavior, transaction) -> {
             awaitQuietly(saleKnown);
             sale.get().cancel(); // the screen cancels while EMV is running
-            engine.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
+            behavior.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
                     EntryMethod.CHIP), "Insert the card");
         });
         TestTerminal terminal = new TestTerminal();
@@ -146,6 +147,65 @@ public class PosTerminalRetryLoopTest {
         TransactionStepEvent end = events.get(events.size() - 1);
         assertEquals("Transaction cancelled", end.getMessage());
         assertFalse(terminal.isBusy());
+    }
+
+    @Test
+    public void aRetryIsMarkedInTheTraceAndItsGenerateAcIsAFirstOneAgain() throws Exception {
+        AtomicInteger starts = new AtomicInteger();
+        AtomicReference<ApduTrace> trace = new AtomicReference<>();
+        onStart.set((behavior, transaction) -> {
+            trace.set(behavior.engine().apduTrace());
+            generateAc(trace.get());
+            if (starts.incrementAndGet() == 1) {
+                trace.get().note("PICC", "card communication error -2");
+                behavior.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
+                        EntryMethod.CONTACTLESS), "Card not read — tap again");
+            } else {
+                transaction.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
+            }
+        });
+        TestTerminal terminal = new TestTerminal();
+        assumeTrue("trace records in debug builds only",
+                terminal.behavior.engine().apduTrace().isEnabled());
+
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        assertTrue(ended.await(5, TimeUnit.SECONDS));
+
+        String text = trace.get().text();
+        assertTrue("the failed attempt stays", text.contains("card communication error -2"));
+        assertTrue(text.contains("--- RETRY #1"));
+        assertTrue(text.indexOf("communication error") < text.indexOf("RETRY #1"));
+        assertFalse("the retry's GENERATE AC is a 1st one", text.contains("2nd GENERATE AC"));
+    }
+
+    @Test
+    public void theRetryCountStartsAtZeroInEachTransaction() throws Exception {
+        List<Integer> counts = new CopyOnWriteArrayList<>();
+        onStart.set((behavior, transaction) -> {
+            counts.add(behavior.retryCount());
+            if (counts.size() == 1) {
+                behavior.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
+                        EntryMethod.MAGSTRIPE), "Chip not readable — swipe the card");
+            } else {
+                transaction.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
+            }
+        });
+        TestTerminal terminal = new TestTerminal();
+
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        assertTrue(ended.await(5, TimeUnit.SECONDS));
+        terminal.acceptCard(TransactionType.SALE, 1000);
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (countEnds() < 2 && System.currentTimeMillis() < deadline) {
+            Thread.yield();
+        }
+
+        assertEquals("first transaction: 0 then 1; the next starts again at 0",
+                Arrays.asList(0, 1, 0), counts);
+    }
+
+    private static void generateAc(ApduTrace trace) {
+        trace.command("PICC", new byte[] {(byte) 0x80, (byte) 0xAE, (byte) 0x80, 0x00}, 0, null, 0);
     }
 
     private static void awaitQuietly(CountDownLatch latch) {
@@ -220,7 +280,7 @@ public class PosTerminalRetryLoopTest {
                 search((TransactionConfig) args[0], (CardSearchListener) args[1]);
             }
             if (name.equals("start")) {
-                onStart.get().accept(self.get().engine(), (PosTerminal.Transaction) args[2]);
+                onStart.get().accept(self.get(), (PosTerminal.Transaction) args[2]);
             }
             return null;
         }));

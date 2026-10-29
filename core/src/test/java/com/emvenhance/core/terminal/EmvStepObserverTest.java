@@ -256,9 +256,9 @@ public class EmvStepObserverTest {
         session.attempt(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
-        engine.requestRetry(CONFIG, "Card not read — tap again"); // no ERROR, no COMPLETED
-        // The retry is the next attempt, as PosTerminal runs it: prepare, then start.
-        session.attempt(engine.consumePendingRetry(), CardPresence.chip());
+        // No ERROR, no COMPLETED: the next attempt, as the run loop takes a retry — prepare,
+        // then start.
+        session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
                 EmvStep.READ_APPLICATION_DATA, EmvStep.TRANSACTION_COMPLETION), vendor.ran);

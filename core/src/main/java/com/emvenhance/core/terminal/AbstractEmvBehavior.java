@@ -42,7 +42,7 @@ import io.reactivex.rxjava3.observers.DisposableObserver;
  * {@link EmvStep#SEARCH_CARD} (the vendor's {@code onSearchCard} polls, reporting through
  * {@link #cardSearchListener()}); the card found starts the first post-search step, and the
  * vendor chain continues via {@link #goToStep}. A retry the kernel asks for
- * ({@link EmvEngine#requestRetry}) starts the next attempt only once the kernel has returned.
+ * ({@link #requestRetry}) starts the next attempt only once the kernel has returned.
  */
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
@@ -68,6 +68,19 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      */
     private boolean searchRequested;
 
+    // ─── Retry: the kernel asks, the run loop takes it once the kernel has returned ──
+    /** The next attempt's config ({@link #requestRetry}); taken by {@link #nextAttempt}. */
+    @Nullable
+    private volatile TransactionConfig pendingRetry;
+    /**
+     * What the next search shows instead of its usual prompt ({@link #searchCard}): set with
+     * each retry, so the search after one shows that retry's own.
+     */
+    @Nullable
+    private volatile String retryPrompt;
+    /** Retries taken in this transaction; transaction thread only. */
+    private int retryCount;
+
     /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
     private final CompositeDisposable disposables = new CompositeDisposable();
 
@@ -88,6 +101,9 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      */
     @Override
     public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
+        pendingRetry = null;
+        retryPrompt = null;
+        retryCount = 0;
         TransactionConfig attempt = config;
         while (attempt != null) {
             if (prepare(attempt, transaction)) {
@@ -119,7 +135,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * vendor's search; the card it finds starts the EMV ({@link #start}) before this returns.
      */
     private void searchCard() {
-        String prompt = engine.consumeRetryPrompt();
+        String prompt = retryPrompt;
         String message = prompt != null ? prompt : waitingMessage(activeConfig);
         cardSearch = new CardSearchReporter(transaction, prompt, message);
         searchRequested = true;
@@ -140,7 +156,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      */
     @Nullable
     private TransactionConfig nextAttempt() {
-        TransactionConfig retry = engine.consumePendingRetry();
+        TransactionConfig retry = pendingRetry;
+        pendingRetry = null;
         if (retry == null) {
             return null;
         }
@@ -149,7 +166,28 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             engine.apduTrace().note("EMV", "retry dropped — the transaction is over");
             return null;
         }
+        // Same transaction, so the trace carries on: the failed attempt stays above the new one.
+        engine.apduTrace().transactionEvent("RETRY #" + ++retryCount);
+        // ...but the card session starts over: the next GENERATE AC is a 1st one again.
+        engine.apduTrace().beginAttempt();
         return retry;
+    }
+
+    /**
+     * Asks for the transaction to start again from the card search with an adjusted config —
+     * e.g. PAX's {@code fallback()} forcing magstripe, or {@code tryAnotherInterface()} forcing
+     * contact — showing {@code prompt} instead of the usual "insert, tap, or swipe". Safe from
+     * deep inside a kernel callback: it only records the request; {@link #run} starts the next
+     * attempt once the kernel has returned (EMV Book B's Entry Point), on the same thread.
+     */
+    protected final void requestRetry(TransactionConfig adjustedConfig, @Nullable String prompt) {
+        pendingRetry = adjustedConfig;
+        retryPrompt = prompt;
+    }
+
+    /** Retries taken so far in this transaction (0 on the first attempt). */
+    protected final int retryCount() {
+        return retryCount;
     }
 
     /**
