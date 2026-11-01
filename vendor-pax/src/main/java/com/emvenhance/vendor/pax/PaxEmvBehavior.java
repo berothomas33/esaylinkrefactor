@@ -512,7 +512,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 return ret;
             }
         }
-        if (needsHostWithoutArqc(transResultEnum, resultCode)) {
+        if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
             noteOnlineWithoutArqc(transResultEnum);
             OnlineResultWrapper online = startOnlineProcess();
             tx.clsTransResult = hostOutcome(online, cvmResult);
@@ -565,24 +565,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         tx.clsTransResult = kernel.contactless.issuerScriptProcessing(issuerRspData);
     }
 
-    private boolean needsHostWithoutArqc(TransResultEnum result, int resultCode) {
-        if (resultCode != RetCode.EMV_OK) {
-            return false;
-        }
-        if (result == TransResultEnum.RESULT_OFFLINE_APPROVED) {
-            return true;
-        }
-        return result == TransResultEnum.RESULT_OFFLINE_DENIED && isRefund();
-    }
-
-    private boolean isRefund() {
-        return activeConfig != null && activeConfig.getType() == TransactionType.REFUND;
-    }
-
     private void noteOnlineWithoutArqc(TransResultEnum cardResult) {
-        String why = isRefund() ? "refund" : "kernel approved offline";
-        LogUtils.i(TAG, "Going online without an ARQC (" + why + ", card result " + cardResult + ")");
-        engine().apduTrace().note("EMV", why + " — card result " + cardResult
+        LogUtils.i(TAG, "Going online without an ARQC (kernel approved offline, card result "
+                + cardResult + ")");
+        engine().apduTrace().note("EMV", "kernel approved offline — card result " + cardResult
                 + ", sending to the host (online-only terminal)");
     }
 
@@ -846,7 +832,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (resultCode != RetCode.EMV_OK) {
             return resultCode;
         }
-        if (needsHostWithoutArqc(transResultEnum, resultCode)) {
+        if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
             noteOnlineWithoutArqc(transResultEnum);
             OnlineResultWrapper online = startOnlineProcess();
             tx.transResult = hostOutcome(online, tx.transResult.getCvmResult());
