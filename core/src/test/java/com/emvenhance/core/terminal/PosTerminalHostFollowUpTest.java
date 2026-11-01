@@ -238,7 +238,7 @@ public class PosTerminalHostFollowUpTest {
             goOnline();
             t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
         });
-        terminal.followUpTimeoutMs = 200;
+        terminal.closeAtHostTimeoutMs = 200;
 
         long started = System.currentTimeMillis();
         terminal.runOne();
@@ -321,11 +321,11 @@ public class PosTerminalHostFollowUpTest {
         volatile TransactionStep lastEnd;
         volatile List<TransactionStep> lastSteps;
         volatile Thread transactionThread;
-        volatile long followUpTimeoutMs = 15_000;
+        volatile long closeAtHostTimeoutMs = 15_000;
 
         @Override
-        protected long followUpTimeoutMs() {
-            return followUpTimeoutMs;
+        protected long closeAtHostTimeoutMs() {
+            return closeAtHostTimeoutMs;
         }
 
         TestTerminal(Consumer<Transaction> script) {

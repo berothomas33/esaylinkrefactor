@@ -29,6 +29,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 public abstract class PosTerminal {
 
@@ -89,7 +90,7 @@ public abstract class PosTerminal {
         return 90_000;
     }
 
-    protected long followUpTimeoutMs() {
+    protected long closeAtHostTimeoutMs() {
         return 15_000;
     }
 
@@ -377,22 +378,32 @@ public abstract class PosTerminal {
             }
         }
 
-        private void onAcknowledging(TransactionStepEvent acknowledging) {
-            TransactionConfig sent = sentRequest(acknowledging);
-            if (sent == null) {
-                return;
-            }
-            sendFollowUp(acknowledging.getMessage(),
-                    Completable.defer(() -> communication.acknowledge(sent)));
+        private void onAcknowledging(TransactionStepEvent step) {
+            closeAtHost(step, communication::acknowledge);
         }
 
-        private void onReversing(TransactionStepEvent reversing) {
-            TransactionConfig sent = sentRequest(reversing);
+        private void onReversing(TransactionStepEvent step) {
+            closeAtHost(step, communication::reverse);
+        }
+
+        private void closeAtHost(TransactionStepEvent step,
+                Function<TransactionConfig, Completable> call) {
+            TransactionConfig sent = sentRequest(step);
             if (sent == null) {
                 return;
             }
-            sendFollowUp(reversing.getMessage(),
-                    Completable.defer(() -> communication.reverse(sent)));
+            String what = step.getMessage();
+            try {
+                call.apply(sent).timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
+                        .blockingAwait();
+                EmvLog.d(what + " sent");
+                apduTrace().note("HOST", what + " sent");
+            } catch (RuntimeException e) {
+                EmvLog.d(what + " failed: " + e);
+                apduTrace().note("HOST", what + " failed — not retried: "
+                        + (e.getCause() instanceof TimeoutException
+                                ? "the host didn't answer in time" : e.getMessage()));
+            }
         }
 
         @Nullable
@@ -407,7 +418,7 @@ public abstract class PosTerminal {
             return null;
         }
 
-        private static TransactionStepEvent followUpStep(TransactionStep step, String what,
+        private static TransactionStepEvent closeAtHostStep(TransactionStep step, String what,
                 String id) {
             return TransactionStepEvent.builder(step)
                     .message(what + " " + id)
@@ -433,7 +444,7 @@ public abstract class PosTerminal {
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
                     followUps.add(
-                            followUpStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id));
+                            closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id));
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
                             + ": the host could not have approved it — " + answer.getMessage());
@@ -443,7 +454,7 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    followUps.add(followUpStep(TransactionStep.REVERSING, "Reversal", id));
+                    followUps.add(closeAtHostStep(TransactionStep.REVERSING, "Reversal", id));
                 }
             }
             return followUps;
@@ -458,19 +469,6 @@ public abstract class PosTerminal {
 
         OnlineRequest(TransactionConfig sent) {
             this.sent = sent;
-        }
-    }
-
-    private void sendFollowUp(String what, Completable call) {
-        try {
-            call.timeout(followUpTimeoutMs(), TimeUnit.MILLISECONDS).blockingAwait();
-            EmvLog.d(what + " sent");
-            apduTrace().note("HOST", what + " sent");
-        } catch (RuntimeException e) {
-            EmvLog.d(what + " failed: " + e);
-            apduTrace().note("HOST", what + " failed — not retried: "
-                    + (e.getCause() instanceof TimeoutException
-                            ? "the host didn't answer in time" : e.getMessage()));
         }
     }
 
