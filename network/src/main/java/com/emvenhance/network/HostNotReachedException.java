@@ -1,4 +1,4 @@
-package com.emvenhance.core.host;
+package com.emvenhance.network;
 
 public class HostNotReachedException extends RuntimeException {
 

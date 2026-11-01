@@ -10,7 +10,6 @@ import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.HostNotReachedException;
 import com.emvenhance.network.crypto.AesEnvelopeCrypto;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
 import com.emvenhance.network.model.AcknowledgementRequest;
@@ -81,6 +80,19 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
+        return Single.defer(() -> send(config)).onErrorReturn(SaleCommunicationBehavior::answerOf);
+    }
+
+    static AuthResult answerOf(Throwable e) {
+        String message = e.getMessage();
+        if (e instanceof HostNotReachedException) {
+            return AuthResult.notSent(message != null ? message
+                    : "Online failed: not sent to the host");
+        }
+        return AuthResult.failed(message != null ? message : "Online failed");
+    }
+
+    private Single<AuthResult> send(TransactionConfig config) {
         String notSent = whyNotSent(config);
         if (notSent != null) {
             Log.w(TAG, notSent + " — not sent to the host");

@@ -10,7 +10,6 @@ import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.HostNotReachedException;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.emv.ApduTrace;
@@ -80,12 +79,6 @@ public abstract class PosTerminal {
     }
 
     private static AuthResult failureOf(Exception e) {
-        Throwable notReached = e instanceof HostNotReachedException ? e : e.getCause();
-        if (notReached instanceof HostNotReachedException) {
-            String message = notReached.getMessage();
-            return AuthResult.notSent(message != null ? message
-                    : "Online failed: not sent to the host");
-        }
         if (e.getCause() instanceof TimeoutException) {
             return AuthResult.failed("Online failed: the host didn't answer in time");
         }
