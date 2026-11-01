@@ -57,6 +57,6 @@ public class EmvEngineTraceTest {
 
     /** An engine that never reaches a host. */
     private static EmvEngine newEngine() {
-        return new EmvEngine(config -> AuthResult.failed("no host"));
+        return new EmvEngine();
     }
 }

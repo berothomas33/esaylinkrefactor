@@ -302,7 +302,7 @@ public class PosTerminalHostFollowUpTest {
     }
 
     private AuthResult goOnline() {
-        return terminal.behavior.engine().authorize(
+        return terminal.authorize(
                 new TransactionConfig(TransactionType.SALE, 1000,
                         com.emvenhance.core.card.EntryMethod.CHIP));
     }

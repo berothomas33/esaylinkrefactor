@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *                        TERMINAL_INITIALIZATION → SEARCH_CARD (vendor polling)
  *                        → card found → the EMV steps → finish* (the outcome)
  *                        → a retry the kernel asked for: SEARCH_CARD again
- *                        └── behavior → engine.authorize → PosTerminal.authorize → host
+ *                        └── behavior.authorizeOnline → PosTerminal.authorize → host
  *                 └── onEnd()                                   ← the end, the terminal free
  * </pre>
  *
@@ -98,7 +98,7 @@ public abstract class PosTerminal {
         this.behavior = behavior;
         this.communication = communication;
         this.printer = printer;
-        behavior.attach(new EmvEngine(this::authorize));
+        behavior.attach(new EmvEngine(), this::authorize);
         initializeVendor();
     }
 

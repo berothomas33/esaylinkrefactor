@@ -1,6 +1,4 @@
 package com.emvenhance.core.emv;
-import com.emvenhance.core.transaction.TransactionConfig;
-import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
 
 import androidx.annotation.Nullable;
@@ -8,8 +6,8 @@ import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.subjects.PublishSubject;
 
 /**
- * The EMV side of one terminal: the {@link #emvSteps()} observable, the APDU trace and the way
- * online. No vendor logic, and nothing of the transaction: it holds no
+ * The EMV side of one terminal: the {@link #emvSteps()} observable and the APDU trace. No vendor
+ * logic, nothing of the host, and nothing of the transaction: it holds no
  * transaction state and publishes no transaction step. Whether a step may still run is asked of
  * the transaction before it is published here ({@code AbstractEmvBehavior#goToStep}).
  *
@@ -18,10 +16,8 @@ import io.reactivex.rxjava3.subjects.PublishSubject;
  * behavior keeps this engine (given once, {@code AbstractEmvBehavior#attach}); {@code PosTerminal}
  * reaches it through {@code AbstractEmvBehavior#engine()}.
  *
- * <p>The one way back out is {@link #authorize}: a behavior goes online from inside the kernel,
- * so the engine hands that request to the {@link Authorizer} {@code PosTerminal} gave it —
- * {@code PosTerminal#authorize}, which holds the communication port. The engine never holds the
- * port itself.
+ * <p>The way online isn't here: {@code PosTerminal} hands it to the behavior itself
+ * ({@code AbstractEmvBehavior#attach}).
  */
 public final class EmvEngine {
 
@@ -31,17 +27,7 @@ public final class EmvEngine {
      */
     private final PublishSubject<EmvStepEvent> emvSteps = PublishSubject.create();
 
-    private final Authorizer authorizer;
     private final ApduTrace apduTrace = new ApduTrace();
-
-    /** How the engine goes online for its behavior — {@code PosTerminal#authorize}. */
-    public interface Authorizer {
-        AuthResult authorize(TransactionConfig config);
-    }
-
-    public EmvEngine(Authorizer authorizer) {
-        this.authorizer = authorizer;
-    }
 
     public Observable<EmvStepEvent> emvSteps() {
         return emvSteps.hide();
@@ -75,14 +61,5 @@ public final class EmvEngine {
 
     public void notifyEmvStep(EmvStep step) {
         notifyEmvStep(step, null);
-    }
-
-    /**
-     * Goes online for the behavior ({@code AbstractEmvBehavior#authorizeOnline}) through the
-     * {@link Authorizer} {@code PosTerminal} gave this engine — the host call and its
-     * {@code ONLINE_*} steps live there.
-     */
-    public AuthResult authorize(TransactionConfig config) {
-        return authorizer.authorize(config);
     }
 }

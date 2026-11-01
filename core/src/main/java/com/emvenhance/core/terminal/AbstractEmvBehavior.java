@@ -84,9 +84,21 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     /** This behavior's {@link EmvEngine#emvSteps()} subscription — see {@link #initEmvObserver}. */
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    /** The EMV engine, given once by {@link PosTerminal}'s constructor; it never changes. */
-    public final void attach(EmvEngine engine) {
+    /** How the behavior goes online: {@link PosTerminal#authorize}, given with the engine. */
+    public interface Authorizer {
+        AuthResult authorize(TransactionConfig config);
+    }
+
+    /** The way to the host, from {@link #attach}; it never changes. */
+    private Authorizer authorizer;
+
+    /**
+     * The EMV engine and the way to the host, given once by {@link PosTerminal}'s constructor;
+     * they never change.
+     */
+    public final void attach(EmvEngine engine, Authorizer authorizer) {
         this.engine = engine;
+        this.authorizer = authorizer;
     }
 
     /** The engine {@link #attach} gave: the one place it is kept. */
@@ -382,8 +394,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * the vendor's {@link #readIccTag} ({@link #buildField55}) and attaches it to
      * {@link #activeConfig}, so no request reaches the host without it; with no tag at all the
      * request is online failed instead. Then {@link #addOnlineRequestData} lets the vendor
-     * attach anything else it read, and {@link EmvEngine#authorize} hands it to
-     * {@link PosTerminal#authorize}, which sends it to the host.
+     * attach anything else it read, and the {@link Authorizer} {@link PosTerminal} gave
+     * ({@link PosTerminal#authorize}) sends it to the host and returns its answer here.
      *
      * <p>Call it right after the 1st GENERATE AC returned the ARQC, when the kernel asks to go
      * online (the PAX kernel's {@code startOnlineProcess} callback, or {@code onStartOnlineProcess}).
@@ -406,7 +418,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return engine.authorize(config);
+        return authorizer.authorize(config);
     }
 
     /**

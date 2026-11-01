@@ -27,7 +27,7 @@ final class TestSession {
     private final List<TransactionStepEvent> published = new CopyOnWriteArrayList<>();
     private PosTerminal.Transaction transaction;
 
-    TestSession(AbstractEmvBehavior behavior, EmvEngine.Authorizer authorizer) {
+    TestSession(AbstractEmvBehavior behavior, AbstractEmvBehavior.Authorizer authorizer) {
         this.behavior = behavior;
         this.terminal = new Terminal(behavior, authorizer);
         this.engine = behavior.engine();
@@ -103,9 +103,9 @@ final class TestSession {
     /** Goes online through the test's authorizer. */
     private static final class Terminal extends PosTerminal {
 
-        private final EmvEngine.Authorizer authorizer;
+        private final AbstractEmvBehavior.Authorizer authorizer;
 
-        Terminal(AbstractEmvBehavior behavior, EmvEngine.Authorizer authorizer) {
+        Terminal(AbstractEmvBehavior behavior, AbstractEmvBehavior.Authorizer authorizer) {
             super(behavior, null, null);
             this.authorizer = authorizer;
         }

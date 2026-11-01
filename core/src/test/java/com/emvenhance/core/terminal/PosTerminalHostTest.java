@@ -32,7 +32,7 @@ import org.junit.Test;
 
 /**
  * The terminal owns the host and the printer: a behavior's online request reaches the host
- * through {@code engine.authorize → PosTerminal.authorize}, and receipts go to the terminal's
+ * through {@code authorizeOnline → PosTerminal.authorize}, and receipts go to the terminal's
  * own printer.
  */
 public class PosTerminalHostTest {
@@ -58,8 +58,9 @@ public class PosTerminalHostTest {
         assertTrue(result.isApproved());
         assertEquals(1, sentToHost.size());
         TransactionConfig sent = sentToHost.get(0);
-        assertEquals(CONFIG.getAmountMinor(), sent.getAmountMinor());
-        assertEquals(CONFIG.getMode(), sent.getMode());
+        // The transaction's own config, as the behavior holds it (acceptCard: any card).
+        assertEquals(1000, sent.getAmountMinor());
+        assertEquals(EntryMethod.ANY, sent.getMode());
         assertNotNull("named before it is sent", sent.getAsyncRequestId());
         assertEquals(Arrays.asList(TransactionStep.TRANSACTION_STARTED, TransactionStep.ONLINE_REQUIRED,
                 TransactionStep.ONLINE_PROCESSING, TransactionStep.ONLINE_COMPLETED),
@@ -71,7 +72,7 @@ public class PosTerminalHostTest {
         TestTerminal terminal = new TestTerminal(
                 config -> Single.error(new RuntimeException("timeout")));
 
-        AuthResult result = terminal.behavior.engine().authorize(CONFIG);
+        AuthResult result = terminal.authorize(CONFIG);
 
         assertTrue(result.isFailed());
         assertEquals("timeout", result.getMessage());
@@ -196,7 +197,7 @@ public class PosTerminalHostTest {
                 new java.util.concurrent.atomic.AtomicReference<>();
         self.set(StubBehavior.of((name, args) -> {
             if (name.equals("search")) {
-                online.add(self.get().engine().authorize(CONFIG));
+                online.add(self.get().authorizeOnline()); // the behavior's own way online
             }
             return null;
         }));
