@@ -201,9 +201,10 @@ public class PosTerminalTransactionLifecycleTest {
         events.clear();
 
         first.listener.onSearchTimeout();
-        sale.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-        sale.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
-        sale.publish(PosTerminal.errorEvent("Transaction cancelled"));
+        sale.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
+        sale.end(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        sale.end(PosTerminal.errorEvent("Transaction cancelled"));
+        sale.publish(TransactionStepEvent.of(TransactionStep.CARD_READ));
         first.release.countDown();
 
         TransactionStepEvent end = terminal.awaitEnd();

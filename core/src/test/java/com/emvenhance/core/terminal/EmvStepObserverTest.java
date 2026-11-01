@@ -128,7 +128,7 @@ public class EmvStepObserverTest {
     public void subscribersSeeNestedStepsInOrderWhenTheyCameAfterAnEarlierTransaction() {
         session.begin(CONFIG);
         session.attempt(CONFIG, CardPresence.chip());
-        session.transaction().publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        session.transaction().end(TransactionStepEvent.of(TransactionStep.COMPLETED));
         List<EmvStep> seen = record(engine);
 
         session.begin(CONFIG);
@@ -231,7 +231,7 @@ public class EmvStepObserverTest {
         assumeTrue("trace records in debug builds only", engine.apduTrace().isEnabled());
         session.begin(CONFIG);
         session.prepare(CONFIG);
-        session.transaction().publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+        session.transaction().end(TransactionStepEvent.of(TransactionStep.COMPLETED));
 
         vendor.go(EmvStep.TRANSACTION_COMPLETION, "late");
 

@@ -506,7 +506,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             if (isStale("onSearchTimeout")) {
                 return;
             }
-            owner.publish(PosTerminal.errorEvent("No card presented — card search timed out"));
+            owner.end(PosTerminal.errorEvent("No card presented — card search timed out"));
         }
 
         @Override
@@ -514,7 +514,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             if (isStale("onSearchCancelled")) {
                 return;
             }
-            owner.publish(PosTerminal.errorEvent("Card search cancelled"));
+            owner.end(PosTerminal.errorEvent("Card search cancelled"));
         }
 
         @Override
@@ -522,7 +522,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             if (isStale("onReaderError")) {
                 return;
             }
-            owner.publish(PosTerminal.errorEvent(message != null ? message : "Reader error"));
+            owner.end(PosTerminal.errorEvent(message != null ? message : "Reader error"));
         }
 
         @Override

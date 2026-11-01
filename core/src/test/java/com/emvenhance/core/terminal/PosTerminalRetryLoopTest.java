@@ -48,8 +48,7 @@ public class PosTerminalRetryLoopTest {
                 behavior.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
                         EntryMethod.MAGSTRIPE), "Chip not readable — swipe the card");
             } else {
-                transaction.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
-                transaction.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
+                transaction.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
             }
         });
         TestTerminal terminal = new TestTerminal();

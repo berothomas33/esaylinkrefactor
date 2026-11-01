@@ -231,19 +231,9 @@ public abstract class PosTerminal {
         }
 
         void publish(TransactionStepEvent event) {
-            if (isOutcome(event.getStep())) {
-                dispatchTransactionStep(event);
-                return;
-            }
             synchronized (steps) {
                 if (end != null) {
-                    EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
-                    apduTrace().note("EMV",
-                            "transaction step dropped, the transaction has ended: " + event);
-                    return;
-                }
-                if (event.getStep().isEnd()) {
-                    end = event;
+                    dropped(event);
                     return;
                 }
                 deliver(event);
@@ -251,15 +241,33 @@ public abstract class PosTerminal {
             dispatchTransactionStep(event);
         }
 
+        void end(TransactionStepEvent end) {
+            synchronized (steps) {
+                if (this.end != null) {
+                    dropped(end);
+                    return;
+                }
+                this.end = end;
+            }
+        }
+
+        private void dropped(TransactionStepEvent event) {
+            EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
+            apduTrace().note("EMV",
+                    "transaction step dropped, the transaction has ended: " + event);
+        }
+
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
-            if (isOutcome(step) || step == TransactionStep.ERROR) {
-                publish(outcome);
-                return;
+            if (isOutcome(step)) {
+                dispatchTransactionStep(outcome);
+            } else if (step == TransactionStep.ERROR) {
+                end(outcome);
+            } else {
+                apduTrace().note("EMV", "EMV finished with no outcome (" + step
+                        + ") — the transaction ends with an error");
+                end(errorEvent("EMV finished with no outcome: " + step));
             }
-            apduTrace().note("EMV", "EMV finished with no outcome (" + step
-                    + ") — the transaction ends with an error");
-            publish(errorEvent("EMV finished with no outcome: " + step));
         }
 
         private boolean isOutcome(TransactionStep step) {
@@ -326,7 +334,7 @@ public abstract class PosTerminal {
                 }
             } catch (Throwable t) {
                 t.printStackTrace();
-                publish(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
+                end(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
                 dispatchTransactionStep(decideEnd());
             }
