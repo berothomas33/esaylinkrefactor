@@ -4,7 +4,6 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.EntryMethod;
 import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
-import com.emvenhance.core.emv.EmvEngine;
 import com.emvenhance.core.emv.EmvStepEvent;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
@@ -52,7 +51,7 @@ public abstract class PosTerminal {
         this.behavior = behavior;
         this.communication = communication;
         this.printer = printer;
-        behavior.attach(new EmvEngine(), this::authorize);
+        behavior.attach(this::authorize);
         initializeVendor();
     }
 

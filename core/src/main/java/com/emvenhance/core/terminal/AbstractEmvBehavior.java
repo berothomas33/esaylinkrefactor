@@ -18,7 +18,7 @@ import io.reactivex.rxjava3.observers.DisposableObserver;
 
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
-    private EmvEngine engine;
+    private final EmvEngine engine = new EmvEngine();
     @Nullable
     protected TransactionConfig activeConfig;
     @Nullable
@@ -43,8 +43,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     private Authorizer authorizer;
 
-    public final void attach(EmvEngine engine, Authorizer authorizer) {
-        this.engine = engine;
+    public final void attach(Authorizer authorizer) {
         this.authorizer = authorizer;
     }
 
