@@ -53,16 +53,18 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     @Override
     public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
-        pendingRetry = null;
-        retryPrompt = null;
-        retryCount = 0;
-        TransactionConfig attempt = config;
-        while (attempt != null) {
+        resetRetry();
+        for (TransactionConfig attempt = config; attempt != null; attempt = nextAttempt()) {
             if (prepare(attempt, transaction)) {
                 searchCard();
             }
-            attempt = nextAttempt();
         }
+    }
+
+    private void resetRetry() {
+        pendingRetry = null;
+        retryPrompt = null;
+        retryCount = 0;
     }
 
     boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
@@ -241,7 +243,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return AuthResult.declined("17", "Cancelled");
         }
         TransactionConfig config = activeConfig;
-        if (activeCard != null && !isSynchronousEntry(activeCard)) {
+        if (activeCard != null && !isNonEmv(activeCard)) {
             String iccData = buildField55();
             if (iccData.isEmpty()) {
                 return AuthResult.failed("Online failed: no chip data (field 55) to send");
@@ -267,12 +269,12 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return config;
     }
 
-    protected boolean isSynchronousEntry(CardPresence card) {
+    protected final boolean isNonEmv(CardPresence card) {
         return card.isMagstripe() || card.isManual();
     }
 
     protected EmvStep firstStepAfterSearch(CardPresence card) {
-        if (isSynchronousEntry(card)) {
+        if (isNonEmv(card)) {
             return EmvStep.READ_APPLICATION_DATA;
         }
         return EmvStep.APPLICATION_SELECTION;
