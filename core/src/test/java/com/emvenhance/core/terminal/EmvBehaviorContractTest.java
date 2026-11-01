@@ -10,11 +10,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import org.junit.Test;
 
-/**
- * {@link EmvBehavior} is what the engine drives — the lifecycle, nothing else. The EMV step
- * methods and {@code readIccTag} belong to {@link AbstractEmvBehavior}, protected, so a step runs
- * only through {@code goToStep}.
- */
 public class EmvBehaviorContractTest {
 
     @Test

@@ -25,11 +25,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import org.junit.Test;
 
-/**
- * What the kernels get from the database rows: every parameter is in the cache, even from empty
- * tables. A missing one is null in {@link EmvProcessParam} and fails every sale at terminal
- * initialization (ContactProcess.preTransProcess reads {@code getCapkParam().getCapkList()}).
- */
 public class EmvParamServiceCacheTest {
 
     @Test
@@ -68,7 +63,6 @@ public class EmvParamServiceCacheTest {
         assertTrue(param.getCapkParam().getCapkRevokeList().isEmpty());
     }
 
-    /** The rows as loadFromDatabase reads them: every table empty but the CAPKs given. */
     private static EmvProcessParam build(CapkParamBean capk) {
         AmexParamBean amex = new AmexParamBean();
         amex.setAid(new ArrayList<>());

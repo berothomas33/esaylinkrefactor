@@ -1,19 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210508 	        xieYb                  Create
- * ===========================================================================================
- *
- */
 package com.pax.bizentity.entity;
 
 import androidx.annotation.NonNull;
@@ -25,9 +9,6 @@ import org.greenrobot.greendao.annotation.Id;
 import org.greenrobot.greendao.annotation.Property;
 import org.greenrobot.greendao.annotation.Unique;
 
-/**
- * issuer table
- */
 @Entity(nameInDb = "issuer")
 public class Issuer implements Serializable {
 
@@ -36,16 +17,10 @@ public class Issuer implements Serializable {
     public static final String ID_FIELD_NAME = "issuer_id";
     public static final String NAME_FIELD_NAME = "issuer_name";
 
-    /**
-     * id
-     */
     @Id(autoincrement = true)
     @Property(nameInDb = ID_FIELD_NAME)
     private Long id;
 
-    /**
-     * name
-     */
     @Property(nameInDb = NAME_FIELD_NAME)
     @Unique
     private String name;

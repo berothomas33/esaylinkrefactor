@@ -4,22 +4,11 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/**
- * Payload carried (AES-encrypted) inside {@code orchestration/refund}'s {@link GeneralRequest} —
- * same field names as the old project's {@code model_layer.data.refund.RefundRequest}. Mostly
- * {@link SaleRequest}'s card fields, plus {@link #referenceNumber} (the original sale's reference
- * number) and {@link #transactionId}, and without {@code netAmount}/{@code singleTap}.
- *
- * <p>{@link #transactionId} is sent as {@code null}: the old refund screen that filled it wasn't
- * shared, so what it should carry (the original sale's {@code trxRefNumber}?) isn't confirmed.
- * {@code cardType}/{@code dcc} carry the same placeholders as {@link SaleRequest}'s.
- */
 public final class RefundRequest {
 
     @SerializedName("referenceNumber")
     private final String referenceNumber;
 
-    /** Major currency units (e.g. {@code 10.50}), like {@link SaleRequest}'s amount. */
     @SerializedName("amount")
     private final double amount;
 

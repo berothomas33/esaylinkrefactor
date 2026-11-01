@@ -1,6 +1,5 @@
 package com.emvenhance.network.onboarding;
 
-/** An onboarding step's {@code statusCode} wasn't {@link OnboardingClient#SUCCESS_STATUS_CODE}. */
 public final class OnboardingException extends RuntimeException {
 
     private final int statusCode;

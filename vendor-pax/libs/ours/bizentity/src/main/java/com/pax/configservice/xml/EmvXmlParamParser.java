@@ -20,44 +20,13 @@ import javax.xml.parsers.ParserConfigurationException;
 
 import androidx.annotation.Nullable;
 
-/**
- * Parses a PAX {@code emv_param.emv} (contact) parameter file — the same XML shape as
- * {@code EMVPARAM/AIDLIST + EMVPARAM/CAPKLIST + EMVPARAM/REVOCATIONLIST}, produced into the same
- * {@link EmvAid}/{@link CapkParamBean} shapes {@code ConfigInit} currently loads from the bundled
- * {@code contactAid.json}/{@code capk.json} — so a downloaded param file feeds the exact same
- * {@code EmvParamService} insert methods a first-boot asset load does.
- *
- * <p><b>No reference parser (PAX's own "EMVParamsEngine") was available to build this against</b>
- * — it's reconstructed from the XML itself and the target entities' field names/doc comments.
- * Two things are worth flagging:
- * <ul>
- *   <li>{@code TerminalType}/{@code CardDataInputCapability}/{@code CVMCapability}/
- *       {@code SecurityCapability}/{@code AdditionalTerminalCapabilities}/PIN-bypass fields live
- *       in {@code ICSCONFIGURATION} (one profile per {@code Type}), and {@code AID} entries don't
- *       carry them directly — {@code CARDSCHEMECONFIGRATION} maps each RID or AID to an ICS
- *       profile by name. This parser resolves that join (see {@link #resolveIcs}) to flatten
- *       those fields onto each {@link EmvAid}, matching how {@code contactAid.json} already
- *       carries them per-entry rather than as a separate profile table.
- *   <li>{@link EmvAid} has no XML source at all for {@code priority}/{@code onlinePin}/
- *       {@code randTransSel}/{@code velocityCheck}/{@code floorLimitCheckFlg}/{@code acquirerId}
- *       — no tag in this file carries them. Defaults below were chosen deliberately (see
- *       {@link #DEFAULT_ONLINE_PIN} etc.), not left at Java's zero-value by accident — review
- *       them against real terminal risk-management requirements before relying on this for a
- *       live update.
- * </ul>
- */
 public final class EmvXmlParamParser {
 
     private static final String TAG = "EmvXmlParamParser";
 
-    /** No per-AID PIN-capability tag in this file — default to supporting online PIN (matches
-     * the bundled contactAid.json's own primary entries) rather than silently disabling it. */
     private static final boolean DEFAULT_ONLINE_PIN = true;
-    /** No per-AID risk-management flags in this file — default both off (fewer forced-online
-     * transactions) rather than guess at issuer-specific risk parameters. */
     private static final boolean DEFAULT_RAND_TRANS_SEL = false;
     private static final boolean DEFAULT_VELOCITY_CHECK = false;
-    /** Floor-limit checking is a required EMV Book 3 risk control — default it enabled. */
     private static final int DEFAULT_FLOOR_LIMIT_CHECK_FLG = 1;
     private static final int DEFAULT_PRIORITY = 0;
 
@@ -67,7 +36,6 @@ public final class EmvXmlParamParser {
     public static final class Result {
         public final List<EmvAid> aids;
         public final CapkParamBean capk;
-        /** The file's top-level sections as the host sent them, parsed or not. */
         public final List<String> sections;
 
         Result(List<EmvAid> aids, CapkParamBean capk, List<String> sections) {
@@ -98,8 +66,6 @@ public final class EmvXmlParamParser {
             Element aidEl = aidElements.get(i);
             Element ics = icsPerAid.get(i);
             if (ics == null) {
-                // Not mapped in CARDSCHEMECONFIGRATION: without a profile 9F33/9F40 would be
-                // empty and 9F35 FF — and the contact kernel takes these from the first AID.
                 ics = fallbackIcs;
                 LogUtils.w(TAG, "AID " + XmlDomUtils.text(aidEl, "ApplicationID", "")
                         + " has no CARDSCHEMECONFIGRATION entry — using ICS profile "
@@ -118,7 +84,6 @@ public final class EmvXmlParamParser {
         String cardDataInput = XmlDomUtils.text(ics, "CardDataInputCapability", "");
         String cvmCapability = XmlDomUtils.text(ics, "CVMCapability", "");
         String securityCapability = XmlDomUtils.text(ics, "SecurityCapability", "");
-        // Tag 9F33 (Terminal Capabilities) is these three ICS bytes concatenated, in order.
         String terminalCapability = cardDataInput + cvmCapability + securityCapability;
 
         return new EmvAid(
@@ -138,7 +103,7 @@ public final class EmvXmlParamParser {
                 XmlDomUtils.text(aidEl, "TACDenial"),
                 XmlDomUtils.text(aidEl, "TACOnline"),
                 XmlDomUtils.text(aidEl, "TACDefault"),
-                null, // acquirerId — no source tag in this file
+                null,
                 XmlDomUtils.text(aidEl, "TerminalDefaultDDOL"),
                 XmlDomUtils.text(aidEl, "TerminalDefaultTDOL"),
                 XmlDomUtils.text(aidEl, "TerminalAIDVersion"),
@@ -152,11 +117,6 @@ public final class EmvXmlParamParser {
                 XmlDomUtils.byteOf(ics, "ForcedOnlineCapability", 0));
     }
 
-    /**
-     * {@code CARDSCHEMECONFIGRATION} maps either a whole RID or one specific AID to an
-     * {@code ICSTYPE} profile name; an AID-specific rule takes precedence over its RID's rule.
-     * {@code ICSCONFIGURATION} then holds one {@code <ICS>} per profile {@code Type}.
-     */
     @Nullable
     private static Element resolveIcs(String aid, Element icsConfiguration, List<Element> cardSchemes) {
         String rid = aid.length() >= 10 ? aid.substring(0, 10) : aid;
@@ -187,10 +147,6 @@ public final class EmvXmlParamParser {
         return null;
     }
 
-    /**
-     * The ICS profile for an AID that {@code CARDSCHEMECONFIGRATION} doesn't map: the profile most
-     * of the mapped AIDs use (the first one on a tie), else the first {@code <ICS>} in the file.
-     */
     @Nullable
     static Element fallbackIcs(List<Element> icsPerAid, @Nullable Element icsConfiguration) {
         Map<Element, Integer> uses = new IdentityHashMap<>();
@@ -217,7 +173,6 @@ public final class EmvXmlParamParser {
             String rid = XmlDomUtils.text(capkEl, "RID", "");
             int keyId = strictHexToInt(XmlDomUtils.text(capkEl, "KeyID", ""));
             if (rid.isEmpty() || keyId < 0) {
-                // A CAPK is found by RID + KeyID: without them it would load as key 0.
                 LogUtils.w(TAG, "CAPK without a valid RID/KeyID (RID '" + rid + "') — skipped");
                 continue;
             }
@@ -240,7 +195,6 @@ public final class EmvXmlParamParser {
             String keyId = XmlDomUtils.text(revokedEl, "KeyID", "");
             String serial = XmlDomUtils.text(revokedEl, "CertificateSN", "");
             if (rid.isEmpty() || strictHexToInt(keyId) < 0 || serial.isEmpty()) {
-                // Loading one without a KeyID threw at every cache load (strToBcd("")[0]).
                 LogUtils.w(TAG, "Revoked certificate without RID/KeyID/CertificateSN (RID '" + rid
                         + "') — skipped");
                 continue;
@@ -263,7 +217,6 @@ public final class EmvXmlParamParser {
         }
     }
 
-    /** A one-byte hex value (a key index), or -1 when it is missing or not hex. */
     private static int strictHexToInt(String hex) {
         try {
             int value = Integer.parseInt(hex, 16);

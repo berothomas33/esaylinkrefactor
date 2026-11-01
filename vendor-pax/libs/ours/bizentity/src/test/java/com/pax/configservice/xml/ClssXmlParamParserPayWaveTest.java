@@ -14,11 +14,6 @@ import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * The host's real PAYWAVEPARAM section (test resource clss_param_paywave.xml): every Visa AID gets
- * the shared TERMINALCAPABILITIES (9F35, 9F33), and the contactless floor limit is
- * ContactlessFloorLimit.
- */
 public class ClssXmlParamParserPayWaveTest {
 
     private List<PaywaveAidBean> aids;

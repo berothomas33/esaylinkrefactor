@@ -17,11 +17,6 @@ import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * {@link AbstractEmvBehavior#askStep}: a kernel callback waiting on the cardholder publishes a
- * step, that step's method does the UI work and answers, and the answer comes back to the
- * callback. With no answer the kernel still gets one: the fail-closed value.
- */
 public class AskStepTest {
 
     private static final TransactionConfig CONFIG =
@@ -114,7 +109,6 @@ public class AskStepTest {
         assertEquals(USER_CANCEL, vendor.callbackGot);
     }
 
-    /** APPLICATION_SELECTION plays the kernel calling back for the cardholder's choice. */
     private static final class Vendor extends AbstractEmvBehavior {
 
         Integer selectionAnswer;
@@ -136,7 +130,6 @@ public class AskStepTest {
                 callbackGot = USER_CANCEL;
                 return;
             }
-            // The kernel's callback: it waits for this answer.
             callbackGot = askStep(EmvStep.WAIT_APPLICATION_SELECTION, null, USER_CANCEL);
         }
 

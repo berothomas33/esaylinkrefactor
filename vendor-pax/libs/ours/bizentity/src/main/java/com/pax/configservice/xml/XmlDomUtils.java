@@ -22,30 +22,13 @@ import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
-/** Small DOM navigation helpers shared by {@link EmvXmlParamParser} and {@link ClssXmlParamParser}. */
 final class XmlDomUtils {
 
-    /** Matches a leading {@code <?xml ...?>} prolog — see {@link #parseDocument}. */
     private static final Pattern XML_DECLARATION = Pattern.compile("\\A\\s*<\\?xml[^>]*\\?>");
 
     private XmlDomUtils() {
     }
 
-    /**
-     * Parses a downloaded {@code emv_param.emv}/{@code clss_param.clss} into a DOM, working around
-     * a real device failure ({@code org.xml.sax.SAXParseException: unexpected attributes in XML
-     * declaration}, thrown from {@code org.apache.harmony.xml.parsers.DocumentBuilderImpl}) that
-     * plain {@code DocumentBuilder#parse(InputStream)} hit on both files. That parser is Android's
-     * own bundled expat binding, not a JDK one — it insists on a stricter/narrower {@code <?xml
-     * ...?>} prolog than a desktop JVM's parser accepts (the same file the old app's own
-     * {@code EMVParamsEngine} likely read without incident, since it isn't going through this same
-     * strict Android XML stack). Rather than reverse-engineer exactly which token in the prolog
-     * this build of expat objects to, decode the bytes ourselves (honoring any BOM; defaulting to
-     * UTF-8 otherwise — this file's content is ASCII-safe hex/tag data either way) and strip the
-     * prolog entirely before parsing the resulting {@link String} — a DOM document doesn't need
-     * one, and once expat is looking at already-decoded characters there's no declaration left for
-     * it to reject.
-     */
     static Document parseDocument(InputStream in)
             throws IOException, SAXException, ParserConfigurationException {
         String xml = XML_DECLARATION.matcher(decode(readAll(in))).replaceFirst("");
@@ -64,7 +47,6 @@ final class XmlDomUtils {
         return out.toByteArray();
     }
 
-    /** Honors a UTF-16 BOM if present; otherwise assumes UTF-8 (see {@link #parseDocument}). */
     private static String decode(byte[] bytes) {
         if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0xFE && (bytes[1] & 0xFF) == 0xFF) {
             return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16BE);
@@ -78,7 +60,6 @@ final class XmlDomUtils {
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    /** First direct child element named {@code tag}, or {@code null}. */
     @Nullable
     static Element firstChild(@Nullable Element parent, String tag) {
         if (parent == null) {
@@ -94,7 +75,6 @@ final class XmlDomUtils {
         return null;
     }
 
-    /** All direct child elements named {@code tag}, in document order. */
     static List<Element> children(@Nullable Element parent, String tag) {
         List<Element> result = new ArrayList<>();
         if (parent == null) {
@@ -110,7 +90,6 @@ final class XmlDomUtils {
         return result;
     }
 
-    /** Every direct child element's tag name, in document order. */
     static List<String> childNames(@Nullable Element parent) {
         List<String> names = new ArrayList<>();
         if (parent == null) {
@@ -126,7 +105,6 @@ final class XmlDomUtils {
         return names;
     }
 
-    /** Trimmed text content of the first direct child element named {@code tag}, or {@code null}. */
     @Nullable
     static String text(@Nullable Element parent, String tag) {
         Element child = firstChild(parent, tag);
@@ -168,12 +146,10 @@ final class XmlDomUtils {
         }
     }
 
-    /** A value the host sent that isn't a number: said in the log, never taken silently (rule 15). */
     static void notANumber(String tag, String value, Object used) {
         LogUtils.w("XmlDomUtils", tag + " '" + value + "' is not a number — using " + used);
     }
 
-    /** {@code "0"/"1"} (or any nonzero digit) style boolean flag tags. */
     static boolean boolOf(@Nullable Element parent, String tag, boolean defaultValue) {
         String value = text(parent, tag);
         if (value == null || value.isEmpty()) {

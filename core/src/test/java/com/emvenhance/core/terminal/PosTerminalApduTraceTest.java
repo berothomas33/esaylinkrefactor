@@ -16,7 +16,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
-/** PosTerminal is the UI's single surface for the trace, and owns its on/off switch. */
 public class PosTerminalApduTraceTest {
 
     @Test
@@ -28,7 +27,7 @@ public class PosTerminalApduTraceTest {
 
     @Test
     public void aTransactionsStepsAndItsEndReachTheTrace() throws InterruptedException {
-        TestTerminal terminal = new TestTerminal(); // its initialization fails: the sale ends at once
+        TestTerminal terminal = new TestTerminal();
         ApduTrace trace = terminal.apduTrace();
         assumeTrue("trace records in debug builds only", trace.isEnabled());
         CountDownLatch ended = new CountDownLatch(1);
@@ -44,7 +43,6 @@ public class PosTerminalApduTraceTest {
 
     private static final class TestTerminal extends PosTerminal {
 
-        /** Every transaction's steps, for the test: each transaction has its own stream. */
         final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
 
         @Override
@@ -60,7 +58,6 @@ public class PosTerminalApduTraceTest {
                     stub(PrinterBehavior.class));
         }
 
-        /** Interface stub whose methods do nothing and return a default value. */
         @SuppressWarnings("unchecked")
         private static <T> T stub(Class<T> type) {
             return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},

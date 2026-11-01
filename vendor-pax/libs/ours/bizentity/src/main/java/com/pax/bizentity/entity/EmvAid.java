@@ -1,19 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210508 	        xieYb                  Create
- * ===========================================================================================
- *
- */
 package com.pax.bizentity.entity;
 
 import android.text.TextUtils;
@@ -46,155 +30,83 @@ public class EmvAid implements Serializable {
     public static final String ID_FIELD_NAME = "id";
     public static final String AID_FIELD_NAME = "aid";
 
-
     @Id(autoincrement = true)
     @Property(nameInDb = ID_FIELD_NAME)
     @JSONField
     private Long id;
-    /**
-     * name
-     */
     @NotNull
     private String appName;
-    /**
-     * aid
-     */
     @Property(nameInDb = AID_FIELD_NAME)
     @NotNull
     @Unique
     private String aid;
     @Transient
     private byte[] aidBytes;
-    /**
-     * PART_MATCH/FULL_MATCH
-     */
     @NotNull
     @SelType
     private int selFlag;
-    /**
-     * priority
-     */
     @NotNull
     private int priority;
-    /**
-     * if enable online PIN
-     */
     @NotNull
     private boolean onlinePin;
 
-    /**
-     * target percent
-     */
     @NotNull
     @IntRange(from = 0, to = 100)
     private int targetPer;
-    /**
-     * max target percent
-     */
     @NotNull
     @IntRange(from = 0, to = 100)
     private int maxTargetPer;
-    /**
-     * floor limit check flag
-     * 0- don't check
-     * 1- Check
-     */
     @NotNull
     @IntRange(from = 0, to = 1)
     private int floorLimitCheckFlg;
-    /**
-     * do random transaction selection
-     */
     @NotNull
     private boolean randTransSel;
     @Transient
     private byte randTransSelByte;
-    /**
-     * velocity check
-     */
     @NotNull
     private boolean velocityCheck;
     @Transient
     private byte velocityCheckByte;
-    /**
-     * floor limit
-     */
     @NotNull
     private long floorLimit;
-    /**
-     * threshold
-     */
     @NotNull
     private long threshold;
-    /**
-     * TAC denial
-     */
     private String tacDenial;
     @Transient
     private byte[] tacDenialBytes;
-    /**
-     * TAC online
-     */
     private String tacOnline;
     @Transient
     private byte[] tacOnlineBytes;
-    /**
-     * TAC default
-     */
     private String tacDefault;
     @Transient
     private byte[] tacDefaultBytes;
-    /**
-     * acquirer id
-     */
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
-    /**
-     * dDOL
-     */
     private String dDOL;
     @Transient
     private byte[] dDOLBytes;
-    /**
-     * tDOL
-     */
     private String tDOL;
     @Transient
     private byte[] tDOLBytes;
-    /**
-     * application version
-     */
     private String version;
     @Transient
     private byte[] versionBytes;
-    /**
-     * risk management data
-     */
     private String riskManageData;
     @Transient
     private byte[] riskManageDataBytes;
-    /**
-     * tag: 9F33. Indicates the card data input, CVM, and security capabilities of the terminal
-     */
     private String terminalCapability;
     @Transient
     private byte[] terminalCapabilityBytes;
-    //tag: 9F40. Indicates the data input and output capabilities of the terminal
     private String terminalAdditionalCapability;
     @Transient
     private byte[] terminalAdditionalCapabilityBytes;
-    //tag 9F35 Indicates terminal's communication capability, and its operational control
     private String terminalType;
     @Transient
     private byte terminalTypeByte;
-    //Read the IC card PIN retry counter before verify the PIN or not (1 : read(default), 0 : not read)
     private byte getDataPIN;
-    //0-Not supported,1-Supported(default)
     private byte bypassPin;
-    //whether bypass all other pin when one pin has been bypassed 1-Yes,0-No
     private byte bypassAllFlg;
-    //Merchant force online (1 means always require online transaction)
     private byte forceOnline;
 
     @Generated(hash = 1985344347)

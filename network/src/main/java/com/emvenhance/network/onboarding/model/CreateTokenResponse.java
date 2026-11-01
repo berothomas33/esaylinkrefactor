@@ -4,7 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/** {@code authorization/token/pos} response envelope. */
 public final class CreateTokenResponse {
 
     @SerializedName("statusCode")

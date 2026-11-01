@@ -1,79 +1,41 @@
 package com.emvenhance.core.transaction;
 
-/**
- * High-level transaction lifecycle states, published on the transaction-steps subject.
- *
- * <p>These are the coarse-grained milestones a business analyst would recognize:
- * "transaction started", "card detected", "approved". They move in one direction and
- * each value is emitted at most once per transaction.
- *
- * <p>Contrast with {@link EmvStep}, which tracks the fine-grained kernel phases
- * (SDA/DDA, processing restrictions, risk management) that only EMV engineers care about.
- */
 public enum TransactionStep {
 
-    /** No transaction in progress. */
     IDLE("Idle"),
 
-    /** The transaction started; its EMV begins with terminal initialization. */
     TRANSACTION_STARTED("Transaction started"),
 
-    /** Terminal initialization complete; waiting for a card tap or insert. */
     WAITING_FOR_CARD("Waiting for card"),
 
-    /** Card detected and communication established. */
     CARD_DETECTED("Card detected"),
 
-    /** EMV application selected on the card. */
     APPLICATION_SELECTED("Application selected"),
 
-    /** Card data has been read. PAN and issuer are now known. */
     CARD_READ("Card data read"),
 
-    /** Cardholder identity confirmed (PIN, signature, NoCVM). */
     CARDHOLDER_VERIFIED("Cardholder verified"),
 
-    /** Kernel decided the transaction must go online. */
     ONLINE_REQUIRED("Online authorization required"),
 
-    /** Host communication is in flight. */
     ONLINE_PROCESSING("Processing online authorization"),
 
-    /** Host replied; result available in the event data. */
     ONLINE_COMPLETED("Online authorization completed"),
 
-    /**
-     * Cancel asked for: the search stops and the EMV winds down. Not the end — CANCELLED
-     * follows once the terminal is free (a host call already sent is still waited for).
-     */
     CANCELLING("Cancelling"),
 
-    /** Cancelled, and the terminal is free again: the end of a cancelled transaction. */
     CANCELLED("Transaction cancelled"),
 
-    /** Transaction approved (online or offline). */
     APPROVED("Approved"),
 
-    /** Transaction declined (online or offline). */
     DECLINED("Declined"),
 
-    /**
-     * The end is decided (COMPLETED after APPROVED): the host is told the sale is done before the
-     * terminal is free — part of the end, not after it.
-     */
     ACKNOWLEDGING("Acknowledging the sale with the host"),
 
-    /**
-     * The end is decided and a request the host may have approved wasn't completed (declined by
-     * the card, cancelled, an error, no host answer): the host is told to reverse it before the
-     * terminal is free.
-     */
     REVERSING("Reversing the request at the host"),
 
-    /** All post-processing done; transaction is finished. */
     COMPLETED("Transaction completed"),
 
-    /** Unrecoverable error; transaction aborted. */
     ERROR("Error");
 
     private final String label;
@@ -86,12 +48,6 @@ public enum TransactionStep {
         return label;
     }
 
-    /**
-     * Whether this step ends the transaction — COMPLETED, ERROR or CANCELLED, however it got
-     * there (approved, declined, failed, cancelled). The one definition of the end: {@code PosTerminal}
-     * publishes it once per transaction, after the terminal is free; nothing is published after
-     * it.
-     */
     public boolean isEnd() {
         return this == COMPLETED || this == ERROR || this == CANCELLED;
     }

@@ -11,10 +11,6 @@ import com.emvenhance.core.host.AuthResult;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * The engine owns the APDU trace: one per engine, started by begin(), fed by its own steps. A
- * step dropped after the end is the behavior's to note ({@code EmvStepObserverTest}).
- */
 public class EmvEngineTraceTest {
 
     private EmvEngine engine;
@@ -55,7 +51,6 @@ public class EmvEngineTraceTest {
         assertTrue(trace.text().contains("### KERNEL STEP 1. Search card (Insert, tap, or swipe)"));
     }
 
-    /** An engine that never reaches a host. */
     private static EmvEngine newEngine() {
         return new EmvEngine();
     }

@@ -2,7 +2,6 @@ package com.emvenhance.network.onboarding.model;
 
 import com.google.gson.annotations.SerializedName;
 
-/** {@code foundation/onboarding/offline} request — mirrors the old project's OnboardingRequest. */
 public final class OnboardingRequest {
 
     @SerializedName("challenge")

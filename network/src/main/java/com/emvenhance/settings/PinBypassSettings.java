@@ -3,22 +3,6 @@ package com.emvenhance.settings;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-/**
- * Whether the cardholder may skip PIN entry (PIN bypass: press Enter with no digits), set from the
- * onboarding screen and stored in SharedPreferences. Both are off unless a technician turns them
- * on.
- *
- * <ul>
- *   <li><b>Online PIN bypass</b> (contact and contactless): the PIN pad accepts an empty PIN and
- *       the transaction goes online without a PIN block; the kernel records "PIN not entered" in
- *       the TVR and the issuer decides.
- *   <li><b>Offline PIN bypass</b> (contact): the PIN pad accepts an empty PIN and the kernel moves
- *       on to the card's next CVM.
- * </ul>
- *
- * For contact, the selected AID must allow bypass too (its {@code bypassPINEntry} parameter):
- * this setting can only take bypass away, never add it to an AID that doesn't allow it.
- */
 public final class PinBypassSettings {
 
     private static final String PREFS_NAME = "terminal_settings";

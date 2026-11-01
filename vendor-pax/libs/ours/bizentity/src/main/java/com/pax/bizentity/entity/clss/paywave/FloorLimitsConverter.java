@@ -4,10 +4,6 @@ import com.alibaba.fastjson.JSON;
 import java.util.List;
 import org.greenrobot.greendao.converter.PropertyConverter;
 
-/**
- * Stores a Visa AID's per-transaction-type limits in paywave_aid.FLOOR_LIMITS as a JSON array,
- * e.g. {@code [{"cvmLimit":60000,"cvmLimitFlag":1,...,"transType":0}, ...]}.
- */
 public class FloorLimitsConverter implements PropertyConverter<List<PayWaveInterFloorLimitBean>, String> {
 
     @Override

@@ -1,19 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210508 	        xieYb                  Create
- * ===========================================================================================
- *
- */
 package com.pax.bizentity.entity;
 
 import com.pax.commonlib.utils.ConvertUtils;
@@ -35,34 +19,26 @@ public class EmvCapk implements Serializable {
     @Property(nameInDb = ID_FIELD_NAME)
     private Long id;
 
-    // rID
     @Property(nameInDb = RID_FIELD_NAME)
     @NotNull
     private String rID;
     @Transient
     private byte[] rIDBytes;
-    // key index
     @NotNull
     private int keyID;
-    // HASH algo index
     @NotNull
     private int hashInd;
-    // RSA algo index
     @NotNull
     private int arithInd;
-    // module
     private String module;
     @Transient
     private byte[] moduleBytes;
-    // exponent
     private String exponent;
     @Transient
     private byte[] exponentBytes;
-    // exp date(YYMMDD)
     private String expDate;
     @Transient
     private byte[] expDateBytes;
-    // check sum
     private String checkSum;
     @Transient
     private byte[] checkSumBytes;

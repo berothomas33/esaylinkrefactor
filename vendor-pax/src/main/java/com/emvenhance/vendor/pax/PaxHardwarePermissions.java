@@ -4,12 +4,6 @@ import android.content.pm.PackageManager;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
 
-/**
- * Neptune Lite hardware permissions required before {@code dal.getIcc()/getMag()/getPicc()}.
- *
- * <p>Must be declared in the pax flavor {@code AndroidManifest.xml} as
- * {@code com.pax.permission.*}. Missing declarations produce ICC#101 / "Not Permission for icc".
- */
 public final class PaxHardwarePermissions {
 
     private static final String TAG = "PaxHardwarePermissions";
@@ -25,7 +19,6 @@ public final class PaxHardwarePermissions {
     private PaxHardwarePermissions() {
     }
 
-    /** All of them, for {@code PosTerminal#requiredPermissions()}: a screen asks for them. */
     static String[] all() {
         return ALL.clone();
     }

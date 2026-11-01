@@ -6,10 +6,6 @@ import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 
-/**
- * Ingenico terminal stub. The card search is {@link IngenicoEmvBehavior#onSearchCard}: replace it
- * with the Tetra/Axium reader APIs when the SDK is attached — no core changes required.
- */
 public class IngenicoTerminal extends PosTerminal {
 
     private static final String TAG = "IngenicoTerminal";

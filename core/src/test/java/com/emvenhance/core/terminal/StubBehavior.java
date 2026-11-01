@@ -4,19 +4,6 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.transaction.TransactionConfig;
 
-/**
- * An {@link AbstractEmvBehavior} stub for terminal tests: the real run loop, with its hooks
- * going to {@code calls} by name, and no EMV step after the search.
- *
- * <ul>
- *   <li>{@code "initialize"} (config) — TERMINAL_INITIALIZATION; {@code false} fails it</li>
- *   <li>{@code "search"} (config, listener, stub) — the card search: report through the
- *       listener; {@code stub.searchCancelled()} says whether to stop</li>
- *   <li>{@code "start"} (config, card, transaction) — the EMV on the card found (its first
- *       step)</li>
- *   <li>{@code "cancelCardSearch"} (), {@code "dispose"} ()</li>
- * </ul>
- */
 final class StubBehavior extends AbstractEmvBehavior {
 
     interface Calls {
@@ -25,7 +12,6 @@ final class StubBehavior extends AbstractEmvBehavior {
     }
 
     private final Calls calls;
-    /** The transaction {@link #run} was handed — what a test's EMV reports to. */
     private volatile PosTerminal.Transaction transaction;
 
     private StubBehavior(Calls calls) {
@@ -42,7 +28,6 @@ final class StubBehavior extends AbstractEmvBehavior {
         super.run(config, transaction);
     }
 
-    /** What a vendor search reads to stop: its transaction is over. */
     boolean searchCancelled() {
         return !isRunning();
     }
@@ -89,8 +74,6 @@ final class StubBehavior extends AbstractEmvBehavior {
             throw new RuntimeException(e);
         }
     }
-
-    // ─── No EMV behind a stub ─────────────────────────────────────────────
 
     @Override protected byte[] readIccTag(int tag) { return null; }
     @Override protected void onWaitApplicationSelection(TransactionConfig c, CardPresence p) { }

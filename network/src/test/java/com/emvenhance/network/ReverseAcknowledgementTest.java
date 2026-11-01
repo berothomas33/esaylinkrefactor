@@ -16,11 +16,6 @@ import java.util.Map;
 import org.junit.Test;
 import retrofit2.http.POST;
 
-/**
- * The old app's reverse and acknowledgement calls: their paths and plain-JSON bodies, a status
- * but 200 is an error, and nothing is sent for a request that never went to the host. Nulls for
- * every network dependency prove those cases touch nothing.
- */
 public class ReverseAcknowledgementTest {
 
     private final SaleCommunicationBehavior behavior =

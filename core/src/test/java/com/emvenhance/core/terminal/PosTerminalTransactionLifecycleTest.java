@@ -31,15 +31,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * One transaction at a time: a start while the previous one hasn't finished — even cancelled, with
- * its search still stopping — is refused as "terminal busy", never queued. And a search that
- * outlives its transaction can't fail, or start EMV for, the next one.
- *
- * <p>The terminal owns the whole life of a transaction: {@code startTransaction} returns it (or
- * throws busy), {@code cancel()} cancels that one only, and its end — COMPLETED / ERROR, exactly
- * once — is published after the terminal is free.
- */
 public class PosTerminalTransactionLifecycleTest {
 
     private TestTerminal terminal;
@@ -95,7 +86,7 @@ public class PosTerminalTransactionLifecycleTest {
         assertTrue("busy is not reported on the old transaction's steps: " + events,
                 events.isEmpty());
 
-        first.release.countDown(); // the old search finally stops
+        first.release.countDown();
         assertTrue("old search kept searching", awaitTrue(() -> first.cancelledWhenReleased));
         Search second = startWhenFree(3000);
         assertEquals(3000L, second.config.getAmountMinor());
@@ -134,7 +125,7 @@ public class PosTerminalTransactionLifecycleTest {
         assertEquals("at once, not the end yet", java.util.Collections.singletonList(
                 TransactionStep.CANCELLING), steps());
 
-        first.listener.onSearchCancelled(); // what the vendor reports as its poll stops
+        first.listener.onSearchCancelled();
         first.release.countDown();
         TransactionStepEvent end = terminal.awaitEnd();
         assertEquals(TransactionStep.CANCELLED, end.getStep());
@@ -150,8 +141,8 @@ public class PosTerminalTransactionLifecycleTest {
             PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000 + i);
             Search search = terminal.nextSearch();
             Thread canceller = new Thread(sale::cancel);
-            search.release.countDown(); // the transaction ends on its own...
-            canceller.start();          // ...while the screen cancels it
+            search.release.countDown();
+            canceller.start();
             canceller.join(5_000);
             assertTrue("no end", awaitTrue(() -> count(TransactionStep.ERROR) + count(TransactionStep.CANCELLED) == 1));
             List<TransactionStep> steps = steps();
@@ -172,7 +163,7 @@ public class PosTerminalTransactionLifecycleTest {
             }
         });
         PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
-        sale.cancel(); // its work is still queued behind the held thread
+        sale.cancel();
 
         hold.countDown();
 
@@ -186,7 +177,7 @@ public class PosTerminalTransactionLifecycleTest {
         List<Throwable> startOnEnd = new CopyOnWriteArrayList<>();
         terminal.allSteps.filter(e -> e.getStep().isEnd()).take(1).subscribe(end -> {
             try {
-                terminal.acceptCard(TransactionType.SALE, 2000); // a screen's "Retry" right away
+                terminal.acceptCard(TransactionType.SALE, 2000);
             } catch (Throwable t) {
                 startOnEnd.add(t);
             }
@@ -194,7 +185,7 @@ public class PosTerminalTransactionLifecycleTest {
         terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
 
-        first.listener.onSearchTimeout(); // like a vendor: one callback, then the search returns
+        first.listener.onSearchTimeout();
         first.release.countDown();
 
         assertEquals(TransactionStep.ERROR, terminal.awaitEnd().getStep());
@@ -209,8 +200,8 @@ public class PosTerminalTransactionLifecycleTest {
         Search first = terminal.nextSearch();
         events.clear();
 
-        first.listener.onSearchTimeout();                 // the end
-        sale.publish(TransactionStepEvent.of(TransactionStep.APPROVED)); // code still unwinding
+        first.listener.onSearchTimeout();
+        sale.publish(TransactionStepEvent.of(TransactionStep.APPROVED));
         sale.publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
         sale.publish(PosTerminal.errorEvent("Transaction cancelled"));
         first.release.countDown();
@@ -225,7 +216,7 @@ public class PosTerminalTransactionLifecycleTest {
         terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
 
-        first.release.countDown(); // returns without any listener callback
+        first.release.countDown();
 
         TransactionStepEvent end = terminal.awaitEnd();
         assertEquals("Transaction ended without an outcome", end.getMessage());
@@ -240,12 +231,12 @@ public class PosTerminalTransactionLifecycleTest {
 
         sale.cancel();
         sale.cancel();
-        terminal.dispose(); // the terminal going away cancels its transaction, once
+        terminal.dispose();
         assertEquals(1, terminal.searchCancels.get());
 
         first.release.countDown();
         terminal.awaitEnd();
-        sale.cancel(); // a screen cancelling a finished sale
+        sale.cancel();
         assertEquals(1, terminal.searchCancels.get());
     }
 
@@ -257,28 +248,22 @@ public class PosTerminalTransactionLifecycleTest {
         assertFalse(terminal.isBusy());
     }
 
-    /**
-     * A transaction for 1000, cancelled, whose listener is still held (like a vendor reporting
-     * late, from its own thread), then the next transaction for 2000, searching.
-     */
     private Search cancelledSearchThenNextTransaction() throws InterruptedException {
         PosTerminal.Transaction sale = terminal.acceptCard(TransactionType.SALE, 1000);
         Search first = terminal.nextSearch();
         sale.cancel();
         first.release.countDown();
         Search second = startWhenFree(2000);
-        terminal.searches.add(second); // hand it back for tests that need it
+        terminal.searches.add(second);
         events.clear();
         return first;
     }
 
-    /** Starts a sale as soon as the terminal stops being busy, and returns its search. */
     private Search startWhenFree(long amount) throws InterruptedException {
         assertTrue("terminal stayed busy", awaitTrue(() -> started(amount)));
         return terminal.nextSearch();
     }
 
-    /** Starts a sale; {@code false} if it was refused as busy. */
     private boolean started(long amount) {
         try {
             terminal.acceptCard(TransactionType.SALE, amount);
@@ -288,7 +273,6 @@ public class PosTerminalTransactionLifecycleTest {
         }
     }
 
-    /** The terminal's one transaction thread, to hold it busy from a test. */
     private io.reactivex.rxjava3.core.Scheduler transactionScheduler()
             throws ReflectiveOperationException {
         Field field = PosTerminal.class.getDeclaredField("transactionScheduler");
@@ -335,7 +319,6 @@ public class PosTerminalTransactionLifecycleTest {
         return false;
     }
 
-    /** One card search ({@code onSearchCard}), held open until the test releases it. */
     private static final class Search {
         final TransactionConfig config;
         final CardSearchListener listener;
@@ -351,10 +334,8 @@ public class PosTerminalTransactionLifecycleTest {
 
     private final class TestTerminal extends PosTerminal {
 
-        /** Every transaction's steps, for the test: each transaction has its own stream. */
         final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
 
-        /** The last transaction started. */
         volatile Transaction last;
 
         @Override
@@ -375,16 +356,10 @@ public class PosTerminalTransactionLifecycleTest {
             allSteps.filter(e -> e.getStep().isEnd()).subscribe(ends::add);
         }
 
-        /** The terminal is free (its current transaction is gone). */
         boolean engineFree() {
             return !isBusy();
         }
 
-        /**
-         * The next transaction's end, as published once the terminal is free — and once it has
-         * reached the test's {@code events} too: {@code ends} is subscribed first, so it hears
-         * the end while the transaction thread is still delivering it to {@code events}.
-         */
         TransactionStepEvent awaitEnd() throws InterruptedException {
             TransactionStepEvent end = ends.poll(5, TimeUnit.SECONDS);
             assertNotNull("no end published", end);
@@ -406,10 +381,6 @@ public class PosTerminalTransactionLifecycleTest {
         }
     }
 
-    /**
-     * The search is like a vendor poll that stops only when released, and reports nothing on its
-     * own; the EMV on a card found records the amount it ran for.
-     */
     private AbstractEmvBehavior behavior() {
         return StubBehavior.of((name, args) -> {
             switch (name) {

@@ -34,20 +34,6 @@ import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
-/**
- * Runs the offline onboarding cycle ({@link OnboardingClient#runOfflineCycle}: handshake →
- * onboard → confirm → createToken) — just a button, nothing else needed. A full captured
- * onboarding run confirmed every request in that cycle needs only {@link HostHeaders#build}'s
- * fixed values plus this terminal's own serial number ({@code PosTerminal#serialNumber()}); no
- * technician-entered credentials appear anywhere in it. (An earlier version of this screen had
- * Account ID / Token fields, added before that was known — removed now that they're confirmed to
- * feed nothing real.)
- *
- * <p>Below the button: the PIN bypass switches ({@link PinBypassSettings}), then the
- * {@code mToken} sent on {@code orchestration/sale}, editable — it
- * shows the fixed build value until a new one is saved here ({@link HostSettings}), and the saved
- * value is what sales use from then on — and every request header, read-only.
- */
 public class OnboardingActivity extends AppCompatActivity {
 
     private final CompositeDisposable disposables = new CompositeDisposable();
@@ -101,7 +87,6 @@ public class OnboardingActivity extends AppCompatActivity {
         refreshHeaderInfo();
     }
 
-    /** Where the mToken comes from and when it expires, plus every header, as sent now. */
     private void refreshHeaderInfo() {
         String mToken = hostSettings.getMToken();
         String source = getString(hostSettings.isMTokenOverridden()
@@ -122,10 +107,6 @@ public class OnboardingActivity extends AppCompatActivity {
         headersText.setText(sb);
     }
 
-    /**
-     * "Expires ..." read from a JWT's {@code exp} claim (the mToken is an HS256 JWT that expires
-     * days after it's minted), or {@code null} if the value isn't a readable JWT.
-     */
     @Nullable
     private static String jwtExpiry(String token) {
         String[] parts = token.split("\\.");
@@ -181,7 +162,6 @@ public class OnboardingActivity extends AppCompatActivity {
                         }));
     }
 
-    /** This terminal's serial number, which the host identifies it by. */
     private String serialNumber() {
         return ((EmvEnhanceApp) getApplication()).getTerminal().serialNumber();
     }

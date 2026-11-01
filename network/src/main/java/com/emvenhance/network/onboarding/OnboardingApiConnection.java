@@ -18,12 +18,6 @@ import retrofit2.http.GET;
 import retrofit2.http.HeaderMap;
 import retrofit2.http.POST;
 
-/**
- * The onboarding endpoints — mirrors {@code EmvApiConnection}'s onboarding subset in the old
- * project exactly (paths, verbs, and per-call header maps). {@link #createToken} lives under
- * {@code authorization/}, not {@code foundation/onboarding/} like the other six, but shares the
- * same base URL/Retrofit client, so it's declared here too rather than in its own interface.
- */
 public interface OnboardingApiConnection {
 
     @POST("foundation/onboarding/offline")
@@ -37,10 +31,6 @@ public interface OnboardingApiConnection {
     Single<OnboardingStatusResponse> onboardingConfirm(@HeaderMap Map<String, String> headers,
             @Body ConfirmOnboardingRequest request);
 
-    /**
-     * Exchanges the {@code serviceAccount} the onboard step returned for a bearer access token —
-     * the fourth, previously-missing step of the offline cycle; see {@code OnboardingClient}.
-     */
     @POST("authorization/token/pos")
     Single<CreateTokenResponse> createToken(@HeaderMap Map<String, String> headers,
             @Body CreateTokenRequest request);

@@ -14,7 +14,6 @@ import org.greenrobot.greendao.Property;
 import org.greenrobot.greendao.database.Database;
 import org.junit.Test;
 
-/** A Visa AID's per-transaction-type limits live in its own paywave_aid row (FLOOR_LIMITS). */
 public class PaywaveAidFloorLimitsTest {
 
     private final FloorLimitsConverter converter = new FloorLimitsConverter();

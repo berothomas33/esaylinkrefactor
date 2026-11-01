@@ -10,10 +10,6 @@ import com.pax.emvbase.process.enums.TransResultEnum;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 
-/**
- * The host's answer as the kernel takes it for the 2nd GENERATE AC ({@link PaxHostAnswer}):
- * never approved unless the host approved it.
- */
 public class PaxHostAnswerTest {
 
     private static final byte[] ARPC = {0x11, 0x22, 0x33, 0x44, 0x00, 0x12};

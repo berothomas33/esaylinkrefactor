@@ -4,7 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/** The encrypted envelope carried by {@link GeneralResponse#getData()}. */
 public final class DataModel {
 
     @SerializedName("encSerializedResponse")

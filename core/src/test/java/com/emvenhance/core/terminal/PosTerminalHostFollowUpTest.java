@@ -27,13 +27,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.Test;
 
-/**
- * Once a transaction that went online has decided its end, the terminal closes the host's side of
- * each request it sent: acknowledge the sale the host approved and the card completed, reverse
- * any other the host approved or never answered, nothing for a decline. The safe end: sent on the
- * transaction thread, waited for (at most the follow-up timeout), each with its step, before the
- * terminal is free and the end is published; named by the asyncRequestId the request went with.
- */
 public class PosTerminalHostFollowUpTest {
 
     private final BlockingQueue<String> followUps = new LinkedBlockingQueue<>();
@@ -41,7 +34,6 @@ public class PosTerminalHostFollowUpTest {
     private final List<Boolean> busyAtFollowUp = new CopyOnWriteArrayList<>();
     private final List<Thread> followUpThreads = new CopyOnWriteArrayList<>();
     private final BlockingQueue<AuthResult> answers = new LinkedBlockingQueue<>();
-    /** What the host fails with when no answer is queued. */
     private volatile RuntimeException hostError = new RuntimeException("down");
 
     private final CommunicationBehavior host = new CommunicationBehavior() {
@@ -84,7 +76,6 @@ public class PosTerminalHostFollowUpTest {
         answers.add(approved());
         terminal = new TestTerminal(t -> {
             goOnline();
-            // AAC at the 2nd GENERATE AC
             t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
         });
 
@@ -100,7 +91,7 @@ public class PosTerminalHostFollowUpTest {
         terminal = new TestTerminal(t -> {
             goOnline();
             t.cancel();
-            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED)); // dropped: ended
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         });
 
         terminal.runOne();
@@ -126,7 +117,6 @@ public class PosTerminalHostFollowUpTest {
 
     @Test(timeout = 10_000)
     public void noHostAnswerIsReversedByTheIdItWasSentWith() throws InterruptedException {
-        // no answer queued: the host errors
         terminal = new TestTerminal(t -> {
             assertTrue(goOnline().isFailed());
             t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
@@ -167,7 +157,7 @@ public class PosTerminalHostFollowUpTest {
     @Test(timeout = 10_000)
     public void aTransactionThatNeverWentOnlineHasNothingToClose() throws InterruptedException {
         terminal = new TestTerminal(t -> {
-            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED)); // offline decline
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
         });
 
         terminal.runOne();
@@ -246,7 +236,7 @@ public class PosTerminalHostFollowUpTest {
         answers.add(approved());
         terminal = new TestTerminal(silent, t -> {
             goOnline();
-            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED)); // AAC at the 2nd GAC
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.DECLINED));
         });
         terminal.followUpTimeoutMs = 200;
 
@@ -276,7 +266,7 @@ public class PosTerminalHostFollowUpTest {
             public Completable acknowledge(TransactionConfig config) {
                 calls.add("ACK");
                 called.countDown();
-                throw new IllegalStateException("built badly"); // even a throwing builder
+                throw new IllegalStateException("built badly");
             }
         };
         terminal = new TestTerminal(failing, t -> {
@@ -290,8 +280,6 @@ public class PosTerminalHostFollowUpTest {
         assertTrue(called.await(5, TimeUnit.SECONDS));
         assertEquals(Arrays.asList("ACK", "ACK"), calls);
     }
-
-    // ─── Helpers ──────────────────────────────────────────────────────────
 
     private Completable followUp(String what) {
         return Completable.fromAction(() -> {
@@ -315,10 +303,6 @@ public class PosTerminalHostFollowUpTest {
         return AuthResult.approved("123456", "00", null, null);
     }
 
-    /**
-     * Follow-ups go out one at a time, in order: once a later transaction's acknowledgement has
-     * come, nothing more of the earlier one is coming.
-     */
     private void assertNoMoreFollowUps() throws InterruptedException {
         answers.clear();
         answers.add(approved());
@@ -331,12 +315,10 @@ public class PosTerminalHostFollowUpTest {
         assertTrue("left over: " + followUps, followUps.isEmpty());
     }
 
-    /** A terminal whose card is found at once; the behavior's start runs the test's script. */
     private final class TestTerminal extends PosTerminal {
 
         volatile Consumer<Transaction> script;
         volatile TransactionStep lastEnd;
-        /** The last transaction's steps, its end included. */
         volatile List<TransactionStep> lastSteps;
         volatile Thread transactionThread;
         volatile long followUpTimeoutMs = 15_000;
@@ -355,7 +337,6 @@ public class PosTerminalHostFollowUpTest {
             this.script = script;
         }
 
-        /** Runs one transaction to its end. */
         void runOne() throws InterruptedException {
             CountDownLatch ended = new CountDownLatch(1);
             List<TransactionStep> steps = new CopyOnWriteArrayList<>();
@@ -374,7 +355,6 @@ public class PosTerminalHostFollowUpTest {
 
     }
 
-    /** The search finds a chip at once; the EMV on it runs the terminal's script with its transaction. */
     private AbstractEmvBehavior scripted() {
         return StubBehavior.of((name, args) -> {
             switch (name) {

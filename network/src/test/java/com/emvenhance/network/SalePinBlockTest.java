@@ -14,11 +14,6 @@ import com.emvenhance.network.model.SaleRequest;
 import com.google.gson.Gson;
 import org.junit.Test;
 
-/**
- * encPinBlock / pinBlock / pinKey go out only for online PIN. Offline PIN, no CVM and signature
- * leave them out of the JSON entirely. Serialized with a plain {@code new Gson()} — what Retrofit's
- * {@code GsonConverterFactory.create()} (HostApiClient) uses.
- */
 public class SalePinBlockTest {
 
     private static final String PIN_BLOCK = "0123456789ABCDEF0123456789ABCDEF";
@@ -44,10 +39,9 @@ public class SalePinBlockTest {
     @Test
     public void offlinePinSendsNoPinBlock() {
         TransactionConfig config = sale();
-        EmvTransactionResult emv = result(true); // PIN verified by the card
+        EmvTransactionResult emv = result(true);
 
         assertEquals("OFFLINE", SaleCommunicationBehavior.pinEnterMode(config, emv));
-        // The old app's approved Mastercard offline-PIN chip sale sent "cvm":3.
         assertEquals(3, SaleCommunicationBehavior.cvmCode(config, emv));
         assertTrue(saleBodyJson(config, emv).contains("\"cvm\":3"));
         assertNoPinFields(config, emv);
@@ -56,7 +50,7 @@ public class SalePinBlockTest {
     @Test
     public void noCvmOrSignatureSendsNoPinBlock() {
         TransactionConfig config = sale();
-        EmvTransactionResult emv = result(false); // no PIN at all: no CVM, or signature
+        EmvTransactionResult emv = result(false);
 
         assertEquals("NO_CVM", SaleCommunicationBehavior.pinEnterMode(config, emv));
         assertNoPinFields(config, emv);
@@ -73,13 +67,11 @@ public class SalePinBlockTest {
 
     @Test
     public void pinKeyWithoutPinBlockIsNotSent() {
-        TransactionConfig config = sale().withOnlinePinKeyEncrypted(PIN_KEY); // PIN bypassed
+        TransactionConfig config = sale().withOnlinePinKeyEncrypted(PIN_KEY);
 
         assertNull(SaleCommunicationBehavior.pinKeyToSend(config));
         assertFalse(exchangeEnvelopeJson(config).contains("pinKey"));
     }
-
-    // ─── helpers ─────────────────────────────────────────────────────────
 
     private void assertNoPinFields(TransactionConfig config, EmvTransactionResult emv) {
         assertNull(SaleCommunicationBehavior.pinBlockToSend(config));

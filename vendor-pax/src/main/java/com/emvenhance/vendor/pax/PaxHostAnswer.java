@@ -9,20 +9,10 @@ import com.pax.emvbase.process.entity.OnlineResultWrapper;
 import com.pax.emvbase.process.enums.TransResultEnum;
 import java.nio.charset.StandardCharsets;
 
-/**
- * The host's {@link AuthResult} in PAX's shape ({@link OnlineResultWrapper}), what
- * {@code PaxEmvBehavior.startOnlineProcess} hands back to the kernel. A pure mapping: no kernel
- * call, no state.
- */
 final class PaxHostAnswer {
 
     private PaxHostAnswer() { }
 
-    /**
-     * The host's answer as the kernel takes it for the 2nd GENERATE AC: none or failed →
-     * FAILED; approved → APPROVE with the auth code, response code, ARPC and issuer scripts;
-     * anything else → DENIAL with the response code.
-     */
     @NonNull
     static OnlineResultWrapper toOnlineResult(@Nullable AuthResult auth) {
         OnlineResultWrapper wrapper = new OnlineResultWrapper();

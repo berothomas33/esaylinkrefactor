@@ -16,12 +16,6 @@ import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * The EMV reports its outcome ({@code finish*}); the {@link PosTerminal.Transaction} ends the
- * transaction ({@code emvFinished}). The end follows the card's outcome and never turns it into
- * an approval; the outcome and the end can't be split by a cancel; a behavior can't end the
- * transaction by publishing an outcome or an end step itself.
- */
 public class TransactionEmvFinishedTest {
 
     private static final TransactionConfig CONFIG =
@@ -35,7 +29,7 @@ public class TransactionEmvFinishedTest {
         behavior = new Behavior();
         session = new TestSession(behavior, config -> AuthResult.failed("no host"));
         session.begin(CONFIG);
-        session.prepare(CONFIG); // the behavior gets its transaction, as PosTerminal hands it
+        session.prepare(CONFIG);
     }
 
     @Test
@@ -106,7 +100,6 @@ public class TransactionEmvFinishedTest {
         assertEquals(TransactionStep.ERROR, all.get(all.size() - 1).getStep());
     }
 
-    /** The transaction's steps without TRANSACTION_STARTED (TestSession never publishes it). */
     private List<TransactionStep> steps() {
         List<TransactionStep> out = new ArrayList<>();
         for (TransactionStepEvent e : session.steps()) {
@@ -115,7 +108,6 @@ public class TransactionEmvFinishedTest {
         return out;
     }
 
-    /** A behavior with no EMV: the test calls its {@code finish*} and {@code publish}. */
     private static final class Behavior extends AbstractEmvBehavior {
         @Override protected byte[] readIccTag(int tag) { return null; }
         @Override protected void onTerminalInitialization(TransactionConfig c) { }

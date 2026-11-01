@@ -23,21 +23,11 @@ import java.util.Currency;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * PAX POS terminal: the host, the printer and the terminal's setup; creates
- * {@link PaxEmvBehavior}, whose EMV includes the card search ({@link PaxCardSearch}).
- */
 public class PaxTerminal extends PosTerminal {
 
     private static final String TAG = "PaxTerminal";
     private static final String KEY_EMV_CONFIG_INITIALIZED = "emv_config_initialized";
 
-    /**
-     * Wired to {@link SaleCommunicationBehavior} ({@code cacore/exchange} + {@code cacore/sale}) —
-     * it builds its headers via {@code HostHeaders.build}, the real confirmed contract, which
-     * needs this terminal's own serial number ({@link ModelInfo#getSN()}); {@code :network} stays
-     * vendor-agnostic, so that's passed in here rather than fetched from inside it.
-     */
     public PaxTerminal() {
         this(new PaxKernel(),
                 new SaleCommunicationBehavior(BaseApplication.getAppContext(), ModelInfo.getInstance().getSN()),
@@ -50,20 +40,11 @@ public class PaxTerminal extends PosTerminal {
         super(new PaxEmvBehavior(kernel, pinEntry()), communication, printer);
     }
 
-    /**
-     * The PIN entry, given what it needs from outside the EMV: the terminal's PIN bypass settings
-     * and the host's public key from onboarding (read when an online PIN key is wrapped).
-     */
     private static PaxPinEntry pinEntry() {
         return new PaxPinEntry(new PinBypassSettings(BaseApplication.getAppContext()),
                 () -> new OnboardingState(BaseApplication.getAppContext()).getPublicKey());
     }
 
-    /**
-     * The EMV parameters the kernel uses — its in-memory cache, as it is: {@code null} until a
-     * transaction loads it (see EmvParamService#getCachedEmvParam). For {@link PaxEmvParams},
-     * which shows the cache apart from the database; never loads it.
-     */
     @Nullable
     EmvProcessParam kernelParams() {
         return EmvParamService.loaded();
@@ -74,13 +55,11 @@ public class PaxTerminal extends PosTerminal {
         return ModelInfo.getInstance().getSN();
     }
 
-    /** The PAX Neptune hardware permissions — see {@link PaxHardwarePermissions}. */
     @Override
     public String[] requiredPermissions() {
         return PaxHardwarePermissions.all();
     }
 
-    /** Every country/currency PAX's {@link CurrencyConverter} knows, by display name. */
     @Override
     public List<String> countries() {
         List<String> countries = new ArrayList<>();
@@ -88,10 +67,6 @@ public class PaxTerminal extends PosTerminal {
         return countries;
     }
 
-    /**
-     * Saves {@code country} as the terminal's currency setting (EDC_CURRENCY_LIST, read back on
-     * every call) and applies it at once for the next amount formatted.
-     */
     @Override
     public String setCountry(String country) {
         new ConfigParamService().putString(ConfigKeyConstant.EDC_CURRENCY_LIST, country);
@@ -120,11 +95,6 @@ public class PaxTerminal extends PosTerminal {
         LogUtils.i(TAG, "PAX terminal initialized");
     }
 
-    /**
-     * First start only: seeds the database from the bundled JSON, off the main thread (this runs
-     * from Application.onCreate). Marked done only once the seed has finished, so a crash in the
-     * middle seeds again next start.
-     */
     private void ensureEmvConfigInitialized() {
         SharedPrefUtil prefs = new SharedPrefUtil(BaseApplication.getAppContext());
         if (prefs.getBoolean(KEY_EMV_CONFIG_INITIALIZED)) {

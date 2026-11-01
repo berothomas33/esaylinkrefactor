@@ -5,14 +5,8 @@ import java.io.ByteArrayOutputStream;
 import java.util.Locale;
 import java.util.function.IntFunction;
 
-/**
- * Field 55 (ICC System Related Data) for the host: the tag list, the BER-TLV encoding and the
- * present/missing summary, the same for every vendor. A vendor only reads one tag's value from
- * its kernel ({@code AbstractEmvBehavior#readIccTag}); {@link #read} does the rest.
- */
 public final class Field55 {
 
-    /** One field 55 tag and its EMV name, for the log. */
     private static final class Tag {
         final int tag;
         final String name;
@@ -23,15 +17,6 @@ public final class Field55 {
         }
     }
 
-    /**
-     * Field 55 tags, in order: the old app's list ({@code PaxUtils} → EasyLink
-     * {@code TransRequest#setTagList}, sent as {@code chipData}), exactly as it sent it. The
-     * old app's field 55 for a Mastercard offline-PIN chip sale, which the host approved, ends
-     * with 9F09, 9F33, 9F34, 9F35 and 9F41 a second time, so they are sent twice here too. The
-     * card's cryptogram data (9F26, 9F27, 9F10, 9F36, 95, 9F37, 82) is what the host needs to
-     * validate the ARQC and compute the ARPC (tag 91). 9F66 (TTQ) only exists for Visa-type
-     * kernels; Mastercard has none.
-     */
     private static final Tag[] TAGS = {
             new Tag(0x5F2A, "Transaction Currency Code"),
             new Tag(0x5F34, "PAN Sequence Number"),
@@ -64,12 +49,6 @@ public final class Field55 {
             new Tag(0x9F34, "CVM Results"),
             new Tag(0x9F35, "Terminal Type"),
             new Tag(0x9F41, "Transaction Sequence Counter"),
-//            new Tag(0x9F40, "Additional Terminal Capabilities"),
-//            new Tag(0x9F1B, "Terminal Floor Limit"),
-//            new Tag(0x9F15, "Merchant Category Code"),
-//            new Tag(0x9F1C, "Terminal Identification"),
-//            new Tag(0x9F49, "Default DDOL"),
-//            new Tag(0x97, "Default TDOL"),
     };
 
     private final String hex;
@@ -84,11 +63,6 @@ public final class Field55 {
         this.missing = missing;
     }
 
-    /**
-     * Reads every field 55 tag through {@code reader} (value bytes only; {@code null} or empty
-     * means the kernel has no value) and encodes the ones present as BER-TLV. A missing tag is
-     * left out, not padded.
-     */
     public static Field55 read(IntFunction<byte[]> reader) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         StringBuilder present = new StringBuilder();
@@ -109,7 +83,6 @@ public final class Field55 {
                 missing.length() == 0 ? "none" : missing.toString());
     }
 
-    /** Hex-encoded BER-TLV, as sent in {@code chipData}; empty when no tag was present. */
     public String hex() {
         return hex;
     }
@@ -118,17 +91,12 @@ public final class Field55 {
         return length == 0;
     }
 
-    /**
-     * The log/trace text: every tag sent with its name and value, the tags the kernel had no
-     * value for, and the hex.
-     */
     public String describe(@Nullable String source) {
         return "FIELD 55 (" + (source != null ? source + ", " : "") + length + " bytes)" + present
                 + "\nmissing: " + missing
                 + "\nhex: " + hex;
     }
 
-    /** Appends one BER-TLV entry (tag + length + value). */
     private static void writeTlv(ByteArrayOutputStream out, int tag, byte[] value) {
         byte[] tagBytes = tagToBytes(tag);
         out.write(tagBytes, 0, tagBytes.length);
@@ -136,10 +104,6 @@ public final class Field55 {
         out.write(value, 0, value.length);
     }
 
-    /**
-     * BER-TLV tag bytes: one for a plain tag ({@code 0x9A}), two for a {@code 0x9F}/{@code 0x5F}
-     * tag ({@code 0x9F02}), three for a {@code 0xDF}-class tag ({@code 0xDF8120}).
-     */
     private static byte[] tagToBytes(int tag) {
         if (tag <= 0xFF) {
             return new byte[]{(byte) tag};
@@ -150,7 +114,6 @@ public final class Field55 {
         return new byte[]{(byte) (tag >> 16), (byte) (tag >> 8), (byte) tag};
     }
 
-    /** BER-TLV length: short form under 128 bytes, one length-of-length byte above it. */
     private static void writeBerLength(ByteArrayOutputStream out, int length) {
         if (length < 0x80) {
             out.write(length);

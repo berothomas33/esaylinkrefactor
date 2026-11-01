@@ -11,10 +11,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.Test;
 
-/**
- * The sale request for the old app's approved Mastercard offline-PIN chip sale, built from the
- * same card data, matches what the old app sent field by field (key order aside).
- */
 public class OldAppSaleRequestTest {
 
     private static final String CHIP_DATA =
@@ -24,7 +20,6 @@ public class OldAppSaleRequestTest {
             + "9F34034103029F3501229F360200279F37045D8B42529F4104000000009F420209789F1E0831"
             + "383530323234379F090200029F3303E0F0C89F34034103029F3501229F410400000000";
 
-    /** The old app's SALE_REQUEST log, 2026-10-13 12:37:31. */
     private static final String OLD_APP_SALE_REQUEST = "{\"amount\":120.0,\"cardType\":\"MASTERCARD\","
             + "\"chipData\":\"" + CHIP_DATA + "\",\"cvm\":3,\"dcc\":\"true\",\"expirationMonth\":12,"
             + "\"expirationYear\":49,\"extraData\":\"{\\\"aid\\\":\\\"A0000000041010\\\","
@@ -35,7 +30,6 @@ public class OldAppSaleRequestTest {
 
     @Test
     public void mastercardOfflinePinChipSaleMatchesTheOldApp() {
-        // The terminal offers every entry method; the card was inserted.
         TransactionConfig config = new TransactionConfig(TransactionType.SALE, 12000, EntryMethod.ANY)
                 .withIccData(CHIP_DATA);
         EmvTransactionResult emv = new EmvTransactionResult.Builder()
@@ -48,7 +42,7 @@ public class OldAppSaleRequestTest {
                 .emvAppLabel("MASTERCARD")
                 .emvAppName("MasterCard")
                 .issuerName("MasterCard")
-                .hasPin(true) // offline PIN, verified by the card
+                .hasPin(true)
                 .entryMethod(EntryMethod.CHIP)
                 .build();
 

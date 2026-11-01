@@ -2,7 +2,6 @@ package com.emvenhance.network.onboarding.model;
 
 import com.google.gson.annotations.SerializedName;
 
-/** {@code foundation/onboarding/online-handshake} request. */
 public final class HandshakeOnboardingOnlineRequest {
 
     public static final String TYPE_TEMPLATE = "TEMPLATE_ONBOARDING";

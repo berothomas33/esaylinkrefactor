@@ -50,19 +50,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * PAX's {@link EmvParams}: the GreenDAO parameter database, the kernel's parameter cache
- * ({@link PaxTerminal#kernelParams()}), and the host's parameter package
- * ({@link EmvParamDownloadClient} + {@link EmvParamUpdater}). Every row is rendered here, so the
- * screen never sees a PAX type. Nothing writes the database while a transaction runs.
- */
 final class PaxEmvParams implements EmvParams {
 
-    /**
-     * The tmsFileDownload POS type: always "pax" for this vendor. Not ModelInfo#getTerminalModel()
-     * — a captured old-app call hit foundation/tmsFileDownload/pax (200, real zip back) whatever
-     * the model; the per-device model ("A920Pro" etc.) 500'd on the host.
-     */
     private static final String POS_TYPE = "pax";
 
     private final PaxTerminal terminal;
@@ -90,7 +79,6 @@ final class PaxEmvParams implements EmvParams {
         return rows;
     }
 
-    /** {@inheritDoc} Read from {@link PaxTerminal#kernelParams()}, which never loads it. */
     @Nullable
     @Override
     public List<Row> cachedRows(String category) {
@@ -110,14 +98,6 @@ final class PaxEmvParams implements EmvParams {
         return rows;
     }
 
-    /**
-     * Refreshes the saved access token first if it is near or past expiry (rather than handing
-     * the host whatever token onboarding first minted), then downloads with the authenticated
-     * headers — the confirmed post-onboarding contract — and applies the package. Refused while
-     * a transaction runs (checked again right before the apply): the apply deletes and rewrites
-     * the tables that transaction may read. A changed database reloads at the next transaction
-     * ({@link EmvParamUpdater} invalidates the cache).
-     */
     @Override
     public Single<String> download() {
         OnboardingState state = new OnboardingState(BaseApplication.getAppContext());
@@ -132,11 +112,10 @@ final class PaxEmvParams implements EmvParams {
                 });
     }
 
-    /** Seeds the database from the bundled JSON; refused while a transaction runs. Blocking. */
     @Override
     public void seedDefaults() {
         refuseWhileBusy();
-        new ConfigInit().init(); // synchronous; reloads the cache when done
+        new ConfigInit().init();
     }
 
     private void refuseWhileBusy() {
@@ -158,7 +137,6 @@ final class PaxEmvParams implements EmvParams {
         return file != null && file.isFile() ? file : null;
     }
 
-    /** One entry — a database row or a cache entry — and every field of it. */
     private static final class PaxRow implements Row {
 
         private final String title;
@@ -189,16 +167,11 @@ final class PaxEmvParams implements EmvParams {
         String render(Object item);
     }
 
-    /** A category's entries in the kernel's cache; {@code null} when the cache lacks it. */
     private interface CacheEntries {
         @Nullable
         List<?> entries(EmvProcessParam cache);
     }
 
-    /**
-     * One EMV param category: how to load it from the database and render each row, and how to
-     * read its entries in the kernel's parameter cache (what a transaction uses) and render them.
-     */
     private enum Category {
         AID("AID",
                 () -> GreendaoHelper.getEmvAidHelper().loadAll(),
@@ -277,13 +250,11 @@ final class PaxEmvParams implements EmvParams {
         }
     }
 
-    /** A contactless kernel's cached AIDs; {@code null} when the cache lacks the kernel. */
     @Nullable
     private static List<?> clss(@Nullable BaseParam<? extends BaseAid> param) {
         return param == null ? null : param.getAidList();
     }
 
-    /** A cached contactless AID, the way {@link #row} shows its database row. */
     private static String clssRow(Object entry) {
         BaseAid aid = (BaseAid) entry;
         byte[] name = aid.getAppName();
@@ -298,9 +269,6 @@ final class PaxEmvParams implements EmvParams {
     private static String row(String appName, String aid) {
         return appName + "   (" + aid + ")";
     }
-
-    // ─── Every field of one parameter object (a cached kernel AID, CAPK or the like) as text,
-    // the way the kernel gets it: byte arrays in hex, nested objects and lists indented. ─────
 
     private static String describe(Object value) {
         StringBuilder text = new StringBuilder();

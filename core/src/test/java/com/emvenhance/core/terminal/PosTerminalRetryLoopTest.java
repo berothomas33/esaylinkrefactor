@@ -26,13 +26,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
-/**
- * The transaction runs on the transaction thread from TRANSACTION_STARTED, once; its EMV owns the
- * retries: one the kernel asks for (fallback, try another interface, try again, See Phone) is the
- * next turn of the behavior's run loop — SEARCH_CARD again after the previous search returned,
- * never one started from inside its callback. Whatever happens, the end is published once, with
- * the terminal already free.
- */
 public class PosTerminalRetryLoopTest {
 
     private final List<TransactionStepEvent> events = new CopyOnWriteArrayList<>();
@@ -40,13 +33,11 @@ public class PosTerminalRetryLoopTest {
     private final AtomicInteger searchesOnStack = new AtomicInteger();
     private final AtomicInteger deepestNesting = new AtomicInteger();
     private final CountDownLatch ended = new CountDownLatch(1);
-    /** What the EMV on the card found does: ask for a retry, maybe cancel first. */
     private final AtomicReference<java.util.function.BiConsumer<AbstractEmvBehavior, PosTerminal.Transaction>>
             onStart = new AtomicReference<>();
     private final AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
     private final List<Thread> searchThreads = new CopyOnWriteArrayList<>();
     private final List<Boolean> busyAtTheEnd = new CopyOnWriteArrayList<>();
-    /** Thrown by the search when set. */
     private volatile RuntimeException searchFails;
 
     @Test
@@ -115,7 +106,7 @@ public class PosTerminalRetryLoopTest {
 
     @Test
     public void anAttemptWithNoOutcomeEndsWithAnError() throws Exception {
-        onStart.set((behavior, transaction) -> { }); // EMV reports nothing
+        onStart.set((behavior, transaction) -> { });
         TestTerminal terminal = new TestTerminal();
 
         terminal.acceptCard(TransactionType.SALE, 1000);
@@ -132,7 +123,7 @@ public class PosTerminalRetryLoopTest {
         CountDownLatch saleKnown = new CountDownLatch(1);
         onStart.set((behavior, transaction) -> {
             awaitQuietly(saleKnown);
-            sale.get().cancel(); // the screen cancels while EMV is running
+            sale.get().cancel();
             behavior.requestRetry(new TransactionConfig(TransactionType.SALE, 1000,
                     EntryMethod.CHIP), "Insert the card");
         });
@@ -247,7 +238,6 @@ public class PosTerminalRetryLoopTest {
 
     private final class TestTerminal extends PosTerminal {
 
-        /** Every transaction's steps, for the test: each transaction has its own stream. */
         final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
 
         @Override
@@ -269,10 +259,6 @@ public class PosTerminalRetryLoopTest {
         }
     }
 
-    /**
-     * The search finds a chip at once (or the mode a retry asked for), on the transaction thread,
-     * and the EMV on it does what the test set in {@link #onStart}.
-     */
     private AbstractEmvBehavior behavior() {
         AtomicReference<AbstractEmvBehavior> self = new AtomicReference<>();
         self.set(StubBehavior.of((name, args) -> {
@@ -296,7 +282,7 @@ public class PosTerminalRetryLoopTest {
             }
             listener.onSearchStarted(config);
             searchedWith.add(config.getMode());
-            listener.onChipDetected(CardPresence.chip()); // EMV runs right here, as on PAX
+            listener.onChipDetected(CardPresence.chip());
         } finally {
             searchesOnStack.decrementAndGet();
         }

@@ -15,10 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.Test;
 
-/**
- * {@link AbstractEmvBehavior#authorizeOnline} builds field 55 from the vendor's tags before every
- * chip or contactless request, and never reaches the host without it.
- */
 public class AuthorizeOnlineFieldFiftyFiveTest {
 
     private static final byte[] ARQC = {(byte) 0xF4, 0x3D, 0x16, 0x6E, (byte) 0xC3, 0x61, (byte) 0xA9, (byte) 0xB2};
@@ -63,7 +59,6 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
         assertNull(sentToHost.get(0).getIccData());
     }
 
-    /** A session for {@code vendor} whose host records each request and approves it. */
     private TestSession sessionFor(VendorBehavior vendor) {
         return new TestSession(vendor, config -> {
             sentToHost.add(config);
@@ -71,7 +66,6 @@ public class AuthorizeOnlineFieldFiftyFiveTest {
         });
     }
 
-    /** Minimal vendor: every phase is a no-op; its kernel has 9F26 and 9F27, or nothing. */
     private static final class VendorBehavior extends AbstractEmvBehavior {
 
         private final boolean hasCryptogram;

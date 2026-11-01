@@ -1,20 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210509 	        xieYb                  Create
- * ===========================================================================================
- *
- */
-
 package com.pax.configservice.impl;
 
 import androidx.annotation.NonNull;
@@ -101,40 +84,22 @@ import java.util.Locale;
 public class EmvParamService {
     private static final String TAG = "EmvParamService";
 
-    /**
-     * The one copy of the parameters the kernels use, for the whole process: {@code null} until
-     * the first transaction (or anything else) loads it from the database, and again after
-     * {@link #invalidate()}. Its only owner: whether the parameters are loaded is whether this is
-     * set (no "initialized" pref next to it).
-     */
     @Nullable
     private static EmvProcessParam cache;
 
-    /**
-     * The database changed (a download, a seed): the next {@link #getCachedEmvParam()} loads it
-     * again. Any instance's database writes reach the one cache this way.
-     */
     public static synchronized void invalidate() {
         cache = null;
     }
 
-    /** Whether the parameters are in memory (the next transaction won't read the database). */
     public static synchronized boolean isLoaded() {
         return cache != null;
     }
 
-    /** The parameters in memory, without loading them: {@code null} until something loads them. */
     @Nullable
     public static synchronized EmvProcessParam loaded() {
         return cache;
     }
 
-    /**
-     * insert EmvCapk
-     *
-     * @param emvCapkList EmvCapk list
-     * @return insert result
-     */
     public boolean insertEmvCapk(CapkParamBean emvCapkList) {
         if (emvCapkList == null){
             return false;
@@ -146,17 +111,11 @@ public class EmvParamService {
             capkInsert = GreendaoHelper.getEmvCapkHelper().insert(capkList);
         }
         if (capkRevokeList != null && !CapkRevokeDbHelper.getInstance().insert(capkRevokeList)){
-            return false; // a failed revocation insert is a failed CAPK section
+            return false;
         }
         return capkInsert;
     }
 
-    /**
-     * insert EmvAid
-     *
-     * @param emvAidList EmvAid list
-     * @return insert result
-     */
     public boolean insertEmvAid(List<EmvAid> emvAidList) {
         if (emvAidList == null){
             return false;
@@ -164,12 +123,6 @@ public class EmvParamService {
         return GreendaoHelper.getEmvAidHelper().insert(emvAidList);
     }
 
-    /**
-     * insert amex param
-     *
-     * @param amexParam amex param
-     * @return insert result
-     */
     public boolean insertAmexParam(AmexParamBean amexParam) {
         List<AmexAidBean> aid = amexParam.getAid();
         List<AmexDrlBean> programID = amexParam.getProgramID();
@@ -183,12 +136,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert paypass param
-     *
-     * @param payPassParam paypass param
-     * @return insert result
-     */
     public boolean insertPaypassParam(PayPassParamBean payPassParam) {
         List<PayPassAidBean> aid = payPassParam.getAid();
         boolean aidInsert = false;
@@ -198,28 +145,15 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert payWave ParamBean
-     *
-     * @param payWaveParamBean payWave ParamBean
-     * @return insert result
-     */
     public boolean insertPaywaveParam(PayWaveParamBean payWaveParamBean) {
         List<PaywaveAidBean> aid = payWaveParamBean.getAid();
         boolean aidInsert = false;
         if (aid != null){
-            // The per-transaction-type limits are stored in each paywave_aid row (FLOOR_LIMITS).
             aidInsert = PaywaveAidDbHelper.getInstance().insert(aid);
         }
         return aidInsert;
     }
 
-    /**
-     * insert dpas param
-     *
-     * @param dpasParamBean dpas param
-     * @return insert result
-     */
     public boolean insertDpasParam(DpasParamBean dpasParamBean) {
         List<DpasAidBean> aid = dpasParamBean.getAid();
         boolean aidInsert = false;
@@ -229,12 +163,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert eft param
-     *
-     * @param eftParamBean eft param
-     * @return insert result
-     */
     public boolean insertEFTParam(EFTParamBean eftParamBean) {
         List<EFTAidBean> aid = eftParamBean.getAid();
         boolean aidInsert = false;
@@ -244,12 +172,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert jcb param
-     *
-     * @param jcbParamBean jcb param
-     * @return insert result
-     */
     public boolean insertJcbParam(JcbParamBean jcbParamBean) {
         List<JcbAidBean> aid = jcbParamBean.getAid();
         boolean aidInsert = false;
@@ -259,12 +181,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert mir param
-     *
-     * @param mirParamBean mir param
-     * @return insert result
-     */
     public boolean insertMirParam(MirParamBean mirParamBean) {
         List<MirAidBean> aid = mirParamBean.getAid();
         boolean aidInsert = false;
@@ -274,12 +190,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert pboc param
-     *
-     * @param pbocParamBean pboc param
-     * @return insert result
-     */
     public boolean insertPBOCParam(PBOCParamBean pbocParamBean) {
         List<PBOCAidBean> aid = pbocParamBean.getAid();
         boolean aidInsert = false;
@@ -289,12 +199,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert pure param
-     *
-     * @param pureParamBean pure param
-     * @return insert result
-     */
     public boolean insertPureParam(PureParamBean pureParamBean) {
         List<PureAidBean> aid = pureParamBean.getAid();
         boolean aidInsert = false;
@@ -304,12 +208,6 @@ public class EmvParamService {
         return aidInsert;
     }
 
-    /**
-     * insert rupay param
-     *
-     * @param rupayParamBean rupay param
-     * @return insert result
-     */
     public boolean insertRupayParam(RupayParamBean rupayParamBean) {
         List<RupayAidBean> aid = rupayParamBean.getAid();
         boolean aidInsert = false;
@@ -605,8 +503,6 @@ public class EmvParamService {
                 payWaveAid.setCrypto17Flag(item.getCrypto17Flag());
                 payWaveAid.setStatusCheckFlag(item.getStatusCheckFlag());
                 payWaveAid.setZeroAmountNoAllowed(item.getAmountZeroNoAllowed());
-                // Was item.getAmountZeroNoAllowed(): the Visa kernel's security capability
-                // (Terminal Capabilities byte 3) got the zero-amount flag instead.
                 byte[] securityCapability = item.getSecurityCapabilityBytes();
                 payWaveAid.setSecurityCapability(securityCapability != null
                         && securityCapability.length > 0 ? securityCapability[0] : 0);
@@ -639,7 +535,6 @@ public class EmvParamService {
         }
         return payWaveInterFloorLimits;
     }
-
 
     private PayPassParam paypassConvert(PayPassParamBean payPassParam) {
         List<PayPassAidBean> aids = payPassParam.getAid();
@@ -684,7 +579,6 @@ public class EmvParamService {
                 payPassAid.setDataExchangeSupportFlag(item.getDataExchangeSupportFlag());
                 payPassAid.setTlvParam(item.getTlvParamBytes());
                 payPassAid.setDefaultUDOL(item.getDefaultUDOLBytes());
-                // Was getRefundVoidTacDenialBytes() — the refund/void floor limit got the TAC bytes.
                 payPassAid.setRefundVoidFloorLimit(ConvertUtils.strToBcdPaddingLeft(
                         ConvertUtils.getPaddedNumber(item.getRefundVoidFloorLimit(), 12)));
                 payPassAid.setRefundVoidTacDenial(item.getRefundVoidTacDenialBytes());
@@ -805,17 +699,11 @@ public class EmvParamService {
         return emvAids;
     }
 
-    /** Drops the in-memory copy and loads every EMV/CLSS parameter from the database again. */
     public EmvProcessParam reloadFromDatabase() {
         invalidate();
         return getCachedEmvParam();
     }
 
-    /**
-     * The parameters the kernels use: the in-memory copy, loaded from the database the first
-     * time (and after {@link #invalidate()}). Call it off the main thread: a load reads every
-     * table.
-     */
     public EmvProcessParam getCachedEmvParam() {
         synchronized (EmvParamService.class) {
             if (cache == null) {
@@ -828,7 +716,6 @@ public class EmvParamService {
         }
     }
 
-    /** Reads every parameter table; {@link #toEmvProcessParam} puts the rows in the cache. */
     private EmvProcessParam loadFromDatabase() {
         List<EmvAid> emvAids = GreendaoHelper.getEmvAidHelper().loadAll();
         List<EmvCapk> emvCapks = GreendaoHelper.getEmvCapkHelper().loadAll();
@@ -883,18 +770,12 @@ public class EmvParamService {
                 mirParamBean, pbocParamBean, pureParamBean, rupayParamBean);
     }
 
-    /**
-     * The kernels' parameters from the database rows: every one of them is set, an empty table
-     * giving an empty list, never {@code null} — the kernels read them all at terminal
-     * initialization (a CAPK parameter left out failed every sale there).
-     */
     @VisibleForTesting
     EmvProcessParam toEmvProcessParam(@Nullable List<EmvAid> emvAids, CapkParamBean capk,
             Config termConfig, AmexParamBean amex, PayPassParamBean payPass,
             PayWaveParamBean payWave, DpasParamBean dpas, EFTParamBean eft, JcbParamBean jcb,
             MirParamBean mir, PBOCParamBean pboc, PureParamBean pure, RupayParamBean rupay) {
         EmvProcessParam.Builder builder = new EmvProcessParam.Builder();
-        // Always a list, empty when there are none (a package may bring no contact AIDs).
         builder.setEmvAidList(emvAidConvert(emvAids != null ? emvAids : new ArrayList<>()));
         builder.setCapkParam(capkConvert(capk));
         builder.setTermConfig(termConfig);
@@ -918,10 +799,6 @@ public class EmvParamService {
         String configuredCurrency = configParamService.getString(ConfigKeyConstant.EDC_CURRENCY_LIST);
         Locale resolvedCurrency = CurrencyConverter.setDefCurrency(configuredCurrency);
         if (!resolvedCurrency.getDisplayName(Locale.US).equals(configuredCurrency)) {
-            // EDC_CURRENCY_LIST didn't match any locale CurrencyConverter knows about (typo, or
-            // this device's ICU data doesn't expose it) — fall back to Egypt (EGP/818), this
-            // deployment's configured default market, instead of silently staying on whatever
-            // defLocale already was.
             LogUtils.w(TAG, "Unknown EDC_CURRENCY_LIST '" + configuredCurrency
                     + "' — falling back to Egypt (EGP)");
             CurrencyConverter.setDefCurrency(new Locale("ar", "EG").getDisplayName(Locale.US));
@@ -960,8 +837,6 @@ public class EmvParamService {
     private CapkParam capkConvert(CapkParamBean emvCapkList) {
         List<EmvCapk> capkList = emvCapkList.getCapkList();
         List<CapkRevokeBean> capkRevokeList = emvCapkList.getCapkRevokeList();
-        // Both lists always set, empty when there are none: the kernels read their size (a null
-        // revocation list failed every transaction at terminal initialization).
         CapkParam capkParam = new CapkParam();
         capkParam.setCapkList(new ArrayList<>());
         capkParam.setCapkRevokeList(new ArrayList<>());

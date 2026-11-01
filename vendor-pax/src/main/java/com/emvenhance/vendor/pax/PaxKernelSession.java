@@ -9,23 +9,11 @@ import com.pax.emvbase.process.entity.OnlineResultWrapper;
 import com.pax.emvbase.process.entity.TransResult;
 import java.util.List;
 
-/**
- * The PAX kernel's notes for one attempt on one card (a retry is a new attempt): what the kernel
- * returned, the host's answer for the 2nd GENERATE AC, what a callback hands its step. Not the
- * transaction — that is {@code PosTerminal.Transaction}, which outlives every attempt. One
- * object, replaced by a fresh one in {@code PaxEmvBehavior#onTerminalInitialization}, so nothing
- * of an attempt is ever read by the next — no field to reset by hand. Its steps write it and read
- * it, all on the transaction thread.
- */
 final class PaxKernelSession {
 
-    // ─── The kernel's result ─────────────────────────────────────────────
-
-    /** The contact kernel's result for the stage chain; read by checkContactResult. */
     @Nullable
     TransResult transResult;
 
-    /** The contactless kernel's result for the stage chain; read by checkContactlessResult. */
     @Nullable
     TransResult clsTransResult;
 
@@ -35,49 +23,32 @@ final class PaxKernelSession {
     @Nullable
     String clsCachedTrack2Data;
 
-    // ─── Online: the host and the PIN ───────────────────────────────────
-
-    /** The host's answer (mag / manual read it at TRANSACTION_COMPLETION). */
     @Nullable
     AuthResult lastAuth;
 
-    /** The encrypted online PIN block, attached to the authorization in startOnlineProcess. */
     @Nullable
     byte[] lastOnlinePinBlock;
 
-    /** The PIN key (PEK) that encrypted {@link #lastOnlinePinBlock}, RSA-wrapped for the host. */
     @Nullable
     String lastOnlinePinKeyEncrypted;
 
-    /** The host's answer waiting for the card's 2nd GENERATE AC / the 2nd-tap check. */
     @Nullable
     OnlineResultWrapper issuerResponse;
 
-    /** The issuer's scripts waiting for onScriptProcessing (contactless). */
     @Nullable
     IssuerRspData pendingScripts;
 
-    // ─── Waiting for a step: a kernel callback hands these to the step that does the work ──
-
-    /** The kernel's candidate list from onWaitAppSelect, for the application-selection step. */
     @Nullable
     List<CandidateAID> candidates;
 
-    /** What onCardHolderPwd is asking, for the PIN step. */
     @Nullable
     PinRequest pinRequest;
 
-    /** How a chip / contactless transaction ends, for the TRANSACTION_COMPLETION step. */
     @Nullable
     Outcome outcome;
 
-    /** The PIN pad on screen, closed at the stage end if its own callbacks didn't close it. */
     @Nullable
     PaxPinPad activePinPad;
-
-    // ─── The result summary for the APPROVED / DECLINED event ────────────
-    // PAN / TVR / TAC / IAC / field 55, captured by captureTransactionSummary while the kernel
-    // session is still open. null for mag / manual (no ICC session).
 
     @Nullable
     String lastPan;
@@ -94,18 +65,8 @@ final class PaxKernelSession {
     @Nullable
     String lastIccData;
 
-    // ─── Flags ───────────────────────────────────────────────────────────
-
-    /**
-     * SCRIPT_PROCESSING already ran in its own step (contactless 2nd tap): completeApproved
-     * doesn't announce it again. Not the same as {@link #pendingScripts}, which is null both
-     * before the scripts are handed over and after they ran.
-     */
     boolean scriptsProcessed;
 
-    // ─── The types it holds ──────────────────────────────────────────────
-
-    /** What onCardHolderPwd was asked, for the step method that collects the PIN. */
     static final class PinRequest {
         final boolean online;
         final boolean supportPinBypass;
@@ -118,7 +79,6 @@ final class PaxKernelSession {
         }
     }
 
-    /** A chip/contactless transaction's end: APPROVED, DECLINED or ERROR, and its message. */
     static final class Outcome {
         final TransactionStep step;
         final String message;

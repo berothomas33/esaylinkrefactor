@@ -21,11 +21,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
-/**
- * Every publish holds the terminal's one lock: a step reported from a second thread (a vendor
- * SDK callback, a cancel) while one is being delivered waits for it — subscribers never get two
- * {@code onNext} calls at once.
- */
 public class PosTerminalConcurrentStepsTest {
 
     @Test
@@ -41,7 +36,7 @@ public class PosTerminalConcurrentStepsTest {
             delivered.add(event.getStep() + " on " + Thread.currentThread().getName());
             if (event.getStep() == TransactionStep.ONLINE_PROCESSING) {
                 firstInside.countDown();
-                releaseFirst.await(5, TimeUnit.SECONDS); // still delivering when the second lands
+                releaseFirst.await(5, TimeUnit.SECONDS);
             }
             inFlight.decrementAndGet();
         });
@@ -65,7 +60,7 @@ public class PosTerminalConcurrentStepsTest {
 
         assertEquals("two onNext calls at once", 1, maxInFlight.get());
         assertEquals(Arrays.asList("ONLINE_PROCESSING on first", "ONLINE_COMPLETED on second"),
-                delivered.subList(1, 3)); // after TRANSACTION_STARTED
+                delivered.subList(1, 3));
     }
 
     @Test
@@ -99,10 +94,8 @@ public class PosTerminalConcurrentStepsTest {
                 TransactionStep.ONLINE_PROCESSING, TransactionStep.ERROR), seen);
     }
 
-    /** The search is held open until released. */
     private static final class TestTerminal extends PosTerminal {
 
-        /** Every transaction's steps, for the test: each transaction has its own stream. */
         final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
 
         @Override

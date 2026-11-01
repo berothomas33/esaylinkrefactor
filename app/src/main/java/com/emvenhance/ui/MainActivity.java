@@ -13,14 +13,6 @@ import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.databinding.ActivityMainBinding;
 
-/**
- * The home screen: buttons only. Starting a transaction is delegated to
- * {@link AmountActivity}/{@link AmountFragment}; its steps, its cancel and its result live on the
- * search screen ({@link SearchCardFragment}), which holds the transaction.
- *
- * <p>The setup buttons show only what this terminal has ({@link PosTerminal#emvParams()},
- * {@link PosTerminal#countries()}); nothing here names a vendor.
- */
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSIONS_REQUEST = 1;
@@ -45,7 +37,6 @@ public class MainActivity extends AppCompatActivity {
 
         EmvParams params = terminal.emvParams();
         show(binding.btnShowEmvParam, params != null);
-        // Seeding the bundled JSON over the host's parameters is a debug tool only (rule 7).
         show(binding.btnInsertEmvParam, params != null && BuildConfig.DEBUG);
         if (params != null) {
             binding.btnShowEmvParam.setOnClickListener(

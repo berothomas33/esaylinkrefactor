@@ -2,9 +2,6 @@ package com.emvenhance.core.card;
 
 import androidx.annotation.Nullable;
 
-/**
- * Result of the vendor's card search ({@code onSearchCard}) — selected {@link EntryMethod} plus track/UID data.
- */
 public final class CardPresence {
 
     private final EntryMethod entryMethod;

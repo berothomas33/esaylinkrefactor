@@ -1,19 +1,3 @@
-/*
- * ===========================================================================================
- * = COPYRIGHT
- *          PAX Computer Technology(Shenzhen) CO., LTD PROPRIETARY INFORMATION
- *   This software is supplied under the terms of a license agreement or nondisclosure
- *   agreement with PAX Computer Technology(Shenzhen) CO., LTD and may not be copied or
- *   disclosed except in accordance with the terms in that agreement.
- *     Copyright (C) 2019-? PAX Computer Technology(Shenzhen) CO., LTD All rights reserved.
- * Description: // Detail description about the function of this module,
- *             // interfaces with the other modules, and dependencies.
- * Revision History:
- * Date	                Author	               Action
- * 20210508 	        xieYb                  Create
- * ===========================================================================================
- *
- */
 package com.pax.bizentity.entity;
 
 import androidx.annotation.Nullable;
@@ -44,48 +28,17 @@ public class TransData implements Serializable {
     public static final String REVERSAL_FIELD_NAME = "REVERSAL";
     public static final String SIGN_PATH = "sign_path";
 
-    /**
-     * 交易状态
-     *
-     * @author Steven.W
-     */
     public enum ETransStatus {
-        /**
-         * 正常
-         */
         NORMAL,
-        /**
-         * 已撤销
-         */
         VOIDED,
-        /**
-         * 已调整
-         */
         ADJUSTED
     }
 
-    /* 脱机上送失败原因 */
-
     public enum OfflineStatus {
-        /**
-         * offline not sent
-         */
         OFFLINE_NOT_SENT(0),
-        /**
-         * offline sent
-         */
         OFFLINE_SENT(1),
-        /**
-         * 脱机上送失败
-         */
         OFFLINE_ERR_SEND(2),
-        /**
-         * 脱机上送平台拒绝(返回码非00)
-         */
         OFFLINE_ERR_RESP(3),
-        /**
-         * 脱机上送未知失败原因
-         */
         OFFLINE_ERR_UNKNOWN(0xff),;
 
         private final int value;
@@ -95,48 +48,18 @@ public class TransData implements Serializable {
         }
     }
 
-    /**
-     * 电子签名上送状态
-     */
     public enum SignSendStatus {
-        /**
-         * 未上送
-         */
         SEND_SIG_NO,
-        /**
-         * 上送成功
-         */
         SEND_SIG_SUCC,
-        /**
-         * 上送失败
-         */
         SEND_SIG_ERR,
     }
 
     public enum EnterMode {
-        /**
-         * 手工输入
-         */
         MANUAL("M"),
-        /**
-         * 刷卡
-         */
         SWIPE("S"),
-        /**
-         * 插卡
-         */
         INSERT("I"),
-        /**
-         * IC卡回退
-         */
         FALLBACK("F"),
-        /**
-         * 非接支付
-         */
         CLSS("C"),
-        /**
-         * 扫码支付
-         */
         QR("Q"),;
 
         private String str;
@@ -152,13 +75,7 @@ public class TransData implements Serializable {
     }
 
     public enum ReversalStatus {
-        /**
-         * No need for reversal
-         */
         NORMAL,
-        /**
-         * Need reversal
-         */
         PENDING,
     }
 
@@ -170,96 +87,90 @@ public class TransData implements Serializable {
     public static final String DUP_REASON_RUPAY_E2 = "E2";
     public static final String DUP_REASON_RUPAY_22 = "22";
 
-    // ============= 需要存储 ==========================
     @Id(autoincrement = true)
     @Property(nameInDb = ID_FIELD_NAME)
     protected Long id;
     @Property(nameInDb = TRACENO_FIELD_NAME)
     @Unique
     @NotNull
-    protected long traceNo; // pos流水号
-    protected long origTransNo; // 原pos流水号
+    protected long traceNo;
+    protected long origTransNo;
     @Property(nameInDb = TYPE_FIELD_NAME)
     @NotNull
-    protected String transType; // 交易类型
-    protected String origTransType = null; // 原交易类型
+    protected String transType;
+    protected String origTransType = null;
     @Property(nameInDb = STATE_FIELD_NAME)
     @NotNull
     @Convert(converter = ETransStatusConverter.class, columnType = String.class)
-    protected ETransStatus transState = ETransStatus.NORMAL; // 交易状态
+    protected ETransStatus transState = ETransStatus.NORMAL;
     @NotNull
-    protected boolean isUpload = false; // 是否已批上送
+    protected boolean isUpload = false;
     @Property(nameInDb = OFFLINE_STATE_FIELD_NAME)
     @Convert(converter = OfflineStatusConverter.class, columnType = String.class)
-    protected OfflineStatus offlineSendState = null; // 脱机上送失败类型 ：上送失败/平台拒绝
+    protected OfflineStatus offlineSendState = null;
     @NotNull
-    protected int sendTimes; // 已批上送次数
-    protected String procCode; // 处理码，39域
+    protected int sendTimes;
+    protected String procCode;
     @Property(nameInDb = AMOUNT_FIELD_NAME)
-    protected String amount; // 交易总金额
-    protected String tipAmount; // 小费金额
+    protected String amount;
+    protected String tipAmount;
     @Convert(converter = LocaleConverter.class, columnType = String.class)
-    protected Locale currency; // currency
+    protected Locale currency;
     @Property(nameInDb = BATCHNO_FIELD_NAME)
     @NotNull
-    protected long batchNo; // 批次号
-    protected long origBatchNo; // 原批次号
-    protected String pan; // 主账号-刷两张卡时为转出卡卡号
-    protected String dateTime; // 交易日期时间
-    protected String origDateTime; // 原交易日期时间
-    protected String settleDateTime; // 清算日期时间
-    protected String expDate; // 卡有效期
+    protected long batchNo;
+    protected long origBatchNo;
+    protected String pan;
+    protected String dateTime;
+    protected String origDateTime;
+    protected String settleDateTime;
+    protected String expDate;
     @Convert(converter = EnterModeConverter.class, columnType = String.class)
-    protected EnterMode enterMode; // 输入模式
-    protected String nii;     //Network International Identifier
-    protected String refNo; // 系统参考号
-    protected String origRefNo; // 原系统参考号
-    protected String authCode; // 授权码
-    protected String origAuthCode; // 原授权码
-    protected String issuerCode; // 发卡行标识码
-    protected String acqCode; // 收单机构标识码
+    protected EnterMode enterMode;
+    protected String nii;
+    protected String refNo;
+    protected String origRefNo;
+    protected String authCode;
+    protected String origAuthCode;
+    protected String issuerCode;
+    protected String acqCode;
     @NotNull
-    protected boolean hasPin; // 是否有输密码
-    protected String track1; // 磁道一信息
-    protected String track2; // 磁道二数据
-    protected String track3; // 磁道三数据
-    protected String dupReason; // 冲正原因
-    protected String reserved; // 保留域[field63]
+    protected boolean hasPin;
+    protected String track1;
+    protected String track2;
+    protected String track3;
+    protected String dupReason;
+    protected String reserved;
 
-    // =================EMV数据=============================
     @NotNull
-    protected boolean pinFree = false; // 免密
+    protected boolean pinFree = false;
     @NotNull
-    protected boolean signFree = false; // 免签
+    protected boolean signFree = false;
     @NotNull
-    protected boolean isCDCVM = false; // CDCVM标识
+    protected boolean isCDCVM = false;
     @NotNull
-    protected boolean isOnlineTrans = false; // 是否为联机交易
-    // 电子签名专用
-    protected byte[] signData; // signData
+    protected boolean isOnlineTrans = false;
+    protected byte[] signData;
 
-    // 电子签名专用
     @Property(nameInDb = SIGN_PATH)
-    private byte[] signPath; // raw sign path
+    private byte[] signPath;
 
-    // Plain references (no join): load the issuer / acquirer by id when needed.
     private long issuerId;
     private long acquirerId;
 
-    // =================EMV数据=============================
-    protected String emvResult = null; // EMV交易的执行状态
-    protected String cardSerialNo; // 23 域，卡片序列号
-    protected String sendIccData; // IC卡信息,55域
-    protected String dupIccData; // IC卡冲正信息,55域
-    protected String tc; // IC卡交易证书(TC值)tag9f26,(BIN)
-    protected String arqc; // 授权请求密文(ARQC)
-    protected String arpc; // 授权响应密文(ARPC)
-    protected String tvr; // 终端验证结果(TVR)值tag95
-    protected String aid; // 应用标识符AID
-    protected String emvAppLabel; // 应用标签
-    protected String emvAppName; // 应用首选名称
-    protected String tsi; // 交易状态信息(TSI)tag9B
-    protected String atc; // 应用交易计数器(ATC)值tag9f36
+    protected String emvResult = null;
+    protected String cardSerialNo;
+    protected String sendIccData;
+    protected String dupIccData;
+    protected String tc;
+    protected String arqc;
+    protected String arpc;
+    protected String tvr;
+    protected String aid;
+    protected String emvAppLabel;
+    protected String emvAppName;
+    protected String tsi;
+    protected String atc;
 
     @Property(nameInDb = REVERSAL_FIELD_NAME)
     @NotNull
@@ -272,7 +183,6 @@ public class TransData implements Serializable {
     protected String maskPan;
     protected String panBlock;
 
-    // ================不需要存储=============================
     @Transient
     private String pin;
     @Transient
@@ -295,12 +205,10 @@ public class TransData implements Serializable {
     @Transient
     protected String field3;
 
-
     public TransData(){
 
     }
 
-    //copy constructor, replace clone
     public TransData(TransData other) {
         this.id = other.id;
         this.traceNo = other.traceNo;
@@ -448,7 +356,6 @@ public class TransData implements Serializable {
         this.maskPan = maskPan;
         this.panBlock = panBlock;
     }
-
 
     public boolean isUpload() {
         return isUpload;
@@ -1127,7 +1034,6 @@ public class TransData implements Serializable {
             return entityProperty == null ? null : entityProperty.toString();
         }
     }
-
 
     public static class ReversalStatusConverter implements PropertyConverter<ReversalStatus, String> {
 

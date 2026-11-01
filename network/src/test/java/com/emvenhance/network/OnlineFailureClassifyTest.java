@@ -17,11 +17,6 @@ import org.junit.Test;
 import retrofit2.HttpException;
 import retrofit2.Response;
 
-/**
- * Each online failure names its step, and is not reversed only when the host certainly couldn't
- * have approved the sale: the exchange failed, the host refused who sent it (HTTP 401/403), or
- * there was no connection at all. Anything else may have reached the host and is reversed.
- */
 public class OnlineFailureClassifyTest {
 
     @Test

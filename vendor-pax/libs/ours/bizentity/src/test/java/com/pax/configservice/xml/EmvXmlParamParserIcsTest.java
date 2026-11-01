@@ -10,10 +10,6 @@ import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
-/**
- * A contact AID that CARDSCHEMECONFIGRATION doesn't map still gets terminal type (9F35) and
- * capabilities (9F33 / 9F40): from the ICS profile most mapped AIDs use.
- */
 public class EmvXmlParamParserIcsTest {
 
     private static final String ICS_PROFILES = ""
@@ -42,7 +38,6 @@ public class EmvXmlParamParserIcsTest {
         assertEquals("22", meeza.getTerminalType());
         assertEquals("E0F0C8", meeza.getTerminalCapability());
         assertEquals("FF80F0A001", meeza.getTerminalAdditionalCapability());
-        // mapped AIDs keep their own profile
         assertEquals("21", aids.get("A0000000043060").getTerminalType());
         assertEquals("22", aids.get("A0000000031010").getTerminalType());
     }

@@ -13,11 +13,6 @@ import com.emvenhance.network.model.RefundRequest;
 import com.google.gson.Gson;
 import org.junit.Test;
 
-/**
- * Routing by transaction type: what can't go online is online failed (never approved, never sent
- * as another type), and a refund's payload carries the original reference number. Nulls for
- * every network dependency prove the guarded cases touch nothing.
- */
 public class SaleRefundGuardTest {
 
     private final SaleCommunicationBehavior behavior =

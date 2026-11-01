@@ -12,13 +12,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * Stands in for the transaction thread ({@code onTransactionStarted}, the behavior's run loop)
- * when a test drives a behavior on its own, on the test's thread: a real
- * {@link PosTerminal.Transaction}, handed to the behavior as an attempt hands it, and the card a
- * search would have found. Unlike the terminal, the end is listed at once in {@link #steps()}
- * (there is no transaction thread to free first).
- */
 final class TestSession {
 
     final EmvEngine engine;
@@ -33,7 +26,6 @@ final class TestSession {
         this.engine = behavior.engine();
     }
 
-    /** A new transaction, as {@code onTransactionStarted} begins one. */
     PosTerminal.Transaction begin(TransactionConfig config) {
         published.clear();
         transaction = newTransaction(config);
@@ -46,18 +38,15 @@ final class TestSession {
         return behavior.prepare(config, transaction);
     }
 
-    /** The card a search found: the EMV on it, with the prepared config. */
     void start(CardPresence card) {
         behavior.start(card);
     }
 
-    /** One attempt as the run loop takes it: {@link #prepare}, then the card {@link #start}. */
     void attempt(TransactionConfig config, CardPresence card) {
         prepare(config);
         start(card);
     }
 
-    /** As the screen's Cancel: {@link PosTerminal.Transaction#cancel()}. */
     void cancel() {
         transaction.cancel();
     }
@@ -66,7 +55,6 @@ final class TestSession {
         return transaction;
     }
 
-    /** Every step the transaction reported, its end included once it has ended. */
     List<TransactionStepEvent> steps() {
         List<TransactionStepEvent> steps = new ArrayList<>(published);
         TransactionStepEvent end = endOf(transaction);
@@ -75,8 +63,6 @@ final class TestSession {
         }
         return steps;
     }
-
-    // The Transaction is the terminal's: made only by startTransaction, its end kept private.
 
     private PosTerminal.Transaction newTransaction(TransactionConfig config) {
         try {
@@ -100,7 +86,6 @@ final class TestSession {
         }
     }
 
-    /** Goes online through the test's authorizer. */
     private static final class Terminal extends PosTerminal {
 
         private final AbstractEmvBehavior.Authorizer authorizer;

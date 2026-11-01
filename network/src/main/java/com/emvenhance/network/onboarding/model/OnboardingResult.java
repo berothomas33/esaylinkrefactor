@@ -4,11 +4,6 @@ import com.google.gson.annotations.SerializedName;
 
 import androidx.annotation.Nullable;
 
-/**
- * The host's identity, returned by step 1 of the offline onboarding cycle — mirrors the old
- * project's {@code OnboardingModel} (renamed here to avoid clashing with the "model" package
- * name).
- */
 public final class OnboardingResult {
 
     @SerializedName("serviceAccount")

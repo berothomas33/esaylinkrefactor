@@ -11,10 +11,6 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.terminal.AbstractEmvBehavior;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Fake vendor: each step does its work, then {@link #goToStep} publishes on the EmvStep
- * observable and runs the next vendor method.
- */
 public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     private static final long SEARCH_DELAY_MS = 200L;
@@ -26,10 +22,8 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
         lastAuth = null;
-        // Stop here — the card search (SEARCH_CARD) is the base class's next step. Do NOT goToStep.
     }
 
-    /** A demo search: a card of the entry mode asked for, after a short wait. */
     @Override
     public void onSearchCard(TransactionConfig config, @Nullable CardPresence found) {
         CardSearchListener listener = cardSearchListener();
@@ -64,7 +58,6 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
             listener.onContactlessDetected(card);
             return;
         }
-        // CONTACT and ANY → chip first (demo)
         if (config.allowsChip()) {
             CardPresence card = CardPresence.chip();
             listener.onChipDetected(card);
@@ -97,7 +90,6 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onApplicationSelection(TransactionConfig config, CardPresence card) {
         if (card.isContactless()) {
-            // Abbreviated CLSS: skip wait/final/ODA/… → read → complete offline
             goToStep(EmvStep.READ_APPLICATION_DATA, "contactless");
             return;
         }
@@ -204,7 +196,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        lastAuth = authorizeOnline(); // a cancelled transaction never runs this step
+        lastAuth = authorizeOnline();
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
         } else {
@@ -212,10 +204,6 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         }
     }
 
-    /**
-     * Demo card data (no kernel): a fixed ARQC (9F26), CID 80 (9F27), ATC (9F36) and IAD (9F10),
-     * so the online request has the same shape as a real card's.
-     */
     @Override
     public byte[] readIccTag(int tag) {
         switch (tag) {

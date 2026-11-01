@@ -30,11 +30,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
-/**
- * The terminal owns the host and the printer: a behavior's online request reaches the host
- * through {@code authorizeOnline → PosTerminal.authorize}, and receipts go to the terminal's
- * own printer.
- */
 public class PosTerminalHostTest {
 
     private static final TransactionConfig CONFIG =
@@ -58,7 +53,6 @@ public class PosTerminalHostTest {
         assertTrue(result.isApproved());
         assertEquals(1, sentToHost.size());
         TransactionConfig sent = sentToHost.get(0);
-        // The transaction's own config, as the behavior holds it (acceptCard: any card).
         assertEquals(1000, sent.getAmountMinor());
         assertEquals(EntryMethod.ANY, sent.getMode());
         assertNotNull("named before it is sent", sent.getAsyncRequestId());
@@ -122,7 +116,7 @@ public class PosTerminalHostTest {
         TestTerminal terminal = new TestTerminal(config -> Single.never(),
                 lines -> Completable.fromAction(() -> {
                     maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
-                    Thread.sleep(50); // a real printer is slow
+                    Thread.sleep(50);
                     order.add(lines.get(0));
                     threads.add(Thread.currentThread());
                     inFlight.decrementAndGet();
@@ -143,7 +137,6 @@ public class PosTerminalHostTest {
 
     private final class TestTerminal extends PosTerminal {
 
-        /** Every transaction's steps, for the test: each transaction has its own stream. */
         final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
 
         @Override
@@ -169,7 +162,6 @@ public class PosTerminalHostTest {
             allSteps.filter(e -> e.getStep().isEnd()).subscribe(e -> ended.countDown());
         }
 
-        /** A sale whose "card search" is the vendor going online, as EMV does mid-transaction. */
         AuthResult authorizeInsideATransaction() {
             acceptCard(TransactionType.SALE, 1000);
             try {
@@ -187,24 +179,21 @@ public class PosTerminalHostTest {
         }
     }
 
-    /** What the "card search" got from the host. */
     private final java.util.concurrent.BlockingQueue<AuthResult> online =
             new java.util.concurrent.LinkedBlockingQueue<>();
 
-    /** The "card search" is the vendor going online, as EMV does mid-transaction. */
     private AbstractEmvBehavior preparingBehavior() {
         java.util.concurrent.atomic.AtomicReference<AbstractEmvBehavior> self =
                 new java.util.concurrent.atomic.AtomicReference<>();
         self.set(StubBehavior.of((name, args) -> {
             if (name.equals("search")) {
-                online.add(self.get().authorizeOnline()); // the behavior's own way online
+                online.add(self.get().authorizeOnline());
             }
             return null;
         }));
         return self.get();
     }
 
-    /** Interface stub whose methods do nothing and return a default value. */
     @SuppressWarnings("unchecked")
     private static <T> T stub(Class<T> type) {
         return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},

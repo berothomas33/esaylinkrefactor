@@ -5,10 +5,6 @@ import com.emvenhance.core.host.HostDefaults;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.terminal.PosTerminal;
 
-/**
- * Demo terminal, so the UI works without POS hardware: a host that always approves and a log
- * printer. The demo card search is {@link FakeEmvBehavior}'s.
- */
 public class FakeTerminal extends PosTerminal {
 
     public FakeTerminal() {

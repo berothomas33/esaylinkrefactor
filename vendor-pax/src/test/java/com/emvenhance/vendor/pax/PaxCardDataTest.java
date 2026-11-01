@@ -6,7 +6,6 @@ import static org.junit.Assert.assertNull;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 
-/** The card's data as text ({@link PaxCardData}), on public test-card numbers. */
 public class PaxCardDataTest {
 
     @Test
@@ -30,7 +29,7 @@ public class PaxCardDataTest {
 
     @Test
     public void panFromTagDropsTheFPadding() {
-        byte[] pan = {0x37, 0x42, 0x45, 0x45, 0x54, 0x00, 0x12, 0x6F}; // 15 digits + F
+        byte[] pan = {0x37, 0x42, 0x45, 0x45, 0x54, 0x00, 0x12, 0x6F};
         assertEquals("374245455400126", PaxCardData.panFromTag(pan));
     }
 

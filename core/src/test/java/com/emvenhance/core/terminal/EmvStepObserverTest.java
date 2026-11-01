@@ -22,12 +22,6 @@ import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * {@code dispatchStepMethod} consumes {@link EmvEngine#emvSteps()}: every step published there —
- * by {@link AbstractEmvBehavior#goToStep} or by anyone else — runs its {@code onXxx} method,
- * through the behavior's own observer, on the publishing thread, before the publish returns.
- * Observing lasts one transaction: once it ends, {@code goToStep} publishes and runs nothing more.
- */
 public class EmvStepObserverTest {
 
     private static final TransactionConfig CONFIG =
@@ -74,7 +68,6 @@ public class EmvStepObserverTest {
         session.prepare(CONFIG);
         vendor.ran.clear();
 
-        // As PaxEmvBehavior.onDetect2ndTap does mid-EMV: the card is asked for again.
         vendor.go(EmvStep.SEARCH_CARD);
 
         assertTrue("a second search ran: " + vendor.ran, vendor.ran.isEmpty());
@@ -136,7 +129,7 @@ public class EmvStepObserverTest {
         session.begin(CONFIG);
         session.attempt(CONFIG, CardPresence.chip());
         session.transaction().publish(TransactionStepEvent.of(TransactionStep.COMPLETED));
-        List<EmvStep> seen = record(engine); // e.g. a new MainViewModel
+        List<EmvStep> seen = record(engine);
 
         session.begin(CONFIG);
         session.attempt(CONFIG, CardPresence.chip());
@@ -158,8 +151,6 @@ public class EmvStepObserverTest {
         assertFalse("goToStep says it didn't run, so a vendor releases its reader", ran);
     }
 
-    // ─── The end of a transaction ─────────────────────────────────────────
-
     @Test
     public void aCompletedTransactionStopsObservingAfterItsLastStepReachedTheUi() {
         vendor.approveOnCompletion = true;
@@ -172,7 +163,7 @@ public class EmvStepObserverTest {
 
         vendor.ran.clear();
         seen.clear();
-        vendor.go(EmvStep.SEARCH_CARD); // after the end
+        vendor.go(EmvStep.SEARCH_CARD);
 
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty());
         assertTrue("published after the end: " + seen, seen.isEmpty());
@@ -191,7 +182,7 @@ public class EmvStepObserverTest {
 
         vendor.failOn = null;
         vendor.ran.clear();
-        vendor.go(EmvStep.SEARCH_CARD); // after the end
+        vendor.go(EmvStep.SEARCH_CARD);
         assertTrue("the ended transaction's observer ran " + vendor.ran, vendor.ran.isEmpty());
 
         session.begin(CONFIG);
@@ -205,7 +196,7 @@ public class EmvStepObserverTest {
     public void aStepFromCodeStillUnwindingAfterTheEndIsNeitherPublishedNorRun() {
         List<EmvStep> seen = record(engine);
         session.begin(CONFIG);
-        vendor.errorOn = EmvStep.APPLICATION_SELECTION; // finishError, then carries on to READ
+        vendor.errorOn = EmvStep.APPLICATION_SELECTION;
 
         session.attempt(CONFIG, CardPresence.chip());
 
@@ -221,10 +212,10 @@ public class EmvStepObserverTest {
     public void anUnknownStepEndsTheTransactionAndNothingIsPublishedOrRunAfterIt() {
         List<EmvStep> seen = record(engine);
         session.begin(CONFIG);
-        vendor.afterApplicationSelection = null; // a step with no method to run
+        vendor.afterApplicationSelection = null;
 
         session.attempt(CONFIG, CardPresence.chip());
-        vendor.go(EmvStep.TRANSACTION_COMPLETION); // code still unwinding
+        vendor.go(EmvStep.TRANSACTION_COMPLETION);
 
         assertEquals(Collections.singletonList(TransactionStep.ERROR), steps());
         assertEquals("Unknown EMV step: null", session.steps().get(0).getMessage());
@@ -256,8 +247,6 @@ public class EmvStepObserverTest {
         session.attempt(CONFIG, CardPresence.chip());
         vendor.ran.clear();
 
-        // No ERROR, no COMPLETED: the next attempt, as the run loop takes a retry — prepare,
-        // then start.
         session.attempt(CONFIG, CardPresence.chip());
 
         assertEquals(Arrays.asList(EmvStep.TERMINAL_INITIALIZATION, EmvStep.APPLICATION_SELECTION,
@@ -279,14 +268,11 @@ public class EmvStepObserverTest {
         return seen;
     }
 
-    /** Chains APPLICATION_SELECTION → READ_APPLICATION_DATA → TRANSACTION_COMPLETION. */
     private static final class VendorBehavior extends AbstractEmvBehavior {
 
         final List<EmvStep> ran = new ArrayList<>();
         final List<Thread> threads = new ArrayList<>();
-        /** Throws from this step's method. */
         EmvStep failOn;
-        /** Ends the transaction with an error in this step's method, then carries on. */
         EmvStep errorOn;
         EmvStep afterApplicationSelection = EmvStep.READ_APPLICATION_DATA;
         boolean approveOnCompletion;

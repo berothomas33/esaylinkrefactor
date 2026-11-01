@@ -5,7 +5,6 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-/** The tag list's order, BER-TLV encoding and the present/missing summary. */
 public class Field55Test {
 
     @Test
@@ -32,7 +31,6 @@ public class Field55Test {
         assertTrue(summary.contains("\nmissing: 5F34 84 95 "));
     }
 
-    /** The old app's field 55 for a Mastercard offline-PIN chip sale, which the host approved. */
     private static final String OLD_APP_MASTERCARD_OFFLINE_PIN =
             "5F2A0208185F340103820230008407A0000000041010950500000080009A032610139C0100"
             + "9F02060000000120009F03060000000000009F090200029F10120110A5000F04000000000000"
@@ -67,7 +65,7 @@ public class Field55Test {
                 case 0x9F41: return hex("00000000");
                 case 0x9F42: return hex("0978");
                 case 0x9F1E: return hex("3138353032323437");
-                default: return null; // 9F53, 9F63, 9F66: none for a Mastercard chip card
+                default: return null;
             }
         });
 

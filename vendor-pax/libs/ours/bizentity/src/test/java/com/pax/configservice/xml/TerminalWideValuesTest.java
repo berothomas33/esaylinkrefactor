@@ -13,21 +13,20 @@ import java.util.Arrays;
 import java.util.Collections;
 import org.junit.Test;
 
-/** Terminal-wide values from the contact ICS, applied to contactless AIDs that lack them. */
 public class TerminalWideValuesTest {
 
     @Test
     public void prefersSameAidThenSameRidThenAny() {
         TerminalWideValues tw = new TerminalWideValues(Arrays.asList(
-                contact("A0000000031010", "21", "E0F0C8", "6000F0A001"),     // Visa credit
-                contact("A0000000041010", "22", "E0F8C8", "FF80F0A001"),     // Mastercard
-                contact("A0000000043060", "23", "E0B8C8", "FF80F0A001")));   // Maestro
+                contact("A0000000031010", "21", "E0F0C8", "6000F0A001"),
+                contact("A0000000041010", "22", "E0F8C8", "FF80F0A001"),
+                contact("A0000000043060", "23", "E0B8C8", "FF80F0A001")));
 
-        assertEquals("22", tw.terminalType("A0000000041010"));       // same AID
-        assertEquals("21", tw.terminalType("A0000000032010"));       // same RID (Visa)
-        assertEquals("C8", tw.securityCapability("A0000000031010")); // 9F33 byte 3
+        assertEquals("22", tw.terminalType("A0000000041010"));
+        assertEquals("21", tw.terminalType("A0000000032010"));
+        assertEquals("C8", tw.securityCapability("A0000000031010"));
         assertEquals("6000F0A001", tw.additionalCapability("A0000000031010"));
-        assertEquals("21", tw.terminalType("A000000732"));           // no match: terminal-wide
+        assertEquals("21", tw.terminalType("A000000732"));
     }
 
     @Test
@@ -56,7 +55,7 @@ public class TerminalWideValuesTest {
             ClssXmlParamParser.Result result = ClssXmlParamParser.parse(in, tw);
 
             PayPassAidBean mastercard = result.payPass.getAid().get(0);
-            assertEquals("22", mastercard.getTerminalType()); // PAYPASSCONFIGURATION wins over 21
+            assertEquals("22", mastercard.getTerminalType());
             assertEquals("FF80F0A001", mastercard.getTerminalAdditionalCapability());
             assertEquals("C8", mastercard.getSecurityCapability());
         }
@@ -75,8 +74,8 @@ public class TerminalWideValuesTest {
                 contact("A0000000031010", "22", "E0F8C8", "FF80F0A001"))));
 
         assertNotNull(visa.getTerminalType());
-        assertEquals("22", visa.getTerminalType());       // was null → kernel got FF
-        assertEquals("C8", visa.getSecurityCapability()); // was null
+        assertEquals("22", visa.getTerminalType());
+        assertEquals("C8", visa.getSecurityCapability());
     }
 
     private static EmvAid contact(String aid, String terminalType, String capability, String additional) {

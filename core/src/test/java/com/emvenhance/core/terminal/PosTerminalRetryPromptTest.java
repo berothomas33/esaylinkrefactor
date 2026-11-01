@@ -25,11 +25,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * WAITING_FOR_CARD carries KEY_RETRY_PROMPT only when the card has to be presented again, so the
- * search screen can show the reason on top of the card UI: a retry the kernel asked for (the
- * next search's prompt), or a read the cardholder can fix during the search.
- */
 public class PosTerminalRetryPromptTest {
 
     private EmvEngine engine;
@@ -61,7 +56,7 @@ public class PosTerminalRetryPromptTest {
     public void searchAfterARetryCarriesThePrompt() throws Exception {
         terminal.behavior.requestRetry(config(), "See phone — verify on your phone, then tap again");
 
-        terminal.releases.release(); // the first search returns: the kernel has returned
+        terminal.releases.release();
         assertTrue("no second search", terminal.searches.tryAcquire(5, TimeUnit.SECONDS));
 
         TransactionStepEvent waiting = lastWaiting();
@@ -94,13 +89,8 @@ public class PosTerminalRetryPromptTest {
         return new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.ANY);
     }
 
-    /**
-     * Each card search reports it started (as a vendor's does), hands the test its listener and
-     * is held open until released.
-     */
     private static final class CapturingTerminal extends PosTerminal {
 
-        /** Every transaction's steps, for the test: each transaction has its own stream. */
         final PublishSubject<TransactionStepEvent> allSteps = PublishSubject.create();
 
         @Override
@@ -110,9 +100,7 @@ public class PosTerminalRetryPromptTest {
             return transaction;
         }
 
-        /** One permit per search started. */
         final Semaphore searches;
-        /** One permit lets one search return. */
         final Semaphore releases;
         private final java.util.concurrent.atomic.AtomicReference<CardSearchListener> captured;
 
@@ -130,7 +118,6 @@ public class PosTerminalRetryPromptTest {
             this.captured = captured;
         }
 
-        /** The listener of the search running now. */
         CardSearchListener listener() {
             return captured.get();
         }

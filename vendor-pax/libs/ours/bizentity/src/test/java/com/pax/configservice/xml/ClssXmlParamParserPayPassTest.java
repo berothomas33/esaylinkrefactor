@@ -11,11 +11,6 @@ import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * The host's real PAYPASSPARAM section (test resource clss_param_paypass.xml): every AID must get
- * the shared PAYPASSCONFIGURATION kernel settings, as stored in GreenDAO and as handed to the
- * kernel (the *Bytes getters EmvParamService reads).
- */
 public class ClssXmlParamParserPayPassTest {
 
     private List<PayPassAidBean> aids;
@@ -33,8 +28,6 @@ public class ClssXmlParamParserPayPassTest {
 
     @Test
     public void reportsTheSectionsTheFileHas() {
-        // Only PayPass in this file: every other contactless kernel is one the package didn't
-        // bring, and EmvParamUpdater deletes it.
         assertEquals(java.util.Collections.singletonList("PAYPASSPARAM"), result.sections);
         assertNull(result.payWave);
         assertNull(result.amex);
@@ -61,11 +54,11 @@ public class ClssXmlParamParserPayPassTest {
             assertEquals(id, "FF80F0A001", aid.getTerminalAdditionalCapability());
             assertEquals(id, "02", aid.getKernelId());
             assertEquals(id, "F0", aid.getMagCvm());
-            assertEquals(id, "00", aid.getMagNoCvm()); // XML spells it MageticNoCVM
+            assertEquals(id, "00", aid.getMagNoCvm());
             assertEquals(id, "02", aid.getMaxTornNum());
             assertEquals(id, "0006", aid.getMaxTornLifetime());
-            assertEquals(id, "01", aid.getMobileSupport()); // 9F7E
-            assertEquals(id, "00", aid.getAccountType()); // 5F57 — XML spells it AccoutType
+            assertEquals(id, "01", aid.getMobileSupport());
+            assertEquals(id, "00", aid.getAccountType());
         }
     }
 
@@ -73,9 +66,9 @@ public class ClssXmlParamParserPayPassTest {
     public void kernelGetsTheRightBytes() {
         PayPassAidBean mastercard = aids.get(0);
 
-        assertEquals((byte) 0x22, mastercard.getTerminalTypeByte()); // was FF
+        assertEquals((byte) 0x22, mastercard.getTerminalTypeByte());
         assertArrayEquals(new byte[] {0x30}, mastercard.getKernelConfigBytes());
-        assertArrayEquals(new byte[] {0x60}, mastercard.getCvmRequiredBytes()); // online PIN + sig
+        assertArrayEquals(new byte[] {0x60}, mastercard.getCvmRequiredBytes());
         assertArrayEquals(new byte[] {0x08}, mastercard.getNoCvmRequiredBytes());
         assertArrayEquals(new byte[] {(byte) 0xC8}, mastercard.getSecurityCapabilityBytes());
         assertArrayEquals(new byte[] {0x00, 0x06}, mastercard.getMaxTornLifetimeBytes());
@@ -92,7 +85,7 @@ public class ClssXmlParamParserPayPassTest {
         assertEquals("F45084800C", mastercard.getTacOnline());
         assertEquals("F45084800C", mastercard.getTacDefault());
         assertEquals("6C00800000000000", mastercard.getRiskManageData());
-        assertEquals(60000, mastercard.getCvmLimit()); // 600.00: above it the kernel asks for a CVM
+        assertEquals(60000, mastercard.getCvmLimit());
         assertEquals(999999999, mastercard.getTransLimit());
         assertEquals(999999999, mastercard.getCvmTransLimit());
         assertEquals(0, mastercard.getFloorLimit());

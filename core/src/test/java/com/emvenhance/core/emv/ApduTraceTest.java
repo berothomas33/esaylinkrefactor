@@ -65,11 +65,10 @@ public class ApduTraceTest {
     public void recordsOnlyTheLcBytesOfTheKernelsFixedBuffer() {
         byte[] buffer = new byte[512];
         System.arraycopy(hex("8300"), 0, buffer, 0, 2);
-        buffer[100] = 0x55; // garbage beyond Lc must not appear
+        buffer[100] = 0x55;
 
         trace.command("ICC", hex("80A80000"), 2, buffer, 256);
 
-        // Only the APDU line: the header's clock and the elapsed times can contain "55" too.
         assertEquals("C-APDU: 80A80000 02 8300 00", lineWith(trace.text(), "C-APDU:"));
     }
 
@@ -103,14 +102,14 @@ public class ApduTraceTest {
     public void aRetryStartsTheCardSessionOverButKeepsTheTrace() {
         command("80A80000", hex("8300"), 256);
         response("9000", "7700");
-        command("80AE8000", hex("0000000010000000"), 256); // 1st GAC, then the tap was too short
+        command("80AE8000", hex("0000000010000000"), 256);
         response("6F00", "");
 
         trace.transactionEvent("RETRY #1");
         trace.beginAttempt();
-        command("00B2010C", new byte[0], 256);               // directory, before this attempt's GPO
+        command("00B2010C", new byte[0], 256);
         response("9000", "7000");
-        command("80AE8000", hex("0000000010000000"), 256);   // this attempt's 1st GAC
+        command("80AE8000", hex("0000000010000000"), 256);
         response("9000", "77299F2701809F360200019F2608AABBCCDDEEFF0011");
 
         String text = trace.text();
@@ -192,8 +191,6 @@ public class ApduTraceTest {
 
         assertFalse(other.text().contains("only in the first"));
     }
-
-    // ─── helpers ─────────────────────────────────────────────────────────
 
     private void command(String header, byte[] data, int le) {
         trace.command("PICC", hex(header), data.length, data, le);

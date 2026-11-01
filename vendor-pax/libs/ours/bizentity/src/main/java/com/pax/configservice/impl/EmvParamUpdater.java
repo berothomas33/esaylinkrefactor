@@ -35,29 +35,10 @@ import java.util.concurrent.Callable;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-/**
- * Applies a downloaded EMV parameter package (a zip containing {@code emv_param.emv} /
- * {@code clss_param.clss}) to the same GreenDAO tables {@link ConfigInit} seeds at first boot
- * from the bundled JSON assets — making the EMV/CLSS kernel configuration updatable at runtime
- * instead of fixed at build time.
- *
- * <p>One rule for both files (rule 7: parameters come from the host only): a file in the
- * package is the whole truth for its side — a section it brings replaces the table, a section
- * it doesn't bring is deleted. A file not in the package (or one that fails to parse) leaves its
- * side as it was. Each section is replaced in one database transaction: a failed insert rolls
- * its delete back, so a table is never left empty by a half-applied section. A package with
- * neither file is a failed download. A changed database makes the next transaction reload the
- * kernels' parameters ({@link EmvParamService#invalidate()}).
- *
- * <p>Scoped to what {@code emvParam.zip}'s sample files actually cover: contact AID/CAPK/
- * revocation, and PayPass/PayWave/Amex from the contactless side. DPAS/EFT/JCB/MIR/PBOC/PURE/
- * RUPAY aren't touched — see {@link ClssXmlParamParser}'s javadoc for why.
- */
 public final class EmvParamUpdater {
 
     private static final String TAG = "EmvParamUpdater";
 
-    /** The contact and contactless files of the last download, as kept by saveForDiagnosis. */
     public static final String CONTACT_FILE = "emv_param.emv";
     public static final String CONTACTLESS_FILE = "clss_param.clss";
 
@@ -89,7 +70,6 @@ public final class EmvParamUpdater {
         saveForDiagnosis(CONTACTLESS_FILE, clssXml);
 
         if (emvXml == null && clssXml == null) {
-            // An HTTP 200 that isn't a parameter package (an error page, an empty zip).
             result.failed("the download has neither " + CONTACT_FILE + " nor " + CONTACTLESS_FILE);
             return result;
         }
@@ -100,10 +80,6 @@ public final class EmvParamUpdater {
             LogUtils.w(TAG, "EMV param package had no *.emv entry — contact AID/CAPK unchanged");
         }
         if (clssXml != null && contactAids == null) {
-            // Contactless AIDs take their terminal-wide values (Terminal Type, Additional
-            // Terminal Capabilities, Security Capability) from this package's contact file.
-            // Without it they would come from whatever is stored — the bundled JSON seed on a
-            // terminal that never downloaded (rule 7) — so the contactless side is left as it was.
             result.failed(CONTACTLESS_FILE + " not applied: it needs this package's " + CONTACT_FILE);
         } else if (clssXml != null) {
             applyClssXml(clssXml, new TerminalWideValues(contactAids), result);
@@ -111,12 +87,11 @@ public final class EmvParamUpdater {
             LogUtils.w(TAG, "EMV param package had no *.clss entry — CLSS params unchanged");
         }
         if (result.changedDatabase()) {
-            EmvParamService.invalidate(); // the next transaction loads what was applied
+            EmvParamService.invalidate();
         }
         return result;
     }
 
-    /** @return the parsed contact AIDs (with their ICS values), or {@code null} if parsing failed */
     @Nullable
     private static List<EmvAid> applyEmvXml(byte[] xml, EmvParamUpdateResult result) {
         try {
@@ -134,7 +109,6 @@ public final class EmvParamUpdater {
 
             List<?> capkList = parsed.capk.getCapkList();
             if (capkList != null && !capkList.isEmpty()) {
-                // The revocation list goes with its CAPKs: none in the file is none revoked.
                 replace("CAPK", capkList.size(), result,
                         () -> GreendaoHelper.getEmvCapkHelper().deleteAll()
                                 && CapkRevokeDbHelper.getInstance().deleteAll()
@@ -182,14 +156,6 @@ public final class EmvParamUpdater {
         }
     }
 
-    /**
-     * The contactless package is the whole truth: a kernel it doesn't bring is deleted, never
-     * left on the bundled JSON seed or an older download. That includes every kernel this
-     * parser has no mapping for yet (DPAS, EFT, JCB, Mir, PBOC, Pure, RuPay) — the result
-     * lists the file's own sections, so a section the host sent but nothing parsed shows up.
-     * A deleted kernel registers no AID with the entry point (ClssEntryAddAid skips an empty
-     * list), so its cards aren't selected contactless.
-     */
     private static void removeKernelsNotInPackage(ClssXmlParamParser.Result parsed,
             EmvParamUpdateResult result) {
         if (parsed.payPass == null || !notEmpty(parsed.payPass.getAid())) {
@@ -210,10 +176,6 @@ public final class EmvParamUpdater {
         remove("RuPay (no parser)", result, RupayAidDbHelper.getInstance());
     }
 
-    /**
-     * Replaces one section — its deletes and inserts — in one database transaction: all or
-     * nothing. A failed step rolls the deletes back, so the table keeps what it had.
-     */
     private static void replace(String section, int rows, EmvParamUpdateResult result,
             Callable<Boolean> deleteAndInsert) {
         try {
@@ -230,7 +192,6 @@ public final class EmvParamUpdater {
         }
     }
 
-    /** Deletes the section's tables; reported only when there were rows to delete. */
     private static void remove(String kernel, EmvParamUpdateResult result,
             BaseDaoHelper<?>... tables) {
         int rows = 0;
@@ -250,12 +211,6 @@ public final class EmvParamUpdater {
         result.removed(kernel, rows);
     }
 
-    /**
-     * Debug builds only: keeps the last downloaded parameter files in the app's external files
-     * folder (Android/data/&lt;package&gt;/files/emv_param/), to compare what the host sent with
-     * what was stored — e.g. {@code adb pull /sdcard/Android/data/<package>/files/emv_param}.
-     * Parameters only, no card or key data.
-     */
     private static void saveForDiagnosis(String name, @Nullable byte[] content) {
         if (!BuildConfig.DEBUG || content == null) {
             return;
@@ -275,7 +230,6 @@ public final class EmvParamUpdater {
         }
     }
 
-    /** Where saveForDiagnosis keeps the last downloaded files; null when storage is unavailable. */
     @Nullable
     public static File diagnosisDir() {
         return BaseApplication.getAppContext().getExternalFilesDir("emv_param");
