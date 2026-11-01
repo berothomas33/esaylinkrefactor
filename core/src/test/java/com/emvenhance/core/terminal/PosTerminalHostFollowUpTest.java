@@ -13,7 +13,6 @@ import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.HostNotReachedException;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
 import java.util.Arrays;
@@ -136,39 +135,6 @@ public class PosTerminalHostFollowUpTest {
         terminal.runOne();
 
         assertEquals("REVERSE " + idSent(0), followUps.take());
-        assertNoMoreFollowUps();
-    }
-
-    @Test(timeout = 10_000)
-    public void hostNotReachedIsNotReversed() throws InterruptedException {
-        hostError = new HostNotReachedException("Exchange: HTTP 403 Forbidden");
-        AtomicReference<AuthResult> answer = new AtomicReference<>();
-        terminal = new TestTerminal(t -> {
-            answer.set(goOnline());
-            t.emvFinished(PosTerminal.errorEvent("Online Failed"));
-        });
-
-        terminal.runOne();
-
-        assertTrue(answer.get().isFailed());
-        assertTrue(answer.get().isNotSent());
-        assertEquals("Exchange: HTTP 403 Forbidden", answer.get().getMessage());
-        assertNoMoreFollowUps();
-    }
-
-    @Test(timeout = 10_000)
-    public void hostNotReachedAsTheCauseIsNotReversedEither() throws InterruptedException {
-        hostError = new RuntimeException(new HostNotReachedException("Exchange: no connection"));
-        AtomicReference<AuthResult> answer = new AtomicReference<>();
-        terminal = new TestTerminal(t -> {
-            answer.set(goOnline());
-            t.emvFinished(PosTerminal.errorEvent("Online Failed"));
-        });
-
-        terminal.runOne();
-
-        assertTrue(answer.get().isNotSent());
-        assertEquals("Exchange: no connection", answer.get().getMessage());
         assertNoMoreFollowUps();
     }
 

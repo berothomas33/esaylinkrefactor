@@ -10,7 +10,6 @@ import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.HostNotReachedException;
 import com.emvenhance.network.crypto.AesEnvelopeCrypto;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
 import com.emvenhance.network.model.AcknowledgementRequest;
@@ -153,12 +152,32 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
      * nothing offline, and a type is never sent as another (a refund sent as a PURCHASE would
      * charge the card).
      *
-     * <p>Each error names its step ({@code "Exchange: HTTP 403 Forbidden"}), and says whether
-     * the host could have approved the sale: a {@link HostNotReachedException} when it certainly
-     * couldn't (see {@link #classify}), which {@code PosTerminal} doesn't reverse.
+     * <p>Never fails: every error becomes the answer here ({@link #answerOf}), so this class alone
+     * decides whether the host could have approved the request. Each error names its step
+     * ({@code "Exchange: HTTP 403 Forbidden"}); certain the host couldn't have approved it
+     * ({@link #classify}) → {@link AuthResult#notSent}, not reversed; anything else →
+     * {@link AuthResult#failed}, reversed. Only {@code PosTerminal}'s own timeout is left to it.
      */
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
+        return Single.defer(() -> send(config)).onErrorReturn(SaleCommunicationBehavior::answerOf);
+    }
+
+    /**
+     * A failed {@link #authorize} as its answer: {@link HostNotReachedException} — the host could
+     * not have approved it — is not sent; anything else (a {@link SaleException}, an unexpected
+     * error) failed, and reversed in case the host approved it.
+     */
+    static AuthResult answerOf(Throwable e) {
+        String message = e.getMessage();
+        if (e instanceof HostNotReachedException) {
+            return AuthResult.notSent(message != null ? message
+                    : "Online failed: not sent to the host");
+        }
+        return AuthResult.failed(message != null ? message : "Online failed");
+    }
+
+    private Single<AuthResult> send(TransactionConfig config) {
         String notSent = whyNotSent(config);
         if (notSent != null) {
             Log.w(TAG, notSent + " — not sent to the host");

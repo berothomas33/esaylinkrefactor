@@ -1,9 +1,13 @@
 package com.emvenhance.network;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.emvenhance.core.host.HostNotReachedException;
+import com.emvenhance.core.card.EntryMethod;
+import com.emvenhance.core.host.AuthResult;
+import com.emvenhance.core.transaction.TransactionConfig;
+import com.emvenhance.core.transaction.TransactionType;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
@@ -65,6 +69,40 @@ public class OnlineFailureClassifyTest {
 
         assertTrue(SaleCommunicationBehavior.exchangeError(new SocketTimeoutException("t"))
                 instanceof HostNotReachedException);
+    }
+
+    @Test
+    public void notReachedIsAnsweredNotSent() {
+        AuthResult answer = SaleCommunicationBehavior.answerOf(
+                SaleCommunicationBehavior.classify("Sale", http(403)));
+        assertTrue(answer.isFailed());
+        assertTrue("not reversed", answer.isNotSent());
+        assertTrue(answer.getMessage(), answer.getMessage().startsWith("Sale: HTTP 403"));
+    }
+
+    @Test
+    public void whatMayHaveReachedTheHostIsAnsweredFailedAndReversed() {
+        AuthResult answer = SaleCommunicationBehavior.answerOf(
+                SaleCommunicationBehavior.classify("Sale", http(500)));
+        assertTrue(answer.isFailed());
+        assertFalse("reversed", answer.isNotSent());
+        assertFalse(answer.isApproved());
+    }
+
+    @Test
+    public void anUnexpectedErrorIsAnsweredFailedAndReversed() {
+        AuthResult answer = SaleCommunicationBehavior.answerOf(new IllegalStateException());
+        assertTrue(answer.isFailed());
+        assertFalse(answer.isNotSent());
+        assertEquals("Online failed", answer.getMessage());
+    }
+
+    @Test
+    public void authorizeNeverFailsANeverSentRequestIsAnsweredNotSent() {
+        SaleCommunicationBehavior host = new SaleCommunicationBehavior(null, null, null, null, "SN");
+        AuthResult answer = host.authorize(
+                new TransactionConfig(TransactionType.SALE, 1000, EntryMethod.CHIP)).blockingGet();
+        assertTrue("no EmvTransactionResult: never sent", answer.isNotSent());
     }
 
     private static void assertReversed(Throwable error) {

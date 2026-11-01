@@ -10,7 +10,6 @@ import com.emvenhance.core.transaction.TransactionStep;
 import com.emvenhance.core.transaction.TransactionStepEvent;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.core.host.HostNotReachedException;
 import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.emv.ApduTrace;
@@ -143,17 +142,12 @@ public abstract class PosTerminal {
     }
 
     /**
-     * No usable host answer: online failed, not a host decline. Not sent — never reversed — only
-     * when the host side says the host could not have approved it ({@link HostNotReachedException},
-     * as it is or as the cause); otherwise failed, and reversed at the end.
+     * The host call failed instead of answering: online failed, not a host decline, and reversed
+     * in case the host approved it. Whether the host could have approved a request is the
+     * communication's call — it answers {@link AuthResult#notSent} itself — so what is left here
+     * is this terminal's own timeout, or an error the communication didn't answer.
      */
     private static AuthResult failureOf(Exception e) {
-        Throwable notReached = e instanceof HostNotReachedException ? e : e.getCause();
-        if (notReached instanceof HostNotReachedException) {
-            String message = notReached.getMessage();
-            return AuthResult.notSent(message != null ? message
-                    : "Online failed: not sent to the host");
-        }
         if (e.getCause() instanceof TimeoutException) {
             return AuthResult.failed("Online failed: the host didn't answer in time");
         }
