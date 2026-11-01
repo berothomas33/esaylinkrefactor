@@ -151,7 +151,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        if (isSynchronousEntry(card)) {
+        if (isNonEmv(card)) {
             tx.lastAuth = authorizeOnline();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
@@ -161,7 +161,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
-        if (isSynchronousEntry(card)) {
+        if (isNonEmv(card)) {
             if (tx.lastAuth != null && tx.lastAuth.isApproved()) {
                 String msg = card.isManual() ? "MANUAL ONLINE APPROVED" : "MAG ONLINE APPROVED";
                 finishApproved(msg);
@@ -1234,7 +1234,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
-        if (activeCard == null || isSynchronousEntry(activeCard)) {
+        if (activeCard == null || isNonEmv(activeCard)) {
             return config;
         }
         boolean contactless = activeCard.isContactless();
