@@ -24,7 +24,6 @@ import com.pax.bizlib.card.TrackUtils;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
-import com.pax.dal.entity.EPiccType;
 import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.param.EmvProcessParam;
@@ -873,7 +872,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void finishContactlessStage() {
         kernel.contactless.unregisterClssProcessListener();
-        closeReaders(true);
+        PaxReaders.close(true);
         if (isCancelled()) {
             noteResultNotReported();
             return;
@@ -1263,7 +1262,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      */
     private void finishContactStage() {
         kernel.contact.registerEmvProcessListener(null);
-        closeReaders(false);
+        PaxReaders.close(false);
         if (tx.activePinPad != null) {
             tx.activePinPad.dismiss();
             tx.activePinPad = null;
@@ -1389,10 +1388,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         initializeTerminalIfNeeded();
 
         // Defensive reset: close every reader before this attempt touches any of them, in case
-        // the previous transaction (crash, process death, a partial closeReaders() failure) left
+        // the previous transaction (crash, process death, a partial PaxReaders.close() failure) left
         // one open. Closing an already-closed reader is a no-op, so this is safe to run
         // unconditionally on every attempt, not just after a known-bad prior transaction.
-        closeReaders(true);
+        PaxReaders.close(true);
 
         byte requested = 0;
         if (config.allowsChip()) {
@@ -1660,7 +1659,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (tx.lastAuth == null) {
             engine().apduTrace().note("EMV", "online step did not run — online failed");
         }
-        return toOnlineResultWrapper(tx.lastAuth);
+        return PaxHostAnswer.toOnlineResult(tx.lastAuth);
     }
 
     /** How the host answered, for the ISSUER_AUTHENTICATION banner. */
@@ -2062,80 +2061,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private String readKernelTlvHex(int tag) {
         byte[] value = readKernelTlv(tag);
         return value.length == 0 ? null : ConvertUtils.bcd2Str(value, value.length);
-    }
-
-
-    @NonNull
-    private static OnlineResultWrapper toOnlineResultWrapper(@Nullable AuthResult auth) {
-        OnlineResultWrapper wrapper = new OnlineResultWrapper();
-        IssuerRspData rsp = new IssuerRspData();
-        if (auth == null || auth.isFailed()) {
-            wrapper.setResultCode(EOnlineResult.FAILED.getResultCode());
-            wrapper.setTransResultEnum(TransResultEnum.RESULT_ONLINE_FAILED);
-            rsp.setOnlineResult(EOnlineResult.FAILED.getEmvOnlineResult());
-            wrapper.setIssuerRspData(rsp);
-            return wrapper;
-        }
-        if (auth.isApproved()) {
-            wrapper.setResultCode(EOnlineResult.APPROVE.getResultCode());
-            wrapper.setTransResultEnum(TransResultEnum.RESULT_ONLINE_APPROVED);
-            rsp.setOnlineResult(EOnlineResult.APPROVE.getEmvOnlineResult());
-            if (auth.getAuthCode() != null) {
-                rsp.setAuthCode(auth.getAuthCode().getBytes(StandardCharsets.US_ASCII));
-            }
-            if (auth.getResponseCode() != null) {
-                rsp.setRespCode(auth.getResponseCode().getBytes(StandardCharsets.US_ASCII));
-            }
-            if (auth.getArpc() != null) {
-                rsp.setAuthData(auth.getArpc());
-            }
-            if (auth.getIssuerScript() != null) {
-                rsp.setScript(auth.getIssuerScript());
-            }
-        } else {
-            wrapper.setResultCode(EOnlineResult.DENIAL.getResultCode());
-            wrapper.setTransResultEnum(TransResultEnum.RESULT_ONLINE_DENIED);
-            rsp.setOnlineResult(EOnlineResult.DENIAL.getEmvOnlineResult());
-            if (auth.getResponseCode() != null) {
-                rsp.setRespCode(auth.getResponseCode().getBytes(StandardCharsets.US_ASCII));
-            }
-        }
-        wrapper.setIssuerRspData(rsp);
-        return wrapper;
-    }
-
-    /**
-     * Closes mag/icc/picc independently — each in its own try/catch — so one reader's close
-     * failing (e.g. a reader already in a bad state) can't skip the rest. The previous
-     * single-try version stopped at the first exception, silently leaving whatever came after it
-     * open; that's the likely root cause of a "reader already open" failure on the next attempt.
-     */
-    private void closeReaders(boolean contactless) {
-        if (EmvFlowRuntime.getDal() == null) {
-            return;
-        }
-        try {
-            EmvFlowRuntime.getDal().getMag().close();
-        } catch (Exception e) {
-            LogUtils.e(TAG, "close mag reader failed", e);
-        }
-        try {
-            EmvFlowRuntime.getDal().getIcc().close((byte) 0);
-        } catch (Exception e) {
-            LogUtils.e(TAG, "close icc reader failed", e);
-        }
-        try {
-            EmvFlowRuntime.getDal().getPicc(EPiccType.INTERNAL).close();
-        } catch (Exception e) {
-            LogUtils.e(TAG, "close internal picc reader failed", e);
-        }
-        if (contactless) {
-            try {
-                EmvFlowRuntime.getDal().getPicc(EPiccType.EXTERNAL).close();
-            } catch (Exception e) {
-                LogUtils.e(TAG, "close external picc reader failed", e);
-            }
-        }
     }
 
     private static String timestamp() {
