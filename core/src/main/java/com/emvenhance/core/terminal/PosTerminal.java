@@ -16,6 +16,7 @@ import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.observers.DisposableObserver;
 import io.reactivex.rxjava3.observers.SafeObserver;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subjects.ReplaySubject;
@@ -202,6 +203,27 @@ public abstract class PosTerminal {
 
         private Transaction(TransactionConfig config) {
             this.config = config;
+            steps.subscribe(new TransactionStepObserver());
+        }
+
+        private final class TransactionStepObserver extends DisposableObserver<TransactionStepEvent> {
+
+            @Override
+            public void onNext(TransactionStepEvent event) {
+                TransactionStep step = event.getStep();
+                if (isOutcome(step) || step.isEnd()) {
+                    return;
+                }
+                dispatchTransactionStep(event);
+            }
+
+            @Override
+            public void onError(Throwable e) {
+            }
+
+            @Override
+            public void onComplete() {
+            }
         }
 
         public Observable<TransactionStepEvent> steps() {
@@ -211,6 +233,9 @@ public abstract class PosTerminal {
         public void cancel() {
             TransactionStepEvent cancelling = TransactionStepEvent.of(TransactionStep.CANCELLING,
                     "Cancelling — finishing with the card");
+            if (end != null) {
+                return;
+            }
             synchronized (steps) {
                 if (end != null) {
                     return;
@@ -218,7 +243,6 @@ public abstract class PosTerminal {
                 end = TransactionStepEvent.of(TransactionStep.CANCELLED);
                 deliver(cancelling);
             }
-            dispatchTransactionStep(cancelling);
         }
 
         boolean isRunning() {
@@ -231,6 +255,10 @@ public abstract class PosTerminal {
         }
 
         void publish(TransactionStepEvent event) {
+            if (end != null) {
+                dropped(event);
+                return;
+            }
             synchronized (steps) {
                 if (end != null) {
                     dropped(event);
@@ -238,10 +266,13 @@ public abstract class PosTerminal {
                 }
                 deliver(event);
             }
-            dispatchTransactionStep(event);
         }
 
         void end(TransactionStepEvent end) {
+            if (this.end != null) {
+                dropped(end);
+                return;
+            }
             synchronized (steps) {
                 if (this.end != null) {
                     dropped(end);
@@ -377,7 +408,6 @@ public abstract class PosTerminal {
                 synchronized (steps) {
                     deliver(followUp);
                 }
-                dispatchTransactionStep(followUp);
             }
             synchronized (steps) {
                 current.compareAndSet(this, null);

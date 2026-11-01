@@ -281,6 +281,51 @@ public class PosTerminalHostFollowUpTest {
         assertEquals(Arrays.asList("ACK", "ACK"), calls);
     }
 
+    @Test(timeout = 10_000)
+    public void aCancelDuringASlowAcknowledgementDoesNotWaitForIt() throws Exception {
+        CountDownLatch ackStarted = new CountDownLatch(1);
+        CountDownLatch releaseAck = new CountDownLatch(1);
+        AtomicReference<PosTerminal.Transaction> sale = new AtomicReference<>();
+        answers.add(approved());
+        CommunicationBehavior slow = new CommunicationBehavior() {
+            @Override
+            public Single<AuthResult> authorize(TransactionConfig config) {
+                return host.authorize(config);
+            }
+
+            @Override
+            public Completable acknowledge(TransactionConfig config) {
+                return Completable.fromAction(() -> {
+                    ackStarted.countDown();
+                    releaseAck.await(5, TimeUnit.SECONDS);
+                });
+            }
+        };
+        terminal = new TestTerminal(slow, t -> {
+            sale.set(t);
+            goOnline();
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
+        });
+        Thread run = new Thread(() -> {
+            try {
+                terminal.runOne();
+            } catch (InterruptedException ignored) {
+                // the test's own thread
+            }
+        });
+        run.start();
+        assertTrue(ackStarted.await(5, TimeUnit.SECONDS));
+
+        long started = System.nanoTime();
+        sale.get().cancel(); // the screen's Cancel while the acknowledgement waits on the host
+        long tookMs = (System.nanoTime() - started) / 1_000_000;
+        releaseAck.countDown();
+        run.join(5_000);
+
+        assertTrue("Cancel waited " + tookMs + " ms for the acknowledgement", tookMs < 500);
+        assertEquals(TransactionStep.COMPLETED, terminal.lastEnd);
+    }
+
     private Completable followUp(String what) {
         return Completable.fromAction(() -> {
             busyAtFollowUp.add(terminal.isBusy());
