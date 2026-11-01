@@ -6,6 +6,8 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.network.SaleCommunicationBehavior;
+import com.emvenhance.network.onboarding.OnboardingState;
+import com.emvenhance.settings.PinBypassSettings;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.sp.SharedPrefUtil;
@@ -45,7 +47,16 @@ public class PaxTerminal extends PosTerminal {
     private PaxTerminal(PaxKernel kernel,
             CommunicationBehavior communication,
             PrinterBehavior printer) {
-        super(new PaxEmvBehavior(kernel), communication, printer);
+        super(new PaxEmvBehavior(kernel, pinEntry()), communication, printer);
+    }
+
+    /**
+     * The PIN entry, given what it needs from outside the EMV: the terminal's PIN bypass settings
+     * and the host's public key from onboarding (read when an online PIN key is wrapped).
+     */
+    private static PaxPinEntry pinEntry() {
+        return new PaxPinEntry(new PinBypassSettings(BaseApplication.getAppContext()),
+                () -> new OnboardingState(BaseApplication.getAppContext()).getPublicKey());
     }
 
     /**
