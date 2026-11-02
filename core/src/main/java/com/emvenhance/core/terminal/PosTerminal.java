@@ -516,4 +516,3 @@ public abstract class PosTerminal {
                 .build();
     }
 }
-//just a comment
