@@ -34,6 +34,8 @@ public enum TransactionStep {
 
     REVERSING("Reversing the request at the host"),
 
+    CLOSED("Closed at the host"),
+
     COMPLETED("Transaction completed"),
 
     ERROR("Error");

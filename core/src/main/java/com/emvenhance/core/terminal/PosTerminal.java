@@ -425,21 +425,36 @@ public abstract class PosTerminal {
 
         private void closeAtHost(TransactionStepEvent step,
                 Function<TransactionConfig, Completable> call) {
+            String what = step.getMessage();
             TransactionConfig sent = sentRequest(step);
             if (sent == null) {
+                closed(step, false, what + " not sent: no such request");
                 return;
             }
-            String what = step.getMessage();
             try {
                 call.apply(sent).timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
                         .blockingAwait();
                 EmvLog.d(what + " sent");
                 apduTrace().note("HOST", what + " sent");
+                closed(step, true, what + " sent");
             } catch (RuntimeException e) {
-                EmvLog.d(what + " failed: " + e);
-                apduTrace().note("HOST", what + " failed — not retried: "
+                String failed = what + " failed — not retried: "
                         + (e.getCause() instanceof TimeoutException
-                                ? "the host didn't answer in time" : e.getMessage()));
+                                ? "the host didn't answer in time" : e.getMessage());
+                EmvLog.d(what + " failed: " + e);
+                apduTrace().note("HOST", failed);
+                closed(step, false, failed);
+            }
+        }
+
+        private void closed(TransactionStepEvent step, boolean ok, String message) {
+            synchronized (steps) {
+                deliver(TransactionStepEvent.builder(TransactionStep.CLOSED)
+                        .message(message)
+                        .put(TransactionStepEvent.KEY_REQUEST_ID,
+                                step.getString(TransactionStepEvent.KEY_REQUEST_ID))
+                        .put(TransactionStepEvent.KEY_CLOSED_OK, ok)
+                        .build());
             }
         }
 

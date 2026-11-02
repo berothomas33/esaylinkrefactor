@@ -22,6 +22,7 @@ public final class TransactionStepEvent {
     public static final String KEY_ICC_DATA         = "iccData";
     public static final String KEY_RETRY_PROMPT     = "retryPrompt";
     public static final String KEY_REQUEST_ID       = "asyncRequestId";
+    public static final String KEY_CLOSED_OK        = "closedOk";
 
     private final TransactionStep step;
     private final String message;
