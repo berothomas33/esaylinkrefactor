@@ -152,11 +152,11 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                         checkStatus("Reversal", response.getStatusCode(), response.getMessage())));
     }
 
-    interface FollowUpCall {
+    interface CloseCall {
         Completable send(Map<String, String> headers, String asyncRequestId, String transactionType);
     }
 
-    private Completable closeOnline(TransactionConfig sent, String what, FollowUpCall call) {
+    private Completable closeOnline(TransactionConfig sent, String what, CloseCall call) {
         String asyncRequestId = sent.getAsyncRequestId();
         if (asyncRequestId == null || whyNotSent(sent) != null) {
             Log.i(TAG, what + " not sent: the request never went to the host");
