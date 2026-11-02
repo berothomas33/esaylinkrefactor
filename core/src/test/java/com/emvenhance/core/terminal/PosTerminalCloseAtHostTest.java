@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.Test;
 
-public class PosTerminalHostFollowUpTest {
+public class PosTerminalCloseAtHostTest {
 
-    private final BlockingQueue<String> followUps = new LinkedBlockingQueue<>();
+    private final BlockingQueue<String> closings = new LinkedBlockingQueue<>();
     private final List<TransactionConfig> sent = new CopyOnWriteArrayList<>();
-    private final List<Boolean> busyAtFollowUp = new CopyOnWriteArrayList<>();
-    private final List<Thread> followUpThreads = new CopyOnWriteArrayList<>();
+    private final List<Boolean> busyAtClosing = new CopyOnWriteArrayList<>();
+    private final List<Thread> closingThreads = new CopyOnWriteArrayList<>();
     private final BlockingQueue<AuthResult> answers = new LinkedBlockingQueue<>();
     private volatile RuntimeException hostError = new RuntimeException("down");
 
@@ -46,12 +46,12 @@ public class PosTerminalHostFollowUpTest {
 
         @Override
         public Completable acknowledge(TransactionConfig config) {
-            return followUp("ACK " + config.getAsyncRequestId());
+            return closing("ACK " + config.getAsyncRequestId());
         }
 
         @Override
         public Completable reverse(TransactionConfig config) {
-            return followUp("REVERSE " + config.getAsyncRequestId());
+            return closing("REVERSE " + config.getAsyncRequestId());
         }
     };
 
@@ -67,8 +67,8 @@ public class PosTerminalHostFollowUpTest {
 
         terminal.runOne();
 
-        assertEquals("ACK " + idSent(0), followUps.take());
-        assertNoMoreFollowUps();
+        assertEquals("ACK " + idSent(0), closings.take());
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -81,8 +81,8 @@ public class PosTerminalHostFollowUpTest {
 
         terminal.runOne();
 
-        assertEquals("REVERSE " + idSent(0), followUps.take());
-        assertNoMoreFollowUps();
+        assertEquals("REVERSE " + idSent(0), closings.take());
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -97,8 +97,8 @@ public class PosTerminalHostFollowUpTest {
         terminal.runOne();
 
         assertEquals(TransactionStep.CANCELLED, terminal.lastEnd);
-        assertEquals("REVERSE " + idSent(0), followUps.take());
-        assertNoMoreFollowUps();
+        assertEquals("REVERSE " + idSent(0), closings.take());
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -111,8 +111,8 @@ public class PosTerminalHostFollowUpTest {
 
         terminal.runOne();
 
-        assertEquals("REVERSE " + idSent(0), followUps.take());
-        assertNoMoreFollowUps();
+        assertEquals("REVERSE " + idSent(0), closings.take());
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -124,8 +124,8 @@ public class PosTerminalHostFollowUpTest {
 
         terminal.runOne();
 
-        assertEquals("REVERSE " + idSent(0), followUps.take());
-        assertNoMoreFollowUps();
+        assertEquals("REVERSE " + idSent(0), closings.take());
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -138,7 +138,7 @@ public class PosTerminalHostFollowUpTest {
 
         terminal.runOne();
 
-        assertNoMoreFollowUps();
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -151,7 +151,7 @@ public class PosTerminalHostFollowUpTest {
 
         terminal.runOne();
 
-        assertNoMoreFollowUps();
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -163,7 +163,7 @@ public class PosTerminalHostFollowUpTest {
         terminal.runOne();
 
         assertTrue(sent.isEmpty());
-        assertNoMoreFollowUps();
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -181,8 +181,8 @@ public class PosTerminalHostFollowUpTest {
 
         assertNotEquals(idSent(0), idSent(1));
         assertEquals(Arrays.asList("REVERSE " + idSent(0), "ACK " + idSent(1)),
-                Arrays.asList(followUps.take(), followUps.take()));
-        assertNoMoreFollowUps();
+                Arrays.asList(closings.take(), closings.take()));
+        assertNoMoreClosings();
     }
 
     @Test(timeout = 10_000)
@@ -198,7 +198,7 @@ public class PosTerminalHostFollowUpTest {
         assertNotNull(idSent(0));
         assertEquals(TransactionType.SALE, sent.get(0).getType());
         assertEquals(1000, sent.get(0).getAmountMinor());
-        followUps.take();
+        closings.take();
     }
 
     @Test(timeout = 10_000)
@@ -212,16 +212,16 @@ public class PosTerminalHostFollowUpTest {
 
         terminal.runOne();
 
-        assertEquals("ACK " + idSent(0), followUps.poll());
-        assertEquals(Collections.singletonList(true), busyAtFollowUp);
-        assertEquals("the transaction thread", terminal.transactionThread, followUpThreads.get(0));
+        assertEquals("ACK " + idSent(0), closings.poll());
+        assertEquals(Collections.singletonList(true), busyAtClosing);
+        assertEquals("the transaction thread", terminal.transactionThread, closingThreads.get(0));
         List<TransactionStep> steps = terminal.lastSteps;
         assertEquals(Arrays.asList(TransactionStep.APPROVED, TransactionStep.ACKNOWLEDGING,
                 TransactionStep.COMPLETED), steps.subList(steps.size() - 3, steps.size()));
     }
 
     @Test(timeout = 10_000)
-    public void aFollowUpTheHostNeverAnswersEndsAfterItsTimeout() throws InterruptedException {
+    public void aClosingTheHostNeverAnswersEndsAfterItsTimeout() throws InterruptedException {
         CommunicationBehavior silent = new CommunicationBehavior() {
             @Override
             public Single<AuthResult> authorize(TransactionConfig config) {
@@ -251,7 +251,7 @@ public class PosTerminalHostFollowUpTest {
     }
 
     @Test(timeout = 10_000)
-    public void aFailedFollowUpIsLoggedAndTheTerminalGoesOn() throws InterruptedException {
+    public void aFailedClosingIsLoggedAndTheTerminalGoesOn() throws InterruptedException {
         List<String> calls = new CopyOnWriteArrayList<>();
         CountDownLatch called = new CountDownLatch(2);
         answers.add(approved());
@@ -326,11 +326,11 @@ public class PosTerminalHostFollowUpTest {
         assertEquals(TransactionStep.COMPLETED, terminal.lastEnd);
     }
 
-    private Completable followUp(String what) {
+    private Completable closing(String what) {
         return Completable.fromAction(() -> {
-            busyAtFollowUp.add(terminal.isBusy());
-            followUpThreads.add(Thread.currentThread());
-            followUps.add(what);
+            busyAtClosing.add(terminal.isBusy());
+            closingThreads.add(Thread.currentThread());
+            closings.add(what);
         });
     }
 
@@ -348,7 +348,7 @@ public class PosTerminalHostFollowUpTest {
         return AuthResult.approved("123456", "00", null, null);
     }
 
-    private void assertNoMoreFollowUps() throws InterruptedException {
+    private void assertNoMoreClosings() throws InterruptedException {
         answers.clear();
         answers.add(approved());
         terminal.script = t -> {
@@ -356,8 +356,8 @@ public class PosTerminalHostFollowUpTest {
             t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
         };
         terminal.runOne();
-        assertEquals("ACK " + idSent(sent.size() - 1), followUps.take());
-        assertTrue("left over: " + followUps, followUps.isEmpty());
+        assertEquals("ACK " + idSent(sent.size() - 1), closings.take());
+        assertTrue("left over: " + closings, closings.isEmpty());
     }
 
     private final class TestTerminal extends PosTerminal {

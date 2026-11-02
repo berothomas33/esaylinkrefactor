@@ -369,15 +369,15 @@ public abstract class PosTerminal {
         }
 
         private void onEnd() {
-            List<TransactionStepEvent> followUps;
+            List<TransactionStepEvent> closings;
             synchronized (steps) {
-                followUps = closeOnline();
+                closings = closeOnline();
             }
-            for (TransactionStepEvent followUp : followUps) {
+            for (TransactionStepEvent closing : closings) {
                 synchronized (steps) {
-                    deliver(followUp);
+                    deliver(closing);
                 }
-                dispatchTransactionStep(followUp);
+                dispatchTransactionStep(closing);
             }
             synchronized (steps) {
                 current.compareAndSet(this, null);
@@ -414,14 +414,14 @@ public abstract class PosTerminal {
         }
 
         @Nullable
-        private TransactionConfig sentRequest(TransactionStepEvent followUp) {
-            String id = followUp.get(TransactionStepEvent.KEY_REQUEST_ID);
+        private TransactionConfig sentRequest(TransactionStepEvent closing) {
+            String id = closing.get(TransactionStepEvent.KEY_REQUEST_ID);
             for (OnlineRequest request : online) {
                 if (request.sent.getAsyncRequestId().equals(id)) {
                     return request.sent;
                 }
             }
-            apduTrace().note("HOST", followUp.getStep() + " not sent: no request " + id);
+            apduTrace().note("HOST", closing.getStep() + " not sent: no request " + id);
             return null;
         }
 
@@ -440,7 +440,7 @@ public abstract class PosTerminal {
         }
 
         private List<TransactionStepEvent> closeOnline() {
-            List<TransactionStepEvent> followUps = new ArrayList<>();
+            List<TransactionStepEvent> closings = new ArrayList<>();
             boolean completedApproved = end.getStep() == TransactionStep.COMPLETED
                     && delivered(TransactionStep.APPROVED);
             for (int i = 0; i < online.size(); i++) {
@@ -450,7 +450,7 @@ public abstract class PosTerminal {
                 String id = request.sent.getAsyncRequestId();
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    followUps.add(
+                    closings.add(
                             closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id));
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
@@ -461,10 +461,10 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    followUps.add(closeAtHostStep(TransactionStep.REVERSING, "Reversal", id));
+                    closings.add(closeAtHostStep(TransactionStep.REVERSING, "Reversal", id));
                 }
             }
-            return followUps;
+            return closings;
         }
     }
 

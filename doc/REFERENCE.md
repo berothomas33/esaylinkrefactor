@@ -497,7 +497,7 @@ flowchart TD
 - لـ `CommunicationBehavior.acknowledge` / `reverse` قيمة افتراضية `Completable.complete()`، فلا يتأثر أي host لا ينفّذهما. ولا يرسل `SaleCommunicationBehavior` شيئًا لطلب بلا اسم أو لم يُرسل أصلًا (`whyNotSent`).
 - ⚠ لا يوجد سجل محفوظ (حفظ وإعادة إرسال بعد إعادة التشغيل). إلغاء فاشل يُسجَّل في الـ trace فقط، وعلى الـ host أن يلغي العملية بنفسه حين لا يصله تأكيد (BACKLOG 0.15).
 - ⚠ لم يُجرَّب على الجهاز ولا مع الـ host. احتياج الإلغاء والتأكيد إلى `mToken` افتراض ("headers البيع نفسها").
-- الاختبارات: `PosTerminalHostFollowUpTest` (كل صف في الجدولين، والنهاية الآمنة)، `ReverseAcknowledgementTest`، `OnlineFailureClassifyTest`.
+- الاختبارات: `PosTerminalCloseAtHostTest` (كل صف في الجدولين، والنهاية الآمنة)، `ReverseAcknowledgementTest`، `OnlineFailureClassifyTest`.
 
 ---
 

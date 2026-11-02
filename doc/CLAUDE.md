@@ -237,7 +237,7 @@ after**. Each carries docs that match its own code.
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:vendor-pax:libs:ours:bizentity:…`, or the green arrow in
   Android Studio. Core: 101 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `TransactionEmvFinishedTest`, `Field55Test`,
-  `PosTerminal*Test` (incl. `PosTerminalHostFollowUpTest`: ack / reverse, the safe end) (EMV
+  `PosTerminal*Test` (incl. `PosTerminalCloseAtHostTest`: ack / reverse, the safe end) (EMV
   tests drive a behavior as its run loop does: `TestSession.attempt` = `prepare` + the card's
   `start`; terminal tests use `StubBehavior`: the real run loop, the search a test lambda).
   Network: 24 — `SaleRefundGuardTest`, `OldAppSaleRequestTest`, `SalePinBlockTest`,
