@@ -92,8 +92,9 @@ public class PosTerminalHostTest {
         assertTrue("the host call's last step, then the reversal of the unanswered request: "
                 + steps, steps.indexOf(TransactionStep.ONLINE_COMPLETED)
                         < steps.indexOf(TransactionStep.REVERSING));
-        assertEquals("the reversal before the end", TransactionStep.REVERSING,
-                steps.get(steps.size() - 2));
+        assertEquals("the reversal, then its result, before the end",
+                java.util.Arrays.asList(TransactionStep.REVERSING, TransactionStep.CLOSED),
+                steps.subList(steps.size() - 3, steps.size() - 1));
     }
 
     @Test

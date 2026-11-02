@@ -217,7 +217,67 @@ public class PosTerminalCloseAtHostTest {
         assertEquals("the transaction thread", terminal.transactionThread, closingThreads.get(0));
         List<TransactionStep> steps = terminal.lastSteps;
         assertEquals(Arrays.asList(TransactionStep.APPROVED, TransactionStep.ACKNOWLEDGING,
-                TransactionStep.COMPLETED), steps.subList(steps.size() - 3, steps.size()));
+                TransactionStep.CLOSED, TransactionStep.COMPLETED),
+                steps.subList(steps.size() - 4, steps.size()));
+    }
+
+    @Test(timeout = 10_000)
+    public void eachClosingReportsItsResultBeforeTheEnd() throws InterruptedException {
+        answers.add(approved());
+        List<TransactionStepEvent> events = new CopyOnWriteArrayList<>();
+        CommunicationBehavior refusing = new CommunicationBehavior() {
+            @Override
+            public Single<AuthResult> authorize(TransactionConfig config) {
+                return host.authorize(config);
+            }
+
+            @Override
+            public Completable acknowledge(TransactionConfig config) {
+                return Completable.error(new IllegalStateException("HTTP 500"));
+            }
+        };
+        terminal = new TestTerminal(refusing, t -> {
+            t.steps().subscribe(events::add);
+            goOnline();
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
+        });
+
+        terminal.runOne();
+
+        TransactionStepEvent closed = null;
+        for (TransactionStepEvent e : events) {
+            if (e.getStep() == TransactionStep.CLOSED) {
+                closed = e;
+            }
+        }
+        assertTrue("no CLOSED: " + events, closed != null);
+        assertEquals(Boolean.FALSE, closed.get(TransactionStepEvent.KEY_CLOSED_OK));
+        assertEquals(idSent(0), closed.get(TransactionStepEvent.KEY_REQUEST_ID));
+        assertTrue(closed.getMessage(),
+                closed.getMessage().contains("failed — not retried: HTTP 500"));
+    }
+
+    @Test(timeout = 10_000)
+    public void aClosingTheHostTookReportsItClosed() throws InterruptedException {
+        answers.add(approved());
+        List<TransactionStepEvent> events = new CopyOnWriteArrayList<>();
+        terminal = new TestTerminal(t -> {
+            t.steps().subscribe(events::add);
+            goOnline();
+            t.emvFinished(TransactionStepEvent.of(TransactionStep.APPROVED));
+        });
+
+        terminal.runOne();
+
+        TransactionStepEvent closed = null;
+        for (TransactionStepEvent e : events) {
+            if (e.getStep() == TransactionStep.CLOSED) {
+                closed = e;
+            }
+        }
+        assertTrue("no CLOSED: " + events, closed != null);
+        assertEquals(Boolean.TRUE, closed.get(TransactionStepEvent.KEY_CLOSED_OK));
+        assertEquals("Acknowledgement " + idSent(0) + " sent", closed.getMessage());
     }
 
     @Test(timeout = 10_000)
