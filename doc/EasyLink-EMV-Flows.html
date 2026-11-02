@@ -133,6 +133,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#thread">بداية العملية ونهايتها</a></li>
     <li><a href="#dispatch">تشغيل خطوات الـ EMV: من goToStep إلى onXxx</a></li>
     <li><a href="#ask">حين ينتظر الـ kernel ردًا: askStep</a></li>
+    <li><a href="#callback">الطريق إلى الـ host: authorize كـ callback</a></li>
     <li><a href="#contact">مسار الـ contact كاملًا</a></li>
     <li><a href="#outcome">النتيجة، ونهاية العملية، والتأكيد أو الإلغاء عند الـ host</a></li>
     <li><a href="#contactless">مسار الـ contactless</a></li>
@@ -295,7 +296,7 @@ flowchart LR
   PT -. "behavior.run(config, t)" .-> AB
   PB --> CP --> NK
   NK -- callbacks --> CP -- "IContactCallback" --> PB
-  EN -- "authorize(config)" --> PT
+  AB -- "authorizer.authorize(config) (callback)" --> PT
   PT -- "authorize · acknowledge · reverse" --> CB
 </pre></div>
 
@@ -356,12 +357,12 @@ sequenceDiagram
     BH->>CS: SEARCH_CARD → onSearchCard<br/>cardSearch.search(config, cardSearchListener())
     CS->>BH: onSearchStarted → WAITING_FOR_CARD
     CS->>BH: onChipDetected(card) → CARD_DETECTED
-    Note over BH: start(card): the whole EMV chain here (§5)<br/>synchronous, same thread<br/>finish* → emvFinished (the Transaction ends it)
+    Note over BH: start(card): the whole EMV chain here (§6)<br/>synchronous, same thread<br/>finish* → emvFinished (the Transaction ends it)
     BH->>BH: nextAttempt(): a retry asked for (requestRetry) and still running → next attempt, or done
   end
   BH-->>TX: run returns
   Note over TX: finally of runTransaction: dispatch(decideEnd()) → onEnd — the safe end
-  TX->>TX: decideEnd [lock]: end == null ? ERROR "ended without an outcome"<br/>onEnd [lock]: closeOnline(): ack / reverse per request (§6)
+  TX->>TX: decideEnd [lock]: end == null ? ERROR "ended without an outcome"<br/>onEnd [lock]: closeOnline(): ack / reverse per request (§7)
   TX->>PT: ACKNOWLEDGING / REVERSING delivered → onAcknowledging / onReversing:<br/>the call, waited for (max 15 s)
   TX->>PT: [lock] current.compareAndSet(t, null) — terminal free
   TX-->>UI: deliver(end): COMPLETED / ERROR / CANCELLED
@@ -502,8 +503,74 @@ sequenceDiagram
   </ul>
 </section>
 
+<section id="callback">
+  <h2>5. الطريق إلى الـ host: authorize كـ callback</h2>
+  <p><b>ما هو الـ callback؟</b> أن تعطي جهة أخرى "رقمًا تتصل بك عليه"، وهي التي تقرر متى تتصل. أنت لا تستدعي الدالة، بل تسلّمها؛ والطرف الآخر يستدعيها في الوقت الذي يختاره، ثم يكمل بالقيمة التي ترجعها.</p>
+  <p>في الطريق إلى الـ host <b>callback-ان</b>، وكلاهما <b>متزامن</b>: من يتصل يتوقف منتظرًا الرد في السطر نفسه.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>الـ callback</th><th>من سلّم "الرقم"، ومتى</th><th>من يتصل، ومتى</th></tr></thead>
+    <tbody>
+      <tr><td><b>أ.</b> <code>startOnlineProcess()</code> (<code>IContactCallback</code>)</td><td><code>PaxEmvBehavior</code> سجّل نفسه عند الـ kernel: <code>registerEmvProcessListener(this)</code> في بداية الـ contact</td><td><b>الـ kernel</b>، بعد الـ 1st GENERATE AC حين يرد الكارت بـ ARQC، وهو واقف داخل الاستدعاء الـ native</td></tr>
+      <tr><td><b>ب.</b> <code>Authorizer</code></td><td><code>PosTerminal</code> عند إنشائه: <code>behavior.attach(this::authorize)</code></td><td><b><code>AbstractEmvBehavior.authorizeOnline</code></b>، بعد تجهيز field 55 وبيانات البطاقة</td></tr>
+    </tbody>
+  </table></div>
+  <p>لا يعرف <code>AbstractEmvBehavior</code> شيئًا اسمه <code>PosTerminal</code>: معه "رقم" فقط (<code>authorizer</code>). وهذا ما يُبقي طبقة الـ EMV منفصلة عن الـ host.</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
+sequenceDiagram
+  autonumber
+  participant K as native kernel (EMVStartTrans)
+  participant PB as PaxEmvBehavior
+  participant AB as AbstractEmvBehavior
+  participant PT as PosTerminal.authorize
+  participant H as SaleCommunicationBehavior → bank
+  Note over PT,AB: at start-up: behavior.attach(this::authorize)  (callback B handed over)
+  Note over K,PB: per flow: registerEmvProcessListener(this)  (callback A handed over)
+  K->>K: 1st GENERATE AC → card: ARQC
+  K->>PB: (A) startOnlineProcess() — the kernel waits inside the native call
+  PB->>PB: goToStep(START_ONLINE_PROCESS) → onStartOnlineProcess
+  PB->>AB: tx.lastAuth = authorizeOnline()
+  AB->>AB: field 55 (readIccTag) + PAN / PIN block (addOnlineRequestData)
+  AB->>PT: (B) authorizer.authorize(config)
+  PT->>PT: ONLINE_REQUIRED · ONLINE_PROCESSING · asyncRequestId · wentOnline (for ack / reversal)
+  PT->>H: authorize(sent).timeout(90 s).blockingGet()
+  H-->>PT: AuthResult (approved / declined / failed / notSent · ARPC · scripts · RC)
+  PT-->>AB: ONLINE_COMPLETED · return result
+  AB-->>PB: return result
+  PB->>PB: PaxHostAnswer.toOnlineResult(result)
+  PB-->>K: return OnlineResultWrapper — (A) answered
+  K->>K: completeTransProcess → 2nd GENERATE AC (always, AET-146) → TC / AAC
+  K-->>PB: checkContactResult → finishApproved / finishDeclined → Transaction.emvFinished
+</pre></div>
+  <p><b>الفكرة في سطر:</b> الـ kernel <b>واقف</b> داخل الاستدعاء الـ native حتى يرجع (أ)، و(أ) واقف حتى يرجع (ب)، و(ب) واقف حتى يرد البنك أو تنتهي الـ 90 ثانية. كل ذلك على الـ transaction thread وبالترتيب، ولذلك يأخذ الـ 2nd GENERATE AC رد البنك في السطر نفسه. في الـ contactless نستدعي <code>startOnlineProcess()</code> نحن من داخل <code>startContactlessTransProcess</code>، وقد تكون البطاقة غادرت الحقل، فلا 2nd GENERATE AC (إلا في الـ tap الثاني لـ Visa).</p>
+
+  <h3>Mastercard Single Tap: البنك يطلب الـ PIN بعد الـ tap</h3>
+  <p>بطاقة Mastercard contactless تُرسل دون PIN (تحت حد الـ CVM الخاص بها)، فيرد البنك بأنه يريد PIN. التطبيق القديم (<code>SaleActivity</code>) كان يعرف ذلك من <b>RC = 90</b> مع: لا PIN، و contactless، و Mastercard؛ فيفتح لوحة الـ PIN دون tap ثانٍ، ويعيد إرسال البيع ومعه الـ PIN block و <code>singleTap = "ST"</code>. التنفيذ عندنا قيد العمل (BACKLOG 4.11):</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
+sequenceDiagram
+  autonumber
+  participant PB as PaxEmvBehavior.onStartOnlineProcess
+  participant AB as AbstractEmvBehavior
+  participant PT as PosTerminal.authorize
+  participant H as bank
+  PB->>AB: authorizeOnline() — no PIN
+  AB->>PT: (B) authorize
+  PT->>H: sale
+  H-->>PT: RC 90 — "PIN required" (Mastercard, contactless, no PIN)
+  PT-->>PB: AuthResult declined(90)
+  PB->>PB: onCardHolderPwd(true …) → askStep → PIN pad (no second tap)
+  PB->>AB: authorizeOnline() again — PIN block + singleTap "ST"
+  AB->>PT: (B) authorize
+  PT->>H: sale (same card data, with PIN)
+  H-->>PT: approved / declined
+  PT-->>PB: AuthResult
+  PB->>PB: PaxHostAnswer.toOnlineResult → kernel → the outcome
+</pre></div>
+</section>
+
 <section id="contact">
-  <h2>5. مسار الـ contact كاملًا (بترتيب الـ kernel نفسه)</h2>
+  <h2>6. مسار الـ contact كاملًا (بترتيب الـ kernel نفسه)</h2>
   <p>كل مرحلة = استدعاء native واحد = <code>EmvStep</code> واحدة. وكل دوال <code>runContact*</code> بالشكل نفسه: تستدعي الـ kernel، فإن كانت <code>ret == EMV_OK</code> ولا توجد نتيجة نهائية تنتقل بـ <code>advanceContactStage(NEXT)</code>، وإلا تستدعي <code>finishContactStage()</code> التي تحرر الـ listener الخاص بالـ kernel، وتغلق القارئات، وتحسب النتيجة. يُسجَّل الـ listener مرة واحدة في بداية المسار (<code>runContactAppSelect</code>).</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
@@ -569,7 +636,7 @@ sequenceDiagram
 </section>
 
 <section id="outcome">
-  <h2>6. النتيجة ونهاية العملية</h2>
+  <h2>7. النتيجة ونهاية العملية</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>الـ host</th><th>البطاقة في 2nd GAC</th><th><code>TransResultEnum</code></th><th>النهاية</th><th>مع النهاية</th></tr></thead>
     <tbody>
@@ -627,7 +694,7 @@ flowchart TD
 </section>
 
 <section id="contactless">
-  <h2>7. مسار الـ contactless</h2>
+  <h2>8. مسار الـ contactless</h2>
   <p>طريقة التشغيل نفسها و <code>askStep</code> نفسها، لكن الـ kernel يُختار بعد اختيار التطبيق (<code>ClssKernelProcessFactory</code>). هناك نوعان: <b>granular</b> (EFT و PayPass و PayWave) ولكل مرحلة فيها استدعاء native مستقل، و<b>atomic</b> (Amex و JCB و Mir و PBOC و Pure و RuPay و DPAS) وفيها استدعاء واحد، وتُنشر خطواتها من الـ callbacks. يُسجَّل الـ listener الخاص بالـ kernel مرة واحدة في <code>runContactlessAppSelect</code>، ويُحرَّر مرة واحدة في <code>finishContactlessStage</code>.</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
@@ -740,7 +807,7 @@ sequenceDiagram
 </section>
 
 <section id="params">
-  <h2>8. الـ EMV params: مصدرها، ومكان حفظها، ومتى تصل إلى الـ kernel</h2>
+  <h2>9. الـ EMV params: مصدرها، ومكان حفظها، ومتى تصل إلى الـ kernel</h2>
   <p><b>ما هي الـ params؟</b> هي القواعد التي يحتاجها الـ kernel ليتخذ قراره في كل عملية: البطاقات المقبولة (الـ AIDs)، والمفاتيح التي يُتحقَّق بها من أن البطاقة أصلية (الـ CAPKs)، والحدود المالية (مثل المبلغ الذي يُطلب بعده PIN في الدفع اللاتلامسي). بدونها لا يستطيع الـ kernel العمل.</p>
 
   <h3>الصورة العامة</h3>
