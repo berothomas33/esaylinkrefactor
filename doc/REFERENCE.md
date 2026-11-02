@@ -208,7 +208,7 @@ INGENICO SDK                   Tetra / Axium — not in the project yet
 ```mermaid
 flowchart LR
   UI["UI: MainViewModel / SearchCardFragment"]
-  PT["PosTerminal<br/>transactionScheduler · current (busy)<br/>authorize (host, 90 s) · printReceipt<br/>followUpTimeoutMs (ack / reverse, 15 s)"]
+  PT["PosTerminal<br/>transactionScheduler · current (busy)<br/>authorize (host, 90 s) · printReceipt<br/>closeAtHostTimeoutMs (ack / reverse, 15 s)"]
   TX["PosTerminal.Transaction<br/>config · volatile end · ReplaySubject steps<br/>begin · runTransaction · cancel<br/>online requests · closeOnline · onEnd (safe end)"]
   CB["CommunicationBehavior<br/>authorize · acknowledge · reverse"]
   EN["EmvEngine<br/>emvSteps · ApduTrace · retry"]
@@ -218,7 +218,7 @@ flowchart LR
   CP["ContactProcess<br/>EmvCallBackListener"]
   NK[("native kernel")]
   UI -- "acceptCard · cancel · steps()" --> PT --> TX
-  PT -. "behavior.attach(engine)" .-> AB --> EN
+  PT -. "behavior.attach(this::authorize)" .-> AB --> EN
   TX -. "behavior.run(config, t)" .-> AB
   PB -- extends --> AB
   PB --> CS
@@ -251,7 +251,7 @@ private   final Scheduler             transactionScheduler; // one sale at a tim
 | `PosTerminal.Transaction` | العملية الواحدة (بيع / استرداد) | • حالتها: `end` (`null` = قيد التنفيذ)<br>• الخطوات التي تراها الشاشة (`ReplaySubject`، وهو أيضًا الـ lock)<br>• الإلغاء<br>• الطلبات المرسلة إلى البنك وردودها (`online`) | نشر أي شيء بعد انتهائها |
 | `AbstractEmvBehavior` | التعامل مع البطاقة (المشترك بين الـ vendors) | • `run`: المحاولات، والبحث عن البطاقة (`SEARCH_CARD`)، وإعادة المحاولة<br>• الـ 17 خطوة (`onXxx`)، و `goToStep` (نقطة فحص الإلغاء الوحيدة)، و `askStep` / `answerStep`، و `publish`، و `finish*`<br>• field 55، والطلب إلى البنك (`authorizeOnline`)<br>• الـ engine: field من نوع `private`، لا يكتب فيه إلا `attach`، والجميع يقرؤه بـ `engine()` | الـ threads، حالة الانشغال، البنك مباشرة |
 | `PaxEmvBehavior` | التعامل مع البطاقة على PAX | • الـ `onXxx`: استدعاء native لكل خطوة، `runContact*` / `runContactless*`<br>• ردود الـ kernel<br>• `onSearchCard` ← `PaxCardSearch`<br>• `PaxKernelSession tx` جديد في كل محاولة (في `onTerminalInitialization`) | أن يستدعيه أحد غير الـ dispatch |
-| `EmvEngine` | شريط خطوات الـ EMV | • `emvSteps` (التشغيل والشريط العلوي)<br>• `ApduTrace`<br>• الطريق إلى البنك (`Authorizer` = `PosTerminal::authorize`)<br>يُنشأ في constructor الـ `PosTerminal` ويُسلَّم مرة واحدة: `behavior.attach(engine)` | أي حالة للعملية |
+| `EmvEngine` | شريط خطوات الـ EMV | • `emvSteps` (التشغيل والشريط العلوي)<br>• `ApduTrace`<br><br>يُنشئه الـ `AbstractEmvBehavior` بنفسه (`final`)؛ والطريق إلى البنك ليس فيه: يعطيه `PosTerminal` للـ behavior مباشرة (`attach(this::authorize)`) | أي حالة للعملية، أو إعادة المحاولة، أو الـ host |
 | `SaleCommunicationBehavior` | اتصال HTTP بالبنك / الـ facilitator | • exchange ← sale / refund (envelope)<br>• التأكيد / الإلغاء (JSON عادي، وheaders البيع)<br>• تصنيف الفشل: هل وصل إلى البنك أم لا (`classify`) | أن يقرر التأكيد أو الإلغاء (هذا قرار `PosTerminal`) |
 | `PaxPrinter` | الطابعة | • طباعة الإيصال | — |
 | `EmvEnhanceApp` | تشغيل التطبيق | • جهاز واحد (`PosTerminal`) طوال عمر التطبيق (`TerminalFactory.create`) | — |
@@ -279,7 +279,7 @@ private   final Scheduler             transactionScheduler; // one sale at a tim
 | thread واحد | `Executors.newSingleThreadExecutor()`: قارئ واحد و kernel واحد، ولا يُقاطَع أبدًا |
 | العملية نفسها | `Transaction`: `begin()`، `publish(event)`، `dispatchTransactionStep` (§2.6)، `runTransaction`، `emvFinished`، `onOutcome`، `onEnd()` (النهاية الآمنة)، `cancel()`، `steps()` |
 | الـ EMV كله (بما فيه البحث والإعادة) | `behavior.run(config, transaction)` — ليس من مسؤولية `PosTerminal` (§2.3، §2.5) |
-| الـ host | `authorize(config)`: تنشر `ONLINE_REQUIRED` / `ONLINE_PROCESSING`، وتسمّي الطلب (`asyncRequestId` = UUID) وتسجّله على الـ `Transaction`، ثم `communication.authorize(sent).timeout(90 s).blockingGet()`، ثم `ONLINE_COMPLETED`. وعند الفشل تصنّفه `failureOf(e)`: `HostNotReachedException` (مباشرة أو كسبب) تعني `AuthResult.notSent`؛ وانتهاء المهلة أو أي استثناء آخر يعني `AuthResult.failed` (وكلاهما ليس رفضًا) |
+| الـ host | `authorize(config)`: تنشر `ONLINE_REQUIRED` / `ONLINE_PROCESSING`، وتسمّي الطلب (`asyncRequestId` = UUID) وتسجّله على الـ `Transaction`، ثم `communication.authorize(sent).timeout(90 s).blockingGet()`، ثم `ONLINE_COMPLETED`. وعند الفشل: يرد الـ network نفسه بـ `AuthResult` جاهز (`notSent` أو `failed`، عبر `SaleCommunicationBehavior.answerOf`)، ولا يبقى لـ `failureOf(e)` إلا مهلة الـ 90 ثانية الخاصة بالجهاز (← `failed`) |
 | النهاية الآمنة | تقرر `Transaction.closeOnline()` التأكيد أو الإلغاء لكل طلب، ويُرسل الاستدعاء ويُنتظر على الـ transaction thread (ACKNOWLEDGING / REVERSING، بحد أقصى 15 ثانية) **قبل** أن يصبح الجهاز متاحًا (§2.7) |
 | الطابعة | `printReceipt(lines)` على thread طباعة مستقل، بالترتيب |
 | إعدادات الـ vendor | `serialNumber()`، `requiredPermissions()`، `countries()` / `setCountry()`، `emvParams()` (VENDOR.md §2) |
@@ -493,7 +493,7 @@ flowchart TD
 ```
 
 - لا يتغير شيء بالنسبة للبطاقة: `failed` و `notSent` كلاهما `RESULT_ONLINE_FAILED` (2nd GENERATE AC بـ AAC). الفرق في الإلغاء فقط.
-- الاستدعاء (`9278c35`، النهاية الآمنة؛ خطوات لها دوال منذ `7403d1e`): تُسلَّم الخطوة `ACKNOWLEDGING` / `REVERSING` (وتحمل `asyncRequestId` في `KEY_REQUEST_ID`)، ثم تشغّل `onAcknowledging` / `onReversing` الاستدعاء `Completable.defer(() -> communication.acknowledge/reverse(sent))` على الـ transaction thread، مع `timeout(followUpTimeoutMs())` = 15 ثانية و `blockingAwait`. يبقى الجهاز مشغولًا حتى ينتهي، فترى الشاشة `APPROVED ← ACKNOWLEDGING ← COMPLETED`، وأي محاولة بيع في أثناء ذلك تُرفض بـ `TerminalBusyException`. تُسجَّل النتيجة في `EmvLog` وفي الـ trace. (حتى `9278c35` كان الإرسال على `followUpScheduler` مستقل، بعد أن يصبح الجهاز متاحًا، بمهلة 90 ثانية ودون انتظار.)
+- الاستدعاء (`9278c35`، النهاية الآمنة؛ خطوات لها دوال منذ `7403d1e`): تُسلَّم الخطوة `ACKNOWLEDGING` / `REVERSING` (وتحمل `asyncRequestId` في `KEY_REQUEST_ID`)، ثم تشغّل `onAcknowledging` / `onReversing` الاستدعاء `Completable.defer(() -> communication.acknowledge/reverse(sent))` على الـ transaction thread، مع `timeout(closeAtHostTimeoutMs())` = 15 ثانية و `blockingAwait`. يبقى الجهاز مشغولًا حتى ينتهي، فترى الشاشة `APPROVED ← ACKNOWLEDGING ← COMPLETED`، وأي محاولة بيع في أثناء ذلك تُرفض بـ `TerminalBusyException`. تُسجَّل النتيجة في `EmvLog` وفي الـ trace. (حتى `9278c35` كان الإرسال على `followUpScheduler` مستقل، بعد أن يصبح الجهاز متاحًا، بمهلة 90 ثانية ودون انتظار.)
 - لـ `CommunicationBehavior.acknowledge` / `reverse` قيمة افتراضية `Completable.complete()`، فلا يتأثر أي host لا ينفّذهما. ولا يرسل `SaleCommunicationBehavior` شيئًا لطلب بلا اسم أو لم يُرسل أصلًا (`whyNotSent`).
 - ⚠ لا يوجد سجل محفوظ (حفظ وإعادة إرسال بعد إعادة التشغيل). إلغاء فاشل يُسجَّل في الـ trace فقط، وعلى الـ host أن يلغي العملية بنفسه حين لا يصله تأكيد (BACKLOG 0.15).
 - ⚠ لم يُجرَّب على الجهاز ولا مع الـ host. احتياج الإلغاء والتأكيد إلى `mToken` افتراض ("headers البيع نفسها").
@@ -519,7 +519,7 @@ flowchart TD
 - `notifyEmvStep(step, detail)`: `apduTrace.kernelStep(...)` ثم `emvSteps.onNext(event)`، ويتلقاها كل مشترك قبل أن تعود.
 - `begin()`: `apduTrace.beginTransaction()` (trace جديد لكل عملية).
 - لا يحمل حالة إعادة المحاولة: انتقلت إلى `AbstractEmvBehavior` (`requestRetry` / `retryCount()`، §2.5) في `962eac7`.
-- `authorize(config)` ← الـ `Authorizer` الذي أعطاه إياه `PosTerminal` (`PosTerminal::authorize`).
+- لا يحمل الطريق إلى البنك: `AbstractEmvBehavior.authorizeOnline` تستدعي الـ `Authorizer` الذي أعطاه `PosTerminal` للـ behavior (`attach(this::authorize)`).
 - لا يحتوي على `isRunning` ولا على أي حالة للعملية: سؤال "هل يمكن نشر هذه الخطوة؟" يُطرح على الـ `Transaction` قبل `notifyEmvStep`.
 
 ### 3.3 ماذا تفعل `goToStep` بالضبط
@@ -755,7 +755,7 @@ sequenceDiagram
               if online:  askStep(CARDHOLDER_VERIFICATION, "online PIN", USER_CANCEL)
               else:       goToStep(CARDHOLDER_VERIFICATION, "PIN"); askStep(OFFLINE_PIN_VERIFICATION, …)
                 → goToStep → emvSteps → onCardholderVerification
-                     → enterPin(request): CARDHOLDER_VERIFIED, provisionOnlinePinKey,
+                     → enterPin(request): CARDHOLDER_VERIFIED, then PaxPinEntry.enter: PIN key,
                        PaxPinPad + PinService.getEncryptedPinData (blocking)
                      → answerStep(CONTACT_OK | NO_PASSWORD | USER_CANCEL)
               ← the answer   (finally: tx.pinRequest = null)
@@ -808,7 +808,7 @@ sequenceDiagram
   else AAC
     B->>B: declined
   end
-  B->>B: finishContactStage → closeReaders → checkContactResult
+  B->>B: finishContactStage → PaxReaders.close → checkContactResult
   B->>B: finishWithOutcome → TRANSACTION_COMPLETION → reportOutcome
 ```
 
@@ -856,11 +856,11 @@ proceed  → advanceContactStage(NEXT)   = goToStep(NEXT); if it doesn't return 
 | ما قالته البطاقة في الـ 1st GAC | ما يحدث |
 |---|---|
 | `ret != EMV_OK` | يُعاد الكود ← رفض / خطأ |
-| استرداد (أي نتيجة)، أو TC "offline approved" | `needsHostWithoutArqc` ← الـ host دون ARQC ← `hostOutcome` ← **رد الـ host هو النتيجة** (دون 2nd GAC) |
+| TC "offline approved" (`RESULT_OFFLINE_APPROVED`) | الـ host دون ARQC ← `hostOutcome` ← **رد الـ host هو النتيجة** (دون 2nd GAC). أما الاسترداد فيطلب ARQC كالبيع (بطاقات production، 01/11) ويسير في الطريق العادي |
 | ARQC (`RESULT_REQ_ONLINE`) | `startOnlineProcess` ← `runIssuerAuthentication` ← **2nd GAC دائمًا** (EMV Book 3، AET-146)، حتى إن رفض الـ host أو فشل الاتصال |
 | AAC (ليس استردادًا) | رفض |
 
-`startOnlineProcess()` (الـ callback بعد الـ 1st GAC، وهو المكان الوحيد الذي ينشر هذه الخطوة للـ chip والـ contactless): `tx.lastAuth = null` ← `goToStep(START_ONLINE_PROCESS)` ← `onStartOnlineProcess` ← `tx.lastAuth = authorizeOnline()` (field 55 من `readIccTag`، وإن كان فارغًا فالنتيجة online failed دون إرسال؛ و `addOnlineRequestData` تضيف الـ PAN والـ PIN block والمفتاح المشفّر و `EmvTransactionResult`) ← `engine.authorize` ← `PosTerminal.authorize`. إن أُلغيت الخطوة بقي `lastAuth = null` ← "online step did not run — online failed". ثم `toOnlineResultWrapper`: null / failed ← FAILED؛ approved ← APPROVE (auth code، RC، ARPC، scripts)؛ وغير ذلك ← DENIAL.
+`startOnlineProcess()` (الـ callback بعد الـ 1st GAC، وهو المكان الوحيد الذي ينشر هذه الخطوة للـ chip والـ contactless): `tx.lastAuth = null` ← `goToStep(START_ONLINE_PROCESS)` ← `onStartOnlineProcess` ← `tx.lastAuth = authorizeOnline()` (field 55 من `readIccTag`، وإن كان فارغًا فالنتيجة online failed دون إرسال؛ و `addOnlineRequestData` تضيف الـ PAN والـ PIN block والمفتاح المشفّر و `EmvTransactionResult`) ← الـ `Authorizer` ← `PosTerminal.authorize`. إن أُلغيت الخطوة بقي `lastAuth = null` ← "online step did not run — online failed". ثم `PaxHostAnswer.toOnlineResult`: null / failed ← FAILED؛ approved ← APPROVE (auth code، RC، ARPC، scripts)؛ وغير ذلك ← DENIAL.
 
 **كيف يعود رد الـ host إلى الـ behavior (من أجل الـ 2nd GENERATE AC):** استدعاء يعيد ردًا، لا callback؛ وكل شيء على الـ transaction thread وبالترتيب، والـ kernel ينتظر في المنتصف:
 
@@ -868,12 +868,12 @@ proceed  → advanceContactStage(NEXT)   = goToStep(NEXT); if it doesn't return 
 PaxEmvBehavior.onStartOnlineProcess
    tx.lastAuth = authorizeOnline();
          │
-         └─ engine.authorize → PosTerminal.authorize → the host
+         └─ authorizer (PosTerminal.authorize) → the host
          │      (PosTerminal: ONLINE_* steps, names the request and records it for the ack / reversal, 90 s)
          │
    ◄──── the AuthResult comes straight back here (approved / declined / failed + ARPC + scripts + auth code)
    │
-toOnlineResultWrapper(auth)                  ← into PAX's shape
+PaxHostAnswer.toOnlineResult(auth)           ← into PAX's shape
    │   ARPC          → rsp.setAuthData
    │   scripts       → rsp.setScript
    │   response code → rsp.setRespCode
@@ -1007,7 +1007,7 @@ sequenceDiagram
     opt CVM = online PIN
       B->>B: onCardHolderPwd(true …) → askStep CARDHOLDER_VERIFICATION
     end
-    alt refund or offline approved (needsHostWithoutArqc)
+    alt offline approved (RESULT_OFFLINE_APPROVED)
       B->>H: host without an ARQC — the host's answer is the result
     else ARQC
       B->>H: startOnlineProcess → START_ONLINE_PROCESS → authorizeOnline
@@ -1022,7 +1022,7 @@ sequenceDiagram
       end
     end
   end
-  B->>B: finishContactlessStage → closeReaders → checkContactlessResult → outcome / retry
+  B->>B: finishContactlessStage → PaxReaders.close → checkContactlessResult → outcome / retry
 ```
 
 ```text
@@ -1033,7 +1033,7 @@ confirmCard()               ← we call the callback ourselves: SET_TRANSACTION_
                               9F1C = TID from the cache, CARD_READ
 CVM online PIN? → onCardHolderPwd(true, bypass, 0, null)
         NO_PASSWORD = bypass → online without a PIN; any other answer but OK → ERROR "Online PIN not entered"
-refund / offline approved → needsHostWithoutArqc → startOnlineProcess → hostOutcome (the host's answer is the result)
+RESULT_OFFLINE_APPROVED → startOnlineProcess → hostOutcome (the host's answer is the result)
 ARQC → startOnlineProcess()
         host not approved → the result = the host's answer (onlineDenied / onlineFailed announce ISSUER_AUTHENTICATION)
         approved → runIssuerAuthentication → completeContactlessIssuerAuthentication:
@@ -1127,7 +1127,7 @@ download zip → parse XML (EmvXmlParamParser / ClssXmlParamParser)
 
 ```text
 EmvEnhanceApp.onCreate → TerminalFactory.create → new PaxTerminal → PosTerminal ctor → initializeVendor
-  → ensureEmvConfigInitialized: pref "emv_config_initialized"? yes → skip
+  → PaxSetup.ensureEmvConfigInitialized: pref "emv_config_initialized"? yes → skip
        no → thread "ConfigInit": new ConfigInit().init(), then pref = true (once the seed is done)
          config.json → ConfigParamService
          acquirer.json / issuer.json / card_range.json → AcquirerIssuerService
@@ -1179,7 +1179,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
   initializeTerminalIfNeeded:
       EmvParamService.isLoaded()? yes → nothing
       no → kernel.params.getCachedEmvParam()   ← loadFromDatabase; the trace notes the time
-  closeReaders(true)              (defensive)
+  PaxReaders.close(true)              (defensive)
   kernel.contact = new ContactProcess()
   runPreTransProcess(config, INSERT|INTERNAL_WAVE):
       EmvTransParam: 9C from procCode, the amount, amount other = 0, TID (from the cache), currency, date/time,
@@ -1244,7 +1244,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 8. **خطوة عملية جديدة تقود العملية** (لا مجرد تقرير): أضف لها حالة في `dispatchTransactionStep` ودالة `onXxx` في الـ `Transaction` (§2.6).
 9. **وحدات الـ PAX SDK** (`emvbase`، `emvlib*`، `poslib`، `commonutils`): لا تُلمس إلا حين يحتاج الـ kernel نفسه، وبترتيب الاستدعاءات الـ native نفسه.
 10. **تغيير الـ schema:** الـ DAO يُعدَّل يدويًا (ordinal، DDL، bind، read) + uninstall على الجهاز.
-11. **الاختبار:** `:core` (102)، `:network` (20)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`)، `:vendor-pax` (8: `PaxCardDataTest`)، ثم الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
+11. **الاختبار:** `:core` (101)، `:network` (24)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`)، `:vendor-pax` (11: `PaxCardDataTest`، `PaxHostAnswerTest`)، ثم الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
 12. **أسماء الـ packages والمجلدات بأحرف صغيرة** (`emv` لا `EMV`). لا يفرّق Windows بينهما: إن بقي مجلد قديم باسم `EMV` على الجهاز، يضع الـ pull ملفات `emv` داخله ويعطي الـ build الخطأ `cannot find symbol` لكل class فيه (حدث في 28/10). الحل: أغلق Android Studio، احذف المجلد و `core\build`، ثم `git checkout -- core/src`، ثم Sync + Rebuild.
 
 ---
@@ -1274,7 +1274,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 | `model` | `ReverseRequest`, `AcknowledgementRequest`, `AcknowledgementResponse` (plain JSON, `orchestration/reverse` / `orchestration/acknowledgement`);  `GeneralRequest`/`GeneralResponse`/`DataModel` (the generic encrypted envelope, shared with `onboarding`) and `ExchangeRequest`/`ExchangeResponse`/`SaleRequest`/`SaleExtraData`/`SaleResponse` (the payloads that travel inside that envelope for `SaleCommunicationBehavior`) |
 | `tlv` | `BerTlv`, `IssuerResponseFields` — minimal BER-TLV reader plus the ARPC/issuer-script tag extraction `SaleCommunicationBehavior` uses |
 | `onboarding` | `OnboardingClient`, `OnboardingApiConnection`, `OnboardingState`, `ChallengeGenerator`, `OnboardingException` — the offline (pair terminal) and online (per-bank TMK provisioning) onboarding cycles; see `onboarding.model` for the six endpoints' request/response shapes |
-| `crypto` | `RsaPublicKeyEncryptor` — RSA-wraps a symmetric session key (online PIN key or transaction key) with the host's public key from onboarding, so the host can independently recover it; `AesEnvelopeCrypto` — AES-encrypts/decrypts the `encSerializedRequest`/`encSerializedResponse` body under that key. See `vendor-pax/.../PaxEmvBehavior#provisionOnlinePinKey` for the PIN-key use, `SaleCommunicationBehavior` for the transaction-key use |
+| `crypto` | `RsaPublicKeyEncryptor` — RSA-wraps a symmetric session key (online PIN key or transaction key) with the host's public key from onboarding, so the host can independently recover it; `AesEnvelopeCrypto` — AES-encrypts/decrypts the `encSerializedRequest`/`encSerializedResponse` body under that key. See `vendor-pax/.../PaxPinEntry` (online PIN key) for the PIN-key use, `SaleCommunicationBehavior` for the transaction-key use |
 
 `HostApiConnection.emvFileDownload` + `EmvParamDownloadClient` fetch the EMV/CLSS parameter
 package as raw bytes only — see `:bizentity` below for where those bytes get unzipped, parsed,

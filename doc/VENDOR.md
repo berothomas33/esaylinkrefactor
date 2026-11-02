@@ -21,7 +21,7 @@ app (src/main: every screen)  ──►  core (PosTerminal, AbstractEmvBehavior,
 | `com.emvenhance.vendor.TerminalFactory` | **By name.** `EmvEnhanceApp` calls `TerminalFactory.create(this)`. Same package and class name in every vendor — no interface | the flavor's build fails: `cannot find symbol TerminalFactory` |
 | `com.emvenhance.vendor.VendorApplication` | **By name.** `EmvEnhanceApp extends VendorApplication`. PAX: `extends BaseApplication` (the PAX SDK reads `BaseApplication.getAppContext()`); others: `extends Application` | the flavor's build fails: `cannot find symbol VendorApplication` |
 | a `PosTerminal` subclass (`PaxTerminal`) | **By inheritance.** `create()` returns a `PosTerminal`, which is abstract; the subclass picks its behavior, host and printer and overrides the setup it has (serial number, permissions, countries, EMV params) | can't instantiate `PosTerminal` |
-| an `AbstractEmvBehavior` subclass (`PaxEmvBehavior`) | **By inheritance.** `PosTerminal`'s constructor takes the behavior, gives it the EMV engine once (`attach`; the base's `engine` field is the only place it is kept, `PosTerminal` reaches it through `engine()`) and runs it once per transaction (`run`, handed the `Transaction`; the base loops over attempts): 17 step hooks (`onSearchCard` = the card search) + `cancelCardSearch` + `readIccTag` | the compiler asks for all 19 |
+| an `AbstractEmvBehavior` subclass (`PaxEmvBehavior`) | **By inheritance.** `PosTerminal`'s constructor takes the behavior, gives it the way to the host once (`attach(this::authorize)`; the behavior makes its own EMV engine, a final field, and `PosTerminal` reaches it through `engine()`) and runs it once per transaction (`run`, handed the `Transaction`; the base loops over attempts): 17 step hooks (`onSearchCard` = the card search) + `cancelCardSearch` + `readIccTag` | the compiler asks for all 19 |
 
 Not required as a class: the **printer**. `PosTerminal`'s constructor needs a `PrinterBehavior`
 object — `HostDefaults.logPrinter("Xyz")` is enough (Fake does that). A real printer is a class
@@ -84,7 +84,7 @@ and leaves the others empty with a comment (rule 11). Tools the base gives:
 | `askStep(step, detail, failClosed)` / `answerStep(value)` | a kernel callback that needs the cardholder (app choice, PIN): the step method answers; no answer → `failClosed` |
 | `authorizeOnline()` | send the sale to the host (builds field 55 from `readIccTag`) |
 | `finishApproved` / `finishDeclined` / `finishError` | end the transaction with its outcome (an APPROVED / DECLINED event of your own carries your audit data) |
-| `isSynchronousEntry(card)` | magstripe / manual (no chip session) |
+| `isNonEmv(card)` | magstripe / manual (no chip session) |
 | `isRunning()` / `isCancelled()` | a wait of your own that must give up once the transaction ended; a result that must not be reported after a cancel |
 
 Kernel callbacks (rule 12): thin, never `suspend` / Rx, and on every path — exceptions included —
