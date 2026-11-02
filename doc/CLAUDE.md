@@ -4,7 +4,8 @@ Project memory for Claude. Read it before touching code. When a fact here change
 file in the same commit. Never put credentials, tokens, keys, PANs, track data or serial
 numbers in it. Kotlin: `catchup-coroutine.md`. Full flow reference (architecture,
 EmvEngine/EmvStep/onXxx, contact, contactless, EMV params, UI → kernel callback):
-`doc/REFERENCE.md`. Everything missing / broken / risky, ranked: `doc/BACKLOG.md`.
+`doc/REFERENCE.md`; the same flows drawn: `doc/EasyLink-EMV-Flows.html` / `.pdf` (keep them in step with
+the artifact page). Everything missing / broken / risky, ranked: `doc/BACKLOG.md`.
 
 ---
 
