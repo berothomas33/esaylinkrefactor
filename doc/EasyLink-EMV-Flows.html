@@ -134,6 +134,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#dispatch">تشغيل خطوات الـ EMV: من goToStep إلى onXxx</a></li>
     <li><a href="#ask">حين ينتظر الـ kernel ردًا: askStep</a></li>
     <li><a href="#callback">الطريق إلى الـ host: authorize كـ callback</a></li>
+    <li><a href="#arqc-to-end">من الـ ARQC حتى نهاية العملية</a></li>
     <li><a href="#contact">مسار الـ contact كاملًا</a></li>
     <li><a href="#outcome">النتيجة، ونهاية العملية، والتأكيد أو الإلغاء عند الـ host</a></li>
     <li><a href="#contactless">مسار الـ contactless</a></li>
@@ -363,14 +364,14 @@ sequenceDiagram
   BH-->>TX: run returns
   Note over TX: finally of runTransaction: dispatch(decideEnd()) → onEnd — the safe end
   TX->>TX: decideEnd [lock]: end == null ? ERROR "ended without an outcome"<br/>onEnd [lock]: closeOnline(): ack / reverse per request (§7)
-  TX->>PT: ACKNOWLEDGING / REVERSING delivered → onAcknowledging / onReversing:<br/>the call, waited for (max 15 s)
+  TX->>PT: ACKNOWLEDGING / REVERSING delivered → onAcknowledging / onReversing:<br/>the call, waited for (max 15 s) → CLOSED (closedOk)
   TX->>PT: [lock] current.compareAndSet(t, null) — terminal free
   TX-->>UI: deliver(end): COMPLETED / ERROR / CANCELLED
 </pre></div>
   <ul class="facts">
     <li><b>الإلغاء</b> (<code>Transaction.cancel()</code> من الـ main thread): داخل الـ lock تُضبط <code>end = CANCELLED</code> وتُنشر <code>CANCELLING</code>، ودالتها (<code>onCancelling</code>) تستدعي <code>behavior.cancelCardSearch()</code> ← <code>PaxCardSearch.stop()</code> ← <code>stopPolling()</code>. يتوقف البحث، وأي بطاقة يُعثر عليها بعد ذلك تُتجاهل (لأن العملية انتهت)، ويتوقف الـ EMV عند أول <code>goToStep</code>. لا يُقاطَع الـ thread أبدًا. ⚠ إلغاء يصل قبل أول <code>polling()</code> بلحظة قد يتأخر حتى 30 ثانية (BACKLOG 1.17).</li>
     <li><b>إعادة المحاولة من مسؤولية الـ EMV</b> (fallback / try again / See Phone / try another interface): يطلبها الـ behavior من داخل الـ kernel عبر <code>requestRetry(...)</code> (في <code>AbstractEmvBehavior</code>، فكاتب حالة الإعادة وقارئها هو الـ EMV نفسه) ثم ينهي الـ kernel عمله ويعود. بعدها يأخذ <code>AbstractEmvBehavior.run</code> الطلب، فإن كانت العملية ما زالت قائمة (شرط بسيط) يبدأ محاولة جديدة من <code>SEARCH_CARD</code>. لا توجد خطوة خاصة بذلك في العملية (أُزيلت <code>NEXT_ATTEMPT</code>). العملية نفسها والـ trace نفسه ("RETRY #n")، وأول GENERATE AC بعدها يُسمّى 1st من جديد (<code>ApduTrace.beginAttempt()</code>).</li>
-    <li><b>النهاية الآمنة:</b> ترى الشاشة <code>APPROVED ← ACKNOWLEDGING ← COMPLETED</code>. محاولة بدء عملية جديدة خلال ذلك تُرفض لأن الجهاز مشغول. إذا لم يرد الـ host على الإلغاء، يُنتظر 15 ثانية ثم تنتهي العملية (دون سجل محفوظ لإعادة الإرسال: BACKLOG 0.15).</li>
+    <li><b>النهاية الآمنة:</b> ترى الشاشة <code>APPROVED → ACKNOWLEDGING → CLOSED → COMPLETED</code>. محاولة بدء عملية جديدة خلال ذلك تُرفض لأن الجهاز مشغول. إذا لم يرد الـ host على الإلغاء، يُنتظر 15 ثانية ثم تنتهي العملية (دون سجل محفوظ لإعادة الإرسال: BACKLOG 0.15).</li>
     <li><b>الخطوات لواجهة المستخدم:</b> يعيد <code>Transaction.steps()</code> كل الخطوات لأي مشترك جديد (عند تدوير الشاشة)، وكل مشترك محاط بـ <code>SafeObserver</code>.</li>
   </ul>
 </section>
@@ -544,6 +545,61 @@ sequenceDiagram
 </pre></div>
   <p><b>الفكرة في سطر:</b> الـ kernel <b>واقف</b> داخل الاستدعاء الـ native حتى يرجع (أ)، و(أ) واقف حتى يرجع (ب)، و(ب) واقف حتى يرد البنك أو تنتهي الـ 90 ثانية. كل ذلك على الـ transaction thread وبالترتيب، ولذلك يأخذ الـ 2nd GENERATE AC رد البنك في السطر نفسه. في الـ contactless نستدعي <code>startOnlineProcess()</code> نحن من داخل <code>startContactlessTransProcess</code>، وقد تكون البطاقة غادرت الحقل، فلا 2nd GENERATE AC (إلا في الـ tap الثاني لـ Visa).</p>
 
+  <h3 id="arqc-to-end">من الـ ARQC حتى نهاية العملية (صورة واحدة)</h3>
+  <p>المسار كله على الـ transaction thread، وكل سهم ينتظر الذي قبله. العمود الأخير هو ما تراه الشاشة من خطوات، بالترتيب.</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
+sequenceDiagram
+  autonumber
+  participant K as kernel + card
+  participant PB as PaxEmvBehavior
+  participant PT as PosTerminal.authorize
+  participant TX as Transaction
+  participant H as host
+  participant UI as screen (steps)
+  K->>K: 1st GENERATE AC → card: ARQC
+  K->>PB: (A) startOnlineProcess() — the kernel waits
+  PB->>PT: authorizeOnline() → (B) authorize(config)
+  PT-->>UI: ONLINE_REQUIRED · ONLINE_PROCESSING
+  PT->>TX: wentOnline(sent) — keeps the asyncRequestId
+  PT->>H: sale (max 90 s)
+  H-->>PT: approved / declined / failed / notSent
+  PT->>TX: request.answer = result
+  PT-->>UI: ONLINE_COMPLETED
+  PT-->>PB: AuthResult → toOnlineResult
+  PB-->>K: OnlineResultWrapper — (A) answered
+  K->>K: 2nd GENERATE AC → TC / AAC
+  K-->>PB: checkContactResult
+  PB->>TX: finishApproved / finishDeclined / finishError → emvFinished
+  alt APPROVED / DECLINED
+    TX->>TX: onOutcome [lock]: end = COMPLETED
+    TX-->>UI: APPROVED / DECLINED
+  else ERROR
+    TX->>TX: end(ERROR)
+  end
+  Note over PB,TX: behavior.run returns → finally: decideEnd → onEnd
+  TX->>TX: closeOnline [lock]: one decision per request
+  opt approved + COMPLETED → ack · failed / approved not completed → reversal
+    TX-->>UI: ACKNOWLEDGING / REVERSING
+    TX->>H: acknowledge / reverse (max 15 s, sent once)
+    H-->>TX: done / failed / no answer
+    TX-->>UI: CLOSED (closedOk true / false)
+  end
+  TX->>TX: [lock] current = null — terminal free
+  TX-->>UI: COMPLETED / ERROR / CANCELLED
+</pre></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>الحالة</th><th>ما تراه الشاشة بعد <code>ONLINE_COMPLETED</code></th></tr></thead>
+    <tbody>
+      <tr><td>الـ host وافق والبطاقة أعطت TC</td><td><code>APPROVED → ACKNOWLEDGING → CLOSED → COMPLETED</code></td></tr>
+      <tr><td>الـ host وافق والبطاقة رفضت (AAC)</td><td><code>DECLINED → REVERSING → CLOSED → COMPLETED</code></td></tr>
+      <tr><td>الـ host رفض</td><td><code>DECLINED → COMPLETED</code></td></tr>
+      <tr><td>لا رد / انتهاء المهلة (<code>failed</code>)</td><td><code>REVERSING → CLOSED → ERROR</code></td></tr>
+      <tr><td>لم يُرسل (<code>notSent</code>)</td><td><code>ERROR</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">⚠ الترتيب مأخوذ من الكود والاختبارات، ولم يُختبر على الجهاز. في فرع <code>transactionStepObserver</code> تظهر <code>ACKNOWLEDGING</code> / <code>REVERSING</code> بعد انتهاء نداء الـ host لا قبله (BACKLOG 10.4).</p>
+
   <h3>Mastercard Single Tap: البنك يطلب الـ PIN بعد الـ tap</h3>
   <p>بطاقة Mastercard contactless تُرسل دون PIN (تحت حد الـ CVM الخاص بها)، فيرد البنك بأنه يريد PIN. التطبيق القديم (<code>SaleActivity</code>) كان يعرف ذلك من <b>RC = 90</b> مع: لا PIN، و contactless، و Mastercard؛ فيفتح لوحة الـ PIN دون tap ثانٍ، ويعيد إرسال البيع ومعه الـ PIN block و <code>singleTap = "ST"</code>. التنفيذ عندنا قيد العمل (BACKLOG 4.11):</p>
   <div class="diagram"><pre class="mermaid">
@@ -647,7 +703,7 @@ sequenceDiagram
     </tbody>
   </table></div>
   <ul class="facts">
-    <li>تصل النتيجة إلى واجهة المستخدم على مراحل: أولًا <code>APPROVED</code>/<code>DECLINED</code> (وفيها PAN، TVR، TAC، IAC، field 55) فور تحديدها؛ ثم <code>ACKNOWLEDGING</code> / <code>REVERSING</code> إن وُجد طلب للـ host (النهاية الآمنة)؛ ثم <code>COMPLETED</code>، وهي الـ <code>end</code> وتُنشر في <code>onEnd</code> (الـ <code>finally</code> في <code>runTransaction</code>) بعد أن يصبح الجهاز متاحًا.</li>
+    <li>تصل النتيجة إلى واجهة المستخدم على مراحل: أولًا <code>APPROVED</code>/<code>DECLINED</code> (وفيها PAN، TVR، TAC، IAC، field 55) فور تحديدها؛ ثم <code>ACKNOWLEDGING</code> / <code>REVERSING</code> إن وُجد طلب للـ host (النهاية الآمنة)، وبعد كل منهما <code>CLOSED</code> بنتيجته (<code>closedOk</code>)؛ ثم <code>COMPLETED</code>، وهي الـ <code>end</code> وتُنشر في <code>onEnd</code> (الـ <code>finally</code> في <code>runTransaction</code>) بعد أن يصبح الجهاز متاحًا.</li>
     <li><code>OFFLINE_APPROVED</code> تُعامل كـ online failed (الجهاز online-only)، و <code>FALLBACK</code> تعني إعادة المحاولة بالشريط المغناطيسي.</li>
   </ul>
   <p class="note"><b>⚠ مخاطر مفتوحة:</b> الإلغاء أثناء انتظار رد الـ host ينهي العملية بـ CANCELLED حتى لو وافق الـ host وأعطت البطاقة TC، وفي هذه الحالة يُرسل إلغاء (reversal) لذلك الطلب. يُرسل الإلغاء مرة واحدة: إذا فشل يُسجَّل في الـ log والـ trace فقط، دون سجل محفوظ لإعادة الإرسال (BACKLOG 0.15).</p>
@@ -671,7 +727,7 @@ flowchart TD
   D -- "failed / no answer" --> REV
   D -- "notSent" --> NO1["nothing — trace: no reversal + why"]
   D -- "declined" --> NO2["nothing"]
-  ACK & REV --> FU["the safe end, before current = null and deliver(end):<br/>ACKNOWLEDGING / REVERSING · on the transaction thread · waited for · max 15 s"]
+  ACK & REV --> FU["the safe end, before current = null and deliver(end):<br/>ACKNOWLEDGING / REVERSING · on the transaction thread · waited for · max 15 s<br/>→ CLOSED (closedOk true / false)"]
 </pre></div>
   <div class="table-wrap"><table>
     <thead><tr><th>مكان الفشل (<code>SaleCommunicationBehavior</code>)</th><th>النتيجة</th><th>إلغاء؟</th></tr></thead>
