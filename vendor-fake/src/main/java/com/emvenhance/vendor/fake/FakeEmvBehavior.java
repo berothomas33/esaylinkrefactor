@@ -22,6 +22,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
         lastAuth = null;
+        searchCard();
     }
 
     @Override

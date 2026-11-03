@@ -55,9 +55,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
         resetRetry();
         for (TransactionConfig attempt = config; attempt != null; attempt = nextAttempt()) {
-            if (prepare(attempt, transaction)) {
-                searchCard();
-            }
+            prepare(attempt, transaction);
         }
     }
 
@@ -67,16 +65,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         retryCount = 0;
     }
 
-    boolean prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
+    void prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
         this.transaction = transaction;
         initEmvObserver();
         this.activeConfig = config;
         this.activeCard = null;
         goToStep(EmvStep.TERMINAL_INITIALIZATION);
-        return isRunning();
     }
 
-    private void searchCard() {
+    protected final void searchCard() {
         String prompt = retryPrompt;
         String message = prompt != null ? prompt : waitingMessage(activeConfig);
         cardSearch = new CardSearchReporter(transaction, prompt, message);

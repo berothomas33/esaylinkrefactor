@@ -86,7 +86,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         EmvDeviceImpl.getInstance().setApduTrace(engine().apduTrace());
         if (!prepareKernel(config)) {
             finishError("Terminal initialization failed");
+            return;
         }
+        searchCard();
     }
 
     @Override

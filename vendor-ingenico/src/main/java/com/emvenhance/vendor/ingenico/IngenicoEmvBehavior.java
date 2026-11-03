@@ -30,6 +30,7 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     public void onTerminalInitialization(TransactionConfig config) {
         lastAuth = null;
         Log.w(TAG, "Ingenico EMV SDK not attached — stub init");
+        searchCard();
     }
 
     @Override
