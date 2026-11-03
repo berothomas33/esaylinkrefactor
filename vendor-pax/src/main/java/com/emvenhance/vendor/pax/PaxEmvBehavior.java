@@ -993,9 +993,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (config.allowsContactless()) {
             requested |= SearchMode.INTERNAL_WAVE;
         }
-        if (requested == 0) {
-            return false;
-        }
         try {
             kernel.contact = new ContactProcess();
             long setUpStart = SystemClock.elapsedRealtime();
@@ -1038,9 +1035,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private byte runPreTransProcess(@NonNull TransactionConfig config, byte searchCardMode) {
-        if (!SearchMode.isSupportIcc(searchCardMode) && !SearchMode.isWave(searchCardMode)) {
-            return 0;
-        }
         DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
         byte[] proc = ConvertHelper.getConvert().strToBcdPaddingRight(config.getProcCode());
         EmvProcessParam cachedEmvParam = kernel.params.getCachedEmvParam();
