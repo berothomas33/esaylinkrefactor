@@ -210,10 +210,6 @@ public abstract class PosTerminal {
 
             @Override
             public void onNext(TransactionStepEvent event) {
-                TransactionStep step = event.getStep();
-                if (isOutcome(step) || step.isEnd()) {
-                    return;
-                }
                 dispatchTransactionStep(event);
             }
 
@@ -291,7 +287,7 @@ public abstract class PosTerminal {
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
             if (isOutcome(step)) {
-                dispatchTransactionStep(outcome);
+                outcome(outcome);
             } else if (step == TransactionStep.ERROR) {
                 end(outcome);
             } else {
@@ -332,6 +328,9 @@ public abstract class PosTerminal {
                 case CANCELLING:
                     onCancelling();
                     break;
+                case ENDING:
+                    onEnding();
+                    break;
                 case ACKNOWLEDGING:
                     onAcknowledging(event);
                     break;
@@ -340,15 +339,6 @@ public abstract class PosTerminal {
                     break;
                 case CLOSING_COMPLETED:
                     onClosingCompleted(event);
-                    break;
-                case APPROVED:
-                case DECLINED:
-                    onOutcome(event);
-                    break;
-                case COMPLETED:
-                case ERROR:
-                case CANCELLED:
-                    onEnd();
                     break;
                 default:
                     break;
@@ -370,11 +360,16 @@ public abstract class PosTerminal {
                 t.printStackTrace();
                 end(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
-                dispatchTransactionStep(decideEnd());
+                synchronized (steps) {
+                    if (end == null) {
+                        end = errorEvent("Transaction ended without an outcome");
+                    }
+                    deliver(TransactionStepEvent.of(TransactionStep.ENDING));
+                }
             }
         }
 
-        private void onOutcome(TransactionStepEvent outcome) {
+        private void outcome(TransactionStepEvent outcome) {
             synchronized (steps) {
                 if (end != null) {
                     EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
@@ -393,16 +388,7 @@ public abstract class PosTerminal {
             behavior.cancelCardSearch();
         }
 
-        private TransactionStepEvent decideEnd() {
-            synchronized (steps) {
-                if (end == null) {
-                    end = errorEvent("Transaction ended without an outcome");
-                }
-                return end;
-            }
-        }
-
-        private void onEnd() {
+        private void onEnding() {
             closeNext(0);
         }
 

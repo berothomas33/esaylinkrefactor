@@ -30,6 +30,8 @@ public enum TransactionStep {
 
     DECLINED("Declined"),
 
+    ENDING("Ending the transaction"),
+
     ACKNOWLEDGING("Acknowledging the sale with the host"),
 
     REVERSING("Reversing the request at the host"),
