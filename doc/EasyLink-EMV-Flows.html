@@ -135,6 +135,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#ask">حين ينتظر الـ kernel ردًا: askStep</a></li>
     <li><a href="#callback">الطريق إلى الـ host: authorize كـ callback</a></li>
     <li><a href="#arqc-to-end">من الـ ARQC حتى نهاية العملية</a></li>
+    <li><a href="#closing-chain">الـ closings سلسلة steps (فرع transactionStepObserver)</a></li>
     <li><a href="#contact">مسار الـ contact كاملًا</a></li>
     <li><a href="#outcome">النتيجة، ونهاية العملية، والتأكيد أو الإلغاء عند الـ host</a></li>
     <li><a href="#contactless">مسار الـ contactless</a></li>
@@ -332,7 +333,7 @@ flowchart LR
     default:                  // a report (ONLINE_*, CARD_READ…)
 }</pre>
   <p>الخطوة العادية تُسلَّم ثم تُشغَّل دالتها. واستثناءان تسلّمهما دالتهما بنفسها: النتيجة (مع النهاية في مسكة واحدة للـ lock، فلا يقع إلغاء بينهما) والنهاية (بعد أن يصبح الجهاز متاحًا). أما <code>ONLINE_*</code> فتقارير، لأن <code>authorize</code> تعيد رد الـ host مباشرة إلى الـ kernel من أجل الـ 2nd GENERATE AC.</p>
-  <p><b>نسخة الـ Rx</b> (الفرع <code>transactionStepObserver</code>، الفرق الوحيد عن هذا الكود): الـ switch نفسه يستدعيه <code>TransactionStepObserver</code> مشترك في الـ <code>steps</code>، كما يفعل <code>EmvStepObserver</code> في الـ EMV. يبقى الـ lock، وتقرأ <code>publish</code> / <code>end</code> / <code>cancel</code> قيمة <code>end</code> قبل دخوله، فلا ينتظر الإلغاء الـ ack. الثمن المقبول: ترى الشاشة <code>ACKNOWLEDGING</code> / <code>REVERSING</code> بعد انتهاء نداء الـ host لا قبله (BACKLOG 10.4).</p>
+  <p><b>نسخة الـ Rx</b> (الفرع <code>transactionStepObserver</code>، الفرق الوحيد عن هذا الكود): الـ switch نفسه يستدعيه <code>TransactionStepObserver</code> مشترك في الـ <code>steps</code>، كما يفعل <code>EmvStepObserver</code> في الـ EMV. يبقى الـ lock، وتقرأ <code>publish</code> / <code>end</code> / <code>cancel</code> قيمة <code>end</code> قبل دخوله، فلا ينتظر الإلغاء الـ ack. الثمن المقبول: ترى الشاشة <code>ACKNOWLEDGING</code> / <code>REVERSING</code> بعد انتهاء نداء الـ host لا قبله (BACKLOG 10.4). وفي هذا الفرع وحده تجري الـ closings سلسلةَ steps بلا loop في <code>onEnd</code> (§7، <code>c2ec7f2</code>).</p>
   <p><b>الـ EMV كله داخل <code>behavior.run</code></b>: البحث عن البطاقة (<code>SEARCH_CARD</code>) وإعادة المحاولة، كما يفعل الـ Entry Point في EMV Book B. ونهاية العملية <b>آمنة</b>: يُرسَل التأكيد أو الإلغاء إلى الـ host ويُنتظر رده قبل أن يصبح الجهاز متاحًا لعملية جديدة. (تعديلات 28/10، لم تُختبر على الجهاز بعد.)</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
@@ -729,6 +730,27 @@ flowchart TD
   D -- "declined" --> NO2["nothing"]
   ACK & REV --> FU["the safe end, before current = null and deliver(end):<br/>ACKNOWLEDGING / REVERSING · on the transaction thread · waited for · max 15 s<br/>→ CLOSED (closedOk true / false)"]
 </pre></div>
+  <h3 id="closing-chain">فرع <code>transactionStepObserver</code>: الـ closings سلسلة steps</h3>
+  <p>في هذا الكود تبني <code>onEnd</code> قائمة الـ closings كلها وترسلها في loop، ثم تحرّر الجهاز وترسل النهاية. في فرع <code>transactionStepObserver</code> (<code>c2ec7f2</code>) لا يوجد loop: خطوة النهاية تبدأ السلسلة فقط، وكل <code>CLOSED</code> يحرّك ما بعده، حتى تصل إلى النهاية.</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
+flowchart TD
+  E["end step: COMPLETED / ERROR / CANCELLED<br/>runTransaction finally → dispatchTransactionStep(decideEnd())"] --> ON["onEnd() → closeNext(0)"]
+  ON --> N{"closeNext(from) [lock]<br/>nextClosing(from): the first request from 'from'<br/>that needs an ack or a reversal"}
+  N -- "found" --> D["deliver ACKNOWLEDGING / REVERSING (KEY_REQUEST_ID)"]
+  D --> O["TransactionStepObserver → onAcknowledging / onReversing<br/>closeAtHost: the host call, max 15 s"]
+  O --> C["deliver CLOSED (closedOk, KEY_REQUEST_ID)"]
+  C --> OC["TransactionStepObserver → onClosed<br/>the index of that request + 1"]
+  OC --> N
+  N -- "none left" --> F["current = null — terminal free<br/>deliver(end)"]
+</pre></div>
+  <ul class="facts">
+    <li><code>closeOnline()</code> التي كانت ترجع قائمة أصبحت <code>nextClosing(from)</code>: ترجع أول طلب يحتاج closing أو <code>null</code>. القرار لكل طلب (ack أو reversal أو لا شيء) وملاحظات الـ trace كما هي.</li>
+    <li>الـ switch فيه <code>case CLOSED: onClosed(event)</code>. والـ lock في الأماكن نفسها: اختيار الـ closing التالي وإرساله، ثم تحرير الجهاز وإرسال النهاية.</li>
+    <li>لا تداخل: الـ <code>ReplaySubject</code> يوصل لكل مشترك بترتيب الـ buffer، ويؤجّل الخطوة للـ observer حتى ينتهي من السابقة. فترى الشاشة مع طلبين: <code>APPROVED → REVERSING → CLOSED → ACKNOWLEDGING → CLOSED → COMPLETED</code>.</li>
+    <li>السلوك كما هو: الخطوات نفسها، والـ 15 ثانية نفسها، والجهاز مشغول حتى النهاية.</li>
+    <li>⚠ حد معروف: إذا فشل نداء الـ host أو رمى <code>RuntimeException</code> يُرسل <code>CLOSED</code> وتكمل السلسلة. أما <code>Error</code> (ليس Exception) فيوقف السلسلة ويبقى الجهاز مشغولًا، وكان الـ loop القديم سيتوقف عنده أيضًا. لم يُختبر على الجهاز.</li>
+  </ul>
   <div class="table-wrap"><table>
     <thead><tr><th>مكان الفشل (<code>SaleCommunicationBehavior</code>)</th><th>النتيجة</th><th>إلغاء؟</th></tr></thead>
     <tbody>

@@ -186,7 +186,8 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 classes split out, authorize without the engine, closeAtHost, publish / end, isNonEmv, the
 refund-AAC case removed — no Java comments) **+ its tests and these docs**. Twins, same code:
 `paxEmvBehaviorSplit` (code only, direct dispatch) and `transactionStepObserver` (code only,
-the transaction steps dispatched by an Rx observer — the one difference). `dcc-clean` = the
+the transaction steps dispatched by an Rx observer; since `c2ec7f2` (03/11) also the closings
+as a chain of steps — onEnd → closeNext, each CLOSED → onClosed → the next or the end, no loop). `dcc-clean` = the
 ONLINE_REQUIRED hook for DCC (29/10). None of them device-tested.
 
 
