@@ -3,9 +3,13 @@ package com.emvenhance.core.emv;
 import androidx.annotation.Nullable;
 import java.io.ByteArrayOutputStream;
 import java.util.Locale;
-import java.util.function.IntFunction;
 
 public final class Field55 {
+
+    public interface TagReader {
+        @Nullable
+        byte[] read(int tag);
+    }
 
     private static final class Tag {
         final int tag;
@@ -63,24 +67,23 @@ public final class Field55 {
         this.missing = missing;
     }
 
-    public static Field55 read(IntFunction<byte[]> reader) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
+    public static Field55 read(TagReader reader) {
+        ByteArrayOutputStream tlv = new ByteArrayOutputStream();
         StringBuilder present = new StringBuilder();
         StringBuilder missing = new StringBuilder();
         for (Tag t : TAGS) {
-            byte[] value = reader.apply(t.tag);
-            String tagHex = Integer.toHexString(t.tag).toUpperCase(Locale.US);
+            byte[] value = reader.read(t.tag);
             if (value == null || value.length == 0) {
-                missing.append(missing.length() == 0 ? "" : " ").append(tagHex);
-                continue;
+                missing.append(' ').append(tagHex(t.tag));
+            } else {
+                writeTlv(tlv, t.tag, value);
+                present.append('\n').append(tagHex(t.tag)).append(' ').append(t.name)
+                        .append(" = ").append(toHex(value));
             }
-            writeTlv(out, t.tag, value);
-            present.append('\n').append(tagHex).append(' ').append(t.name)
-                    .append(" = ").append(toHex(value));
         }
-        byte[] field55 = out.toByteArray();
-        return new Field55(toHex(field55), field55.length, present.toString(),
-                missing.length() == 0 ? "none" : missing.toString());
+        byte[] bytes = tlv.toByteArray();
+        String missingTags = missing.length() == 0 ? "none" : missing.substring(1);
+        return new Field55(toHex(bytes), bytes.length, present.toString(), missingTags);
     }
 
     public String hex() {
@@ -125,6 +128,10 @@ public final class Field55 {
             out.write((length >> 8) & 0xFF);
             out.write(length & 0xFF);
         }
+    }
+
+    private static String tagHex(int tag) {
+        return Integer.toHexString(tag).toUpperCase(Locale.US);
     }
 
     private static String toHex(byte[] bytes) {
