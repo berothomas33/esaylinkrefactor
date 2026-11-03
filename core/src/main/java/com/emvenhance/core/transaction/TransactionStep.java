@@ -34,7 +34,7 @@ public enum TransactionStep {
 
     REVERSING("Reversing the request at the host"),
 
-    CONNECTION_FINISHED("Connection to the host finished"),
+    CLOSING_COMPLETED("Acknowledgement / reversal completed"),
 
     COMPLETED("Transaction completed"),
 

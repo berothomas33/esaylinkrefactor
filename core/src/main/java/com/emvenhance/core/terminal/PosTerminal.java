@@ -338,8 +338,8 @@ public abstract class PosTerminal {
                 case REVERSING:
                     onReversing(event);
                     break;
-                case CONNECTION_FINISHED:
-                    onConnectionFinished(event);
+                case CLOSING_COMPLETED:
+                    onClosingCompleted(event);
                     break;
                 case APPROVED:
                 case DECLINED:
@@ -406,8 +406,8 @@ public abstract class PosTerminal {
             closeNext(0);
         }
 
-        private void onConnectionFinished(TransactionStepEvent finished) {
-            String id = finished.get(TransactionStepEvent.KEY_REQUEST_ID);
+        private void onClosingCompleted(TransactionStepEvent completed) {
+            String id = completed.get(TransactionStepEvent.KEY_REQUEST_ID);
             int next = online.size();
             for (int i = 0; i < online.size(); i++) {
                 if (online.get(i).sent.getAsyncRequestId().equals(id)) {
@@ -443,7 +443,7 @@ public abstract class PosTerminal {
             String what = step.getMessage();
             TransactionConfig sent = sentRequest(step);
             if (sent == null) {
-                connectionFinished(step, false, what + " not sent: no such request");
+                closingCompleted(step, false, what + " not sent: no such request");
                 return;
             }
             try {
@@ -451,20 +451,20 @@ public abstract class PosTerminal {
                         .blockingAwait();
                 EmvLog.d(what + " sent");
                 apduTrace().note("HOST", what + " sent");
-                connectionFinished(step, true, what + " sent");
+                closingCompleted(step, true, what + " sent");
             } catch (RuntimeException e) {
                 String failed = what + " failed — not retried: "
                         + (e.getCause() instanceof TimeoutException
                                 ? "the host didn't answer in time" : e.getMessage());
                 EmvLog.d(what + " failed: " + e);
                 apduTrace().note("HOST", failed);
-                connectionFinished(step, false, failed);
+                closingCompleted(step, false, failed);
             }
         }
 
-        private void connectionFinished(TransactionStepEvent step, boolean ok, String message) {
+        private void closingCompleted(TransactionStepEvent step, boolean ok, String message) {
             synchronized (steps) {
-                deliver(TransactionStepEvent.builder(TransactionStep.CONNECTION_FINISHED)
+                deliver(TransactionStepEvent.builder(TransactionStep.CLOSING_COMPLETED)
                         .message(message)
                         .put(TransactionStepEvent.KEY_REQUEST_ID,
                                 step.getString(TransactionStepEvent.KEY_REQUEST_ID))
