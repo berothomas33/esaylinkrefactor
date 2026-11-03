@@ -72,7 +72,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         initEmvObserver();
         this.activeConfig = config;
         this.activeCard = null;
-        enterStep(EmvStep.TERMINAL_INITIALIZATION);
+        goToStep(EmvStep.TERMINAL_INITIALIZATION);
         return isRunning();
     }
 
@@ -125,7 +125,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         disposables.clear();
     }
 
-    protected final void initEmvObserver() {
+    private void initEmvObserver() {
         disposables.clear();
         disposables.add(engine.emvSteps().subscribeWith(new EmvStepObserver()));
     }
@@ -317,10 +317,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected abstract void onTransactionCompletion(TransactionConfig config, CardPresence card);
 
     protected abstract byte[] readIccTag(int tag);
-
-    private void enterStep(EmvStep step) {
-        enterStep(step, null);
-    }
 
     private boolean enterStep(EmvStep step, @Nullable String detail) {
         if (!isRunning()) {
