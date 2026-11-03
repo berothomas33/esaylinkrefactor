@@ -338,6 +338,9 @@ public abstract class PosTerminal {
                 case REVERSING:
                     onReversing(event);
                     break;
+                case CLOSED:
+                    onClosed(event);
+                    break;
                 case APPROVED:
                 case DECLINED:
                     onOutcome(event);
@@ -400,16 +403,28 @@ public abstract class PosTerminal {
         }
 
         private void onEnd() {
-            List<TransactionStepEvent> closings;
-            synchronized (steps) {
-                closings = closeOnline();
-            }
-            for (TransactionStepEvent closing : closings) {
-                synchronized (steps) {
-                    deliver(closing);
+            closeNext(0);
+        }
+
+        private void onClosed(TransactionStepEvent closed) {
+            String id = closed.get(TransactionStepEvent.KEY_REQUEST_ID);
+            int next = online.size();
+            for (int i = 0; i < online.size(); i++) {
+                if (online.get(i).sent.getAsyncRequestId().equals(id)) {
+                    next = i + 1;
+                    break;
                 }
             }
+            closeNext(next);
+        }
+
+        private void closeNext(int from) {
             synchronized (steps) {
+                TransactionStepEvent closing = nextClosing(from);
+                if (closing != null) {
+                    deliver(closing);
+                    return;
+                }
                 current.compareAndSet(this, null);
                 deliver(end);
             }
@@ -484,19 +499,18 @@ public abstract class PosTerminal {
             return request;
         }
 
-        private List<TransactionStepEvent> closeOnline() {
-            List<TransactionStepEvent> closings = new ArrayList<>();
+        @Nullable
+        private TransactionStepEvent nextClosing(int from) {
             boolean completedApproved = end.getStep() == TransactionStep.COMPLETED
                     && delivered(TransactionStep.APPROVED);
-            for (int i = 0; i < online.size(); i++) {
+            for (int i = from; i < online.size(); i++) {
                 OnlineRequest request = online.get(i);
                 AuthResult answer = request.answer;
                 boolean last = i == online.size() - 1;
                 String id = request.sent.getAsyncRequestId();
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    closings.add(
-                            closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id));
+                    return closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id);
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
                             + ": the host could not have approved it — " + answer.getMessage());
@@ -506,10 +520,10 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    closings.add(closeAtHostStep(TransactionStep.REVERSING, "Reversal", id));
+                    return closeAtHostStep(TransactionStep.REVERSING, "Reversal", id);
                 }
             }
-            return closings;
+            return null;
         }
     }
 
