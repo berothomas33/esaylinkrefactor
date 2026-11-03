@@ -5,6 +5,7 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import com.emvenhance.core.emv.Field55;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.emv.EmvTransactionResult;
 import com.emvenhance.core.card.EntryMethod;
@@ -1206,7 +1207,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public byte[] readIccTag(int tag) {
+    protected Field55 field55() {
+        return Field55.read(this::readIccTag);
+    }
+
+    private byte[] readIccTag(int tag) {
         byte[] value = readKernelTlv(tag);
         if (tag == TagsTable.AMOUNT_OTHER && (value == null || value.length == 0)) {
             return amountOtherBcd();
@@ -1459,7 +1464,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         tx.lastTacDenial = readKernelTlvHex(TagsTable.TAC_DENIAL);
         tx.lastIacDenial = readKernelTlvHex(TagsTable.IAC_DENIAL);
         tx.lastIccData = activeConfig != null && activeConfig.getIccData() != null
-                ? activeConfig.getIccData() : buildField55();
+                ? activeConfig.getIccData() : field55().hex();
     }
 
     @Nullable

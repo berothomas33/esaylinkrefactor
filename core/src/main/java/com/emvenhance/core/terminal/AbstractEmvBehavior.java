@@ -241,25 +241,18 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         TransactionConfig config = activeConfig;
         if (activeCard != null && !isNonEmv(activeCard)) {
-            String iccData = buildField55();
-            if (iccData.isEmpty()) {
+            Field55 field55 = field55();
+            String summary = field55.describe(activeCard.isContactless() ? "contactless" : "contact");
+            EmvLog.d(summary);
+            engine.apduTrace().note("EMV", summary);
+            if (field55.isEmpty()) {
                 return AuthResult.failed("Online failed: no chip data (field 55) to send");
             }
-            config = config.withIccData(iccData);
+            config = config.withIccData(field55.hex());
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
         return authorizer.authorize(config);
-    }
-
-    protected final String buildField55() {
-        Field55 field55 = Field55.read(this::readIccTag);
-        String source = activeCard == null ? null
-                : activeCard.isContactless() ? "contactless" : "contact";
-        String summary = field55.describe(source);
-        EmvLog.d(summary);
-        engine.apduTrace().note("EMV", summary);
-        return field55.hex();
     }
 
     protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
@@ -313,7 +306,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected abstract void onTransactionCompletion(TransactionConfig config, CardPresence card);
 
-    protected abstract byte[] readIccTag(int tag);
+    protected abstract Field55 field55();
 
     private boolean enterStep(EmvStep step, @Nullable String detail) {
         if (!isRunning()) {

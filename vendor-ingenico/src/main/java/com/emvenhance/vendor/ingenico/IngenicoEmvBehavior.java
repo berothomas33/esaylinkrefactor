@@ -2,6 +2,7 @@ package com.emvenhance.vendor.ingenico;
 
 import android.util.Log;
 import androidx.annotation.Nullable;
+import com.emvenhance.core.emv.Field55;
 import com.emvenhance.core.card.CardPresence;
 import com.emvenhance.core.card.CardSearchListener;
 import com.emvenhance.core.transaction.TransactionConfig;
@@ -175,7 +176,11 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public byte[] readIccTag(int tag) {
+    protected Field55 field55() {
+        return Field55.read(this::readIccTag);
+    }
+
+    private byte[] readIccTag(int tag) {
         switch (tag) {
             case 0x9F26:
                 return new byte[] {(byte) 0xF4, 0x3D, 0x16, 0x6E, (byte) 0xC3, 0x61, (byte) 0xA9, (byte) 0xB2};
