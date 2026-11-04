@@ -13,6 +13,7 @@ import com.emvenhance.core.host.CommunicationBehavior;
 import com.emvenhance.network.crypto.AesEnvelopeCrypto;
 import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
 import com.emvenhance.network.model.AcknowledgementRequest;
+import com.emvenhance.network.model.AcknowledgementResponse;
 import com.emvenhance.network.model.ExchangeRequest;
 import com.emvenhance.network.model.ExchangeResponse;
 import com.emvenhance.network.model.GeneralRequest;
@@ -178,34 +179,49 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     @Override
     public Completable acknowledge(TransactionConfig sent) {
-        return closeOnline(sent, "Acknowledgement", (headers, id, type) -> connection
-                .acknowledgement(headers, new AcknowledgementRequest(id, type))
-                .flatMapCompletable(response ->
-                        checkStatus("Acknowledgement", response.getStatusCode(), response.getMessage())));
+        return Completable.fromAction(() -> {
+            Map<String, String> headers = closingHeaders(sent, "Acknowledgement");
+            if (headers == null) {
+                return;
+            }
+            AcknowledgementResponse response = await(connection.acknowledgement(headers,
+                    new AcknowledgementRequest(sent.getAsyncRequestId(), hostTransactionType(sent))));
+            checkStatus("Acknowledgement", response.getStatusCode(), response.getMessage());
+        });
     }
 
     @Override
     public Completable reverse(TransactionConfig sent) {
-        return closeOnline(sent, "Reversal", (headers, id, type) -> connection
-                .reverse(headers, new ReverseRequest(id, type))
-                .flatMapCompletable(response ->
-                        checkStatus("Reversal", response.getStatusCode(), response.getMessage())));
+        return Completable.fromAction(() -> {
+            Map<String, String> headers = closingHeaders(sent, "Reversal");
+            if (headers == null) {
+                return;
+            }
+            GeneralResponse response = await(connection.reverse(headers,
+                    new ReverseRequest(sent.getAsyncRequestId(), hostTransactionType(sent))));
+            checkStatus("Reversal", response.getStatusCode(), response.getMessage());
+        });
     }
 
-    interface CloseCall {
-        Completable send(Map<String, String> headers, String asyncRequestId, String transactionType);
-    }
-
-    private Completable closeOnline(TransactionConfig sent, String what, CloseCall call) {
-        String asyncRequestId = sent.getAsyncRequestId();
-        if (asyncRequestId == null || whyNotSent(sent) != null) {
+    @Nullable
+    private Map<String, String> closingHeaders(TransactionConfig sent, String what) {
+        if (sent.getAsyncRequestId() == null || whyNotSent(sent) != null) {
             Log.i(TAG, what + " not sent: the request never went to the host");
-            return Completable.complete();
+            return null;
         }
-        return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
-                .flatMapCompletable(accessToken -> call.send(
-                        withMToken(HostHeaders.buildAuthenticated(sn, accessToken)),
-                        asyncRequestId, hostTransactionType(sent)));
+        String accessToken = await(
+                onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState));
+        return withMToken(HostHeaders.buildAuthenticated(sn, accessToken));
+    }
+
+    private static <T> T await(Single<T> call) {
+        try {
+            return call.blockingGet();
+        } catch (RuntimeException e) {
+            Throwable cause = unwrapped(e);
+            throw cause instanceof RuntimeException
+                    ? (RuntimeException) cause : new SaleException(cause.getMessage(), cause);
+        }
     }
 
     private static boolean isRefund(TransactionConfig config) {
@@ -222,12 +238,11 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         return withToken;
     }
 
-    static Completable checkStatus(String what, int statusCode, @Nullable String message) {
-        if (statusCode == SUCCESS_STATUS_CODE) {
-            return Completable.complete();
+    static void checkStatus(String what, int statusCode, @Nullable String message) {
+        if (statusCode != SUCCESS_STATUS_CODE) {
+            throw new SaleException(what + " failed (" + statusCode + "): "
+                    + (message != null ? message : "no message"));
         }
-        return Completable.error(new SaleException(what + " failed (" + statusCode + "): "
-                + (message != null ? message : "no message")));
     }
 
     private ExchangeResponse exchange(Map<String, String> headers, TransactionConfig config,
