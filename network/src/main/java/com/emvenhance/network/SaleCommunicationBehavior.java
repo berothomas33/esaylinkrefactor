@@ -80,7 +80,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
-        return Single.defer(() -> send(config)).onErrorReturn(SaleCommunicationBehavior::answerOf);
+        return send(config).onErrorReturn(SaleCommunicationBehavior::answerOf);
     }
 
     static AuthResult answerOf(Throwable e) {
