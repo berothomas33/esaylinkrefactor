@@ -146,7 +146,6 @@ no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.
 | 4.4 | M | `AbstractEmvBehavior:221`, `PaxEmvBehavior:2096`, `SaleCommunicationBehavior:164-168` | **Swipe and manual can never go online** (no `EmvTransactionResult` → `SaleException`) | partly |
 | 4.5 | M | `core/.../AuthResult` (no ref field), `SaleCommunicationBehavior:405,497-506` | Sale's `referenceNumber` / TID / MID dropped → receipt can't show what a refund needs; refund `transactionId` always null | partly |
 | 4.6 | M | `TransactionType:13-17,182`, `AmountFragment:25-27` | CASH_IN live with placeholder procCode `010000` (= ISO withdrawal); host refuses only after full EMV; no withdraw/void/balance/settlement | yes |
-| 4.7 | M, unverified | `OnboardingState:6-11,182-213` | `java.time` with minSdk 24, no desugaring → `NoClassDefFoundError` on API 24/25 (not caught) | no |
 | 4.8 | M | `OnboardingActivity:112-121`, `HostHeaders:76-89` | Every secret header shown on screen | no |
 | 4.9 | L | `AesEnvelopeCrypto:37`, `HostApiClient:39-43`, `DataModel`, `Hex.decode` | AES-CBC no MAC, no cert pinning, asyncRequestId not matched, createToken signature unchecked, lax hex | no |
 | 4.10 | L | `OnboardingState:113-162`, `HostSettings:52` | Secrets in plain SharedPreferences; sales gated only on "key + token present" | no |
