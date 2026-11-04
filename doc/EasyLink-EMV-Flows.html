@@ -336,7 +336,7 @@ flowchart LR
     default:                  // a report (ONLINE_*, CARD_READ…)
 }</pre>
   <p>الخطوة العادية تُسلَّم ثم تُشغَّل دالتها. واستثناءان تسلّمهما دالتهما بنفسها: النتيجة (مع النهاية في مسكة واحدة للـ lock، فلا يقع إلغاء بينهما) والنهاية (بعد أن يصبح الجهاز متاحًا). أما <code>ONLINE_*</code> فتقارير، لأن <code>authorize</code> تعيد رد الـ host مباشرة إلى الـ kernel من أجل الـ 2nd GENERATE AC.</p>
-  <p><b>نسخة الـ Rx</b> (الفرع <code>transactionStepObserver</code>، الفرق الوحيد عن هذا الكود): الـ switch نفسه يستدعيه <code>TransactionStepObserver</code> مشترك في الـ <code>steps</code>، كما يفعل <code>EmvStepObserver</code> في الـ EMV. يبقى الـ lock، وتقرأ <code>publish</code> / <code>end</code> / <code>cancel</code> قيمة <code>end</code> قبل دخوله، فلا ينتظر الإلغاء الـ ack. الثمن المقبول: ترى الشاشة <code>ACKNOWLEDGING</code> / <code>REVERSING</code> بعد انتهاء نداء الـ host لا قبله (BACKLOG 10.4). وفي هذا الفرع وحده تجري الـ closings سلسلةَ steps بلا loop في <code>onEnd</code> (§7، <code>c2ec7f2</code>).</p>
+  <p><b>نسخة الـ Rx</b> (الفرع <code>transactionStepObserver</code>، الفرق الوحيد عن هذا الكود): الـ switch نفسه يستدعيه <code>TransactionStepObserver</code> مشترك في الـ <code>steps</code>، كما يفعل <code>EmvStepObserver</code> في الـ EMV. يبقى الـ lock، وتقرأ <code>publish</code> / <code>end</code> / <code>cancel</code> قيمة <code>end</code> قبل دخوله، فلا ينتظر الإلغاء الـ ack. الثمن المقبول: ترى الشاشة <code>ACKNOWLEDGING</code> / <code>REVERSING</code> بعد انتهاء نداء الـ host لا قبله (BACKLOG 10.4). ولم يعد الـ dispatch هو الفرق الوحيد: في هذا الفرع أيضًا <code>ENDING</code> وسلسلة الإغلاق (§7)، والأسماء الجديدة للطريق إلى البنك (§5)، والـ network بخطوات متتالية ومهلة 25 ثانية لكل نداء؛ القائمة كاملة في <code>doc/REFERENCE.md</code> §10.</p>
   <p><b>الـ EMV كله داخل <code>behavior.run</code></b>: البحث عن البطاقة (<code>SEARCH_CARD</code>) وإعادة المحاولة، كما يفعل الـ Entry Point في EMV Book B. ونهاية العملية <b>آمنة</b>: يُرسَل التأكيد أو الإلغاء إلى الـ host ويُنتظر رده قبل أن يصبح الجهاز متاحًا لعملية جديدة. (تعديلات 28/10، لم تُختبر على الجهاز بعد.)</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
@@ -632,6 +632,22 @@ classDiagram
     </tbody>
   </table></div>
   <p class="note">كل ذلك متزامن على الـ transaction thread: الـ kernel ينتظر داخل callback (أ)، و <code>authorizeOnline</code> تنتظر <code>PosTerminal.authorize</code>، حتى يرجع <code>AuthResult</code>.</p>
+  <p><b>الأسماء الجديدة في فرع <code>transactionStepObserver</code></b> (<code>484ed9d</code>، <code>f80691f</code>): كانت كلمة <code>authorize</code> ثلاثة أشياء، يستدعي كلٌّ منها الآخر. صار لكل طبقة اسم يصف ما يحدث فيها. السلوك نفسه.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>الطبقة</th><th>هنا (هذا الكود)</th><th>في <code>transactionStepObserver</code></th></tr></thead>
+    <tbody>
+      <tr><td>الـ EMV يطلب البنك</td><td><code>authorizeOnline()</code></td><td><code>askTheBank()</code></td></tr>
+      <tr><td>الـ interface و "الرقم"</td><td><code>Authorizer.authorize</code>، الـ field <code>authorizer</code></td><td><code>BankRequest.send</code>، الـ field <code>bank</code></td></tr>
+      <tr><td><code>PosTerminal</code></td><td><code>authorize(config)</code>، <code>attach(this::authorize)</code></td><td><code>sendToBank(config)</code>، <code>attach(this::sendToBank)</code></td></tr>
+      <tr><td>الـ network</td><td><code>CommunicationBehavior.authorize</code></td><td><code>connectToHost</code></td></tr>
+    </tbody>
+  </table></div>
+<pre class="codebox"><span class="c">// transactionStepObserver</span>
+<span class="c">// EMV asks the bank → POS sends to the bank → network connects</span>
+behavior.attach(this::sendToBank);           <span class="c">// PosTerminal</span>
+return bank.send(config);                    <span class="c">// askTheBank</span>
+communication.connectToHost(sent) ...;       <span class="c">// sendToBank</span>
+tx.lastAuth = askTheBank();                  <span class="c">// PAX</span></pre>
 
   <h3 id="why-attach">لماذا <code>attach</code>، لا constructor ولا Dagger</h3>
   <p><b>المشكلة دائرة.</b> <code>PosTerminal</code> يحتاج الـ behavior في الـ constructor الخاص به، والـ behavior يحتاج <code>PosTerminal::authorize</code>، وهذه لا توجد إلا بعد أن يُنشأ <code>PosTerminal</code>. أيهما يُنشأ أولًا لا يجد الآخر.</p>
@@ -838,26 +854,26 @@ flowchart TD
   D -- "declined" --> NO2["nothing"]
   ACK & REV --> FU["the safe end, before current = null and deliver(end):<br/>ACKNOWLEDGING / REVERSING · on the transaction thread · waited for · max 15 s<br/>→ CLOSED (closedOk true / false)"]
 </pre></div>
-  <h3 id="closing-chain">فرع <code>transactionStepObserver</code>: الـ closings سلسلة steps</h3>
-  <p>في هذا الكود تبني <code>onEnd</code> قائمة الـ closings كلها وترسلها في loop، ثم تحرّر الجهاز وترسل النهاية. في فرع <code>transactionStepObserver</code> (<code>c2ec7f2</code>) لا يوجد loop: خطوة النهاية تبدأ السلسلة فقط، وكل <code>CLOSED</code> يحرّك ما بعده، حتى تصل إلى النهاية.</p>
+  <h3 id="closing-chain">فرع <code>transactionStepObserver</code>: النهاية والـ closings سلسلة steps</h3>
+  <p>في هذا الكود تبني <code>onEnd</code> قائمة الـ closings كلها وترسلها في loop، ثم تحرّر الجهاز وترسل النهاية. في فرع <code>transactionStepObserver</code> لا يوجد loop (<code>c2ec7f2</code>، <code>d5cbe8f</code>، <code>6899b84</code>): الـ <code>finally</code> يسلّم <code>ENDING</code>، ودالتها تبدأ السلسلة، وكل <code>CLOSING_COMPLETED</code> يحرّك ما بعده، حتى النهاية. وكل الخطوات يدخلها الـ observer وحده.</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
 flowchart TD
-  E["end step: COMPLETED / ERROR / CANCELLED<br/>runTransaction finally → dispatchTransactionStep(decideEnd())"] --> ON["onEnd() → closeNext(0)"]
+  E["runTransaction finally [lock]: the end decided<br/>deliver ENDING"] --> ON["TransactionStepObserver → onEnding() → closeNext(0)"]
   ON --> N{"closeNext(from) [lock]<br/>nextClosing(from): the first request from 'from'<br/>that needs an ack or a reversal"}
   N -- "found" --> D["deliver ACKNOWLEDGING / REVERSING (KEY_REQUEST_ID)"]
-  D --> O["TransactionStepObserver → onAcknowledging / onReversing<br/>closeAtHost: the host call, max 15 s"]
-  O --> C["deliver CLOSED (closedOk, KEY_REQUEST_ID)"]
-  C --> OC["TransactionStepObserver → onClosed<br/>the index of that request + 1"]
+  D --> O["TransactionStepObserver → onAcknowledging / onReversing<br/>closeAtHost: the host call (25 s per call, net 60 s)"]
+  O --> C["deliver CLOSING_COMPLETED (closedOk, KEY_REQUEST_ID)"]
+  C --> OC["TransactionStepObserver → onClosingCompleted<br/>the index of that request + 1"]
   OC --> N
   N -- "none left" --> F["current = null — terminal free<br/>deliver(end)"]
 </pre></div>
   <ul class="facts">
     <li><code>closeOnline()</code> التي كانت ترجع قائمة أصبحت <code>nextClosing(from)</code>: ترجع أول طلب يحتاج closing أو <code>null</code>. القرار لكل طلب (ack أو reversal أو لا شيء) وملاحظات الـ trace كما هي.</li>
-    <li>الـ switch فيه <code>case CLOSED: onClosed(event)</code>. والـ lock في الأماكن نفسها: اختيار الـ closing التالي وإرساله، ثم تحرير الجهاز وإرسال النهاية.</li>
-    <li>لا تداخل: الـ <code>ReplaySubject</code> يوصل لكل مشترك بترتيب الـ buffer، ويؤجّل الخطوة للـ observer حتى ينتهي من السابقة. فترى الشاشة مع طلبين: <code>APPROVED → REVERSING → CLOSED → ACKNOWLEDGING → CLOSED → COMPLETED</code>.</li>
-    <li>السلوك كما هو: الخطوات نفسها، والـ 15 ثانية نفسها، والجهاز مشغول حتى النهاية.</li>
-    <li>⚠ حد معروف: إذا فشل نداء الـ host أو رمى <code>RuntimeException</code> يُرسل <code>CLOSED</code> وتكمل السلسلة. أما <code>Error</code> (ليس Exception) فيوقف السلسلة ويبقى الجهاز مشغولًا، وكان الـ loop القديم سيتوقف عنده أيضًا. لم يُختبر على الجهاز.</li>
+    <li>الـ switch فيه <code>case ENDING: onEnding()</code> و <code>case CLOSING_COMPLETED: onClosingCompleted(event)</code>، ولا <code>onEnd</code> ولا <code>decideEnd</code>. النتيجة (APPROVED / DECLINED) والنهاية (COMPLETED / ERROR / CANCELLED) تقارير. والـ lock في الأماكن نفسها: اختيار الـ closing التالي وإرساله، ثم تحرير الجهاز وإرسال النهاية.</li>
+    <li>لا تداخل: الـ <code>ReplaySubject</code> يوصل لكل مشترك بترتيب الـ buffer، ويؤجّل الخطوة للـ observer حتى ينتهي من السابقة. فترى الشاشة مع طلبين: <code>APPROVED → ENDING → REVERSING → CLOSING_COMPLETED → ACKNOWLEDGING → CLOSING_COMPLETED → COMPLETED</code>.</li>
+    <li>الجهاز مشغول حتى النهاية كما كان. المهلة: حد كل نداء في OkHttp (25 ثانية)، و <code>closeAtHost</code> 60 ثانية كشبكة أمان (<code>1a97dee</code>).</li>
+    <li>⚠ حد معروف: إذا فشل نداء الـ host أو رمى <code>RuntimeException</code> يُرسل <code>CLOSING_COMPLETED</code> وتكمل السلسلة. أما <code>Error</code> (ليس Exception) فيوقف السلسلة ويبقى الجهاز مشغولًا، وكان الـ loop القديم سيتوقف عنده أيضًا. لم يُختبر على الجهاز.</li>
   </ul>
   <div class="table-wrap"><table>
     <thead><tr><th>مكان الفشل (<code>SaleCommunicationBehavior</code>)</th><th>النتيجة</th><th>إلغاء؟</th></tr></thead>
