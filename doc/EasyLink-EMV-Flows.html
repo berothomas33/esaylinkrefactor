@@ -135,12 +135,14 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#ask">حين ينتظر الـ kernel ردًا: askStep</a></li>
     <li><a href="#callback">الطريق إلى الـ host: authorize كـ callback</a></li>
     <li><a href="#authorize-oop">authorize من الداخل ومفاهيم OOP</a></li>
+    <li><a href="#why-attach">لماذا attach، لا Dagger</a></li>
     <li><a href="#arqc-to-end">من الـ ARQC حتى نهاية العملية</a></li>
     <li><a href="#closing-chain">الـ closings سلسلة steps (فرع transactionStepObserver)</a></li>
     <li><a href="#contact">مسار الـ contact كاملًا</a></li>
     <li><a href="#outcome">النتيجة، ونهاية العملية، والتأكيد أو الإلغاء عند الـ host</a></li>
     <li><a href="#contactless">مسار الـ contactless</a></li>
     <li><a href="#params">الـ EMV params</a></li>
+    <li><a href="#principles">مبادئ وأنماط البرمجة</a></li>
   </ol>
 </nav>
 
@@ -631,6 +633,27 @@ classDiagram
   </table></div>
   <p class="note">كل ذلك متزامن على الـ transaction thread: الـ kernel ينتظر داخل callback (أ)، و <code>authorizeOnline</code> تنتظر <code>PosTerminal.authorize</code>، حتى يرجع <code>AuthResult</code>.</p>
 
+  <h3 id="why-attach">لماذا <code>attach</code>، لا constructor ولا Dagger</h3>
+  <p><b>المشكلة دائرة.</b> <code>PosTerminal</code> يحتاج الـ behavior في الـ constructor الخاص به، والـ behavior يحتاج <code>PosTerminal::authorize</code>، وهذه لا توجد إلا بعد أن يُنشأ <code>PosTerminal</code>. أيهما يُنشأ أولًا لا يجد الآخر.</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 45}}}%%
+flowchart LR
+  F["TerminalFactory (the vendor's flavor)"] --> B["① new PaxEmvBehavior(...)<br/>no authorizer yet"]
+  B --> T["② new PaxTerminal(behavior, communication, printer)<br/>→ PosTerminal constructor"]
+  T --> A["③ behavior.attach(this::authorize)<br/>the cycle closes, once"]
+  A --> R["ready: authorizeOnline() → authorizer.authorize(...)"]
+</pre></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>الحل</th><th>ماذا يحدث</th><th>القرار</th></tr></thead>
+    <tbody>
+      <tr><td>constructor للـ behavior يأخذ <code>Authorizer</code></td><td>عند إنشاء الـ behavior لا يوجد <code>PosTerminal</code> بعد، فلا يوجد <code>this::authorize</code> نمرّره</td><td>غير ممكن</td></tr>
+      <tr><td><code>PosTerminal</code> هو الذي يُنشئ الـ behavior</td><td>الـ core يصبح مضطرًا لمعرفة كلاسات الـ vendor (<code>PaxEmvBehavior</code>)، وهذا يكسر فصل الـ vendor</td><td>مرفوض</td></tr>
+      <tr><td>Dagger / Hilt</td><td>يواجه الدائرة نفسها، وحلّه <code>Lazy&lt;&gt;</code> أو <code>Provider&lt;&gt;</code> أو الحقن بعد الإنشاء: أي <code>attach</code> نفسها خلف annotations، مع Modules و Components وكود مولّد ووقت build أطول، لـ graph صغير</td><td>لا يبسّط شيئًا هنا</td></tr>
+      <tr><td><b><code>attach</code></b> مرة واحدة في constructor الـ <code>PosTerminal</code></td><td>"حقن بعد الإنشاء" (setter injection) واحد: الـ field <code>private</code>، و <code>attach</code> <code>final</code>، ويحدث قبل أي عملية</td><td><b>المختار</b></td></tr>
+    </tbody>
+  </table></div>
+  <p><b>نحن نستخدم Dependency Injection فعلًا، بلا framework</b> (manual constructor injection): <code>TerminalFactory</code> في كل flavor يختار الـ vendor، و <code>PaxTerminal</code> يمرّر الأجزاء الثلاثة إلى <code>PosTerminal</code>: <code>super(new PaxEmvBehavior(kernel, pinEntry()), communication, printer)</code>. لا يُنشئ أي كلاس ما يحتاجه بنفسه، بل يأخذه من الخارج. Dagger / Hilt يصبح مفيدًا حين يكبر الـ graph (شاشات و ViewModels كثيرة تشترك في الـ services)، لكنه لن يلغي <code>attach</code>.</p>
+
   <h3 id="arqc-to-end">من الـ ARQC حتى نهاية العملية (صورة واحدة)</h3>
   <p>المسار كله على الـ transaction thread، وكل سهم ينتظر الذي قبله. العمود الأخير هو ما تراه الشاشة من خطوات، بالترتيب.</p>
   <div class="diagram"><pre class="mermaid">
@@ -1110,6 +1133,47 @@ sequenceDiagram
     <li>أعاد <code>5755adb</code> الدوال الـ 12 <code>setXxxParam</code> الناقصة في <code>loadFromDatabase</code>، وهو إصلاح الـ crash في <code>preTransProcess</code>، ويحميه <code>EmvParamServiceCacheTest</code>.</li>
   </ul>
 </section>
+
+<section id="principles">
+  <h2>10. مبادئ وأنماط البرمجة في المشروع (ببساطة)</h2>
+  <p>كل مبدأ في سطر: معناه ببساطة، وأين يظهر في الكود. لا شيء هنا للزينة؛ كل واحد يحل مشكلة حقيقية في الدفع.</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 35, "rankSpacing": 45}}}%%
+flowchart TD
+  UI["UI (screens, ViewModel)<br/>observes the steps, asks: start / cancel"]
+  PT["PosTerminal — the facade: the only API the UI uses<br/>the transaction, its thread, busy, cancel, the safe end"]
+  EB["EmvBehavior (the card)<br/>AbstractEmvBehavior → PaxEmvBehavior"]
+  CB["CommunicationBehavior (the bank)<br/>SaleCommunicationBehavior"]
+  PB["PrinterBehavior (the printer)<br/>PaxPrinter"]
+  SDK["the vendor's SDK and kernels<br/>ContactProcess, ClssProcess, native"]
+  UI --> PT
+  PT --> EB
+  PT --> CB
+  PT --> PB
+  EB --> SDK
+</pre></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>المبدأ / النمط</th><th>ببساطة</th><th>أين في الكود</th></tr></thead>
+    <tbody>
+      <tr><td><b>Layers + Facade</b></td><td>طبقات، كل طبقة تكلم التي تحتها فقط. والـ UI يرى بابًا واحدًا يخفي ما خلفه</td><td><code>PosTerminal</code> هو الباب الوحيد للـ UI (<code>startTransaction</code> / <code>acceptCard</code> / <code>steps()</code> / <code>cancel()</code>). ليس طبقة تمرير فارغة: يملك العملية فعلًا (القاعدة 5 تمنع الطبقات التي تمرّر فقط)</td></tr>
+      <tr><td><b>Strategy / Polymorphism</b></td><td>واجهة واحدة وأكثر من تنفيذ، يُختار واحد منها</td><td><code>EmvBehavior</code> (PAX / Ingenico / Fake)، <code>CommunicationBehavior</code>، <code>PrinterBehavior</code></td></tr>
+      <tr><td><b>Open / Closed</b></td><td>نضيف بدل أن نعدّل</td><td>vendor جديد = flavor جديد بـ <code>TerminalFactory</code> وكلاساته، والـ core لا يتغيّر</td></tr>
+      <tr><td><b>Template Method</b></td><td>الكلاس الأب يحدد الترتيب، والابن يملأ الخطوات</td><td><code>AbstractEmvBehavior</code>: <code>run</code> و <code>goToStep</code> والـ dispatch، و 17 <code>onXxx</code> يملؤها الـ vendor؛ <code>authorizeOnline()</code> <code>final</code></td></tr>
+      <tr><td><b>Observer</b></td><td>من يهمه الأمر يشترك، ويصله كل جديد</td><td><code>Transaction.steps()</code> (<code>ReplaySubject</code>) والشاشة مشتركة؛ <code>EmvEngine.emvSteps</code> و <code>EmvStepObserver</code>؛ <code>TransactionStepObserver</code></td></tr>
+      <tr><td><b>Callback</b></td><td>تعطي جهة "رقمًا تتصل بك عليه"</td><td><code>Authorizer</code> (§5)، <code>CardSearchListener</code>، <code>IContactCallback</code> و <code>askStep</code> (§4)</td></tr>
+      <tr><td><b>Adapter</b></td><td>محوّل بين شكلين لا يعرف أحدهما الآخر</td><td><code>PaxHostAnswer</code> (<code>AuthResult</code> → شكل PAX)؛ <code>ContactProcess.EmvCallBackListener</code> (native → listener)؛ <code>PaxEmvBehavior</code> بصفته <code>IContactCallback</code></td></tr>
+      <tr><td><b>Factory / Builder</b></td><td>مكان واحد يقرر كيف يُنشأ الشيء</td><td><code>TerminalFactory</code> (لكل flavor)، <code>ClssKernelProcessFactory</code> (kernel لكل scheme)، <code>AuthResult.approved / declined / failed / notSent</code>، <code>TransactionStepEvent.builder(...)</code></td></tr>
+      <tr><td><b>Dependency Injection</b> (يدوي)</td><td>الكلاس يأخذ ما يحتاجه من الخارج ولا يُنشئه</td><td><code>PaxTerminal</code> → <code>super(behavior, communication, printer)</code>؛ و <code>attach(this::authorize)</code> للدائرة الوحيدة</td></tr>
+      <tr><td><b>Dependency Inversion</b> (الـ D في SOLID)</td><td>الطبقة العليا تعتمد على واجهة، لا على كلاس محدد</td><td><code>AbstractEmvBehavior</code> يعرف <code>Authorizer</code>، لا <code>PosTerminal</code>؛ الـ core يعرف <code>CommunicationBehavior</code>، لا Retrofit</td></tr>
+      <tr><td><b>Single Responsibility</b></td><td>كل كلاس له شغلة واحدة</td><td><code>PaxCardSearch</code> (البحث)، <code>PaxPinEntry</code> (الـ PIN)، <code>PaxHostAnswer</code>، <code>PaxReaders</code>، <code>PaxCardData</code>، <code>PaxSetup</code>، <code>PaxKernelSession</code></td></tr>
+      <tr><td><b>Single source of truth</b></td><td>كل حالة لها مالك واحد ونسخة واحدة</td><td>الجهاز مشغول = <code>PosTerminal.current</code>؛ حالة العملية كلها = <code>Transaction.end</code>؛ خطواتها = <code>Transaction.steps</code></td></tr>
+      <tr><td><b>Immutability / Value Object</b></td><td>الشيء لا يتغيّر بعد إنشائه؛ التعديل يعطي نسخة جديدة</td><td><code>AuthResult</code>، <code>TransactionStepEvent</code>، <code>TransactionConfig.withXxx(...)</code> يرجع config جديدًا</td></tr>
+      <tr><td><b>Fail closed</b></td><td>عند الشك نرفض، لا نوافق</td><td>لا رد = online failed؛ لا PIN = <code>USER_CANCEL</code>؛ الـ callback يرد دائمًا (<code>setCallBackResult</code>)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+
 </main>
 </div>
 
