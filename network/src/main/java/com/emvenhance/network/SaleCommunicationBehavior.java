@@ -129,9 +129,15 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         String asyncRequestId = config.getAsyncRequestId() != null
                 ? config.getAsyncRequestId() : UUID.randomUUID().toString();
 
-        exchange(headers, config, emvResult, tek, tekEncrypted, asyncRequestId);
-        SaleResponse response = saleOrRefund(headers, config, emvResult, tek, asyncRequestId);
-        return toAuthResult(response);
+        GeneralRequest exchangeRequest =
+                prepareExchangeRequest(config, emvResult, tek, tekEncrypted, asyncRequestId);
+        try {
+            GeneralResponse exchangeResponse = connection.exchange(headers, exchangeRequest).blockingGet();
+            decrypted(exchangeResponse, tek, "Exchange", ExchangeResponse.class);
+        } catch (RuntimeException e) {
+            return answerOf(exchangeError(unwrapped(e)));
+        }
+        return callSale(headers, config, emvResult, tek, asyncRequestId);
     }
 
     private String refreshedAccessToken() {
@@ -245,43 +251,41 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         }
     }
 
-    private ExchangeResponse exchange(Map<String, String> headers, TransactionConfig config,
+    private GeneralRequest prepareExchangeRequest(TransactionConfig config,
             EmvTransactionResult emvResult, byte[] tek, String tekEncrypted, String asyncRequestId) {
         String transactionType = hostTransactionType(config);
         ExchangeRequest exchangeRequest = new ExchangeRequest(
                 asyncRequestId, emvResult.getPan(), cvmCode(config, emvResult), transactionType);
         String encSerializedRequest = encrypted(tek, "EXCHANGE_REQUEST", exchangeRequest, "exchange");
-        GeneralRequest request = GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
+        return GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
                 tekEncrypted, pinKeyToSend(config), transactionType);
-        try {
-            GeneralResponse response = connection.exchange(headers, request).blockingGet();
-            return decrypted(response, tek, "Exchange", ExchangeResponse.class);
-        } catch (RuntimeException e) {
-            throw exchangeError(unwrapped(e));
-        }
     }
 
-    private SaleResponse saleOrRefund(Map<String, String> headers, TransactionConfig config,
+    private AuthResult callSale(Map<String, String> headers, TransactionConfig config,
             EmvTransactionResult emvResult, byte[] tek, String asyncRequestId) {
         boolean refund = isRefund(config);
         String step = refund ? "Refund" : "Sale";
-        Object body = refund ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult);
+        GeneralRequest saleRequest = prepareSaleRequest(config, emvResult, tek, asyncRequestId, step);
+        Map<String, String> withToken = withMToken(headers);
+        GeneralResponse saleResponse;
+        try {
+            saleResponse = refund
+                    ? connection.refund(withToken, saleRequest).blockingGet()
+                    : connection.sale(withToken, saleRequest).blockingGet();
+        } catch (RuntimeException e) {
+            return answerOf(classify(step, unwrapped(e)));
+        }
+        return toAuthResult(decrypted(saleResponse, tek, step, SaleResponse.class));
+    }
+
+    private GeneralRequest prepareSaleRequest(TransactionConfig config, EmvTransactionResult emvResult,
+            byte[] tek, String asyncRequestId, String step) {
+        Object body = isRefund(config)
+                ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult);
         String encSerializedRequest = encrypted(tek, step.toUpperCase(Locale.US) + "_REQUEST", body,
                 step.toLowerCase(Locale.US));
         logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
-        GeneralRequest request = GeneralRequest.forSale(
-                encSerializedRequest, asyncRequestId, pinBlockToSend(config));
-        Map<String, String> withToken = withMToken(headers);
-
-        GeneralResponse response;
-        try {
-            response = refund
-                    ? connection.refund(withToken, request).blockingGet()
-                    : connection.sale(withToken, request).blockingGet();
-        } catch (RuntimeException e) {
-            throw classify(step, unwrapped(e));
-        }
-        return decrypted(response, tek, step, SaleResponse.class);
+        return GeneralRequest.forSale(encSerializedRequest, asyncRequestId, pinBlockToSend(config));
     }
 
     private String encrypted(byte[] tek, String logLabel, Object body, String what) {
