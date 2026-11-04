@@ -1,6 +1,7 @@
 # EasyLink / EmvEnhance — مرجع المشروع
 
-> كُتب من الكود على `transactionOwnsSteps-oct27` (2026-10-29). كل اسم دالة هنا موجود فعلًا في الكود.
+> كُتب من الكود على `transactionOwnsSteps-oct27` (2026-10-29)، وحُدِّث على `paxEmvBehaviorSplit-tests` (2026-11-04). كل اسم دالة هنا موجود فعلًا في الكود.
+> **فرع `transactionStepObserver`** يختلف عن هذا الكود في عدة أشياء (§10).
 > **هذا هو المرجع الخاص بالكود بعد 27/10.** كود ما قبل 27/10 (`30cd5aa`) على الفرع `transactionOwnsSteps` وله مرجعه الخاص.
 > آخر تجربة على الجهاز عند `19cc019`: الـ chip و tap again (البند #11)، وكلاهما نجح. باقي بنود نموذج الاختبار لم تُجرَّب على هذا الفرع بعد.
 > ما أُضيف بعد `19cc019` (لم يُجرَّب على الجهاز): التأكيد / الإلغاء عند الـ host (§2.7)؛ ترقيم الـ GENERATE AC من جديد مع كل إعادة محاولة (§2.5)؛ الـ EMV يبلّغ بنتيجته والـ `Transaction` هي التي تُنهي العملية (§3.5، `28d79cb`)؛ مكتبات PAX داخل الـ vendor في `vendor-pax/libs` (§1.1)؛ تقسيم packages الـ core حسب المالك (§1.2)؛ العملية تسير بخطواتها الخاصة (§2.3)؛ وفي 28/10: البحث عن البطاقة وإعادة المحاولة داخل الـ EMV (`9a911d1`)، وتشغيل خطوات العملية بشكل متزامن (`8843cb1`)، والنهاية الآمنة (`9278c35`)، وتسجيل الـ listener الخاص بالـ kernel مرة واحدة (`ca1b16a`)؛ وفي 29/10: كل خطوة تقود العملية لها دالتها في `dispatchTransactionStep`، ومنها النتيجة والنهاية والتأكيد / الإلغاء (`7403d1e`، `be471e4`، §2.6)، وحالة إعادة المحاولة في `AbstractEmvBehavior` (`962eac7`)، و `PaxKernelSession` (`3962bc1`) و `PaxCardData` (`b6df905`)، وتصنيف فشل الـ host في `failureOf` (`73de5b6`).
@@ -20,6 +21,7 @@
 7. [الـ EMV params](#7-الـ-emv-params)
 8. [الـ Threads](#8-الـ-threads)
 9. [عند التعديل](#9-عند-التعديل)
+10. [فرع transactionStepObserver: ما الذي يختلف](#10-فرع-transactionstepobserver-ما-الذي-يختلف)
 
 ---
 
@@ -401,7 +403,7 @@ sequenceDiagram
 
 ### 2.6 خطوات العملية (TransactionSteps) ومن ينشرها
 
-`IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD (مرة أخرى مع كل إعادة) → CARD_DETECTED → APPLICATION_SELECTED → CARD_READ → CARDHOLDER_VERIFIED → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → (ACKNOWLEDGING|REVERSING) → COMPLETED`، أو `ERROR` في أي لحظة، أو `CANCELLING` ثم `CANCELLED`.
+`IDLE → TRANSACTION_STARTED → WAITING_FOR_CARD (مرة أخرى مع كل إعادة) → CARD_DETECTED → APPLICATION_SELECTED → CARD_READ → CARDHOLDER_VERIFIED → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → (ACKNOWLEDGING|REVERSING → CLOSED)… → COMPLETED`، أو `ERROR` في أي لحظة، أو `CANCELLING` ثم `CANCELLED`.
 
 الخطوات التي تشغّل دالة (`dispatchTransactionStep`، بشكل متزامن على الـ thread الذي نشرها، كما تفعل خطوات الـ EMV):
 
@@ -433,6 +435,7 @@ switch (event.getStep()) {
 | ONLINE_REQUIRED / PROCESSING / COMPLETED | `PosTerminal.authorize`، حول استدعاء الـ host |
 | APPROVED / DECLINED + COMPLETED | `Transaction.emvFinished` ← `publish` ← `onOutcome`، حين يبلّغ الـ EMV عبر `reportOutcome` ← `finishApproved/Declined(event)` (PAN/TVR/TAC/IAC/field 55)، أو `finishApproved/Declined(String)` (mag/manual) |
 | ACKNOWLEDGING / REVERSING | `Transaction.onEnd` (من قائمة `closeOnline`)، بعد تحديد النهاية وقبل أن يصبح الجهاز متاحًا؛ كل خطوة تحمل `KEY_REQUEST_ID` (§2.7) |
+| CLOSED | `Transaction.closeAtHost` ← `closed(...)` بعد كل تأكيد / إلغاء: `KEY_CLOSED_OK` (نجح أم لا) و `KEY_REQUEST_ID`. تقرير فقط، بلا دالة |
 | ERROR | الـ EMV: `finishError` ← `Transaction.emvFinished`؛ البحث: `CardSearchReporter` (انتهاء المهلة، القارئ، الإلغاء)؛ الجهاز: `PosTerminal.errorEvent` (استثناء في `runTransaction`) |
 | CANCELLING / CANCELLED | `Transaction.cancel()` |
 
@@ -447,7 +450,7 @@ flowchart TD
   A["PosTerminal.authorize(config)"] --> N["sent = config.withAsyncRequestId(UUID)<br/>transaction.wentOnline(sent)"]
   N --> C["communication.authorize(sent).timeout(90 s)"]
   C -- "AuthResult" --> R["request.answer = result"]
-  C -- "HostNotReachedException (failureOf)" --> NS["request.answer = AuthResult.notSent"]
+  C -- "notSent (decided by the network: answerOf)" --> NS["request.answer = AuthResult.notSent"]
   C -- "any other error / timeout" --> F["request.answer = AuthResult.failed"]
   R & NS & F --> E["the EMV carries on → the end"]
   E --> CO["onEnd(), under the lock, end decided:<br/>closeOnline() for each request"]
@@ -457,7 +460,7 @@ flowchart TD
   D -- "failed / no answer" --> REV
   D -- "notSent" --> NO1["nothing (trace: no reversal + why)"]
   D -- "declined" --> NO2["nothing"]
-  ACK & REV --> FU["the safe end, before current = null and deliver(end):<br/>ACKNOWLEDGING / REVERSING · on the transaction thread · waited for · max 15 s"]
+  ACK & REV --> FU["the safe end, before current = null and deliver(end):<br/>ACKNOWLEDGING / REVERSING · on the transaction thread · waited for · max 15 s<br/>→ CLOSED (closedOk)"]
 ```
 
 | الحالة | ما يُرسل | السبب |
@@ -470,7 +473,7 @@ flowchart TD
 | رفض الـ host (declined) | لا شيء | لا شيء يُلغى |
 | لم تتصل العملية بالـ host | لا شيء | لا يوجد طلب |
 
-**`notSent`** (`HostNotReachedException` ← `AuthResult.notSent`، وكل من `isFailed()` و `isNotSent()` صحيحة؛ تُعرف في `PosTerminal.failureOf` سواء جاء الاستثناء مباشرة أو كسبب): لا يقررها إلا الـ network، والافتراضي هو الإلغاء:
+**`notSent`** (`HostNotReachedException` ← `AuthResult.notSent`، وكل من `isFailed()` و `isNotSent()` صحيحة): لا يقررها إلا الـ network، في `SaleCommunicationBehavior.answerOf`، ولا يخرج `HostNotReachedException` منه أبدًا؛ أما `PosTerminal.failureOf` فلا يعالج إلا مهلة الـ 90 ثانية الخاصة به. والافتراضي هو الإلغاء:
 
 | مكان الفشل (`SaleCommunicationBehavior`) | النتيجة |
 |---|---|
@@ -493,7 +496,7 @@ flowchart TD
 ```
 
 - لا يتغير شيء بالنسبة للبطاقة: `failed` و `notSent` كلاهما `RESULT_ONLINE_FAILED` (2nd GENERATE AC بـ AAC). الفرق في الإلغاء فقط.
-- الاستدعاء (`9278c35`، النهاية الآمنة؛ خطوات لها دوال منذ `7403d1e`): تُسلَّم الخطوة `ACKNOWLEDGING` / `REVERSING` (وتحمل `asyncRequestId` في `KEY_REQUEST_ID`)، ثم تشغّل `onAcknowledging` / `onReversing` الاستدعاء `Completable.defer(() -> communication.acknowledge/reverse(sent))` على الـ transaction thread، مع `timeout(closeAtHostTimeoutMs())` = 15 ثانية و `blockingAwait`. يبقى الجهاز مشغولًا حتى ينتهي، فترى الشاشة `APPROVED ← ACKNOWLEDGING ← COMPLETED`، وأي محاولة بيع في أثناء ذلك تُرفض بـ `TerminalBusyException`. تُسجَّل النتيجة في `EmvLog` وفي الـ trace. (حتى `9278c35` كان الإرسال على `followUpScheduler` مستقل، بعد أن يصبح الجهاز متاحًا، بمهلة 90 ثانية ودون انتظار.)
+- الاستدعاء (`9278c35`، النهاية الآمنة؛ خطوات لها دوال منذ `7403d1e`): تُسلَّم الخطوة `ACKNOWLEDGING` / `REVERSING` (وتحمل `asyncRequestId` في `KEY_REQUEST_ID`)، ثم تشغّل `onAcknowledging` / `onReversing` الدالة `closeAtHost(step, communication::acknowledge / reverse)` على الـ transaction thread: تبحث عن الطلب (`sentRequest`)، وتستدعيه داخل الـ try، مع `timeout(closeAtHostTimeoutMs())` = 15 ثانية و `blockingAwait`، ثم تسلّم `CLOSED` بالنتيجة (`KEY_CLOSED_OK`). يبقى الجهاز مشغولًا حتى ينتهي، فترى الشاشة `APPROVED → ACKNOWLEDGING → CLOSED → COMPLETED`، وأي محاولة بيع في أثناء ذلك تُرفض بـ `TerminalBusyException`. تُسجَّل النتيجة في `EmvLog` وفي الـ trace. (حتى `9278c35` كان الإرسال على `followUpScheduler` مستقل، بعد أن يصبح الجهاز متاحًا، بمهلة 90 ثانية ودون انتظار.)
 - لـ `CommunicationBehavior.acknowledge` / `reverse` قيمة افتراضية `Completable.complete()`، فلا يتأثر أي host لا ينفّذهما. ولا يرسل `SaleCommunicationBehavior` شيئًا لطلب بلا اسم أو لم يُرسل أصلًا (`whyNotSent`).
 - ⚠ لا يوجد سجل محفوظ (حفظ وإعادة إرسال بعد إعادة التشغيل). إلغاء فاشل يُسجَّل في الـ trace فقط، وعلى الـ host أن يلغي العملية بنفسه حين لا يصله تأكيد (BACKLOG 0.15).
 - ⚠ لم يُجرَّب على الجهاز ولا مع الـ host. احتياج الإلغاء والتأكيد إلى `mToken` افتراض ("headers البيع نفسها").
@@ -1246,6 +1249,68 @@ prepare → onTerminalInitialization → prepareKernel(config)
 10. **تغيير الـ schema:** الـ DAO يُعدَّل يدويًا (ordinal، DDL، bind، read) + uninstall على الجهاز.
 11. **الاختبار:** `:core` (101)، `:network` (24)، `:bizentity` (25: XML + DAO + `EmvParamServiceCacheTest`)، `:vendor-pax` (11: `PaxCardDataTest`، `PaxHostAnswerTest`)، ثم الجهاز بصفوف `report_easylink.xlsx` (آخر مرة: chip و tap again عند `19cc019`).
 12. **أسماء الـ packages والمجلدات بأحرف صغيرة** (`emv` لا `EMV`). لا يفرّق Windows بينهما: إن بقي مجلد قديم باسم `EMV` على الجهاز، يضع الـ pull ملفات `emv` داخله ويعطي الـ build الخطأ `cannot find symbol` لكل class فيه (حدث في 28/10). الحل: أغلق Android Studio، احذف المجلد و `core\build`، ثم `git checkout -- core/src`، ثم Sync + Rebuild.
+
+---
+
+## 10. فرع `transactionStepObserver`: ما الذي يختلف
+
+الفرع (`f80691f`، 2026-11-04) هو هذا الكود نفسه مع التغييرات التالية. كود فقط، بلا tests ولا `doc/`؛ اختُبر كل تغيير بنسخة محلية من tests هذا الفرع. ⚠ لم يُجرَّب على الجهاز إلا إصلاح الـ busy، وهو قيد التجربة.
+
+### 10.1 خطوات العملية: مدخل واحد
+
+- **`TransactionStepObserver`** مشترك في `Transaction.steps` وهو المدخل الوحيد إلى `dispatchTransactionStep`، بلا فلتر (`d5cbe8f`)، كما يفعل `EmvStepObserver` في الـ EMV.
+- **النتيجة تقرير:** `emvFinished` ← `outcome()` (داخل الـ lock: `end = COMPLETED` وتسليم APPROVED / DECLINED). لم تعد `onOutcome` دالة خطوة.
+- **`ENDING`** خطوة جديدة: الـ `finally` في `runTransaction` يحدد النهاية ويسلّمها؛ دالتها `onEnding` تبدأ سلسلة الإغلاق. اختفت `decideEnd()` و `onEnd()`.
+- **سلسلة الإغلاق بلا loop** (`c2ec7f2`): `closeNext(from)` ← `nextClosing(from)` يجد أول طلب يحتاج تأكيدًا أو إلغاءً، فيسلّم `ACKNOWLEDGING` / `REVERSING`؛ وبعد `closeAtHost` تأتي **`CLOSING_COMPLETED`** (اسم `CLOSED` هنا، `6899b84`)، ودالتها `onClosingCompleted` تكمل بالطلب التالي، أو تحرر الجهاز وتسلّم النهاية.
+
+```text
+switch: TRANSACTION_STARTED → onTransactionStarted
+        CANCELLING          → onCancelling
+        ENDING              → onEnding → closeNext(0)
+        ACKNOWLEDGING       → onAcknowledging   (closeAtHost)
+        REVERSING           → onReversing       (closeAtHost)
+        CLOSING_COMPLETED   → onClosingCompleted → closeNext(next) or the end
+        anything else       → a report (ONLINE_*, APPROVED, DECLINED, COMPLETED / ERROR / CANCELLED, …)
+```
+
+الشاشة: `APPROVED → ENDING → ACKNOWLEDGING → CLOSING_COMPLETED → COMPLETED`.
+- ثمن مقبول (BACKLOG 10.4): دالة الخطوة تعمل والـ lock مأخوذ، فترى الشاشة `ACKNOWLEDGING` / `REVERSING` بعد انتهاء نداء الـ host. لذلك تبقى `ONLINE_PROCESSING` وخطوة Single Tap المقترحة **تقارير**: لو كانت دوال لانتظر `cancel()` الـ host على الـ main thread.
+- ⚠ Single Tap مع `asyncRequestId` واحد قد يجعل السلسلة تؤكّد الطلب نفسه بلا نهاية (BACKLOG 4.11).
+
+### 10.2 الـ EMV
+
+- **`TERMINAL_INITIALIZATION` تبدأ البحث بنفسها** (`ce0cdfd`): آخر سطر في `onTerminalInitialization` هو `searchCard()` (أصبحت `protected final`)، و `prepare` صارت `void`، ولا `if` في `run`. vendor ينسى `searchCard()` تنتهي عمليته بـ ERROR "Transaction ended without an outcome".
+- **field 55 عقد الـ vendor** (`11c8686`): `protected abstract Field55 field55()` بدل `readIccTag`؛ كل vendor يبنيه بطريقته (`Field55.read(this::readIccTag)` اليوم)، والـ log والفحص في `askTheBank` في مكان واحد.
+- **`Field55.read`** يأخذ `Field55.TagReader` (interface خاص) بدل `IntFunction` (`b3300f9`).
+- **PAX:** حُذف شرطان لا يتحققان أبدًا في `prepareKernel` و `runPreTransProcess` (`9e93451`).
+
+### 10.3 الطريق إلى البنك: الأسماء
+
+| الطبقة | هنا (هذا الكود) | في `transactionStepObserver` |
+|---|---|---|
+| الـ EMV يطلب البنك | `authorizeOnline()` | `askTheBank()` |
+| الـ interface | `Authorizer.authorize` | `BankRequest.send` (الـ field: `bank`) |
+| `PosTerminal` | `authorize(config)`، `attach(this::authorize)` | `sendToBank(config)`، `attach(this::sendToBank)` |
+| الـ network | `CommunicationBehavior.authorize` | `connectToHost` |
+
+### 10.4 الـ network: خطوات متتالية بلا Rx
+
+- **`SaleCommunicationBehavior`** بلا `flatMap` ولا `defer` (`9dc21e5` … `6e6afc3`): `connectToHost` = `Single.fromCallable(send)`، و `send` خطوات كالتطبيق القديم، كل نداء داخل try ويُجاب عن فشله فورًا:
+  `token → prepareExchangeRequest + exchange → callSale (prepareSaleRequest + sale / refund) → toAuthResult`.
+- `unwrapped(e)`: يفك الـ checked error الذي يلفّه `blockingGet`، كي يبقى "لا اتصال" notSent. و `classify` يمرّر `HostNotReachedException` / `SaleException` كما هما.
+- **التأكيد / الإلغاء** بالشكل نفسه (`a6378eb`): `Completable.fromAction` ← `closingHeaders` ← `await(...)` ← `checkStatus`.
+
+### 10.5 المهلة
+
+| | هنا | في `transactionStepObserver` |
+|---|---|---|
+| حد كل نداء دفع (OkHttp) | لا يوجد (connect / read 75 ث) | `callTimeout(25 s)` لنداءات الدفع والـ token فقط (`createForPayments`) |
+| الـ call adapter | `RxJava3CallAdapterFactory.create()` (async) | `createSynchronous()` لنداءات الدفع (`1a97dee`) |
+| `PosTerminal` على البيع | 90 ث، ويلغي النداء عند انتهائها | 90 ث، شبكة أمان فقط (token + exchange + sale ≤ 75 ث) |
+| `closeAtHost` | 15 ث | 60 ث، شبكة أمان فقط (token 25 + نداء 25) |
+
+- **إصلاح الـ busy** (`1a97dee`، الجهاز 04/11): الـ adapter الـ async يبتلع الخطأ عن قصد حين يُلغى النداء (`if (call.isCanceled()) return;`)، و `callTimeout` يلغيه بنفسه، فبقي `blockingGet` منتظرًا للأبد وبقي الجهاز مشغولًا. الـ adapter المتزامن يعيد الخطأ. ورفع مهلة `closeAtHost` فوق حد النداء يمنع `UndeliverableException` (يُسقط التطبيق على Android) حين يصل خطأ النداء بعد انتهاء المهلة.
+- إذا لم يرد البنك على البيع: نحو 25 ثانية ← "Sale: timeout" ← online failed ← ERROR، مع إلغاء ينتظر هو أيضًا حتى 25 ثانية.
 
 ---
 
