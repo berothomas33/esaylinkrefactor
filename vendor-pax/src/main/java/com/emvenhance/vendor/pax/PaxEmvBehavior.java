@@ -267,9 +267,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onIssuerAuthentication(TransactionConfig config, CardPresence card) {
-        if (tx.issuerResponse != null) {
-            completeIssuerAuthentication();
-        }
+        completeIssuerAuthentication();
     }
 
     @Override
@@ -528,7 +526,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 tx.clsTransResult.setResultCode(onlineTransResultEnum.ordinal());
                 return onlineTransResultEnum.ordinal();
             }
-            runIssuerAuthentication(onlineResultWrapper);
+            runIssuerAuthentication();
             if (cvmResult == CvmResultEnum.CVM_SIG || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
                 tx.clsTransResult.setCvmResult(CvmResultEnum.CVM_SIG);
             }
@@ -844,7 +842,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
             tx.transResult.setResultCode(onlineResultWrapper.getResultCode());
             tx.transResult.setTransResult(onlineResultWrapper.getTransResultEnum());
-            runIssuerAuthentication(onlineResultWrapper);
+            runIssuerAuthentication();
             return tx.transResult.getResultCode();
         }
         return 0;
@@ -1184,10 +1182,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined";
     }
 
-    private void runIssuerAuthentication(OnlineResultWrapper online) {
-        tx.issuerResponse = online;
-        goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail());
-        if (tx.issuerResponse != null) {
+    private void runIssuerAuthentication() {
+        if (!goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())) {
             engine().apduTrace().note("EMV",
                     "issuer authentication step did not run — completing with the card anyway");
             completeIssuerAuthentication();
@@ -1195,8 +1191,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private void completeIssuerAuthentication() {
-        OnlineResultWrapper online = tx.issuerResponse;
-        tx.issuerResponse = null;
+        OnlineResultWrapper online = PaxHostAnswer.toOnlineResult(bankAnswer());
         if (activeCard != null && activeCard.isContactless()) {
             completeContactlessIssuerAuthentication(online);
         } else {
@@ -1331,12 +1326,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     public void onlineDenied() {
-        goToStep(EmvStep.ISSUER_AUTHENTICATION, "denied by issuer");
         completeDeclined("Online Denied");
     }
 
     public void onlineCardDenied(int resultCode) {
-        goToStep(EmvStep.ISSUER_AUTHENTICATION, "declined by card");
         completeDeclined("Online Card Denied code=" + resultCode);
     }
 

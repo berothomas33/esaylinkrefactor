@@ -4,7 +4,6 @@ import androidx.annotation.Nullable;
 import com.emvenhance.core.transaction.TransactionStep;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.entity.IssuerRspData;
-import com.pax.emvbase.process.entity.OnlineResultWrapper;
 import com.pax.emvbase.process.entity.TransResult;
 import java.util.List;
 
@@ -27,9 +26,6 @@ final class PaxKernelSession {
 
     @Nullable
     String lastOnlinePinKeyEncrypted;
-
-    @Nullable
-    OnlineResultWrapper issuerResponse;
 
     @Nullable
     IssuerRspData pendingScripts;
