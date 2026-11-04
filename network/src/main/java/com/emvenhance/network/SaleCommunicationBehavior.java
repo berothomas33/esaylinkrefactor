@@ -65,8 +65,9 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     private final Gson gson = new Gson();
 
     public SaleCommunicationBehavior(Context context, String sn) {
-        this(HostApiClient.create(), new OnboardingClient(), new OnboardingState(context),
-                new HostSettings(context), sn);
+        this(HostApiClient.createForPayments(),
+                new OnboardingClient(HostApiClient.createOnboardingForPayments()),
+                new OnboardingState(context), new HostSettings(context), sn);
     }
 
     public SaleCommunicationBehavior(HostApiConnection connection, OnboardingClient onboarding,
@@ -80,7 +81,13 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     @Override
     public Single<AuthResult> authorize(TransactionConfig config) {
-        return send(config).onErrorReturn(SaleCommunicationBehavior::answerOf);
+        return Single.fromCallable(() -> {
+            try {
+                return send(config);
+            } catch (RuntimeException e) {
+                return answerOf(e);
+            }
+        });
     }
 
     static AuthResult answerOf(Throwable e) {
@@ -92,32 +99,65 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         return AuthResult.failed(message != null ? message : "Online failed");
     }
 
-    private Single<AuthResult> send(TransactionConfig config) {
+    private AuthResult send(TransactionConfig config) {
         String notSent = whyNotSent(config);
         if (notSent != null) {
             Log.w(TAG, notSent + " — not sent to the host");
-            return Single.just(AuthResult.notSent(notSent));
+            return AuthResult.notSent(notSent);
         }
         EmvTransactionResult emvResult = config.getEmvResult();
         if (emvResult == null) {
-            return Single.error(new HostNotReachedException(
+            throw new HostNotReachedException(
                     "No EmvTransactionResult on TransactionConfig — the vendor EmvBehavior must "
-                            + "attach one (see TransactionConfig#withEmvResult) before going online"));
+                            + "attach one (see TransactionConfig#withEmvResult) before going online");
         }
         String hostPublicKey = onboardingState.getPublicKey();
         if (hostPublicKey == null) {
-            return Single.error(new HostNotReachedException(
-                    "No host public key on file — onboarding must complete before a TEK can be wrapped for the host"));
+            throw new HostNotReachedException(
+                    "No host public key on file — onboarding must complete before a TEK can be wrapped for the host");
         }
         if (onboardingState.getAccessToken() == null) {
-            return Single.error(new HostNotReachedException(
-                    "No access token on file — onboarding must complete before a sale can go online"));
+            throw new HostNotReachedException(
+                    "No access token on file — onboarding must complete before a sale can go online");
         }
 
-        return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
-                .onErrorResumeNext(e -> Single.error(notReached("Token refresh", e)))
-                .flatMap(accessToken -> goOnline(HostHeaders.buildAuthenticated(sn, accessToken),
-                        config, emvResult, hostPublicKey));
+        String accessToken = refreshedAccessToken();
+        Map<String, String> headers = HostHeaders.buildAuthenticated(sn, accessToken);
+        byte[] tek = newTek();
+        String tekEncrypted = encryptTek(hostPublicKey, tek);
+        String asyncRequestId = config.getAsyncRequestId() != null
+                ? config.getAsyncRequestId() : UUID.randomUUID().toString();
+
+        exchange(headers, config, emvResult, tek, tekEncrypted, asyncRequestId);
+        SaleResponse response = saleOrRefund(headers, config, emvResult, tek, asyncRequestId);
+        return toAuthResult(response);
+    }
+
+    private String refreshedAccessToken() {
+        try {
+            return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
+                    .blockingGet();
+        } catch (RuntimeException e) {
+            throw notReached("Token refresh", unwrapped(e));
+        }
+    }
+
+    private static byte[] newTek() {
+        byte[] tek = new byte[TEK_LENGTH_BYTES];
+        new SecureRandom().nextBytes(tek);
+        return tek;
+    }
+
+    private static String encryptTek(String hostPublicKey, byte[] tek) {
+        try {
+            return RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, tek);
+        } catch (GeneralSecurityException e) {
+            throw new HostNotReachedException("Failed to RSA-encrypt the transaction key (TEK)", e);
+        }
+    }
+
+    static Throwable unwrapped(RuntimeException e) {
+        return e.getClass() == RuntimeException.class && e.getCause() != null ? e.getCause() : e;
     }
 
     @Nullable
@@ -190,80 +230,56 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 + (message != null ? message : "no message")));
     }
 
-    private Single<AuthResult> goOnline(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, String hostPublicKey) {
-        byte[] tek = new byte[TEK_LENGTH_BYTES];
-        new SecureRandom().nextBytes(tek);
-        String transactionKeyEncrypted;
-        try {
-            transactionKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, tek);
-        } catch (GeneralSecurityException e) {
-            return Single.error(new HostNotReachedException("Failed to RSA-encrypt the transaction key (TEK)", e));
-        }
-
-        String asyncRequestId = config.getAsyncRequestId() != null
-                ? config.getAsyncRequestId() : UUID.randomUUID().toString();
-
-        return exchange(headers, config, emvResult, tek, transactionKeyEncrypted, asyncRequestId)
-                .flatMap(exchanged -> saleOrRefund(headers, config, emvResult, tek, asyncRequestId))
-                .map(SaleCommunicationBehavior::toAuthResult);
-    }
-
-    private Single<ExchangeResponse> exchange(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, byte[] tek, String transactionKeyEncrypted,
-            String asyncRequestId) {
+    private ExchangeResponse exchange(Map<String, String> headers, TransactionConfig config,
+            EmvTransactionResult emvResult, byte[] tek, String tekEncrypted, String asyncRequestId) {
         String transactionType = hostTransactionType(config);
-        int cvm = cvmCode(config, emvResult);
         ExchangeRequest exchangeRequest = new ExchangeRequest(
-                asyncRequestId, emvResult.getPan(), cvm, transactionType);
-
-        String encSerializedRequest;
-        try {
-            String serialized = gson.toJson(exchangeRequest);
-            logSerialized("EXCHANGE_REQUEST", serialized);
-            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
-        } catch (GeneralSecurityException e) {
-            return Single.error(new HostNotReachedException("Failed to AES-encrypt the exchange request", e));
-        }
-
+                asyncRequestId, emvResult.getPan(), cvmCode(config, emvResult), transactionType);
+        String encSerializedRequest = encrypted(tek, "EXCHANGE_REQUEST", exchangeRequest, "exchange");
         GeneralRequest request = GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
-                transactionKeyEncrypted, pinKeyToSend(config), transactionType);
-
-        return connection.exchange(headers, request)
-                .flatMap(response -> decryptEnvelope(response, tek, "Exchange", ExchangeResponse.class))
-                .onErrorResumeNext(e -> Single.error(exchangeError(e)));
+                tekEncrypted, pinKeyToSend(config), transactionType);
+        try {
+            GeneralResponse response = connection.exchange(headers, request).blockingGet();
+            return decrypted(response, tek, "Exchange", ExchangeResponse.class);
+        } catch (RuntimeException e) {
+            throw exchangeError(unwrapped(e));
+        }
     }
 
-    private Single<SaleResponse> saleOrRefund(Map<String, String> headers, TransactionConfig config,
+    private SaleResponse saleOrRefund(Map<String, String> headers, TransactionConfig config,
             EmvTransactionResult emvResult, byte[] tek, String asyncRequestId) {
         boolean refund = isRefund(config);
         String step = refund ? "Refund" : "Sale";
         Object body = refund ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult);
-
-        String encSerializedRequest;
-        try {
-            String serialized = gson.toJson(body);
-            logSerialized(step.toUpperCase(Locale.US) + "_REQUEST", serialized);
-            logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
-            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
-        } catch (GeneralSecurityException e) {
-            return Single.error(new HostNotReachedException(
-                    "Failed to AES-encrypt the " + step.toLowerCase(Locale.US) + " request", e));
-        }
-
+        String encSerializedRequest = encrypted(tek, step.toUpperCase(Locale.US) + "_REQUEST", body,
+                step.toLowerCase(Locale.US));
+        logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
         GeneralRequest request = GeneralRequest.forSale(
                 encSerializedRequest, asyncRequestId, pinBlockToSend(config));
         Map<String, String> withToken = withMToken(headers);
-        Single<GeneralResponse> call = refund
-                ? connection.refund(withToken, request)
-                : connection.sale(withToken, request);
 
-        return call
-                .onErrorResumeNext(e -> Single.error(classify(step, e)))
-                .flatMap(response -> decryptEnvelope(response, tek, step, SaleResponse.class));
+        GeneralResponse response;
+        try {
+            response = refund
+                    ? connection.refund(withToken, request).blockingGet()
+                    : connection.sale(withToken, request).blockingGet();
+        } catch (RuntimeException e) {
+            throw classify(step, unwrapped(e));
+        }
+        return decrypted(response, tek, step, SaleResponse.class);
     }
 
-    static Throwable classify(String step, Throwable e) {
+    private String encrypted(byte[] tek, String logLabel, Object body, String what) {
+        String serialized = gson.toJson(body);
+        logSerialized(logLabel, serialized);
+        try {
+            return AesEnvelopeCrypto.encrypt(tek, serialized);
+        } catch (GeneralSecurityException e) {
+            throw new HostNotReachedException("Failed to AES-encrypt the " + what + " request", e);
+        }
+    }
+
+    static RuntimeException classify(String step, Throwable e) {
         if (e instanceof HttpException && isRefusedCaller(((HttpException) e).code())) {
             return notReached(step, e);
         }
@@ -290,25 +306,26 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         return message.startsWith(step) ? message : step + ": " + message;
     }
 
-    static Throwable exchangeError(Throwable e) {
-        return e instanceof HostNotReachedException ? e : notReached("Exchange", e);
+    static RuntimeException exchangeError(Throwable e) {
+        return e instanceof HostNotReachedException
+                ? (HostNotReachedException) e : notReached("Exchange", e);
     }
 
-    private <T> Single<T> decryptEnvelope(GeneralResponse response, byte[] tek, String step, Class<T> type) {
+    private <T> T decrypted(GeneralResponse response, byte[] tek, String step, Class<T> type) {
         if (response.getStatusCode() != SUCCESS_STATUS_CODE || response.getData() == null
                 || response.getData().getEncSerializedResponse() == null) {
             String message = response.getMessage() != null ? response.getMessage() : step + " failed";
             String error = step + " failed (" + response.getStatusCode() + "): " + message;
             Log.w(TAG, error);
-            return Single.error(isRefusedCaller(response.getStatusCode())
-                    ? new HostNotReachedException(error) : new SaleException(error));
+            throw isRefusedCaller(response.getStatusCode())
+                    ? new HostNotReachedException(error) : new SaleException(error);
         }
         try {
             String decrypted = AesEnvelopeCrypto.decrypt(tek, response.getData().getEncSerializedResponse());
             logSerialized(step.toUpperCase(Locale.US) + "_RESPONSE", decrypted);
-            return Single.just(gson.fromJson(decrypted, type));
+            return gson.fromJson(decrypted, type);
         } catch (GeneralSecurityException e) {
-            return Single.error(new SaleException("Failed to decrypt the " + step + " response", e));
+            throw new SaleException("Failed to decrypt the " + step + " response", e);
         }
     }
 
