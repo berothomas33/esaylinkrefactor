@@ -510,7 +510,7 @@ sequenceDiagram
 
 <section id="callback">
   <h2>5. الطريق إلى الـ host: البنك كـ callback (askTheBank ← sendToBank)</h2>
-  <p class="note"><b>الأسماء في هذا القسم</b> هي أسماء فرع <code>transactionStepObserver</code> (<code>484ed9d</code>، <code>f80691f</code>، <code>5d38ba5</code>). في كود <code>paxEmvBehaviorSplit</code> الأسماء الأقدم: <code>askTheBank</code> = <code>authorizeOnline</code>، <code>BankRequest.send</code> = <code>Authorizer.authorize</code> (داخل <code>AbstractEmvBehavior</code>)، <code>PosTerminal.sendToBank</code> = <code>PosTerminal.authorize</code>، <code>connectToHost</code> = <code>CommunicationBehavior.authorize</code>. السلوك نفسه.</p>
+  <p class="note"><b>الأسماء في هذا القسم</b> هي أسماء فرع <code>transactionStepObserver</code> (<code>484ed9d</code>، <code>f80691f</code>، <code>5d38ba5</code>). في كود <code>paxEmvBehaviorSplit</code> الأسماء الأقدم: <code>askTheBank</code> = <code>authorizeOnline</code>، <code>BankRequest.send</code> = <code>Authorizer.authorize</code> (داخل <code>AbstractEmvBehavior</code>)، <code>PosTerminal.sendToBank</code> = <code>PosTerminal.authorize</code>، <code>connectToHost</code> = <code>CommunicationBehavior.authorize</code>، <code>ONLINE_AUTHORIZATION</code> / <code>onOnlineAuthorization</code> = <code>START_ONLINE_PROCESS</code> / <code>onStartOnlineProcess</code>، <code>bankAnswer()</code> (يحفظه الـ core) = <code>tx.lastAuth</code> (في كل vendor). السلوك نفسه. وفي هذا الفرع أيضًا (<code>2d8d2e4</code>): <code>onIssuerAuthentication</code> يبني رد PAX بنفسه من <code>bankAnswer()</code> (لا <code>tx.issuerResponse</code>)، ولا يُعلَن <code>ISSUER_AUTHENTICATION</code> مرة ثانية كعنوان في <code>onlineDenied</code> / <code>onlineCardDenied</code>.</p>
   <p><b>ما هو الـ callback؟</b> أن تعطي جهة أخرى "رقمًا تتصل بك عليه"، وهي التي تقرر متى تتصل. أنت لا تستدعي الدالة، بل تسلّمها؛ والطرف الآخر يستدعيها في الوقت الذي يختاره، ثم يكمل بالقيمة التي ترجعها.</p>
   <p>في الطريق إلى الـ host <b>callback-ان</b>، وكلاهما <b>متزامن</b>: من يتصل يتوقف منتظرًا الرد في السطر نفسه.</p>
   <div class="table-wrap"><table>
@@ -520,7 +520,7 @@ sequenceDiagram
       <tr><td><b>ب.</b> <code>BankRequest</code></td><td><code>PosTerminal</code> عند إنشائه: <code>behavior.attach(this::sendToBank)</code></td><td><b><code>AbstractEmvBehavior.askTheBank</code></b>، بعد تجهيز field 55 وبيانات البطاقة</td></tr>
     </tbody>
   </table></div>
-  <p>لا يعرف <code>AbstractEmvBehavior</code> شيئًا اسمه <code>PosTerminal</code>: معه "رقم" فقط (<code>bank</code>). وهذا ما يُبقي طبقة الـ EMV منفصلة عن الـ host.</p>
+  <p>لا يعرف <code>AbstractEmvBehavior</code> شيئًا اسمه <code>PosTerminal</code>: معه "رقم" فقط (<code>bankRequest</code>). وهذا ما يُبقي طبقة الـ EMV منفصلة عن الـ host.</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
 sequenceDiagram
@@ -534,18 +534,19 @@ sequenceDiagram
   Note over K,PB: per flow: registerEmvProcessListener(this)  (callback A handed over)
   K->>K: 1st GENERATE AC → card: ARQC
   K->>PB: (A) startOnlineProcess() — the kernel waits inside the native call
-  PB->>PB: goToStep(START_ONLINE_PROCESS) → onStartOnlineProcess
-  PB->>AB: tx.lastAuth = askTheBank()
+  PB->>PB: goToStep(ONLINE_AUTHORIZATION) → onOnlineAuthorization
+  PB->>AB: askTheBank() — the core keeps the answer: bankAnswer()
   AB->>AB: field 55 (readIccTag) + PAN / PIN block (addOnlineRequestData)
-  AB->>PT: (B) bank.send(config)
+  AB->>PT: (B) bankRequest.send(config)
   PT->>PT: ONLINE_REQUIRED · ONLINE_PROCESSING · asyncRequestId · wentOnline (for ack / reversal)
   PT->>H: connectToHost(sent).timeout(90 s).blockingGet()
   H-->>PT: AuthResult (approved / declined / failed / notSent · ARPC · scripts · RC)
   PT-->>AB: ONLINE_COMPLETED · return result
   AB-->>PB: return result
-  PB->>PB: PaxHostAnswer.toOnlineResult(result)
+  PB->>PB: PaxHostAnswer.toOnlineResult(bankAnswer())
   PB-->>K: return OnlineResultWrapper — (A) answered
-  K->>K: completeTransProcess → 2nd GENERATE AC (always, AET-146) → TC / AAC
+  PB->>PB: ISSUER_AUTHENTICATION → onIssuerAuthentication:<br/>toOnlineResult(bankAnswer()) again (a pure conversion)
+  PB->>K: completeTransProcess → 2nd GENERATE AC (always, AET-146) → TC / AAC
   K-->>PB: checkContactResult → finishApproved / finishDeclined → Transaction.emvFinished
 </pre></div>
   <p><b>الفكرة في سطر:</b> الـ kernel <b>واقف</b> داخل الاستدعاء الـ native حتى يرجع (أ)، و(أ) واقف حتى يرجع (ب)، و(ب) واقف حتى يرد البنك أو تنتهي الـ 90 ثانية. كل ذلك على الـ transaction thread وبالترتيب، ولذلك يأخذ الـ 2nd GENERATE AC رد البنك في السطر نفسه. في الـ contactless نستدعي <code>startOnlineProcess()</code> نحن من داخل <code>startContactlessTransProcess</code>، وقد تكون البطاقة غادرت الحقل، فلا 2nd GENERATE AC (إلا في الـ tap الثاني لـ Visa).</p>
@@ -557,18 +558,18 @@ behavior.attach(this::sendToBank);
 
 <span class="c">// ② BankRequest.java (its own file); AbstractEmvBehavior keeps one — it knows a BankRequest, not a PosTerminal</span>
 public interface BankRequest { AuthResult send(TransactionConfig config); }
-private BankRequest bank;
-public final void attach(BankRequest bank) { this.bank = bank; }
+private BankRequest bankRequest;
+public final void attach(BankRequest bankRequest) { this.bankRequest = bankRequest; }
 
 <span class="c">// ③ when the kernel asks to go online: call it and wait for the answer</span>
 protected final AuthResult askTheBank() {
     ... checks + field 55 ...
-    return bank.send(config);                     <span class="c">// = PosTerminal.sendToBank(config)</span>
+    bankAnswer = bankRequest.send(config);        <span class="c">// = PosTerminal.sendToBank(config); kept: bankAnswer()</span>
 }
 
 <span class="c">// ④ PAX: keep the answer, then hand it to the kernel in PAX's shape</span>
-tx.lastAuth = askTheBank();                   <span class="c">// onStartOnlineProcess</span>
-return PaxHostAnswer.toOnlineResult(tx.lastAuth);  <span class="c">// → the kernel</span></pre>
+askTheBank();                                       <span class="c">// onOnlineAuthorization</span>
+return PaxHostAnswer.toOnlineResult(bankAnswer());  <span class="c">// → the kernel</span></pre>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "16px"}}}%%
 classDiagram
@@ -584,14 +585,16 @@ classDiagram
   }
   class AbstractEmvBehavior {
     &lt;&lt;abstract&gt;&gt;
-    -BankRequest bank
+    -BankRequest bankRequest
+    -AuthResult bankAnswer
     +attach(BankRequest)
     #askTheBank() AuthResult
-    #onStartOnlineProcess()*
+    #bankAnswer() AuthResult
+    #onOnlineAuthorization()*
   }
   class PaxEmvBehavior {
     -PaxKernelSession tx
-    +onStartOnlineProcess()
+    +onOnlineAuthorization()
     +startOnlineProcess() OnlineResultWrapper
   }
   class CommunicationBehavior {
@@ -622,11 +625,11 @@ classDiagram
   <div class="table-wrap"><table>
     <thead><tr><th>المفهوم</th><th>أين في القصة</th><th>ماذا يعطينا</th></tr></thead>
     <tbody>
-      <tr><td><b>Callback</b></td><td><code>attach(this::sendToBank)</code> ثم <code>bank.send(config)</code></td><td>الـ behavior لا يستدعي <code>PosTerminal</code> بالاسم؛ معه "رقم" فقط، ويتصل به حين يحتاج.</td></tr>
+      <tr><td><b>Callback</b></td><td><code>attach(this::sendToBank)</code> ثم <code>bankRequest.send(config)</code></td><td>الـ behavior لا يستدعي <code>PosTerminal</code> بالاسم؛ معه "رقم" فقط، ويتصل به حين يحتاج.</td></tr>
       <tr><td><b>Dependency Inversion</b> (الـ D في SOLID)</td><td><code>AbstractEmvBehavior</code> يعتمد على الـ interface <code>BankRequest</code>، لا على <code>PosTerminal</code></td><td>طبقة الـ EMV لا تعرف شيئًا عن البنك أو الـ terminal. في الـ tests يُعطى <code>BankRequest</code> مزيف بسطر واحد.</td></tr>
       <tr><td><b>Functional interface + method reference</b></td><td><code>BankRequest</code> له method واحدة، و<code>this::sendToBank</code> تكتب تنفيذها</td><td>لا حاجة لكلاس يطبّق <code>BankRequest</code>؛ الـ method الموجودة في <code>PosTerminal</code> هي التنفيذ.</td></tr>
-      <tr><td><b>Template Method</b></td><td><code>askTheBank()</code> (<code>final</code> في الـ abstract) و <code>onStartOnlineProcess()</code> (abstract، كل vendor يملؤها)</td><td>الخطوات المشتركة (الفحوص، field 55، الاتصال) في مكان واحد؛ الـ vendor يقرّر متى يطلبها وماذا يفعل بالرد.</td></tr>
-      <tr><td><b>Encapsulation</b></td><td><code>private BankRequest bank</code> و <code>attach</code> <code>final</code></td><td>لا يغيّر أحد "الرقم" ولا يتجاوز الفحوص في <code>askTheBank</code>.</td></tr>
+      <tr><td><b>Template Method</b></td><td><code>askTheBank()</code> (<code>final</code> في الـ abstract) و <code>onOnlineAuthorization()</code> (abstract، كل vendor يملؤها)</td><td>الخطوات المشتركة (الفحوص، field 55، الاتصال) في مكان واحد؛ الـ vendor يقرّر متى يطلبها وماذا يفعل بالرد.</td></tr>
+      <tr><td><b>Encapsulation</b></td><td><code>private BankRequest bankRequest</code> و <code>attach</code> <code>final</code></td><td>لا يغيّر أحد "الرقم" ولا يتجاوز الفحوص في <code>askTheBank</code>.</td></tr>
       <tr><td><b>Polymorphism</b></td><td><code>CommunicationBehavior</code> (التطبيق: <code>SaleCommunicationBehavior</code>)، و <code>AbstractEmvBehavior</code> (PAX، Ingenico، Fake)</td><td><code>PosTerminal</code> يتعامل مع الواجهة؛ يتغيّر البنك أو الـ vendor دون أن يتغيّر هو.</td></tr>
       <tr><td><b>Value Object</b></td><td><code>AuthResult</code>: constructor خاص، وأربع factory methods (<code>approved</code> / <code>declined</code> / <code>failed</code> / <code>notSent</code>)، ولا setters</td><td>رد البنك شيء ثابت لا يتغيّر بعد إنشائه، وبشكل واحد لا يخص vendor.</td></tr>
       <tr><td><b>Adapter</b></td><td><code>PaxHostAnswer.toOnlineResult(AuthResult)</code></td><td>يحوّل الرد العام إلى شكل PAX (<code>OnlineResultWrapper</code> / <code>IssuerRspData</code>) الذي يفهمه الـ kernel. vendor آخر يكتب Adapter خاصًا به.</td></tr>
@@ -643,7 +646,7 @@ flowchart LR
   F["TerminalFactory (the vendor's flavor)"] --> B["① new PaxEmvBehavior(...)<br/>no bank yet"]
   B --> T["② new PaxTerminal(behavior, communication, printer)<br/>→ PosTerminal constructor"]
   T --> A["③ behavior.attach(this::sendToBank)<br/>the cycle closes, once"]
-  A --> R["ready: askTheBank() → bank.send(...)"]
+  A --> R["ready: askTheBank() → bankRequest.send(...)"]
 </pre></div>
   <div class="table-wrap"><table>
     <thead><tr><th>الحل</th><th>ماذا يحدث</th><th>القرار</th></tr></thead>
@@ -717,7 +720,7 @@ sequenceDiagram
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
 sequenceDiagram
   autonumber
-  participant PB as PaxEmvBehavior.onStartOnlineProcess
+  participant PB as PaxEmvBehavior.onOnlineAuthorization
   participant AB as AbstractEmvBehavior
   participant PT as PosTerminal.sendToBank
   participant H as bank

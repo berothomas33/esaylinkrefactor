@@ -1254,7 +1254,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 
 ## 10. فرع `transactionStepObserver`: ما الذي يختلف
 
-الفرع (`5d38ba5`، 2026-11-04) هو هذا الكود نفسه مع التغييرات التالية. كود فقط، بلا tests ولا `doc/`؛ اختُبر كل تغيير بنسخة محلية من tests هذا الفرع. ⚠ لم يُجرَّب على الجهاز إلا إصلاح الـ busy، وهو قيد التجربة.
+الفرع (`2d8d2e4`، 2026-11-04) هو هذا الكود نفسه مع التغييرات التالية. كود فقط، بلا tests ولا `doc/`؛ اختُبر كل تغيير بنسخة محلية من tests هذا الفرع. ⚠ لم يُجرَّب على الجهاز إلا إصلاح الـ busy، وهو قيد التجربة.
 
 ### 10.1 خطوات العملية: مدخل واحد
 
@@ -1283,13 +1283,18 @@ switch: TRANSACTION_STARTED → onTransactionStarted
 - **field 55 عقد الـ vendor** (`11c8686`): `protected abstract Field55 field55()` بدل `readIccTag`؛ كل vendor يبنيه بطريقته (`Field55.read(this::readIccTag)` اليوم)، والـ log والفحص في `askTheBank` في مكان واحد.
 - **`Field55.read`** يأخذ `Field55.TagReader` (interface خاص) بدل `IntFunction` (`b3300f9`).
 - **PAX:** حُذف شرطان لا يتحققان أبدًا في `prepareKernel` و `runPreTransProcess` (`9e93451`).
+- **`CardPresence.isEmv()` / `isNonEmv()`** على البطاقة نفسها (`3f22a04`): `isEmv` = chip أو contactless، و `isNonEmv` = `!isEmv()`؛ حُذفت `AbstractEmvBehavior.isNonEmv(card)`.
+- **رد البنك له مالك واحد عند الـ EMV** (`157c1e4`): `askTheBank()` تحفظه، و `bankAnswer()` تقرؤه، ويُمسح في `prepare`. نسخة `PosTerminal` (`OnlineRequest.answer`) تبقى لها، للتأكيد / الإلغاء؛ لا يقرأ أحدهما نسخة الآخر.
+- **خطوة issuer authentication في PAX** (`2d8d2e4`): `onIssuerAuthentication` تبني رد PAX بنفسها (`PaxHostAnswer.toOnlineResult(bankAnswer())`) ثم الـ 2nd GENERATE AC (contact) أو الـ tap الثاني لـ Visa (contactless)؛ لا `tx.issuerResponse`. إذا لم تعمل الخطوة (إلغاء: `goToStep` تعيد `false`) تكتمل مع البطاقة رغم ذلك. ولا تعلن `onlineDenied` / `onlineCardDenied` الخطوة مرة ثانية كعنوان (كان ذلك سيعيد الـ 2nd GENERATE AC): يظهر `ISSUER_AUTHENTICATION` مرة واحدة في رفض الـ contact، ولا يظهر في رفض البنك للـ contactless (لم يحدث issuer authentication). السبب يبقى في رسالة النتيجة. ⚠ لم يُجرَّب على الجهاز. الـ scripts على النمط القديم نفسه بعد.
 
 ### 10.3 الطريق إلى البنك: الأسماء
 
 | الطبقة | هنا (هذا الكود) | في `transactionStepObserver` |
 |---|---|---|
 | الـ EMV يطلب البنك | `authorizeOnline()` | `askTheBank()` |
-| الـ interface | `Authorizer.authorize` (داخل `AbstractEmvBehavior`) | `BankRequest.send`، في ملف مستقل `core/.../terminal/BankRequest.java` (`5d38ba5`)؛ الـ field: `bank` |
+| الـ interface | `Authorizer.authorize` (داخل `AbstractEmvBehavior`) | `BankRequest.send`، في ملف مستقل `core/.../terminal/BankRequest.java` (`5d38ba5`)؛ الـ field: `bankRequest` (`3f22a04`) |
+| خطوة الـ EMV وhook-ها | `START_ONLINE_PROCESS` / `onStartOnlineProcess` | `ONLINE_AUTHORIZATION` / `onOnlineAuthorization` (الرقم 13 نفسه، `157c1e4`)؛ `startOnlineProcess` اسم PAX SDK فيبقى |
+| رد البنك عند الـ EMV | `tx.lastAuth` (PAX)، `lastAuth` (Fake، Ingenico) | `bankAnswer()` في `AbstractEmvBehavior`، يُمسح في `prepare` مع كل محاولة (`157c1e4`) |
 | `PosTerminal` | `authorize(config)`، `attach(this::authorize)` | `sendToBank(config)`، `attach(this::sendToBank)` |
 | الـ network | `CommunicationBehavior.authorize` | `connectToHost` |
 
@@ -1300,12 +1305,14 @@ public interface BankRequest {
 }
 
 // AbstractEmvBehavior
-private BankRequest bank;
-public final void attach(BankRequest bank) { this.bank = bank; }
+private BankRequest bankRequest;
+public final void attach(BankRequest bankRequest) { this.bankRequest = bankRequest; }
+private AuthResult bankAnswer;                      // cleared in prepare(), per attempt
 protected final AuthResult askTheBank() {
-    ...
-    return bank.send(config);       // = PosTerminal.sendToBank
+    bankAnswer = callTheBank();                     // ... checks + field 55 ... bankRequest.send(config)
+    return bankAnswer;
 }
+protected final AuthResult bankAnswer() { return bankAnswer; }
 
 // PosTerminal
 behavior.attach(this::sendToBank);
@@ -1313,8 +1320,12 @@ public AuthResult sendToBank(TransactionConfig config) {
     ... communication.connectToHost(sent) ...
 }
 
-// PAX / Fake / Ingenico
-tx.lastAuth = askTheBank();
+// PAX / Fake / Ingenico: the step, then read the answer where needed
+public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
+    askTheBank();
+    ...
+}
+return PaxHostAnswer.toOnlineResult(bankAnswer());  // PAX startOnlineProcess → the kernel
 ```
 
 ### 10.4 الـ network: خطوات متتالية بلا Rx
