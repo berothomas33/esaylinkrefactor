@@ -637,17 +637,33 @@ classDiagram
     <thead><tr><th>الطبقة</th><th>هنا (هذا الكود)</th><th>في <code>transactionStepObserver</code></th></tr></thead>
     <tbody>
       <tr><td>الـ EMV يطلب البنك</td><td><code>authorizeOnline()</code></td><td><code>askTheBank()</code></td></tr>
-      <tr><td>الـ interface و "الرقم"</td><td><code>Authorizer.authorize</code>، الـ field <code>authorizer</code></td><td><code>BankRequest.send</code>، الـ field <code>bank</code></td></tr>
+      <tr><td>الـ interface و "الرقم"</td><td><code>Authorizer.authorize</code>، الـ field <code>authorizer</code></td><td><code>BankRequest.send</code> (ملف مستقل: <code>core/.../terminal/BankRequest.java</code>، <code>5d38ba5</code>)، الـ field <code>bank</code></td></tr>
       <tr><td><code>PosTerminal</code></td><td><code>authorize(config)</code>، <code>attach(this::authorize)</code></td><td><code>sendToBank(config)</code>، <code>attach(this::sendToBank)</code></td></tr>
       <tr><td>الـ network</td><td><code>CommunicationBehavior.authorize</code></td><td><code>connectToHost</code></td></tr>
     </tbody>
   </table></div>
-<pre class="codebox"><span class="c">// transactionStepObserver</span>
-<span class="c">// EMV asks the bank → POS sends to the bank → network connects</span>
-behavior.attach(this::sendToBank);           <span class="c">// PosTerminal</span>
-return bank.send(config);                    <span class="c">// askTheBank</span>
-communication.connectToHost(sent) ...;       <span class="c">// sendToBank</span>
-tx.lastAuth = askTheBank();                  <span class="c">// PAX</span></pre>
+<pre class="codebox"><span class="c">// BankRequest.java — its own file</span>
+public interface BankRequest {
+    AuthResult send(TransactionConfig config);
+}
+
+<span class="c">// AbstractEmvBehavior</span>
+private BankRequest bank;
+public final void attach(BankRequest bank) { this.bank = bank; }
+
+protected final AuthResult askTheBank() {
+    ...
+    return bank.send(config);       <span class="c">// = PosTerminal.sendToBank</span>
+}
+
+<span class="c">// PosTerminal</span>
+behavior.attach(this::sendToBank);
+public AuthResult sendToBank(TransactionConfig config) {
+    ... communication.connectToHost(sent) ...
+}
+
+<span class="c">// PAX / Fake / Ingenico</span>
+tx.lastAuth = askTheBank();</pre>
 
   <h3 id="why-attach">لماذا <code>attach</code>، لا constructor ولا Dagger</h3>
   <p><b>المشكلة دائرة.</b> <code>PosTerminal</code> يحتاج الـ behavior في الـ constructor الخاص به، والـ behavior يحتاج <code>PosTerminal::authorize</code>، وهذه لا توجد إلا بعد أن يُنشأ <code>PosTerminal</code>. أيهما يُنشأ أولًا لا يجد الآخر.</p>

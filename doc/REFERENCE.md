@@ -1254,7 +1254,7 @@ prepare → onTerminalInitialization → prepareKernel(config)
 
 ## 10. فرع `transactionStepObserver`: ما الذي يختلف
 
-الفرع (`f80691f`، 2026-11-04) هو هذا الكود نفسه مع التغييرات التالية. كود فقط، بلا tests ولا `doc/`؛ اختُبر كل تغيير بنسخة محلية من tests هذا الفرع. ⚠ لم يُجرَّب على الجهاز إلا إصلاح الـ busy، وهو قيد التجربة.
+الفرع (`5d38ba5`، 2026-11-04) هو هذا الكود نفسه مع التغييرات التالية. كود فقط، بلا tests ولا `doc/`؛ اختُبر كل تغيير بنسخة محلية من tests هذا الفرع. ⚠ لم يُجرَّب على الجهاز إلا إصلاح الـ busy، وهو قيد التجربة.
 
 ### 10.1 خطوات العملية: مدخل واحد
 
@@ -1289,9 +1289,33 @@ switch: TRANSACTION_STARTED → onTransactionStarted
 | الطبقة | هنا (هذا الكود) | في `transactionStepObserver` |
 |---|---|---|
 | الـ EMV يطلب البنك | `authorizeOnline()` | `askTheBank()` |
-| الـ interface | `Authorizer.authorize` | `BankRequest.send` (الـ field: `bank`) |
+| الـ interface | `Authorizer.authorize` (داخل `AbstractEmvBehavior`) | `BankRequest.send`، في ملف مستقل `core/.../terminal/BankRequest.java` (`5d38ba5`)؛ الـ field: `bank` |
 | `PosTerminal` | `authorize(config)`، `attach(this::authorize)` | `sendToBank(config)`، `attach(this::sendToBank)` |
 | الـ network | `CommunicationBehavior.authorize` | `connectToHost` |
+
+```java
+// BankRequest.java — its own file
+public interface BankRequest {
+    AuthResult send(TransactionConfig config);
+}
+
+// AbstractEmvBehavior
+private BankRequest bank;
+public final void attach(BankRequest bank) { this.bank = bank; }
+protected final AuthResult askTheBank() {
+    ...
+    return bank.send(config);       // = PosTerminal.sendToBank
+}
+
+// PosTerminal
+behavior.attach(this::sendToBank);
+public AuthResult sendToBank(TransactionConfig config) {
+    ... communication.connectToHost(sent) ...
+}
+
+// PAX / Fake / Ingenico
+tx.lastAuth = askTheBank();
+```
 
 ### 10.4 الـ network: خطوات متتالية بلا Rx
 
