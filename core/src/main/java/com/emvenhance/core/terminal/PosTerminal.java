@@ -52,11 +52,11 @@ public abstract class PosTerminal {
         this.behavior = behavior;
         this.communication = communication;
         this.printer = printer;
-        behavior.attach(this::goOnline);
+        behavior.attach(this::sendToBank);
         initializeVendor();
     }
 
-    public AuthResult goOnline(TransactionConfig config) {
+    public AuthResult sendToBank(TransactionConfig config) {
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
         TransactionConfig sent = config.withAsyncRequestId(UUID.randomUUID().toString());

@@ -155,11 +155,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
         if (isNonEmv(card)) {
-            tx.lastAuth = authorizeOnline();
+            tx.lastAuth = askTheBank();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
-        tx.lastAuth = authorizeOnline();
+        tx.lastAuth = askTheBank();
     }
 
     @Override

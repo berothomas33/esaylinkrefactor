@@ -171,7 +171,7 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        lastAuth = authorizeOnline();
+        lastAuth = askTheBank();
         goToStep(EmvStep.TRANSACTION_COMPLETION);
     }
 

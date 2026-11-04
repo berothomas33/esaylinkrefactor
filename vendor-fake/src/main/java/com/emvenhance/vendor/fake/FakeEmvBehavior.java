@@ -198,7 +198,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        lastAuth = authorizeOnline();
+        lastAuth = askTheBank();
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
         } else {

@@ -37,14 +37,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    public interface OnlineGateway {
-        AuthResult goOnline(TransactionConfig config);
+    public interface BankRequest {
+        AuthResult send(TransactionConfig config);
     }
 
-    private OnlineGateway online;
+    private BankRequest bank;
 
-    public final void attach(OnlineGateway online) {
-        this.online = online;
+    public final void attach(BankRequest bank) {
+        this.bank = bank;
     }
 
     public final EmvEngine engine() {
@@ -232,7 +232,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return transaction != null && transaction.isCancelled();
     }
 
-    protected final AuthResult authorizeOnline() {
+    protected final AuthResult askTheBank() {
         if (activeConfig == null) {
             return AuthResult.failed("Online failed: no active transaction");
         }
@@ -252,7 +252,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return online.goOnline(config);
+        return bank.send(config);
     }
 
     protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
