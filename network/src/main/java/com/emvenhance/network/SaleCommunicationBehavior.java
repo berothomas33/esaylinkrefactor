@@ -162,15 +162,24 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             Log.i(TAG, what + " not sent: the request never went to the host");
             return Completable.complete();
         }
-        String transactionType = sent.getType() == TransactionType.REFUND
-                ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;
         return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
-                .flatMapCompletable(accessToken -> {
-                    Map<String, String> headers =
-                            new HashMap<>(HostHeaders.buildAuthenticated(sn, accessToken));
-                    headers.put("mToken", hostSettings.getMToken());
-                    return call.send(headers, asyncRequestId, transactionType);
-                });
+                .flatMapCompletable(accessToken -> call.send(
+                        withMToken(HostHeaders.buildAuthenticated(sn, accessToken)),
+                        asyncRequestId, hostTransactionType(sent)));
+    }
+
+    private static boolean isRefund(TransactionConfig config) {
+        return config.getType() == TransactionType.REFUND;
+    }
+
+    private static String hostTransactionType(TransactionConfig config) {
+        return isRefund(config) ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;
+    }
+
+    private Map<String, String> withMToken(Map<String, String> headers) {
+        Map<String, String> withToken = new HashMap<>(headers);
+        withToken.put("mToken", hostSettings.getMToken());
+        return withToken;
     }
 
     static Completable checkStatus(String what, int statusCode, @Nullable String message) {
@@ -195,18 +204,15 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         String asyncRequestId = config.getAsyncRequestId() != null
                 ? config.getAsyncRequestId() : UUID.randomUUID().toString();
 
-        boolean refund = config.getType() == TransactionType.REFUND;
-        String exchangeType = refund ? TRANSACTION_TYPE_REFUND : TRANSACTION_TYPE_SALE;
-        return exchange(headers, config, emvResult, tek, transactionKeyEncrypted, asyncRequestId, exchangeType)
-                .flatMap(exchangeResponse -> refund
-                        ? refund(headers, config, emvResult, tek, asyncRequestId)
-                        : sale(headers, config, emvResult, tek, asyncRequestId))
+        return exchange(headers, config, emvResult, tek, transactionKeyEncrypted, asyncRequestId)
+                .flatMap(exchanged -> saleOrRefund(headers, config, emvResult, tek, asyncRequestId))
                 .map(SaleCommunicationBehavior::toAuthResult);
     }
 
     private Single<ExchangeResponse> exchange(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, byte[] tek, String transactionKeyEncrypted, String asyncRequestId,
-            String transactionType) {
+            EmvTransactionResult emvResult, byte[] tek, String transactionKeyEncrypted,
+            String asyncRequestId) {
+        String transactionType = hostTransactionType(config);
         int cvm = cvmCode(config, emvResult);
         ExchangeRequest exchangeRequest = new ExchangeRequest(
                 asyncRequestId, emvResult.getPan(), cvm, transactionType);
@@ -228,54 +234,33 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 .onErrorResumeNext(e -> Single.error(exchangeError(e)));
     }
 
-    private Single<SaleResponse> sale(Map<String, String> headers, TransactionConfig config,
+    private Single<SaleResponse> saleOrRefund(Map<String, String> headers, TransactionConfig config,
             EmvTransactionResult emvResult, byte[] tek, String asyncRequestId) {
-        SaleRequest saleRequest = buildSaleRequest(config, emvResult);
+        boolean refund = isRefund(config);
+        String step = refund ? "Refund" : "Sale";
+        Object body = refund ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult);
 
         String encSerializedRequest;
         try {
-            String serialized = gson.toJson(saleRequest);
-            logSerialized("SALE_REQUEST", serialized);
+            String serialized = gson.toJson(body);
+            logSerialized(step.toUpperCase(Locale.US) + "_REQUEST", serialized);
             logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
             encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
         } catch (GeneralSecurityException e) {
-            return Single.error(new HostNotReachedException("Failed to AES-encrypt the sale request", e));
+            return Single.error(new HostNotReachedException(
+                    "Failed to AES-encrypt the " + step.toLowerCase(Locale.US) + " request", e));
         }
 
         GeneralRequest request = GeneralRequest.forSale(
                 encSerializedRequest, asyncRequestId, pinBlockToSend(config));
+        Map<String, String> withToken = withMToken(headers);
+        Single<GeneralResponse> call = refund
+                ? connection.refund(withToken, request)
+                : connection.sale(withToken, request);
 
-        Map<String, String> saleHeaders = new HashMap<>(headers);
-        saleHeaders.put("mToken", hostSettings.getMToken());
-
-        return connection.sale(saleHeaders, request)
-                .onErrorResumeNext(e -> Single.error(classify("Sale", e)))
-                .flatMap(response -> decryptEnvelope(response, tek, "Sale", SaleResponse.class));
-    }
-
-    private Single<SaleResponse> refund(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, byte[] tek, String asyncRequestId) {
-        RefundRequest refundRequest = buildRefundRequest(config, emvResult);
-
-        String encSerializedRequest;
-        try {
-            String serialized = gson.toJson(refundRequest);
-            logSerialized("REFUND_REQUEST", serialized);
-            logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
-            encSerializedRequest = AesEnvelopeCrypto.encrypt(tek, serialized);
-        } catch (GeneralSecurityException e) {
-            return Single.error(new HostNotReachedException("Failed to AES-encrypt the refund request", e));
-        }
-
-        GeneralRequest request = GeneralRequest.forSale(
-                encSerializedRequest, asyncRequestId, pinBlockToSend(config));
-
-        Map<String, String> refundHeaders = new HashMap<>(headers);
-        refundHeaders.put("mToken", hostSettings.getMToken());
-
-        return connection.refund(refundHeaders, request)
-                .onErrorResumeNext(e -> Single.error(classify("Refund", e)))
-                .flatMap(response -> decryptEnvelope(response, tek, "Refund", SaleResponse.class));
+        return call
+                .onErrorResumeNext(e -> Single.error(classify(step, e)))
+                .flatMap(response -> decryptEnvelope(response, tek, step, SaleResponse.class));
     }
 
     static Throwable classify(String step, Throwable e) {
