@@ -134,7 +134,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#dispatch">تشغيل خطوات الـ EMV: من goToStep إلى onXxx</a></li>
     <li><a href="#ask">حين ينتظر الـ kernel ردًا: askStep</a></li>
     <li><a href="#callback">الطريق إلى الـ host: البنك كـ callback</a></li>
-    <li><a href="#authorize-oop">الطريق إلى البنك من الداخل ومفاهيم OOP</a></li>
+    <li><a href="#bank-oop">الطريق إلى البنك من الداخل ومفاهيم OOP</a></li>
     <li><a href="#why-attach">لماذا attach، لا Dagger</a></li>
     <li><a href="#arqc-to-end">من الـ ARQC حتى نهاية العملية</a></li>
     <li><a href="#closing-chain">الـ closings سلسلة steps (فرع transactionStepObserver)</a></li>
@@ -550,7 +550,7 @@ sequenceDiagram
 </pre></div>
   <p><b>الفكرة في سطر:</b> الـ kernel <b>واقف</b> داخل الاستدعاء الـ native حتى يرجع (أ)، و(أ) واقف حتى يرجع (ب)، و(ب) واقف حتى يرد البنك أو تنتهي الـ 90 ثانية. كل ذلك على الـ transaction thread وبالترتيب، ولذلك يأخذ الـ 2nd GENERATE AC رد البنك في السطر نفسه. في الـ contactless نستدعي <code>startOnlineProcess()</code> نحن من داخل <code>startContactlessTransProcess</code>، وقد تكون البطاقة غادرت الحقل، فلا 2nd GENERATE AC (إلا في الـ tap الثاني لـ Visa).</p>
 
-  <h3 id="authorize-oop">الطريق إلى البنك من الداخل: من أعطى "الرقم" لمن، وبأي مفهوم OOP</h3>
+  <h3 id="bank-oop">الطريق إلى البنك من الداخل: من أعطى "الرقم" لمن، وبأي مفهوم OOP</h3>
   <p>القصة في أربعة أسطر من الكود. <code>PosTerminal</code> يعطي الـ behavior "رقمًا يتصل به" مرة واحدة عند إنشائه، والـ behavior يتصل به حين يطلب الـ kernel الذهاب إلى البنك، ثم يرجع الرد إلى الـ kernel في شكل PAX.</p>
 <pre class="codebox"><span class="c">// ① PosTerminal, once, in its constructor: hand over the number</span>
 behavior.attach(this::sendToBank);
