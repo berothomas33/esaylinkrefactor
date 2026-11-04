@@ -37,10 +37,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    public interface BankRequest {
-        AuthResult send(TransactionConfig config);
-    }
-
     private BankRequest bank;
 
     public final void attach(BankRequest bank) {
