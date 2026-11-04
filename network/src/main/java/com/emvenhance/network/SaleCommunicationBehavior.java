@@ -267,15 +267,16 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         String step = refund ? "Refund" : "Sale";
         GeneralRequest saleRequest = prepareSaleRequest(config, emvResult, tek, asyncRequestId, step);
         Map<String, String> withToken = withMToken(headers);
-        GeneralResponse saleResponse;
+        SaleResponse saleResponse;
         try {
-            saleResponse = refund
+            GeneralResponse generalResponse = refund
                     ? connection.refund(withToken, saleRequest).blockingGet()
                     : connection.sale(withToken, saleRequest).blockingGet();
+            saleResponse = decrypted(generalResponse, tek, step, SaleResponse.class);
         } catch (RuntimeException e) {
             return answerOf(classify(step, unwrapped(e)));
         }
-        return toAuthResult(decrypted(saleResponse, tek, step, SaleResponse.class));
+        return toAuthResult(saleResponse);
     }
 
     private GeneralRequest prepareSaleRequest(TransactionConfig config, EmvTransactionResult emvResult,
@@ -299,6 +300,9 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     }
 
     static RuntimeException classify(String step, Throwable e) {
+        if (e instanceof HostNotReachedException || e instanceof SaleException) {
+            return (RuntimeException) e;
+        }
         if (e instanceof HttpException && isRefusedCaller(((HttpException) e).code())) {
             return notReached(step, e);
         }
