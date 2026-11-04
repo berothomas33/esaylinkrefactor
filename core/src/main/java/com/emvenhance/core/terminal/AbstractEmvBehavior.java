@@ -38,6 +38,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     private final CompositeDisposable disposables = new CompositeDisposable();
 
     private BankRequest bankRequest;
+    @Nullable
+    private AuthResult bankAnswer;
 
     public final void attach(BankRequest bankRequest) {
         this.bankRequest = bankRequest;
@@ -66,6 +68,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         initEmvObserver();
         this.activeConfig = config;
         this.activeCard = null;
+        this.bankAnswer = null;
         goToStep(EmvStep.TERMINAL_INITIALIZATION);
     }
 
@@ -229,6 +232,16 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     protected final AuthResult askTheBank() {
+        bankAnswer = callTheBank();
+        return bankAnswer;
+    }
+
+    @Nullable
+    protected final AuthResult bankAnswer() {
+        return bankAnswer;
+    }
+
+    private AuthResult callTheBank() {
         if (activeConfig == null) {
             return AuthResult.failed("Online failed: no active transaction");
         }
@@ -290,7 +303,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected abstract void onTerminalActionAnalysis(TransactionConfig config, CardPresence card);
 
-    protected abstract void onStartOnlineProcess(TransactionConfig config, CardPresence card);
+    protected abstract void onOnlineAuthorization(TransactionConfig config, CardPresence card);
 
     protected abstract void onIssuerAuthentication(TransactionConfig config, CardPresence card);
 
@@ -386,8 +399,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             case TERMINAL_ACTION_ANALYSIS:
                 onTerminalActionAnalysis(activeConfig, activeCard);
                 break;
-            case START_ONLINE_PROCESS:
-                onStartOnlineProcess(activeConfig, activeCard);
+            case ONLINE_AUTHORIZATION:
+                onOnlineAuthorization(activeConfig, activeCard);
                 break;
             case ISSUER_AUTHENTICATION:
                 onIssuerAuthentication(activeConfig, activeCard);

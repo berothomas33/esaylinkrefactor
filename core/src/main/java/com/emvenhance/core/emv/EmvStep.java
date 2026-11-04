@@ -22,7 +22,7 @@ public enum EmvStep {
     TERMINAL_RISK_MANAGEMENT(11, "Terminal risk management"),
     TERMINAL_ACTION_ANALYSIS(12, "Terminal action analysis"),
 
-    START_ONLINE_PROCESS(13, "Start online processing"),
+    ONLINE_AUTHORIZATION(13, "Online authorization"),
 
     ISSUER_AUTHENTICATION(14, "Issuer authentication"),
     SCRIPT_PROCESSING(15, "Issuer script processing"),

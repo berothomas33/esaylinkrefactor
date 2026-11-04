@@ -21,15 +21,12 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     private static final String TAG = "IngenicoEmvBehavior";
 
     @Nullable
-    private AuthResult lastAuth;
-    @Nullable
     private String stubPan;
     @Nullable
     private String stubMode;
 
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
-        lastAuth = null;
         Log.w(TAG, "Ingenico EMV SDK not attached — stub init");
         searchCard();
     }
@@ -166,12 +163,12 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
                 .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
                 .put(TransactionStepEvent.KEY_MODE, stubMode != null ? stubMode : card.getModeLabel())
                 .build());
-        goToStep(EmvStep.START_ONLINE_PROCESS);
+        goToStep(EmvStep.ONLINE_AUTHORIZATION);
     }
 
     @Override
-    public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        lastAuth = askTheBank();
+    public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
+        askTheBank();
         goToStep(EmvStep.TRANSACTION_COMPLETION);
     }
 
@@ -195,11 +192,12 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
-        if (lastAuth != null && lastAuth.isApproved()) {
+        AuthResult answer = bankAnswer();
+        if (answer != null && answer.isApproved()) {
             finishApproved("INGENICO STUB APPROVED");
         } else {
-            finishDeclined(lastAuth != null && lastAuth.getMessage() != null
-                    ? lastAuth.getMessage() : "DECLINED");
+            finishDeclined(answer != null && answer.getMessage() != null
+                    ? answer.getMessage() : "DECLINED");
         }
     }
 }

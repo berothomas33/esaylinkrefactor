@@ -17,12 +17,9 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
     private static final long SEARCH_DELAY_MS = 200L;
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
-    @Nullable
-    private AuthResult lastAuth;
 
     @Override
     public void onTerminalInitialization(TransactionConfig config) {
-        lastAuth = null;
         searchCard();
     }
 
@@ -150,7 +147,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
             return;
         }
         if (card.isNonEmv()) {
-            goToStep(EmvStep.START_ONLINE_PROCESS);
+            goToStep(EmvStep.ONLINE_AUTHORIZATION);
             return;
         }
         goToStep(EmvStep.SET_TRANSACTION_DATA);
@@ -193,12 +190,12 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onTerminalActionAnalysis(TransactionConfig config, CardPresence card) {
-        goToStep(EmvStep.START_ONLINE_PROCESS);
+        goToStep(EmvStep.ONLINE_AUTHORIZATION);
     }
 
     @Override
-    public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
-        lastAuth = askTheBank();
+    public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
+        askTheBank();
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
         } else {
@@ -238,14 +235,15 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
-        if (card.isContactless() && lastAuth == null) {
+        AuthResult answer = bankAnswer();
+        if (card.isContactless() && answer == null) {
             finishApproved("OFFLINE APPROVED");
             return;
         }
-        if (lastAuth != null && lastAuth.isApproved()) {
+        if (answer != null && answer.isApproved()) {
             finishApproved("ONLINE APPROVED");
-        } else if (lastAuth != null) {
-            finishDeclined(lastAuth.getMessage() != null ? lastAuth.getMessage() : "DECLINED");
+        } else if (answer != null) {
+            finishDeclined(answer.getMessage() != null ? answer.getMessage() : "DECLINED");
         } else {
             finishApproved("APPROVED");
         }

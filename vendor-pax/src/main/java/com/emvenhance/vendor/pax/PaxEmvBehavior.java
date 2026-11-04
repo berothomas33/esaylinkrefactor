@@ -129,7 +129,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
                     .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
                     .build());
-            goToStep(EmvStep.START_ONLINE_PROCESS, "manual");
+            goToStep(EmvStep.ONLINE_AUTHORIZATION, "manual");
             return;
         }
         if (card.isMagstripe()) {
@@ -141,7 +141,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, "")
                     .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
                     .build());
-            goToStep(EmvStep.START_ONLINE_PROCESS, "magstripe");
+            goToStep(EmvStep.ONLINE_AUTHORIZATION, "magstripe");
             return;
         }
         if (card.isChip()) {
@@ -153,24 +153,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     @Override
-    public void onStartOnlineProcess(TransactionConfig config, CardPresence card) {
+    public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
+        askTheBank();
         if (card.isNonEmv()) {
-            tx.lastAuth = askTheBank();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
-            return;
         }
-        tx.lastAuth = askTheBank();
     }
 
     @Override
     public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
         if (card.isNonEmv()) {
-            if (tx.lastAuth != null && tx.lastAuth.isApproved()) {
+            AuthResult answer = bankAnswer();
+            if (answer != null && answer.isApproved()) {
                 String msg = card.isManual() ? "MANUAL ONLINE APPROVED" : "MAG ONLINE APPROVED";
                 finishApproved(msg);
             } else {
-                finishDeclined(tx.lastAuth != null && tx.lastAuth.getMessage() != null
-                        ? tx.lastAuth.getMessage() : "DECLINED");
+                finishDeclined(answer != null && answer.getMessage() != null
+                        ? answer.getMessage() : "DECLINED");
             }
             return;
         }
@@ -1169,16 +1168,15 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @NonNull
     @Override
     public OnlineResultWrapper startOnlineProcess() {
-        tx.lastAuth = null;
-        goToStep(EmvStep.START_ONLINE_PROCESS, null);
-        if (tx.lastAuth == null) {
+        goToStep(EmvStep.ONLINE_AUTHORIZATION, null);
+        if (bankAnswer() == null) {
             engine().apduTrace().note("EMV", "online step did not run — online failed");
         }
-        return PaxHostAnswer.toOnlineResult(tx.lastAuth);
+        return PaxHostAnswer.toOnlineResult(bankAnswer());
     }
 
     private String issuerAuthenticationDetail() {
-        AuthResult auth = tx.lastAuth;
+        AuthResult auth = bankAnswer();
         if (auth == null) {
             return "online failed: no host response";
         }
@@ -1343,8 +1341,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     public void onlineFailed() {
-        String reason = tx.lastAuth != null && tx.lastAuth.isFailed() && tx.lastAuth.getMessage() != null
-                ? "Online Failed: " + tx.lastAuth.getMessage()
+        AuthResult answer = bankAnswer();
+        String reason = answer != null && answer.isFailed() && answer.getMessage() != null
+                ? "Online Failed: " + answer.getMessage()
                 : "Online Failed: no host response";
         finishWithOutcome(TransactionStep.ERROR, "Online Failed", reason);
     }

@@ -2,7 +2,6 @@ package com.emvenhance.vendor.pax;
 
 import androidx.annotation.Nullable;
 import com.emvenhance.core.transaction.TransactionStep;
-import com.emvenhance.core.host.AuthResult;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.OnlineResultWrapper;
@@ -22,9 +21,6 @@ final class PaxKernelSession {
 
     @Nullable
     String clsCachedTrack2Data;
-
-    @Nullable
-    AuthResult lastAuth;
 
     @Nullable
     byte[] lastOnlinePinBlock;
