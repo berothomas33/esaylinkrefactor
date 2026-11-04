@@ -91,7 +91,7 @@ public abstract class PosTerminal {
     }
 
     protected long closeAtHostTimeoutMs() {
-        return 15_000;
+        return 60_000;
     }
 
     public void printReceipt(List<String> lines) {

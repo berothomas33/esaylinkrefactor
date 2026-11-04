@@ -51,7 +51,9 @@ public final class HostApiClient {
                 .baseUrl(EnvironmentProvider.getBaseUrl())
                 .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
-                .addCallAdapterFactory(RxJava3CallAdapterFactory.create())
+                .addCallAdapterFactory(callTimeoutSeconds == NO_CALL_TIMEOUT
+                        ? RxJava3CallAdapterFactory.create()
+                        : RxJava3CallAdapterFactory.createSynchronous())
                 .build();
 
         return retrofit.create(service);
