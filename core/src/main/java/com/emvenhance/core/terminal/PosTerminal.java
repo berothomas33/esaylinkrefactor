@@ -52,11 +52,11 @@ public abstract class PosTerminal {
         this.behavior = behavior;
         this.communication = communication;
         this.printer = printer;
-        behavior.attach(this::authorize);
+        behavior.attach(this::goOnline);
         initializeVendor();
     }
 
-    public AuthResult authorize(TransactionConfig config) {
+    public AuthResult goOnline(TransactionConfig config) {
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
         TransactionConfig sent = config.withAsyncRequestId(UUID.randomUUID().toString());
@@ -64,7 +64,7 @@ public abstract class PosTerminal {
         OnlineRequest request = transaction != null ? transaction.wentOnline(sent) : null;
         AuthResult result;
         try {
-            result = communication.authorize(sent)
+            result = communication.connectToHost(sent)
                     .timeout(onlineTimeoutMs(), TimeUnit.MILLISECONDS)
                     .blockingGet();
         } catch (Exception e) {

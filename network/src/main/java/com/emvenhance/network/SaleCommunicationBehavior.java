@@ -81,7 +81,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     }
 
     @Override
-    public Single<AuthResult> authorize(TransactionConfig config) {
+    public Single<AuthResult> connectToHost(TransactionConfig config) {
         return Single.fromCallable(() -> {
             try {
                 return send(config);

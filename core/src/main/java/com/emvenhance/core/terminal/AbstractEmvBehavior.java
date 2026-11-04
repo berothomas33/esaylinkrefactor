@@ -37,14 +37,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    public interface Authorizer {
-        AuthResult authorize(TransactionConfig config);
+    public interface OnlineGateway {
+        AuthResult goOnline(TransactionConfig config);
     }
 
-    private Authorizer authorizer;
+    private OnlineGateway online;
 
-    public final void attach(Authorizer authorizer) {
-        this.authorizer = authorizer;
+    public final void attach(OnlineGateway online) {
+        this.online = online;
     }
 
     public final EmvEngine engine() {
@@ -252,7 +252,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return authorizer.authorize(config);
+        return online.goOnline(config);
     }
 
     protected TransactionConfig addOnlineRequestData(TransactionConfig config) {

@@ -6,7 +6,7 @@ import io.reactivex.rxjava3.core.Single;
 
 public interface CommunicationBehavior {
 
-    Single<AuthResult> authorize(TransactionConfig config);
+    Single<AuthResult> connectToHost(TransactionConfig config);
 
     default Completable acknowledge(TransactionConfig sent) {
         return Completable.complete();
