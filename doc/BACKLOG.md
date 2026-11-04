@@ -58,7 +58,7 @@ APDU trace is debug-gated), 0.11 (`RELEASE` hard-coded `false`), 0.12
 (a live mToken is still a literal in `HostAppKeys`), 0.13 (`Level.BODY` in every build), 1.4,
 1.8 (no host public key → a warning only), 1.9, 1.12 (Ingenico / Fake `approveAlways`), 1.13,
 1.14, 2.1, 2.3, 2.5 (`TagsTable.TAC_DENIAL = 0xDF8121`), 3.3, 3.7, 3.8, 4.1, 4.3 (75 s per call,
-no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 4.7, 5.1, 5.3, 6.6
+no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 5.1, 5.3, 6.6
 (amount 0 accepted), 6.7. Not re-checked: the rest.
 
 ---
