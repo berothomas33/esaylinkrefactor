@@ -134,6 +134,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#dispatch">تشغيل خطوات الـ EMV: من goToStep إلى onXxx</a></li>
     <li><a href="#ask">حين ينتظر الـ kernel ردًا: askStep</a></li>
     <li><a href="#callback">الطريق إلى الـ host: authorize كـ callback</a></li>
+    <li><a href="#authorize-oop">authorize من الداخل ومفاهيم OOP</a></li>
     <li><a href="#arqc-to-end">من الـ ARQC حتى نهاية العملية</a></li>
     <li><a href="#closing-chain">الـ closings سلسلة steps (فرع transactionStepObserver)</a></li>
     <li><a href="#contact">مسار الـ contact كاملًا</a></li>
@@ -545,6 +546,90 @@ sequenceDiagram
   K-->>PB: checkContactResult → finishApproved / finishDeclined → Transaction.emvFinished
 </pre></div>
   <p><b>الفكرة في سطر:</b> الـ kernel <b>واقف</b> داخل الاستدعاء الـ native حتى يرجع (أ)، و(أ) واقف حتى يرجع (ب)، و(ب) واقف حتى يرد البنك أو تنتهي الـ 90 ثانية. كل ذلك على الـ transaction thread وبالترتيب، ولذلك يأخذ الـ 2nd GENERATE AC رد البنك في السطر نفسه. في الـ contactless نستدعي <code>startOnlineProcess()</code> نحن من داخل <code>startContactlessTransProcess</code>، وقد تكون البطاقة غادرت الحقل، فلا 2nd GENERATE AC (إلا في الـ tap الثاني لـ Visa).</p>
+
+  <h3 id="authorize-oop">authorize من الداخل: من أعطى "الرقم" لمن، وبأي مفهوم OOP</h3>
+  <p>القصة في أربعة أسطر من الكود. <code>PosTerminal</code> يعطي الـ behavior "رقمًا يتصل به" مرة واحدة عند إنشائه، والـ behavior يتصل به حين يطلب الـ kernel الذهاب إلى البنك، ثم يرجع الرد إلى الـ kernel في شكل PAX.</p>
+<pre class="codebox"><span class="c">// ① PosTerminal, once, in its constructor: hand over the number</span>
+behavior.attach(this::authorize);
+
+<span class="c">// ② AbstractEmvBehavior keeps it — it knows an Authorizer, not a PosTerminal</span>
+public interface Authorizer { AuthResult authorize(TransactionConfig config); }
+private Authorizer authorizer;
+public final void attach(Authorizer authorizer) { this.authorizer = authorizer; }
+
+<span class="c">// ③ when the kernel asks to go online: call it and wait for the answer</span>
+protected final AuthResult authorizeOnline() {
+    ... checks + field 55 ...
+    return authorizer.authorize(config);          <span class="c">// = PosTerminal.authorize(config)</span>
+}
+
+<span class="c">// ④ PAX: keep the answer, then hand it to the kernel in PAX's shape</span>
+tx.lastAuth = authorizeOnline();                   <span class="c">// onStartOnlineProcess</span>
+return PaxHostAnswer.toOnlineResult(tx.lastAuth);  <span class="c">// → the kernel</span></pre>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "16px"}}}%%
+classDiagram
+  direction LR
+  class PosTerminal {
+    -AbstractEmvBehavior behavior
+    -CommunicationBehavior communication
+    +authorize(TransactionConfig) AuthResult
+  }
+  class Authorizer {
+    &lt;&lt;interface&gt;&gt;
+    +authorize(TransactionConfig) AuthResult
+  }
+  class AbstractEmvBehavior {
+    &lt;&lt;abstract&gt;&gt;
+    -Authorizer authorizer
+    +attach(Authorizer)
+    #authorizeOnline() AuthResult
+    #onStartOnlineProcess()*
+  }
+  class PaxEmvBehavior {
+    -PaxKernelSession tx
+    +onStartOnlineProcess()
+    +startOnlineProcess() OnlineResultWrapper
+  }
+  class CommunicationBehavior {
+    &lt;&lt;interface&gt;&gt;
+    +authorize(TransactionConfig) Single
+  }
+  class SaleCommunicationBehavior
+  class AuthResult {
+    &lt;&lt;value&gt;&gt;
+    +approved()$
+    +declined()$
+    +failed()$
+    +notSent()$
+  }
+  class PaxHostAnswer {
+    &lt;&lt;adapter&gt;&gt;
+    +toOnlineResult(AuthResult) OnlineResultWrapper
+  }
+  PosTerminal ..> Authorizer : its authorize method is one
+  PosTerminal --> AbstractEmvBehavior : attach
+  AbstractEmvBehavior --> Authorizer : calls back
+  AbstractEmvBehavior &lt;|-- PaxEmvBehavior
+  PosTerminal --> CommunicationBehavior : the bank
+  CommunicationBehavior &lt;|.. SaleCommunicationBehavior
+  PaxEmvBehavior ..> PaxHostAnswer
+  PaxHostAnswer ..> AuthResult
+</pre></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>المفهوم</th><th>أين في القصة</th><th>ماذا يعطينا</th></tr></thead>
+    <tbody>
+      <tr><td><b>Callback</b></td><td><code>attach(this::authorize)</code> ثم <code>authorizer.authorize(config)</code></td><td>الـ behavior لا يستدعي <code>PosTerminal</code> بالاسم؛ معه "رقم" فقط، ويتصل به حين يحتاج.</td></tr>
+      <tr><td><b>Dependency Inversion</b> (الـ D في SOLID)</td><td><code>AbstractEmvBehavior</code> يعتمد على الـ interface <code>Authorizer</code>، لا على <code>PosTerminal</code></td><td>طبقة الـ EMV لا تعرف شيئًا عن البنك أو الـ terminal. في الـ tests يُعطى <code>Authorizer</code> مزيف بسطر واحد.</td></tr>
+      <tr><td><b>Functional interface + method reference</b></td><td><code>Authorizer</code> له method واحدة، و<code>this::authorize</code> تكتب تنفيذها</td><td>لا حاجة لكلاس يطبّق <code>Authorizer</code>؛ الـ method الموجودة في <code>PosTerminal</code> هي التنفيذ.</td></tr>
+      <tr><td><b>Template Method</b></td><td><code>authorizeOnline()</code> (<code>final</code> في الـ abstract) و <code>onStartOnlineProcess()</code> (abstract، كل vendor يملؤها)</td><td>الخطوات المشتركة (الفحوص، field 55، الاتصال) في مكان واحد؛ الـ vendor يقرّر متى يطلبها وماذا يفعل بالرد.</td></tr>
+      <tr><td><b>Encapsulation</b></td><td><code>private Authorizer authorizer</code> و <code>attach</code> <code>final</code></td><td>لا يغيّر أحد "الرقم" ولا يتجاوز الفحوص في <code>authorizeOnline</code>.</td></tr>
+      <tr><td><b>Polymorphism</b></td><td><code>CommunicationBehavior</code> (التطبيق: <code>SaleCommunicationBehavior</code>)، و <code>AbstractEmvBehavior</code> (PAX، Ingenico، Fake)</td><td><code>PosTerminal</code> يتعامل مع الواجهة؛ يتغيّر البنك أو الـ vendor دون أن يتغيّر هو.</td></tr>
+      <tr><td><b>Value Object</b></td><td><code>AuthResult</code>: constructor خاص، وأربع factory methods (<code>approved</code> / <code>declined</code> / <code>failed</code> / <code>notSent</code>)، ولا setters</td><td>رد البنك شيء ثابت لا يتغيّر بعد إنشائه، وبشكل واحد لا يخص vendor.</td></tr>
+      <tr><td><b>Adapter</b></td><td><code>PaxHostAnswer.toOnlineResult(AuthResult)</code></td><td>يحوّل الرد العام إلى شكل PAX (<code>OnlineResultWrapper</code> / <code>IssuerRspData</code>) الذي يفهمه الـ kernel. vendor آخر يكتب Adapter خاصًا به.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">كل ذلك متزامن على الـ transaction thread: الـ kernel ينتظر داخل callback (أ)، و <code>authorizeOnline</code> تنتظر <code>PosTerminal.authorize</code>، حتى يرجع <code>AuthResult</code>.</p>
 
   <h3 id="arqc-to-end">من الـ ARQC حتى نهاية العملية (صورة واحدة)</h3>
   <p>المسار كله على الـ transaction thread، وكل سهم ينتظر الذي قبله. العمود الأخير هو ما تراه الشاشة من خطوات، بالترتيب.</p>
