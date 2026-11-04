@@ -122,7 +122,13 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                     "No access token on file — onboarding must complete before a sale can go online");
         }
 
-        String accessToken = refreshedAccessToken();
+        String accessToken;
+        try {
+            accessToken = onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
+                    .blockingGet();
+        } catch (RuntimeException e) {
+            return answerOf(notReached("Token refresh", unwrapped(e)));
+        }
         Map<String, String> headers = HostHeaders.buildAuthenticated(sn, accessToken);
         byte[] tek = newTek();
         String tekEncrypted = encryptTek(hostPublicKey, tek);
@@ -138,15 +144,6 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return answerOf(exchangeError(unwrapped(e)));
         }
         return callSale(headers, config, emvResult, tek, asyncRequestId);
-    }
-
-    private String refreshedAccessToken() {
-        try {
-            return onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
-                    .blockingGet();
-        } catch (RuntimeException e) {
-            throw notReached("Token refresh", unwrapped(e));
-        }
     }
 
     private static byte[] newTek() {
