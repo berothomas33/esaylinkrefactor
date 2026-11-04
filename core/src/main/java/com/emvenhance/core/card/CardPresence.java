@@ -64,6 +64,14 @@ public final class CardPresence {
         return entryMethod == EntryMethod.MANUAL;
     }
 
+    public boolean isEmv() {
+        return isChip() || isContactless();
+    }
+
+    public boolean isNonEmv() {
+        return !isEmv();
+    }
+
     @Nullable
     public String getTrack1() {
         return track1;

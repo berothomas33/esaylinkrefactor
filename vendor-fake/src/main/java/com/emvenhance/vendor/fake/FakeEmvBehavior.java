@@ -149,7 +149,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
             goToStep(EmvStep.TRANSACTION_COMPLETION);
             return;
         }
-        if (isNonEmv(card)) {
+        if (card.isNonEmv()) {
             goToStep(EmvStep.START_ONLINE_PROCESS);
             return;
         }

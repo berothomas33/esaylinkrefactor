@@ -37,10 +37,10 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     private final CompositeDisposable disposables = new CompositeDisposable();
 
-    private BankRequest bank;
+    private BankRequest bankRequest;
 
-    public final void attach(BankRequest bank) {
-        this.bank = bank;
+    public final void attach(BankRequest bankRequest) {
+        this.bankRequest = bankRequest;
     }
 
     public final EmvEngine engine() {
@@ -236,7 +236,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return AuthResult.declined("17", "Cancelled");
         }
         TransactionConfig config = activeConfig;
-        if (activeCard != null && !isNonEmv(activeCard)) {
+        if (activeCard != null && activeCard.isEmv()) {
             Field55 field55 = field55();
             String summary = field55.describe(activeCard.isContactless() ? "contactless" : "contact");
             EmvLog.d(summary);
@@ -248,19 +248,15 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return bank.send(config);
+        return bankRequest.send(config);
     }
 
     protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
         return config;
     }
 
-    protected final boolean isNonEmv(CardPresence card) {
-        return card.isMagstripe() || card.isManual();
-    }
-
     protected EmvStep firstStepAfterSearch(CardPresence card) {
-        if (isNonEmv(card)) {
+        if (card.isNonEmv()) {
             return EmvStep.READ_APPLICATION_DATA;
         }
         return EmvStep.APPLICATION_SELECTION;
