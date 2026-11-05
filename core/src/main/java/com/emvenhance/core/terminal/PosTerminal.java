@@ -393,15 +393,8 @@ public abstract class PosTerminal {
         }
 
         private void onClosingCompleted(TransactionStepEvent completed) {
-            String id = completed.get(TransactionStepEvent.KEY_REQUEST_ID);
-            int next = online.size();
-            for (int i = 0; i < online.size(); i++) {
-                if (online.get(i).sent.getAsyncRequestId().equals(id)) {
-                    next = i + 1;
-                    break;
-                }
-            }
-            closeNext(next);
+            int index = completed.get(TransactionStepEvent.KEY_REQUEST_INDEX);
+            closeNext(index + 1);
         }
 
         private void closeNext(int from) {
@@ -427,11 +420,8 @@ public abstract class PosTerminal {
         private void closeAtHost(TransactionStepEvent step,
                 Function<TransactionConfig, Completable> call) {
             String what = step.getMessage();
-            TransactionConfig sent = sentRequest(step);
-            if (sent == null) {
-                closingCompleted(step, false, what + " not sent: no such request");
-                return;
-            }
+            int index = step.get(TransactionStepEvent.KEY_REQUEST_INDEX);
+            TransactionConfig sent = online.get(index).sent;
             try {
                 call.apply(sent).timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
                         .blockingAwait();
@@ -454,28 +444,19 @@ public abstract class PosTerminal {
                         .message(message)
                         .put(TransactionStepEvent.KEY_REQUEST_ID,
                                 step.getString(TransactionStepEvent.KEY_REQUEST_ID))
+                        .put(TransactionStepEvent.KEY_REQUEST_INDEX,
+                                (int) step.get(TransactionStepEvent.KEY_REQUEST_INDEX))
                         .put(TransactionStepEvent.KEY_CLOSED_OK, ok)
                         .build());
             }
         }
 
-        @Nullable
-        private TransactionConfig sentRequest(TransactionStepEvent closing) {
-            String id = closing.get(TransactionStepEvent.KEY_REQUEST_ID);
-            for (OnlineRequest request : online) {
-                if (request.sent.getAsyncRequestId().equals(id)) {
-                    return request.sent;
-                }
-            }
-            apduTrace().note("HOST", closing.getStep() + " not sent: no request " + id);
-            return null;
-        }
-
         private static TransactionStepEvent closeAtHostStep(TransactionStep step, String what,
-                String id) {
+                String id, int index) {
             return TransactionStepEvent.builder(step)
                     .message(what + " " + id)
                     .put(TransactionStepEvent.KEY_REQUEST_ID, id)
+                    .put(TransactionStepEvent.KEY_REQUEST_INDEX, index)
                     .build();
         }
 
@@ -496,7 +477,7 @@ public abstract class PosTerminal {
                 String id = request.sent.getAsyncRequestId();
                 if (answer != null && answer.isApproved() && last && completedApproved) {
                     apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    return closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id);
+                    return closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id, i);
                 } else if (answer != null && answer.isNotSent()) {
                     apduTrace().note("HOST", "no reversal for request " + id
                             + ": the host could not have approved it — " + answer.getMessage());
@@ -506,7 +487,7 @@ public abstract class PosTerminal {
                                     : answer.isFailed() ? "no usable host answer — "
                                             + answer.getMessage()
                                             : "approved, not completed"));
-                    return closeAtHostStep(TransactionStep.REVERSING, "Reversal", id);
+                    return closeAtHostStep(TransactionStep.REVERSING, "Reversal", id, i);
                 }
             }
             return null;
