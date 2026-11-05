@@ -5,7 +5,6 @@ import java.io.Serializable;
 import org.greenrobot.greendao.annotation.Entity;
 import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
-import org.greenrobot.greendao.annotation.Transient;
 
 @Entity(nameInDb = "capk_revoke")
 public class CapkRevokeBean implements Serializable {
@@ -13,16 +12,10 @@ public class CapkRevokeBean implements Serializable {
     @Id(autoincrement = true)
     private Long id;
     private String rID;
-    @Transient
-    private byte[] rIDBytes;
 
     private String keyID;
-    @Transient
-    private byte keyIDByte;
 
     private String certificateSN;
-    @Transient
-    private byte[] certificateSNBytes;
 
     @Generated(hash = 664269616)
     public CapkRevokeBean(Long id, String rID, String keyID, String certificateSN) {
@@ -56,10 +49,6 @@ public class CapkRevokeBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(rID);
     }
 
-    public void setrIDBytes(byte[] rIDBytes) {
-        this.rIDBytes = rIDBytes;
-    }
-
     public String getKeyID() {
         return keyID;
     }
@@ -72,10 +61,6 @@ public class CapkRevokeBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(keyID)[0];
     }
 
-    public void setKeyIDByte(byte keyIDByte) {
-        this.keyIDByte = keyIDByte;
-    }
-
     public String getCertificateSN() {
         return certificateSN;
     }
@@ -86,10 +71,6 @@ public class CapkRevokeBean implements Serializable {
 
     public byte[] getCertificateSNBytes() {
         return ConvertUtils.strToBcdPaddingRight(certificateSN);
-    }
-
-    public void setCertificateSNBytes(byte[] certificateSNBytes) {
-        this.certificateSNBytes = certificateSNBytes;
     }
 
     public String getRID() {

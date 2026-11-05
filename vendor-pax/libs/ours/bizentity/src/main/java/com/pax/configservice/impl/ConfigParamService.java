@@ -3,18 +3,10 @@ package com.pax.configservice.impl;
 import android.text.TextUtils;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.sp.SharedPrefUtil;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 public class ConfigParamService {
     SharedPrefUtil defaultSp = new SharedPrefUtil(BaseApplication.getAppContext());
-    public void updateKeyValueParam(HashMap<String, String> map) {
-        Set<Map.Entry<String, String>> entries = map.entrySet();
-        for (Map.Entry<String, String> entry : entries){
-            defaultSp.putString(entry.getKey(),entry.getValue());
-        }
-    }
 
     public String getString(String key) {
         return defaultSp.getString(key);

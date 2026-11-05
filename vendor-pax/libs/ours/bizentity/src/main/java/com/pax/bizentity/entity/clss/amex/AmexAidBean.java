@@ -18,11 +18,7 @@ public class AmexAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     private byte transLimitFlag;
@@ -31,53 +27,25 @@ public class AmexAidBean implements Serializable {
     private long cvmLimit;
     private byte cvmLimitFlag;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String dDOL;
-    @Transient
-    private byte[] dDOLBytes;
     private String tDOL;
-    @Transient
-    private byte[] tDOLBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String terminalCapability;
-    @Transient
-    private byte[] terminalCapabilityBytes;
     private String terminalAdditionalCapability;
-    @Transient
-    private byte[] terminalAdditionalCapabilityBytes;
     private String termTransCap;
-    @Transient
-    private byte[] termTransCapBytes;
     private String unRange;
-    @Transient
-    private byte[] unRangeBytes;
     private byte supportOptTrans;
     private byte delayAuthSupport;
     private String exPayRdCap;
-    @Transient
-    private byte exPayRdCapByte;
     private String exFunction;
-    @Transient
-    private byte[] exFunctionBytes;
     private byte supportFullOnline;
     private String aucRFU;
-    @Transient
-    private byte[] aucRFUBytes;
 
     @Generated(hash = 1594119186)
     public AmexAidBean() {
@@ -138,10 +106,6 @@ public class AmexAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -152,10 +116,6 @@ public class AmexAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -226,10 +186,6 @@ public class AmexAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -242,10 +198,6 @@ public class AmexAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -256,10 +208,6 @@ public class AmexAidBean implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -294,10 +242,6 @@ public class AmexAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(dDOL);
     }
 
-    public void setdDOLBytes(byte[] dDOLBytes) {
-        this.dDOLBytes = dDOLBytes;
-    }
-
     public String gettDOL() {
         return tDOL;
     }
@@ -310,10 +254,6 @@ public class AmexAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tDOL);
     }
 
-    public void settDOLBytes(byte[] tDOLBytes) {
-        this.tDOLBytes = tDOLBytes;
-    }
-
     public String getVersion() {
         return version;
     }
@@ -324,10 +264,6 @@ public class AmexAidBean implements Serializable {
 
     public byte[] getVersionBytes() {
         return ConvertUtils.strToBcdPaddingRight(version);
-    }
-
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
     }
 
     public String getTerminalType() {
@@ -346,10 +282,6 @@ public class AmexAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public String getTerminalCapability() {
         return terminalCapability;
     }
@@ -360,10 +292,6 @@ public class AmexAidBean implements Serializable {
 
     public byte[] getTerminalCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(terminalCapability);
-    }
-
-    public void setTerminalCapabilityBytes(byte[] terminalCapabilityBytes) {
-        this.terminalCapabilityBytes = terminalCapabilityBytes;
     }
 
     public String getTerminalAdditionalCapability() {
@@ -378,10 +306,6 @@ public class AmexAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(terminalAdditionalCapability);
     }
 
-    public void setTerminalAdditionalCapabilityBytes(byte[] terminalAdditionalCapabilityBytes) {
-        this.terminalAdditionalCapabilityBytes = terminalAdditionalCapabilityBytes;
-    }
-
     public String getTermTransCap() {
         return termTransCap;
     }
@@ -394,10 +318,6 @@ public class AmexAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(termTransCap);
     }
 
-    public void setTermTransCapBytes(byte[] termTransCapBytes) {
-        this.termTransCapBytes = termTransCapBytes;
-    }
-
     public String getUnRange() {
         return unRange;
     }
@@ -408,10 +328,6 @@ public class AmexAidBean implements Serializable {
 
     public byte[] getUnRangeBytes() {
         return ConvertUtils.strToBcdPaddingLeft(unRange);
-    }
-
-    public void setUnRangeBytes(byte[] unRangeBytes) {
-        this.unRangeBytes = unRangeBytes;
     }
 
     public byte getSupportOptTrans() {
@@ -446,10 +362,6 @@ public class AmexAidBean implements Serializable {
         }
     }
 
-    public void setExPayRdCapByte(byte exPayRdCapByte) {
-        this.exPayRdCapByte = exPayRdCapByte;
-    }
-
     public String getExFunction() {
         return exFunction;
     }
@@ -460,10 +372,6 @@ public class AmexAidBean implements Serializable {
 
     public byte[] getExFunctionBytes() {
         return ConvertUtils.strToBcdPaddingLeft(exFunction);
-    }
-
-    public void setExFunctionBytes(byte[] exFunctionBytes) {
-        this.exFunctionBytes = exFunctionBytes;
     }
 
     public byte getSupportFullOnline() {
@@ -487,10 +395,6 @@ public class AmexAidBean implements Serializable {
             return new byte[0];
         }
         return ConvertUtils.strToBcdPaddingLeft(aucRFU);
-    }
-
-    public void setAucRFUBytes(byte[] aucRFUBytes) {
-        this.aucRFUBytes = aucRFUBytes;
     }
 
     public String getDDOL() {

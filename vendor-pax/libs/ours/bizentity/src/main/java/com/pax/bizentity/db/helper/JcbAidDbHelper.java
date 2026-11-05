@@ -1,7 +1,5 @@
 package com.pax.bizentity.db.helper;
 
-import androidx.annotation.Nullable;
-import com.pax.bizentity.db.dao.JcbAidBeanDao;
 import com.pax.bizentity.entity.clss.jcb.JcbAidBean;
 
 public class JcbAidDbHelper extends BaseDaoHelper<JcbAidBean> {
@@ -17,11 +15,4 @@ public class JcbAidDbHelper extends BaseDaoHelper<JcbAidBean> {
         super(entityClass);
     }
 
-    @Nullable
-    public JcbAidBean findAID(@Nullable String aid) {
-        if (aid == null || aid.isEmpty()) {
-            return null;
-        }
-        return getNoSessionQuery().where(JcbAidBeanDao.Properties.Aid.eq(aid)).unique();
-    }
 }

@@ -7,7 +7,6 @@ import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
 import org.greenrobot.greendao.annotation.NotNull;
 import org.greenrobot.greendao.annotation.Property;
-import org.greenrobot.greendao.annotation.Transient;
 
 @Entity(nameInDb = "capk")
 public class EmvCapk implements Serializable {
@@ -22,8 +21,6 @@ public class EmvCapk implements Serializable {
     @Property(nameInDb = RID_FIELD_NAME)
     @NotNull
     private String rID;
-    @Transient
-    private byte[] rIDBytes;
     @NotNull
     private int keyID;
     @NotNull
@@ -31,17 +28,9 @@ public class EmvCapk implements Serializable {
     @NotNull
     private int arithInd;
     private String module;
-    @Transient
-    private byte[] moduleBytes;
     private String exponent;
-    @Transient
-    private byte[] exponentBytes;
     private String expDate;
-    @Transient
-    private byte[] expDateBytes;
     private String checkSum;
-    @Transient
-    private byte[] checkSumBytes;
 
     @Generated(hash = 1292160809)
     public EmvCapk(Long id, @NotNull String rID, int keyID, int hashInd, int arithInd,
@@ -81,10 +70,6 @@ public class EmvCapk implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(rID);
     }
 
-    public void setrIDBytes(byte[] rIDBytes) {
-        this.rIDBytes = rIDBytes;
-    }
-
     public int getKeyID() {
         return keyID;
     }
@@ -121,10 +106,6 @@ public class EmvCapk implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(module);
     }
 
-    public void setModuleBytes(byte[] moduleBytes) {
-        this.moduleBytes = moduleBytes;
-    }
-
     public String getExponent() {
         return exponent;
     }
@@ -135,10 +116,6 @@ public class EmvCapk implements Serializable {
 
     public byte[] getExponentBytes() {
         return ConvertUtils.strToBcdPaddingLeft(exponent);
-    }
-
-    public void setExponentBytes(byte[] exponentBytes) {
-        this.exponentBytes = exponentBytes;
     }
 
     public String getExpDate() {
@@ -153,10 +130,6 @@ public class EmvCapk implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(expDate);
     }
 
-    public void setExpDateBytes(byte[] expDateBytes) {
-        this.expDateBytes = expDateBytes;
-    }
-
     public String getCheckSum() {
         return checkSum;
     }
@@ -167,10 +140,6 @@ public class EmvCapk implements Serializable {
 
     public byte[] getCheckSumBytes() {
         return ConvertUtils.strToBcdPaddingLeft(checkSum);
-    }
-
-    public void setCheckSumBytes(byte[] checkSumBytes) {
-        this.checkSumBytes = checkSumBytes;
     }
 
     @Override

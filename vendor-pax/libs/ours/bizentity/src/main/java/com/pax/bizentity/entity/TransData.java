@@ -48,12 +48,6 @@ public class TransData implements Serializable {
         }
     }
 
-    public enum SignSendStatus {
-        SEND_SIG_NO,
-        SEND_SIG_SUCC,
-        SEND_SIG_ERR,
-    }
-
     public enum EnterMode {
         MANUAL("M"),
         SWIPE("S"),
@@ -361,116 +355,20 @@ public class TransData implements Serializable {
         return isUpload;
     }
 
-    public void setUpload(boolean upload) {
-        isUpload = upload;
-    }
-
     public boolean isHasPin() {
         return hasPin;
-    }
-
-    public boolean isPinFree() {
-        return pinFree;
-    }
-
-    public boolean isSignFree() {
-        return signFree;
     }
 
     public boolean isCDCVM() {
         return isCDCVM;
     }
 
-    public void setCDCVM(boolean CDCVM) {
-        isCDCVM = CDCVM;
-    }
-
     public boolean isOnlineTrans() {
         return isOnlineTrans;
     }
 
-    public void setOnlineTrans(boolean onlineTrans) {
-        isOnlineTrans = onlineTrans;
-    }
-
-    public String getPin() {
-        return pin;
-    }
-
-    public void setPin(String pin) {
-        this.pin = pin;
-    }
-
     public String getResponseCode() {
         return responseCode;
-    }
-
-    public void setResponseCode(String responseCode) {
-        this.responseCode = responseCode;
-    }
-
-    public String getHeader() {
-        return header;
-    }
-
-    public void setHeader(String header) {
-        this.header = header;
-    }
-
-    public String getTpdu() {
-        return tpdu;
-    }
-
-    public void setTpdu(String tpdu) {
-        this.tpdu = tpdu;
-    }
-
-    public String getField48() {
-        return field48;
-    }
-
-    public void setField48(String field48) {
-        this.field48 = field48;
-    }
-
-    public String getField60() {
-        return field60;
-    }
-
-    public void setField60(String field60) {
-        this.field60 = field60;
-    }
-
-    public String getField62() {
-        return field62;
-    }
-
-    public void setField62(String field62) {
-        this.field62 = field62;
-    }
-
-    public String getField63() {
-        return field63;
-    }
-
-    public void setField63(String field63) {
-        this.field63 = field63;
-    }
-
-    public String getRecvIccData() {
-        return recvIccData;
-    }
-
-    public void setRecvIccData(String recvIccData) {
-        this.recvIccData = recvIccData;
-    }
-
-    public String getField3() {
-        return field3;
-    }
-
-    public void setField3(String field3) {
-        this.field3 = field3;
     }
 
     public Long getId() {

@@ -18,11 +18,7 @@ public class EFTAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     @Transient
@@ -37,29 +33,15 @@ public class EFTAidBean implements Serializable {
     private byte[] cvmLimitBytes;
     private byte cvmLimitFlag;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String terminalCapability;
-    @Transient
-    private byte[] terminalCapabilityBytes;
     private String terminalAddtionalCapability;
-    @Transient
-    private byte[] terminalAddtionalCapabilityBytes;
     private String kernelId;
     @Transient
     private byte[] kernelIdBytes;
@@ -115,10 +97,6 @@ public class EFTAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -129,10 +107,6 @@ public class EFTAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -230,10 +204,6 @@ public class EFTAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -246,10 +216,6 @@ public class EFTAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -260,10 +226,6 @@ public class EFTAidBean implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -298,10 +260,6 @@ public class EFTAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(version);
     }
 
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
-    }
-
     public String getTerminalType() {
         return terminalType;
     }
@@ -318,10 +276,6 @@ public class EFTAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public String getTerminalCapability() {
         return terminalCapability;
     }
@@ -334,10 +288,6 @@ public class EFTAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(terminalCapability);
     }
 
-    public void setTerminalCapabilityBytes(byte[] terminalCapabilityBytes) {
-        this.terminalCapabilityBytes = terminalCapabilityBytes;
-    }
-
     public String getTerminalAddtionalCapability() {
         return terminalAddtionalCapability;
     }
@@ -348,10 +298,6 @@ public class EFTAidBean implements Serializable {
 
     public byte[] getTerminalAddtionalCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(terminalAddtionalCapability);
-    }
-
-    public void setTerminalAddtionalCapabilityBytes(byte[] terminalAddtionalCapabilityBytes) {
-        this.terminalAddtionalCapabilityBytes = terminalAddtionalCapabilityBytes;
     }
 
     public String getKernelId() {

@@ -123,18 +123,6 @@ public class BaseDaoHelper<T> {
         return success;
     }
 
-    public final boolean deleteByKeyList(List<Long> keyList) {
-        boolean success;
-        try {
-            this.getDao().deleteByKeyInTx(keyList);
-            success = true;
-        } catch (Exception e) {
-            LogUtils.e(TAG, e);
-            success = false;
-        }
-        return success;
-    }
-
     public final boolean deleteEntities(List<T> entityList) {
         boolean success;
         try {
@@ -145,10 +133,6 @@ public class BaseDaoHelper<T> {
             success = false;
         }
         return success;
-    }
-
-    public final T loadByKey(long key) {
-        return this.getDao().load(key);
     }
 
     public final T loadByRowId(long rowId) {

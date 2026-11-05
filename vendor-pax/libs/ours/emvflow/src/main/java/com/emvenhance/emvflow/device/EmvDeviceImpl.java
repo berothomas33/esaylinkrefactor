@@ -21,7 +21,6 @@ import com.emvenhance.core.emv.ApduTrace;
 import com.emvenhance.emvflow.BuildConfig;
 import com.pax.bizlib.ped.PedHelper;
 import com.pax.commonlib.application.ActivityStack;
-import com.pax.commonlib.utils.ConvertUtils;
 import com.pax.commonlib.utils.LogUtils;
 import com.pax.commonlib.utils.TickTimer;
 import com.pax.commonlib.utils.ViewUtils;

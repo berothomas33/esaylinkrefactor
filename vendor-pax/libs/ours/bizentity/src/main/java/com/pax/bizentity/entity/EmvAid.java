@@ -40,8 +40,6 @@ public class EmvAid implements Serializable {
     @NotNull
     @Unique
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     @NotNull
     @SelType
     private int selFlag;
@@ -61,49 +59,25 @@ public class EmvAid implements Serializable {
     private int floorLimitCheckFlg;
     @NotNull
     private boolean randTransSel;
-    @Transient
-    private byte randTransSelByte;
     @NotNull
     private boolean velocityCheck;
-    @Transient
-    private byte velocityCheckByte;
     @NotNull
     private long floorLimit;
     @NotNull
     private long threshold;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String dDOL;
-    @Transient
-    private byte[] dDOLBytes;
     private String tDOL;
-    @Transient
-    private byte[] tDOLBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String riskManageData;
-    @Transient
-    private byte[] riskManageDataBytes;
     private String terminalCapability;
-    @Transient
-    private byte[] terminalCapabilityBytes;
     private String terminalAdditionalCapability;
-    @Transient
-    private byte[] terminalAdditionalCapabilityBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private byte getDataPIN;
     private byte bypassPin;
     private byte bypassAllFlg;
@@ -178,10 +152,6 @@ public class EmvAid implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(aid);
     }
 
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
-    }
-
     public int getSelFlag() {
         return selFlag;
     }
@@ -242,10 +212,6 @@ public class EmvAid implements Serializable {
         return (byte) (randTransSel?1:0);
     }
 
-    public void setRandTransSelByte(byte randTransSelByte) {
-        this.randTransSelByte = randTransSelByte;
-    }
-
     public boolean isVelocityCheck() {
         return velocityCheck;
     }
@@ -256,10 +222,6 @@ public class EmvAid implements Serializable {
 
     public byte getVelocityCheckByte() {
         return (byte) (velocityCheck?1:0);
-    }
-
-    public void setVelocityCheckByte(byte velocityCheckByte) {
-        this.velocityCheckByte = velocityCheckByte;
     }
 
     public long getFloorLimit() {
@@ -290,10 +252,6 @@ public class EmvAid implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -306,10 +264,6 @@ public class EmvAid implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -320,10 +274,6 @@ public class EmvAid implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -358,10 +308,6 @@ public class EmvAid implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(dDOL);
     }
 
-    public void setdDOLBytes(byte[] dDOLBytes) {
-        this.dDOLBytes = dDOLBytes;
-    }
-
     public String gettDOL() {
         return tDOL;
     }
@@ -374,10 +320,6 @@ public class EmvAid implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tDOL);
     }
 
-    public void settDOLBytes(byte[] tDOLBytes) {
-        this.tDOLBytes = tDOLBytes;
-    }
-
     public String getVersion() {
         return version;
     }
@@ -388,10 +330,6 @@ public class EmvAid implements Serializable {
 
     public byte[] getVersionBytes() {
         return ConvertUtils.strToBcdPaddingRight(version);
-    }
-
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
     }
 
     public String getRiskManageData() {
@@ -409,10 +347,6 @@ public class EmvAid implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(riskManageData);
     }
 
-    public void setRiskManageDataBytes(byte[] riskManageDataBytes) {
-        this.riskManageDataBytes = riskManageDataBytes;
-    }
-
     public String getTerminalCapability() {
         return terminalCapability;
     }
@@ -425,10 +359,6 @@ public class EmvAid implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(terminalCapability);
     }
 
-    public void setTerminalCapabilityBytes(byte[] terminalCapabilityBytes) {
-        this.terminalCapabilityBytes = terminalCapabilityBytes;
-    }
-
     public String getTerminalAdditionalCapability() {
         return terminalAdditionalCapability;
     }
@@ -439,10 +369,6 @@ public class EmvAid implements Serializable {
 
     public byte[] getTerminalAdditionalCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(terminalAdditionalCapability);
-    }
-
-    public void setTerminalAdditionalCapabilityBytes(byte[] terminalAdditionalCapabilityBytes) {
-        this.terminalAdditionalCapabilityBytes = terminalAdditionalCapabilityBytes;
     }
 
     public String getTerminalType() {
@@ -459,10 +385,6 @@ public class EmvAid implements Serializable {
         }else {
             return (byte) -1;
         }
-    }
-
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
     }
 
     public byte getGetDataPIN() {

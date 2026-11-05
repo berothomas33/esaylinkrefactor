@@ -18,11 +18,7 @@ public class JcbAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     @Transient
@@ -40,30 +36,16 @@ public class JcbAidBean implements Serializable {
     private byte[] cvmLimitBytes;
     private byte cvmLimitFlag;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String termInterchange;
-    @Transient
-    private byte[] termInterchangeBytes;
     private byte termCompatFlag;
     private String combinationOption;
-    @Transient
-    private byte[] combinationOptionBytes;
 
     @Generated(hash = 594833073)
     public JcbAidBean(Long id, String appName, String aid, byte selFlag, long transLimit,
@@ -117,10 +99,6 @@ public class JcbAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -131,10 +109,6 @@ public class JcbAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -248,10 +222,6 @@ public class JcbAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -264,10 +234,6 @@ public class JcbAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -278,10 +244,6 @@ public class JcbAidBean implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -316,10 +278,6 @@ public class JcbAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(version);
     }
 
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
-    }
-
     public String getTerminalType() {
         return terminalType;
     }
@@ -336,10 +294,6 @@ public class JcbAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public String getTermInterchange() {
         return termInterchange;
     }
@@ -350,10 +304,6 @@ public class JcbAidBean implements Serializable {
 
     public byte[] getTermInterchangeBytes() {
         return ConvertUtils.strToBcdPaddingRight(termInterchange);
-    }
-
-    public void setTermInterchangeBytes(byte[] termInterchangeBytes) {
-        this.termInterchangeBytes = termInterchangeBytes;
     }
 
     public byte getTermCompatFlag() {
@@ -376,7 +326,4 @@ public class JcbAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(combinationOption);
     }
 
-    public void setCombinationOptionBytes(byte[] combinationOptionBytes) {
-        this.combinationOptionBytes = combinationOptionBytes;
-    }
 }

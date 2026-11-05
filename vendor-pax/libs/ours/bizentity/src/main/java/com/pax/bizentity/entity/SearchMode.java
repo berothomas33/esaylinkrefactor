@@ -13,10 +13,6 @@ public class SearchMode {
 
     }
 
-    public static boolean contain(byte mode, byte mode2) {
-        return (mode & mode2) == mode2;
-    }
-
     public static boolean isWave(byte mode) {
         return ((mode & INTERNAL_WAVE) == INTERNAL_WAVE) || ((mode & EXTERNAL_WAVE) == EXTERNAL_WAVE);
     }
@@ -34,11 +30,4 @@ public class SearchMode {
         return (readType & EXTERNAL_WAVE) == EXTERNAL_WAVE;
     }
 
-    public static boolean isSupportKeyIn(byte readType) {
-        return (readType & KEYIN) == KEYIN;
-    }
-
-    public static boolean isSupportQR(byte readType) {
-        return (readType & QR) == QR;
-    }
 }

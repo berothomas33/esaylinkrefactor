@@ -699,11 +699,6 @@ public class EmvParamService {
         return emvAids;
     }
 
-    public EmvProcessParam reloadFromDatabase() {
-        invalidate();
-        return getCachedEmvParam();
-    }
-
     public EmvProcessParam getCachedEmvParam() {
         synchronized (EmvParamService.class) {
             if (cache == null) {

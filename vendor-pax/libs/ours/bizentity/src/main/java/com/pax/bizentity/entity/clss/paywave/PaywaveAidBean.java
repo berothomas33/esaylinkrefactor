@@ -9,7 +9,6 @@ import org.greenrobot.greendao.annotation.Entity;
 import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
 import org.greenrobot.greendao.annotation.Property;
-import org.greenrobot.greendao.annotation.Transient;
 
 @Entity(nameInDb = "paywave_aid")
 public class PaywaveAidBean implements Serializable {
@@ -20,27 +19,15 @@ public class PaywaveAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String ttq;
-    @Transient
-    private byte[] ttqBytes;
     private byte crypto17Flag;
     private byte statusCheckFlag;
     private byte amountZeroNoAllowed;
     private String securityCapability;
-    @Transient
-    private byte[] securityCapabilityBytes;
     private byte domesticOnly;
     private byte enDDAVerNo;
     @Property(nameInDb = "TERMINAL_CAPABILITY")
@@ -95,10 +82,6 @@ public class PaywaveAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -109,10 +92,6 @@ public class PaywaveAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -135,10 +114,6 @@ public class PaywaveAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(version);
     }
 
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
-    }
-
     public String getTerminalType() {
         return terminalType;
     }
@@ -154,9 +129,6 @@ public class PaywaveAidBean implements Serializable {
             return (byte) -1;
         }
     }
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
 
     public String getTtq() {
         return ttq;
@@ -168,10 +140,6 @@ public class PaywaveAidBean implements Serializable {
 
     public byte[] getTtqBytes() {
         return ConvertUtils.strToBcdPaddingLeft(ttq);
-    }
-
-    public void setTtqBytes(byte[] ttqBytes) {
-        this.ttqBytes = ttqBytes;
     }
 
     public byte getCrypto17Flag() {
@@ -208,10 +176,6 @@ public class PaywaveAidBean implements Serializable {
 
     public byte[] getSecurityCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(securityCapability);
-    }
-
-    public void setSecurityCapabilityBytes(byte[] securityCapabilityBytes) {
-        this.securityCapabilityBytes = securityCapabilityBytes;
     }
 
     public byte getDomesticOnly() {

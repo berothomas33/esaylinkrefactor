@@ -13,14 +13,6 @@ public class GreendaoHelper {
         return IssuerDbHelper.getInstance();
     }
 
-    public static CardBinDbHelper getCardBinHelper() {
-        return CardBinDbHelper.getInstance();
-    }
-
-    public static CardBinBlackDbHelper getCardBinBlackHelper() {
-        return CardBinBlackDbHelper.getInstance();
-    }
-
     public static CardRangeDbHelper getCardRangeHelper() {
         return CardRangeDbHelper.getInstance();
     }
@@ -33,11 +25,4 @@ public class GreendaoHelper {
         return EmvCapkDbHelper.getInstance();
     }
 
-    public static TransDataDbHelper getTransDataHelper() {
-        return TransDataDbHelper.getInstance();
-    }
-
-    public static TransTotalDbHelper getTransTotalHelper() {
-        return TransTotalDbHelper.getInstance();
-    }
 }

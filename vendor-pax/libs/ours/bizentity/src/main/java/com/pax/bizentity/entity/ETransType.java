@@ -69,65 +69,12 @@ public enum ETransType {
         this.isSymbolNegative = isSymbolNegative;
     }
 
-    public void updateTransName() {
-        switch (this) {
-            case ECHO:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_echo);
-                break;
-            case SETTLE:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_settle);
-                break;
-            case BATCH_UP:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_batch_up);
-                break;
-            case SETTLE_END:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_settle_end);
-                break;
-            case SALE:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_sale);
-                break;
-            case VOID:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_void);
-                break;
-            case REFUND:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_refund);
-                break;
-            case ADJUST:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_adjust);
-                break;
-            case PREAUTH:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_preAuth);
-                break;
-            case OFFLINE_TRANS_SEND:
-                transName = BaseApplication.getAppContext().getString(R.string.trans_offline_send);
-                break;
-            default:
-                break;
-        }
-    }
-
-    public String getMsgType() {
-        return msgType;
-    }
-
-    public String getDupMsgType() {
-        return dupMsgType;
-    }
-
     public String getProcCode() {
         return procCode;
     }
 
     public String getServiceCode() {
         return serviceCode;
-    }
-
-    public String getTransName() {
-        return transName;
-    }
-
-    public byte getReadMode() {
-        return readMode;
     }
 
     public boolean isDupSendAllowed() {

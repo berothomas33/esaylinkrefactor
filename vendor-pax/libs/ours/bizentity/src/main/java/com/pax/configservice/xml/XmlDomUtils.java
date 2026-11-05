@@ -150,14 +150,6 @@ final class XmlDomUtils {
         LogUtils.w("XmlDomUtils", tag + " '" + value + "' is not a number — using " + used);
     }
 
-    static boolean boolOf(@Nullable Element parent, String tag, boolean defaultValue) {
-        String value = text(parent, tag);
-        if (value == null || value.isEmpty()) {
-            return defaultValue;
-        }
-        return !"0".equals(value);
-    }
-
     static byte byteOf(@Nullable Element parent, String tag, int defaultValue) {
         return (byte) intOf(parent, tag, defaultValue);
     }

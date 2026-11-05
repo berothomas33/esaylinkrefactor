@@ -18,11 +18,7 @@ public class DpasAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     private byte transLimitFlag;
@@ -31,30 +27,16 @@ public class DpasAidBean implements Serializable {
     private long cvmLimit;
     private byte cvmLimitFlag;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String terminalCapability;
-    @Transient
-    private byte[] terminalCapabilityBytes;
     private byte exceptFileFlag;
     private String ttq;
-    @Transient
-    private byte[] ttqBytes;
 
     @Generated(hash = 1837212660)
     public DpasAidBean(Long id, String appName, String aid, byte selFlag, long transLimit,
@@ -106,10 +88,6 @@ public class DpasAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -120,10 +98,6 @@ public class DpasAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -194,10 +168,6 @@ public class DpasAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -210,10 +180,6 @@ public class DpasAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -224,10 +190,6 @@ public class DpasAidBean implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -262,10 +224,6 @@ public class DpasAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(version);
     }
 
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
-    }
-
     public String getTerminalType() {
         return terminalType;
     }
@@ -282,10 +240,6 @@ public class DpasAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public String getTerminalCapability() {
         return terminalCapability;
     }
@@ -296,10 +250,6 @@ public class DpasAidBean implements Serializable {
 
     public byte[] getTerminalCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(terminalCapability);
-    }
-
-    public void setTerminalCapabilityBytes(byte[] terminalCapabilityBytes) {
-        this.terminalCapabilityBytes = terminalCapabilityBytes;
     }
 
     public byte getExceptFileFlag() {
@@ -322,7 +272,4 @@ public class DpasAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(ttq);
     }
 
-    public void setTtqBytes(byte[] ttqBytes) {
-        this.ttqBytes = ttqBytes;
-    }
 }

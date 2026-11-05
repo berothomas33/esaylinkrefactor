@@ -4,7 +4,6 @@
     <string name="trans_sale">売上</string>
     <string name="trans_void">取消</string>
     <string name="trans_adjust">調整</string>
-    <string name="trans_offline">オフライン</string>
     <string name="trans_preAuth">事前承認</string>
     <string name="trans_refund">返金</string>
     <string name="trans_echo">Echo機能</string>

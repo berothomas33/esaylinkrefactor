@@ -18,11 +18,7 @@ public class PureAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     private byte transLimitFlag;
@@ -31,68 +27,28 @@ public class PureAidBean implements Serializable {
     private long cvmLimit;
     private byte cvmLimitFlag;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String dDOL;
-    @Transient
-    private byte[] dDOLBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String terminalCapability;
-    @Transient
-    private byte[] terminalCapabilityBytes;
     private String terminalAdditionalCapability;
-    @Transient
-    private byte[] terminalAdditionalCapabilityBytes;
     private String addTagObjList;
-    @Transient
-    private byte[] addTagObjListBytes;
     private String mandatoryTagObjList;
-    @Transient
-    private byte[] mandatoryTagObjListBytes;
     private String authTransDataTagObjList;
-    @Transient
-    private byte[] authTransDataTagObjListBytes;
     private String clssKernelCapability;
-    @Transient
-    private byte[] clssKernelCapabilityBytes;
     private String clssPOSImplOption;
-    @Transient
-    private byte[] clssPOSImplOptionBytes;
     private String appAuthTransType;
-    @Transient
-    private byte[] appAuthTransTypeBytes;
     private String refundTacDenial;
-    @Transient
-    private byte[] refundTacDenialBytes;
     private String timeout;
-    @Transient
-    private byte[] timeoutBytes;
     private String memorySlotReadTemp;
-    @Transient
-    private byte[] memorySlotReadTempBytes;
     private String memorySlotUpdateTemp;
-    @Transient
-    private byte[] memorySlotUpdateTempBytes;
     private String impOption;
-    @Transient
-    private byte impOptionBytes;
     private String checkExceptionFilePan;
-    @Transient
-    private byte[] checkExceptionFilePanBytes;
 
     @Generated(hash = 403985070)
     public PureAidBean(Long id, String appName, String aid, byte selFlag, long transLimit,
@@ -160,10 +116,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -174,10 +126,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -248,10 +196,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -264,10 +208,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -278,10 +218,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -308,10 +244,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(dDOL);
     }
 
-    public void setdDOLBytes(byte[] dDOLBytes) {
-        this.dDOLBytes = dDOLBytes;
-    }
-
     public String getVersion() {
         return version;
     }
@@ -322,10 +254,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getVersionBytes() {
         return ConvertUtils.strToBcdPaddingRight(version);
-    }
-
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
     }
 
     public String getTerminalType() {
@@ -344,10 +272,6 @@ public class PureAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public String getTerminalCapability() {
         return terminalCapability;
     }
@@ -358,10 +282,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getTerminalCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(terminalCapability);
-    }
-
-    public void setTerminalCapabilityBytes(byte[] terminalCapabilityBytes) {
-        this.terminalCapabilityBytes = terminalCapabilityBytes;
     }
 
     public String getTerminalAdditionalCapability() {
@@ -376,10 +296,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(terminalAdditionalCapability);
     }
 
-    public void setTerminalAdditionalCapabilityBytes(byte[] terminalAdditionalCapabilityBytes) {
-        this.terminalAdditionalCapabilityBytes = terminalAdditionalCapabilityBytes;
-    }
-
     public String getAddTagObjList() {
         return addTagObjList;
     }
@@ -390,10 +306,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getAddTagObjListBytes() {
         return ConvertUtils.strToBcdPaddingLeft(addTagObjList);
-    }
-
-    public void setAddTagObjListBytes(byte[] addTagObjListBytes) {
-        this.addTagObjListBytes = addTagObjListBytes;
     }
 
     public String getMandatoryTagObjList() {
@@ -408,10 +320,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(mandatoryTagObjList);
     }
 
-    public void setMandatoryTagObjListBytes(byte[] mandatoryTagObjListBytes) {
-        this.mandatoryTagObjListBytes = mandatoryTagObjListBytes;
-    }
-
     public String getAuthTransDataTagObjList() {
         return authTransDataTagObjList;
     }
@@ -422,10 +330,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getAuthTransDataTagObjListBytes() {
         return ConvertUtils.strToBcdPaddingLeft(authTransDataTagObjList);
-    }
-
-    public void setAuthTransDataTagObjListBytes(byte[] authTransDataTagObjListBytes) {
-        this.authTransDataTagObjListBytes = authTransDataTagObjListBytes;
     }
 
     public String getClssKernelCapability() {
@@ -440,10 +344,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(clssKernelCapability);
     }
 
-    public void setClssKernelCapabilityBytes(byte[] clssKernelCapabilityBytes) {
-        this.clssKernelCapabilityBytes = clssKernelCapabilityBytes;
-    }
-
     public String getClssPOSImplOption() {
         return clssPOSImplOption;
     }
@@ -454,10 +354,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getClssPOSImplOptionBytes() {
         return ConvertUtils.strToBcdPaddingLeft(clssPOSImplOption);
-    }
-
-    public void setClssPOSImplOptionBytes(byte[] clssPOSImplOptionBytes) {
-        this.clssPOSImplOptionBytes = clssPOSImplOptionBytes;
     }
 
     public String getAppAuthTransType() {
@@ -472,10 +368,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appAuthTransType);
     }
 
-    public void setAppAuthTransTypeBytes(byte[] appAuthTransTypeBytes) {
-        this.appAuthTransTypeBytes = appAuthTransTypeBytes;
-    }
-
     public String getRefundTacDenial() {
         return refundTacDenial;
     }
@@ -486,10 +378,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getRefundTacDenialBytes() {
         return ConvertUtils.strToBcdPaddingLeft(refundTacDenial);
-    }
-
-    public void setRefundTacDenialBytes(byte[] refundTacDenialBytes) {
-        this.refundTacDenialBytes = refundTacDenialBytes;
     }
 
     public String getTimeout() {
@@ -504,10 +392,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(timeout);
     }
 
-    public void setTimeoutBytes(byte[] timeoutBytes) {
-        this.timeoutBytes = timeoutBytes;
-    }
-
     public String getMemorySlotReadTemp() {
         return memorySlotReadTemp;
     }
@@ -518,10 +402,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getMemorySlotReadTempBytes() {
         return ConvertUtils.strToBcdPaddingLeft(memorySlotReadTemp);
-    }
-
-    public void setMemorySlotReadTempBytes(byte[] memorySlotReadTempBytes) {
-        this.memorySlotReadTempBytes = memorySlotReadTempBytes;
     }
 
     public String getMemorySlotUpdateTemp() {
@@ -536,10 +416,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(memorySlotUpdateTemp);
     }
 
-    public void setMemorySlotUpdateTempBytes(byte[] memorySlotUpdateTempBytes) {
-        this.memorySlotUpdateTempBytes = memorySlotUpdateTempBytes;
-    }
-
     public String getImpOption() {
         return impOption;
     }
@@ -552,10 +428,6 @@ public class PureAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(impOption)[0];
     }
 
-    public void setImpOptionBytes(byte impOptionBytes) {
-        this.impOptionBytes = impOptionBytes;
-    }
-
     public String getCheckExceptionFilePan() {
         return checkExceptionFilePan;
     }
@@ -566,10 +438,6 @@ public class PureAidBean implements Serializable {
 
     public byte[] getCheckExceptionFilePanBytes() {
         return ConvertUtils.strToBcdPaddingLeft(checkExceptionFilePan);
-    }
-
-    public void setCheckExceptionFilePanBytes(byte[] checkExceptionFilePanBytes) {
-        this.checkExceptionFilePanBytes = checkExceptionFilePanBytes;
     }
 
     public String getDDOL() {

@@ -19,11 +19,7 @@ public class PayPassAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     @Transient
@@ -41,80 +37,36 @@ public class PayPassAidBean implements Serializable {
     private byte[] cvmLimitBytes;
     private byte cvmLimitFlag;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String riskManageData;
-    @Transient
-    private byte[] riskManageDataBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String terminalAdditionalCapability;
-    @Transient
-    private byte[] terminalAdditionalCapabilityBytes;
     private String kernelConfig;
-    @Transient
-    private byte[] kernelConfigBytes;
     private String cardDataInput;
-    @Transient
-    private byte[] cardDataInputBytes;
     private String cvmRequired;
-    @Transient
-    private byte[] cvmRequiredBytes;
     private String noCvmRequired;
-    @Transient
-    private byte[] noCvmRequiredBytes;
     private String securityCapability;
-    @Transient
-    private byte[] securityCapabilityBytes;
     private String magVersion;
-    @Transient
-    private byte[] magVersionBytes;
     private String magCvm;
-    @Transient
-    private byte[] magCvmBytes;
     private String magNoCvm;
-    @Transient
-    private byte[] magNoCvmBytes;
     private String kernelId;
     private byte[] kernelIdBytes;
     private byte dataExchangeSupportFlag;
     private String tlvParam;
-    @Transient
-    private byte[] tlvParamBytes;
     private String defaultUDOL;
-    @Transient
-    private byte[] defaultUDOLBytes;
     private long refundVoidFloorLimit;
     private String refundVoidTacDenial;
-    @Transient
-    private byte[] refundVoidTacDenialBytes;
     @NotNull
     private boolean supportDefaultMcTermParam = true;
     private String maxTornNum;
-    @Transient
-    private byte[] maxTornNumBytes;
     private String maxTornLifetime;
-    @Transient
-    private byte[] maxTornLifetimeBytes;
     private String deviceSN;
-    @Transient
-    private byte[] deviceSNBytes;
     private String dsOperatorId;
-    @Transient
-    private byte[] dsOperatorIdBytes;
     private String mobileSupport;
     private String accountType;
 
@@ -194,10 +146,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -208,10 +156,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -321,10 +265,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -337,10 +277,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -351,10 +287,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -389,10 +321,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(version);
     }
 
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
-    }
-
     public String getRiskManageData() {
         return riskManageData;
     }
@@ -406,10 +334,6 @@ public class PayPassAidBean implements Serializable {
             return new byte[0];
         }
         return ConvertUtils.strToBcdPaddingLeft(riskManageData);
-    }
-
-    public void setRiskManageDataBytes(byte[] riskManageDataBytes) {
-        this.riskManageDataBytes = riskManageDataBytes;
     }
 
     public String getTerminalType() {
@@ -428,10 +352,6 @@ public class PayPassAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public String getTerminalAdditionalCapability() {
         return terminalAdditionalCapability;
     }
@@ -442,10 +362,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getTerminalAdditionalCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(terminalAdditionalCapability);
-    }
-
-    public void setTerminalAdditionalCapabilityBytes(byte[] terminalAdditionalCapabilityBytes) {
-        this.terminalAdditionalCapabilityBytes = terminalAdditionalCapabilityBytes;
     }
 
     public String getKernelConfig() {
@@ -460,10 +376,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(kernelConfig);
     }
 
-    public void setKernelConfigBytes(byte[] kernelConfigBytes) {
-        this.kernelConfigBytes = kernelConfigBytes;
-    }
-
     public String getCardDataInput() {
         return cardDataInput;
     }
@@ -474,10 +386,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getCardDataInputBytes() {
         return ConvertUtils.strToBcdPaddingLeft(cardDataInput);
-    }
-
-    public void setCardDataInputBytes(byte[] cardDataInputBytes) {
-        this.cardDataInputBytes = cardDataInputBytes;
     }
 
     public String getCvmRequired() {
@@ -492,10 +400,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(cvmRequired);
     }
 
-    public void setCvmRequiredBytes(byte[] cvmRequiredBytes) {
-        this.cvmRequiredBytes = cvmRequiredBytes;
-    }
-
     public String getNoCvmRequired() {
         return noCvmRequired;
     }
@@ -506,10 +410,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getNoCvmRequiredBytes() {
         return ConvertUtils.strToBcdPaddingLeft(noCvmRequired);
-    }
-
-    public void setNoCvmRequiredBytes(byte[] noCvmRequiredBytes) {
-        this.noCvmRequiredBytes = noCvmRequiredBytes;
     }
 
     public String getSecurityCapability() {
@@ -524,10 +424,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(securityCapability);
     }
 
-    public void setSecurityCapabilityBytes(byte[] securityCapabilityBytes) {
-        this.securityCapabilityBytes = securityCapabilityBytes;
-    }
-
     public String getMagVersion() {
         return magVersion;
     }
@@ -538,10 +434,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getMagVersionBytes() {
         return ConvertUtils.strToBcdPaddingLeft(magVersion);
-    }
-
-    public void setMagVersionBytes(byte[] magVersionBytes) {
-        this.magVersionBytes = magVersionBytes;
     }
 
     public String getMagCvm() {
@@ -556,10 +448,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(magCvm);
     }
 
-    public void setMagCvmBytes(byte[] magCvmBytes) {
-        this.magCvmBytes = magCvmBytes;
-    }
-
     public String getMagNoCvm() {
         return magNoCvm;
     }
@@ -570,10 +458,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getMagNoCvmBytes() {
         return ConvertUtils.strToBcdPaddingLeft(magNoCvm);
-    }
-
-    public void setMagNoCvmBytes(byte[] magNoCvmBytes) {
-        this.magNoCvmBytes = magNoCvmBytes;
     }
 
     public String getKernelId() {
@@ -612,10 +496,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(tlvParam);
     }
 
-    public void setTlvParamBytes(byte[] tlvParamBytes) {
-        this.tlvParamBytes = tlvParamBytes;
-    }
-
     public String getDefaultUDOL() {
         return defaultUDOL;
     }
@@ -626,10 +506,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getDefaultUDOLBytes() {
         return ConvertUtils.strToBcdPaddingLeft(defaultUDOL);
-    }
-
-    public void setDefaultUDOLBytes(byte[] defaultUDOLBytes) {
-        this.defaultUDOLBytes = defaultUDOLBytes;
     }
 
     public long getRefundVoidFloorLimit() {
@@ -652,10 +528,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(refundVoidTacDenial);
     }
 
-    public void setRefundVoidTacDenialBytes(byte[] refundVoidTacDenialBytes) {
-        this.refundVoidTacDenialBytes = refundVoidTacDenialBytes;
-    }
-
     public String getMaxTornNum() {
         return maxTornNum;
     }
@@ -668,10 +540,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(maxTornNum);
     }
 
-    public void setMaxTornNumBytes(byte[] maxTornNumBytes) {
-        this.maxTornNumBytes = maxTornNumBytes;
-    }
-
     public String getMaxTornLifetime() {
         return maxTornLifetime;
     }
@@ -682,10 +550,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getMaxTornLifetimeBytes() {
         return ConvertUtils.strToBcdPaddingLeft(maxTornLifetime);
-    }
-
-    public void setMaxTornLifetimeBytes(byte[] maxTornLifetimeBytes) {
-        this.maxTornLifetimeBytes = maxTornLifetimeBytes;
     }
 
     public boolean getSupportDefaultMcTermParam() {
@@ -708,10 +572,6 @@ public class PayPassAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(deviceSN);
     }
 
-    public void setDeviceSNBytes(byte[] deviceSNBytes) {
-        this.deviceSNBytes = deviceSNBytes;
-    }
-
     public String getDsOperatorId() {
         return dsOperatorId;
     }
@@ -722,10 +582,6 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getDsOperatorIdBytes() {
         return ConvertUtils.strToBcdPaddingLeft(dsOperatorId);
-    }
-
-    public void setDsOperatorIdBytes(byte[] dsOperatorIdBytes) {
-        this.dsOperatorIdBytes = dsOperatorIdBytes;
     }
 
     public String getMobileSupport() {

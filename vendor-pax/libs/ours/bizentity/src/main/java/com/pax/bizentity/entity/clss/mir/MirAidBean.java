@@ -18,11 +18,7 @@ public class MirAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     @Transient
@@ -37,44 +33,20 @@ public class MirAidBean implements Serializable {
     private byte[] cvmLimitBytes;
     private byte cvmLimitFlag;
     private String tacDenial;
-    @Transient
-    private byte[] tacDenialBytes;
     private String tacOnline;
-    @Transient
-    private byte[] tacOnlineBytes;
     private String tacDefault;
-    @Transient
-    private byte[] tacDefaultBytes;
     private String acquirerId;
     @Transient
     private byte[] acquirerIdBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private long refundFloorLimit;
-    @Transient
-    private byte[] refundFloorLimitBytes;
     private String refundTacDenial;
-    @Transient
-    private byte[] refundTacDenialBytes;
     private String termTPMCapability;
-    @Transient
-    private byte[] termTPMCapabilityBytes;
     private String tlvDF810CTag;
-    @Transient
-    private byte[] tlvDF810CTagBytes;
     private String transRecoveryLimit;
-    @Transient
-    private byte[] transRecoveryLimitBytes;
     private String dataExchangeTagList;
-    @Transient
-    private byte[] dataExchangeTagListBytes;
     private String protocol2Tag82;
-    @Transient
-    private byte[] protocol2Tag82Bytes;
     private byte exceptFileFlag;
 
     @Generated(hash = 1574384671)
@@ -135,10 +107,6 @@ public class MirAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -149,10 +117,6 @@ public class MirAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -244,10 +208,6 @@ public class MirAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacDenial);
     }
 
-    public void setTacDenialBytes(byte[] tacDenialBytes) {
-        this.tacDenialBytes = tacDenialBytes;
-    }
-
     public String getTacOnline() {
         return tacOnline;
     }
@@ -260,10 +220,6 @@ public class MirAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(tacOnline);
     }
 
-    public void setTacOnlineBytes(byte[] tacOnlineBytes) {
-        this.tacOnlineBytes = tacOnlineBytes;
-    }
-
     public String getTacDefault() {
         return tacDefault;
     }
@@ -274,10 +230,6 @@ public class MirAidBean implements Serializable {
 
     public byte[] getTacDefaultBytes() {
         return ConvertUtils.strToBcdPaddingRight(tacDefault);
-    }
-
-    public void setTacDefaultBytes(byte[] tacDefaultBytes) {
-        this.tacDefaultBytes = tacDefaultBytes;
     }
 
     public String getAcquirerId() {
@@ -324,16 +276,8 @@ public class MirAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public byte[] getVersionBytes() {
         return ConvertUtils.strToBcdPaddingRight(version);
-    }
-
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
     }
 
     public long getRefundFloorLimit() {
@@ -349,10 +293,6 @@ public class MirAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(num);
     }
 
-    public void setRefundFloorLimitBytes(byte[] refundFloorLimitBytes) {
-        this.refundFloorLimitBytes = refundFloorLimitBytes;
-    }
-
     public String getRefundTacDenial() {
         return refundTacDenial;
     }
@@ -363,10 +303,6 @@ public class MirAidBean implements Serializable {
 
     public byte[] getRefundTacDenialBytes() {
         return ConvertUtils.strToBcdPaddingRight(refundTacDenial);
-    }
-
-    public void setRefundTacDenialBytes(byte[] refundTacDenialBytes) {
-        this.refundTacDenialBytes = refundTacDenialBytes;
     }
 
     public String getTermTPMCapability() {
@@ -381,10 +317,6 @@ public class MirAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(termTPMCapability);
     }
 
-    public void setTermTPMCapabilityBytes(byte[] termTPMCapabilityBytes) {
-        this.termTPMCapabilityBytes = termTPMCapabilityBytes;
-    }
-
     public String getTlvDF810CTag() {
         return tlvDF810CTag;
     }
@@ -395,10 +327,6 @@ public class MirAidBean implements Serializable {
 
     public byte[] getTlvDF810CTagBytes() {
         return ConvertUtils.strToBcdPaddingRight(tlvDF810CTag);
-    }
-
-    public void setTlvDF810CTagBytes(byte[] tlvDF810CTagBytes) {
-        this.tlvDF810CTagBytes = tlvDF810CTagBytes;
     }
 
     public String getTransRecoveryLimit() {
@@ -413,10 +341,6 @@ public class MirAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(transRecoveryLimit);
     }
 
-    public void setTransRecoveryLimitBytes(byte[] transRecoveryLimitBytes) {
-        this.transRecoveryLimitBytes = transRecoveryLimitBytes;
-    }
-
     public String getDataExchangeTagList() {
         return dataExchangeTagList;
     }
@@ -429,10 +353,6 @@ public class MirAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(dataExchangeTagList);
     }
 
-    public void setDataExchangeTagListBytes(byte[] dataExchangeTagListBytes) {
-        this.dataExchangeTagListBytes = dataExchangeTagListBytes;
-    }
-
     public String getProtocol2Tag82() {
         return protocol2Tag82;
     }
@@ -443,10 +363,6 @@ public class MirAidBean implements Serializable {
 
     public byte[] getProtocol2Tag82Bytes() {
         return ConvertUtils.strToBcdPaddingRight(protocol2Tag82);
-    }
-
-    public void setProtocol2Tag82Bytes(byte[] protocol2Tag82Bytes) {
-        this.protocol2Tag82Bytes = protocol2Tag82Bytes;
     }
 
     public byte getExceptFileFlag() {

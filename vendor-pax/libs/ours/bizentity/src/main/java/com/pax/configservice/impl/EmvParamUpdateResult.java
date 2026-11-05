@@ -31,25 +31,8 @@ public final class EmvParamUpdateResult {
         }
     }
 
-    public boolean isSuccess() {
-        return errorMessage == null;
-    }
-
-    public List<String> getAppliedSections() {
-        return appliedSections;
-    }
-
-    public List<String> getRemovedSections() {
-        return removedSections;
-    }
-
     public boolean changedDatabase() {
         return !appliedSections.isEmpty() || !removedSections.isEmpty();
-    }
-
-    @Nullable
-    public String getErrorMessage() {
-        return errorMessage;
     }
 
     public String summarize() {

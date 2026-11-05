@@ -1,7 +1,5 @@
 package com.pax.bizentity.db.helper;
 
-import androidx.annotation.Nullable;
-import com.pax.bizentity.db.dao.EFTAidBeanDao;
 import com.pax.bizentity.entity.clss.eft.EFTAidBean;
 
 public class EFTAidDbHelper extends BaseDaoHelper<EFTAidBean> {
@@ -17,11 +15,4 @@ public class EFTAidDbHelper extends BaseDaoHelper<EFTAidBean> {
         super(entityClass);
     }
 
-    @Nullable
-    public EFTAidBean findAID(@Nullable String aid) {
-        if (aid == null || aid.isEmpty()) {
-            return null;
-        }
-        return getNoSessionQuery().where(EFTAidBeanDao.Properties.Aid.eq(aid)).unique();
-    }
 }

@@ -113,16 +113,8 @@ public class TransTotal implements Serializable {
     public TransTotal() {
     }
 
-    public boolean isZero() {
-        return (getSaleTotalNum() + getRefundTotalNum() + getSaleVoidTotalNum() + getRefundVoidTotalNum() + getOfflineTotalNum()) == 0;
-    }
-
     public boolean isClosed() {
         return isClosed;
-    }
-
-    public void setClosed(boolean closed) {
-        isClosed = closed;
     }
 
     public Long getId() {

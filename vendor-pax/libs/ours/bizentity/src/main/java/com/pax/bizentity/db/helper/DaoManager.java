@@ -47,10 +47,6 @@ public class DaoManager {
         return daoSession;
     }
 
-    public DaoMaster.OpenHelper getOpenHelper() {
-        return openHelper;
-    }
-
     public Database getDatabase() {
         return database;
     }

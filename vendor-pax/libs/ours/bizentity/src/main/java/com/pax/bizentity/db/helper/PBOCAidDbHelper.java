@@ -1,7 +1,5 @@
 package com.pax.bizentity.db.helper;
 
-import androidx.annotation.Nullable;
-import com.pax.bizentity.db.dao.PBOCAidBeanDao;
 import com.pax.bizentity.entity.clss.pboc.PBOCAidBean;
 
 public class PBOCAidDbHelper extends BaseDaoHelper<PBOCAidBean> {
@@ -17,11 +15,4 @@ public class PBOCAidDbHelper extends BaseDaoHelper<PBOCAidBean> {
         super(entityClass);
     }
 
-    @Nullable
-    public PBOCAidBean findAID(@Nullable String aid) {
-        if (aid == null || aid.isEmpty()) {
-            return null;
-        }
-        return getNoSessionQuery().where(PBOCAidBeanDao.Properties.Aid.eq(aid)).unique();
-    }
 }

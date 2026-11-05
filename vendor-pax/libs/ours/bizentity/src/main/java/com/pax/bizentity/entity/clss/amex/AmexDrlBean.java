@@ -10,8 +10,6 @@ public class AmexDrlBean {
 
     private String programId;
     @Transient
-    private byte[] programIdBytes;
-    @Transient
     private byte programIdLen;
     private long transLimit;
     @Transient
@@ -59,10 +57,6 @@ public class AmexDrlBean {
 
     public byte[] getProgramIdBytes() {
         return ConvertUtils.strToBcdPaddingLeft(programId);
-    }
-
-    public void setProgramIdBytes(byte[] programIdBytes) {
-        this.programIdBytes = programIdBytes;
     }
 
     public byte getProgramIdLen() {

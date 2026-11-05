@@ -2,7 +2,6 @@ package com.pax.bizentity.entity;
 
 import androidx.annotation.NonNull;
 import java.io.Serializable;
-import java.util.Calendar;
 import org.greenrobot.greendao.annotation.Entity;
 import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
@@ -126,24 +125,12 @@ public class Issuer implements Serializable {
         return isEnableAdjust;
     }
 
-    public void setEnableAdjust(boolean enableAdjust) {
-        isEnableAdjust = enableAdjust;
-    }
-
     public boolean isEnableOffline() {
         return isEnableOffline;
     }
 
-    public void setEnableOffline(boolean enableOffline) {
-        isEnableOffline = enableOffline;
-    }
-
     public boolean isAllowExpiry() {
         return isAllowExpiry;
-    }
-
-    public void setAllowExpiry(boolean allowExpiry) {
-        isAllowExpiry = allowExpiry;
     }
 
     public boolean isAllowManualPan() {
@@ -158,82 +145,20 @@ public class Issuer implements Serializable {
         return isAllowCheckExpiry;
     }
 
-    public void setAllowCheckExpiry(boolean allowCheckExpiry) {
-        isAllowCheckExpiry = allowCheckExpiry;
-    }
-
     public boolean isAllowPrint() {
         return isAllowPrint;
-    }
-
-    public void setAllowPrint(boolean allowPrint) {
-        isAllowPrint = allowPrint;
     }
 
     public boolean isAllowCheckPanMod10() {
         return isAllowCheckPanMod10;
     }
 
-    public void setAllowCheckPanMod10(boolean allowCheckPanMod10) {
-        isAllowCheckPanMod10 = allowCheckPanMod10;
-    }
-
     public boolean isRequirePIN() {
         return isRequirePIN;
     }
 
-    public void setRequirePIN(boolean requirePIN) {
-        isRequirePIN = requirePIN;
-    }
-
     public boolean isRequireMaskExpiry() {
         return isRequireMaskExpiry;
-    }
-
-    public void setRequireMaskExpiry(boolean requireMaskExpiry) {
-        isRequireMaskExpiry = requireMaskExpiry;
-    }
-
-    public static boolean validPan(final Issuer issuer, String pan) {
-        if (!issuer.isAllowCheckPanMod10()) {
-            return true;
-        }
-
-        boolean flag = false;
-        int result = 0;
-        for (int i = (pan.length() - 1); i >= 0; --i) {
-            int tmp = pan.charAt(i) & 15;
-            if (flag) {
-                tmp *= 2;
-            }
-            if (tmp > 9) {
-                tmp -= 9;
-            }
-            result = (tmp + result) % 10;
-            flag = !flag;
-        }
-
-        return result == 0;
-    }
-
-    public static boolean validCardExpiry(final Issuer issuer, String date) {
-        if (!issuer.isAllowExpiry() || !issuer.isAllowCheckExpiry()) {
-            return true;
-        }
-        Calendar now = Calendar.getInstance();
-
-        int year;
-        int month;
-        try {
-            year = Integer.parseInt(date.substring(0, 2));
-            year += year > 80 ? 1900 : 2000;
-            month = Integer.parseInt(date.substring(2, 4));
-        } catch (Exception e) {
-            return false;
-        }
-
-        return !(year < now.get(Calendar.YEAR) ||
-                (year <= now.get(Calendar.YEAR) && month < now.get(Calendar.MONTH)+1));
     }
 
     @Override

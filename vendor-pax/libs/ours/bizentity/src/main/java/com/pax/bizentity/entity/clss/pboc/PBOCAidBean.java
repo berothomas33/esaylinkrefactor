@@ -18,11 +18,7 @@ public class PBOCAidBean implements Serializable {
     private Long id;
 
     private String appName;
-    @Transient
-    private byte[] appNameBytes;
     private String aid;
-    @Transient
-    private byte[] aidBytes;
     private byte selFlag;
     private long transLimit;
     private byte transLimitFlag;
@@ -35,31 +31,17 @@ public class PBOCAidBean implements Serializable {
     @Transient
     private byte[] acquirerIdBytes;
     private String version;
-    @Transient
-    private byte[] versionBytes;
     private String terminalType;
-    @Transient
-    private byte terminalTypeByte;
     private String terminalCapability;
-    @Transient
-    private byte[] terminalCapabilityBytes;
     private String terminalAdditionalCapability;
-    @Transient
-    private byte[] terminalAdditionalCapabilityBytes;
 
     private byte quicsFlag;
     private long tornMaxLifeTime;
     private long tornLogMaxNum;
     private byte tornSupport;
     private String tornRFU;
-    @Transient
-    private byte[] tornRFUBytes;
     private String aucRFU;
-    @Transient
-    private byte[] aucRFUBytes;
     private String ttq;
-    @Transient
-    private byte[] ttqBytes;
     private byte aidType;
 
     @Generated(hash = 1852646161)
@@ -119,10 +101,6 @@ public class PBOCAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(appName);
     }
 
-    public void setAppNameBytes(byte[] appNameBytes) {
-        this.appNameBytes = appNameBytes;
-    }
-
     public String getAid() {
         return aid;
     }
@@ -133,10 +111,6 @@ public class PBOCAidBean implements Serializable {
 
     public byte[] getAidBytes() {
         return ConvertUtils.strToBcdPaddingRight(aid);
-    }
-
-    public void setAidBytes(byte[] aidBytes) {
-        this.aidBytes = aidBytes;
     }
 
     public byte getSelFlag() {
@@ -227,10 +201,6 @@ public class PBOCAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingRight(version);
     }
 
-    public void setVersionBytes(byte[] versionBytes) {
-        this.versionBytes = versionBytes;
-    }
-
     public String getTerminalType() {
         return terminalType;
     }
@@ -247,10 +217,6 @@ public class PBOCAidBean implements Serializable {
         }
     }
 
-    public void setTerminalTypeByte(byte terminalTypeByte) {
-        this.terminalTypeByte = terminalTypeByte;
-    }
-
     public String getTerminalCapability() {
         return terminalCapability;
     }
@@ -263,10 +229,6 @@ public class PBOCAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(terminalCapability);
     }
 
-    public void setTerminalCapabilityBytes(byte[] terminalCapabilityBytes) {
-        this.terminalCapabilityBytes = terminalCapabilityBytes;
-    }
-
     public String getTerminalAdditionalCapability() {
         return terminalAdditionalCapability;
     }
@@ -277,10 +239,6 @@ public class PBOCAidBean implements Serializable {
 
     public byte[] getTerminalAdditionalCapabilityBytes() {
         return ConvertUtils.strToBcdPaddingLeft(terminalAdditionalCapability);
-    }
-
-    public void setTerminalAdditionalCapabilityBytes(byte[] terminalAdditionalCapabilityBytes) {
-        this.terminalAdditionalCapabilityBytes = terminalAdditionalCapabilityBytes;
     }
 
     public byte getQuicsFlag() {
@@ -327,10 +285,6 @@ public class PBOCAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(tornRFU);
     }
 
-    public void setTornRFUBytes(byte[] tornRFUBytes) {
-        this.tornRFUBytes = tornRFUBytes;
-    }
-
     public String getAucRFU() {
         return aucRFU;
     }
@@ -343,10 +297,6 @@ public class PBOCAidBean implements Serializable {
         return ConvertUtils.strToBcdPaddingLeft(aucRFU);
     }
 
-    public void setAucRFUBytes(byte[] aucRFUBytes) {
-        this.aucRFUBytes = aucRFUBytes;
-    }
-
     public String getTtq() {
         return ttq;
     }
@@ -357,10 +307,6 @@ public class PBOCAidBean implements Serializable {
 
     public byte[] getTtqBytes() {
         return ConvertUtils.strToBcdPaddingLeft(ttq);
-    }
-
-    public void setTtqBytes(byte[] ttqBytes) {
-        this.ttqBytes = ttqBytes;
     }
 
     public byte getAidType() {

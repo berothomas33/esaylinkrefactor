@@ -31,36 +31,6 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
                 .unique();
     }
 
-    public final List<TransData> findOfflineTransData(List<TransData.OfflineStatus> status) {
-        return getNoSessionQuery().where(TransDataDao.Properties.OfflineSendState.in(status)
-                , TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL))
-                .list();
-    }
-
-    public final List<TransData> findTransData(List<String> types, List<TransData.ETransStatus> statuses, Acquirer acq) {
-        return getNoSessionQuery().where(TransDataDao.Properties.TransType.in(types)
-                , TransDataDao.Properties.TransState.notIn(statuses)
-                , TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)
-                , TransDataDao.Properties.AcquirerId.eq(acq.getId())).list();
-    }
-
-    public final List<TransData> findSettleTransData(List<String> types, List<TransData.ETransStatus> statuses, Acquirer acq) {
-        QueryBuilder<TransData> query = getNoSessionQuery();
-        query.where(TransDataDao.Properties.TransType.in(types)
-                , TransDataDao.Properties.TransState.notIn(statuses)
-                , TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)
-                , TransDataDao.Properties.AcquirerId.eq(acq.getId())
-                , query.or(TransDataDao.Properties.TransType.notEq(ETransType.OFFLINE_TRANS_SEND),
-                        query.and(TransDataDao.Properties.TransType.eq(ETransType.OFFLINE_TRANS_SEND),
-                                TransDataDao.Properties.OfflineSendState.eq(TransData.OfflineStatus.OFFLINE_SENT))));
-        return query.list();
-    }
-
-    public final TransData findLastTransData() {
-        List<TransData> list = this.loadAll();
-        return list != null && !list.isEmpty() ? (TransData) list.get(list.size() - 1) : null;
-    }
-
     public final List<TransData> findAllTransData(boolean includeReversal) {
         return includeReversal ? this.loadAll() : getNoSessionQuery().where(TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)).list();
     }
@@ -78,23 +48,9 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
         return builder.list();
     }
 
-    public final boolean deleteTransDataByTraceNo(long traceNo) {
-        TransData transData = this.findTransDataByTraceNo(traceNo);
-        return transData == null || this.delete(transData);
-    }
-
-    public final boolean deleteAllTransData() {
-        List<TransData> list = this.findAllTransData(true);
-        return list == null || list.isEmpty() || this.deleteEntities(list);
-    }
-
     public final boolean deleteAllTransData(Acquirer acq) {
         List<TransData> list = this.findAllTransData(acq, true);
         return list.isEmpty() || this.deleteEntities(list);
-    }
-
-    public final long countOf() {
-        return getNoSessionQuery().where(TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)).count();
     }
 
     public final long[] countSumOf(Acquirer acquirer, String type, TransData.ETransStatus status) {
@@ -236,15 +192,6 @@ public class TransDataDbHelper extends BaseDaoHelper<TransData> {
         List<TransData> list = getNoSessionQuery().where(TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.PENDING))
                 .list();
         return list != null && !list.isEmpty() ? list.get(list.size() - 1) : null;
-    }
-
-    public final List<TransData> findPagingTransData(Acquirer acq,boolean includeVoid,int offset,int limit) {
-        QueryBuilder<TransData> builder = getNoSessionQuery().where(TransDataDao.Properties.ReversalStatus.eq(TransData.ReversalStatus.NORMAL)
-                , TransDataDao.Properties.AcquirerId.eq(acq.getId()));
-        if (!includeVoid) {
-            builder.where(TransDataDao.Properties.TransState.notEq(TransData.ETransStatus.VOIDED));
-        }
-        return builder.orderDesc(TransDataDao.Properties.Id).offset(offset).limit(limit).list();
     }
 
     public final void deleteFirstDupRecord() {
