@@ -240,10 +240,10 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected AuthResult askTheBank() {
         if (activeConfig == null) {
-            return AuthResult.failed("Online failed: no active transaction");
+            return bankAnswer = AuthResult.failed("Online failed: no active transaction");
         }
         if (isCancelled()) {
-            return AuthResult.declined("17", "Cancelled");
+            return bankAnswer = AuthResult.declined("17", "Cancelled");
         }
         TransactionConfig config = activeConfig;
         if (activeCard != null && activeCard.isEmv()) {
@@ -252,13 +252,13 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             EmvLog.d(summary);
             engine.apduTrace().note("EMV", summary);
             if (field55.isEmpty()) {
-                return AuthResult.failed("Online failed: no chip data (field 55) to send");
+                return bankAnswer = AuthResult.failed("Online failed: no chip data (field 55) to send");
             }
             config = config.withIccData(field55.hex());
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return  bankAnswer = bankRequest.send(config);
+        return bankAnswer = bankRequest.send(config);
     }
 
     protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
