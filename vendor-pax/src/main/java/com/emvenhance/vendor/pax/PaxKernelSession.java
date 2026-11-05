@@ -35,10 +35,6 @@ final class PaxKernelSession {
     @Nullable
     PinRequest pinRequest;
 
-    /** The outcome's report, run by the TRANSACTION_COMPLETION hook. */
-    @Nullable
-    Runnable outcome;
-
     @Nullable
     PaxPinPad activePinPad;
 

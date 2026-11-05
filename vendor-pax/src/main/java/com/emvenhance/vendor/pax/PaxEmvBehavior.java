@@ -174,13 +174,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishDeclined(answer != null && answer.getMessage() != null
                         ? answer.getMessage() : "DECLINED");
             }
-            return;
         }
-        Runnable report = tx.outcome;
-        tx.outcome = null;
-        if (report != null) {
-            report.run();
-        }
+        // Chip / contactless: no kernel work here — the kernel is done and the stage closed
+        // (finishContactStage / finishContactlessStage). completeApproved / completeDeclined /
+        // completeError report the outcome right after this step.
     }
 
     @Override
@@ -1507,27 +1504,23 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (scripts && !tx.scriptsProcessed) {
             goToStep(EmvStep.SCRIPT_PROCESSING, null);
         }
-        complete(result, () -> finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
-                TransactionStepEvent.KEY_RESULT, result)));
+        if (goToStep(EmvStep.TRANSACTION_COMPLETION, result)) {
+            finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
+                    TransactionStepEvent.KEY_RESULT, result));
+        }
     }
 
     private void completeDeclined(String reason) {
-        complete(reason, () -> finishDeclined(buildOutcomeEvent(TransactionStep.DECLINED,
-                TransactionStepEvent.KEY_ERROR, reason)));
+        if (goToStep(EmvStep.TRANSACTION_COMPLETION, reason)) {
+            finishDeclined(buildOutcomeEvent(TransactionStep.DECLINED,
+                    TransactionStepEvent.KEY_ERROR, reason));
+        }
     }
 
     private void completeError(String reason) {
-        complete("Online Failed", () -> finishError(reason));
-    }
-
-    /**
-     * TRANSACTION_COMPLETION reports the outcome: the step's hook runs {@code report}
-     * (see {@link #onTransactionCompletion}). Not reported if the step is dropped (cancelled).
-     */
-    private void complete(String detail, Runnable report) {
-        tx.outcome = report;
-        goToStep(EmvStep.TRANSACTION_COMPLETION, detail);
-        tx.outcome = null;
+        if (goToStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed")) {
+            finishError(reason);
+        }
     }
 
     private TransactionStepEvent buildOutcomeEvent(TransactionStep step, String messageKey,
