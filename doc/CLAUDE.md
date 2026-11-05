@@ -110,8 +110,8 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
    busy = `PosTerminal.current`; the transaction thread = `PosTerminal.transactionScheduler`;
    a transaction's whole state (running / ended / cancelled) = its own steps: the first
    decision step it delivered (`Transaction.decision()`: CANCELLING, APPROVED, DECLINED or
-   FAILED; no field since `42028fb`; an EMV outcome decides only through
-   `Transaction.emvFinished`, an error only through `Transaction.end`); transaction
+   FAILED; no field since `42028fb`; everything enters through `Transaction.publish`, the one
+   way in, which drops what comes after the decision); transaction
    steps = `Transaction.steps` (one `ReplaySubject` per transaction); EMV steps =
    `EmvEngine.emvSteps`; the engine = `AbstractEmvBehavior.engine` (private, final, made with
    the behavior); retry state = `AbstractEmvBehavior` (`requestRetry`). A class that needs another's state gets a narrow read (e.g. the behavior asks its
@@ -282,7 +282,7 @@ after**. Each carries docs that match its own code.
   call, 90 s, `ONLINE_*` steps around it.
 - **`PosTerminal.Transaction`** (05/11): its state is its steps — `decision()` = the first
   CANCELLING / APPROVED / DECLINED / FAILED it delivered (`TransactionStep.isDecision()`), none
-  = running. The first decision wins (`decide`). Its end is delivered last, after the closings:
+  = running. The first decision wins (in `publish`). Its end is delivered last, after the closings:
   CANCELLED / COMPLETED / ERROR (`endOfDecision()`; ERROR keeps FAILED's message). FAILED is a
   step of its own because ERROR must stay the last step. `steps` must stay a ReplaySubject
   that keeps everything (it is the state).
@@ -294,9 +294,10 @@ after**. Each carries docs that match its own code.
   transaction has its own TransactionStep events that drive it, as EmvSteps drive the EMV).
   Since `8843cb1` they run like EmvSteps: `publish` delivers a report under the lock, then
   `dispatchTransactionStep` runs the step's method at once, on the publishing thread, outside
-  the lock. `end(error)` ends a transaction (delivered later by `onEnd`); `emvFinished` routes the
-  EMV's outcome (APPROVED / DECLINED → `onOutcome`, ERROR → `end`). The switch: TRANSACTION_STARTED,
-  CANCELLING, ACKNOWLEDGING, REVERSING, APPROVED / DECLINED, the end steps. TRANSACTION_STARTED (published by `begin()` on the caller's thread) →
+  the lock. Since `f8caba2` / `9fe7f0a` (05/11): `publish` is the one way in and the switch holds
+  all the work — TRANSACTION_STARTED (run), CANCELLING (stop the search), APPROVED (ACK the last
+  request if the host approved it), DECLINED (reverse it), ENDING (reverse whatever is still open
+  — no ACK / REV step with its id — free the terminal, deliver the end). `fail(message)` = FAILED. TRANSACTION_STARTED (published by `begin()` on the caller's thread) →
   `onTransactionStarted`: `transactionScheduler.scheduleDirect(runTransaction)` —
   `engine.begin()`, `behavior.run(config, this)` if still running, any exception → ERROR, and
   `onEnd()` in a `finally` (the executor never drops a task, so a transaction cancelled before
@@ -318,10 +319,10 @@ after**. Each carries docs that match its own code.
   terminal still busy; then the terminal freed and the end delivered. `followUpScheduler` is
   gone (two schedulers left: transaction, print). Not device-tested, not tried on the host.
 - **Who ends a transaction** (`28d79cb`): the EMV reports, the `Transaction` ends.
-  `AbstractEmvBehavior.finishApproved / finishDeclined / finishError` →
-  `Transaction.emvFinished(outcome)`: APPROVED / DECLINED delivered + end COMPLETED, ERROR as the
-  end; set under one hold of the lock (no APPROVED-then-CANCELLED); never turns a decline into an
-  approval. `AbstractEmvBehavior.publish` drops outcome and end steps. This is where Mastercard
+  `AbstractEmvBehavior.finishApproved / finishDeclined` → `transaction.publish(APPROVED /
+  DECLINED)` (the step forced, `0622ff0`), `finishError` → `transaction.fail(message)`; the first
+  decision wins under the lock (no APPROVED-then-CANCELLED). `AbstractEmvBehavior.publish` drops
+  decisions, ENDING, the closings and the end steps (a vendor only reports). This is where Mastercard
   single tap will be decided (BACKLOG 4.11).
 - **`EmvEngine`**: `emvSteps` (PublishSubject, not serialized, no `observeOn`) and `ApduTrace`.
   No retry, no way online, no transaction state. Made by `AbstractEmvBehavior` itself (private
@@ -371,7 +372,8 @@ after**. Each carries docs that match its own code.
 ISSUER_AUTH (`EMVCompleteTrans`) → the outcome reported once (`finish*`, no completion step since `ffd9277`). Each step hands over
 to the next (`5d27307`): the host and the issuer no longer run inside the PR hook. Contactless
 the same; the card-read work (9F1C, `CARD_READ`) is in `onReadCardOk` (`1d9bbeb`). Closings at
-the host: one loop in `onEnding` (`d93f5ce`); ACKNOWLEDGING / REVERSING / CLOSING_COMPLETED are reports.
+the host: `case APPROVED` / `case DECLINED` close the last request, `ENDING` the rest (`9fe7f0a`);
+ACKNOWLEDGING / REVERSING / CLOSING_COMPLETED are reports.
 
 **Contactless**: `ClssKernelProcess#supportsGranularSteps()` — granular: EFT, PayPass, PayWave
 [rxSet]; atomic: the other 7 (one call, steps announced from callbacks).
@@ -521,6 +523,18 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 - `Rebuild Project` fails on `poslib`'s local `nativetouchevent-release.aar` (AGP 8 refuses a
   local .aar in a library's AAR); nothing calls `Sdk.getTouchEvent()` — remove it (waiting for
   Ebram's go). Running the app (`assemblePaxEnvtestDevDebug`) is not affected.
+- **SDK direction (Ebram, 05/11 — keep it in mind):** other apps will integrate us for the card /
+  EMV part, and he wants to ship the **search-card screen** too. The simplest contract: the app
+  gives its bank (`CommunicationBehavior`: `connectToHost` required, `acknowledge` / `reverse`
+  optional; the request arrives named with its `asyncRequestId`) and optionally a
+  `PrinterBehavior`, then starts / cancels (`acceptCard`, `cancel`) and observes
+  `transaction.steps()`. `dispatchTransactionStep` (ACK / reversal = payment safety) stays inside
+  the SDK, never in the app. Easiest steps (Flows §11): `TerminalFactory.create(app,
+  communication, printer)`; an `easylink-ui` library module (core only) with `SearchCardFragment` +
+  its ViewModel and layouts (resources prefixed `easylink_`); a `TerminalProvider` interface for the
+  app's `Application`; a `PaymentActivity` / result contract instead of `finish()`; debug tools
+  debug-only; the release gate (BACKLOG §5) closed before anyone else gets it. Direction only, no
+  code yet.
 - Everything else, ranked (status re-checked 27/10): `doc/BACKLOG.md` (status table at the top).
 
 ## 12. Never again

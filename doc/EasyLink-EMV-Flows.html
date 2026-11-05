@@ -55,6 +55,7 @@ th, td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--li
 th { color: var(--muted); font-weight: 500; font-size: 13px; }
 tr:last-child td { border-bottom: 0; }
 td code { white-space: nowrap; }
+.wrap-code td code { white-space: normal; overflow-wrap: anywhere; }
 .note { border-inline-start: 3px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 4px; max-width: 75ch; }
 .note b { color: var(--warn); }
 ul.facts { margin: 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 6px; max-width: 75ch; }
@@ -139,6 +140,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#contactless">مسار الـ contactless</a></li>
     <li><a href="#params">الـ EMV params</a></li>
     <li><a href="#principles">مبادئ البرمجة في المشروع</a></li>
+    <li><a href="#sdk">استخدامنا كـ SDK</a></li>
   </ol>
 </nav>
 
@@ -274,7 +276,7 @@ flowchart LR
   UI["UI (app/src/main)<br/>MainViewModel · SearchCardFragment"]
   subgraph core["core"]
     PT["PosTerminal<br/>transactionScheduler (1 thread)<br/>current = busy<br/>sendToBank() → the bank<br/>printReceipt()"]
-    TX["PosTerminal.Transaction<br/>config · ReplaySubject steps (= lock, = state)<br/>decision(): the first CANCELLING / APPROVED / DECLINED / FAILED<br/>TransactionStepObserver → dispatchTransactionStep<br/>runTransaction · decide · onEnding (closings loop) · cancel()<br/>emvFinished · end(error) · the safe end"]
+    TX["PosTerminal.Transaction<br/>config · ReplaySubject steps (= lock, = state)<br/>decision(): the first CANCELLING / APPROVED / DECLINED / FAILED<br/>publish (the one way in) · cancel() · fail()<br/>dispatchTransactionStep: APPROVED → ACK · DECLINED → reversal<br/>ENDING → what is still open + the end"]
     CB["CommunicationBehavior<br/>connectToHost · acknowledge · reverse"]
     EN["EmvEngine<br/>emvSteps (PublishSubject)<br/>ApduTrace<br/>(made by the behavior, final)"]
     AB["AbstractEmvBehavior<br/>run: attempts · SEARCH_CARD · retry<br/>goToStep · askStep / answerStep<br/>publish · finish*<br/>EmvStepObserver → dispatchStepMethod"]
@@ -307,13 +309,15 @@ flowchart LR
 
 <section id="life">
   <h2>2. العملية من البداية إلى النهاية</h2>
-  <p>العملية تسير <b>بخطواتها</b> (TransactionSteps). كل خطوة تُنشر في <code>Transaction.steps</code>، و <code>TransactionStepObserver</code> هو المدخل الوحيد الذي يشغّل دالتها. ما ليس له دالة تقرير للشاشة فقط.</p>
+  <p>العملية تسير <b>بخطواتها</b> (TransactionSteps). كل خطوة تدخل من باب واحد، <code>publish</code>، فتُحفظ في <code>Transaction.steps</code>، ثم يشغّل <code>TransactionStepObserver</code> الـ case الخاص بها في <code>dispatchTransactionStep</code>. ما ليس له case تقرير للشاشة فقط.</p>
 <pre class="codebox"><span class="c">// TransactionStepObserver.onNext → dispatchTransactionStep(event)</span>
 switch (event.getStep()) {
-    case TRANSACTION_STARTED: onTransactionStarted(event);   <span class="c">// → the transaction thread</span>
-    case CANCELLING:          onCancelling();                <span class="c">// stop the card search</span>
-    case ENDING:              onEnding();                    <span class="c">// the closings, one loop, then the end</span>
-    default:                  <span class="c">// a report: ONLINE_*, APPROVED / DECLINED / FAILED, ACKNOWLEDGING / REVERSING /</span>
+    case TRANSACTION_STARTED: onTransactionStarted(event);       <span class="c">// → the transaction thread</span>
+    case CANCELLING:          onCancelling();                    <span class="c">// stop the card search</span>
+    case APPROVED:            closeLast(ACKNOWLEDGING);          <span class="c">// the host + the card approved → ACK</span>
+    case DECLINED:            closeLast(REVERSING);              <span class="c">// the host approved, the card declined → reversal</span>
+    case ENDING:              onEnding();                        <span class="c">// reverse what is still open, then the end</span>
+    default:                  <span class="c">// a report: ONLINE_*, CARD_*, FAILED, ACKNOWLEDGING / REVERSING /</span>
                               <span class="c">// CLOSING_COMPLETED, COMPLETED / ERROR / CANCELLED…</span>
 }</pre>
   <div class="diagram"><pre class="mermaid">
@@ -333,10 +337,10 @@ sequenceDiagram
     BH->>BH: TERMINAL_INITIALIZATION → prepare the kernel → searchCard()
     BH->>BH: SEARCH_CARD → card found → start(card): the EMV chain (§3–§8)
   end
-  BH-->>TX: run returns (the outcome was reported: finish* → emvFinished)
-  TX->>TX: finally [lock]: a decision exists (else FAILED) → ENDING
-  TX->>TX: onEnding: for each request sent → ACKNOWLEDGING / REVERSING → the bank → CLOSING_COMPLETED (§7)
-  TX->>TX: current = null (terminal free)
+  BH->>TX: finishApproved → publish(APPROVED) → its case: ACKNOWLEDGING → the bank → CLOSING_COMPLETED (§7)
+  BH-->>TX: run returns
+  TX->>TX: finally: a decision exists (else FAILED) → ENDING
+  TX->>TX: ENDING → its case: reverse what is still open → current = null (terminal free)
   TX-->>UI: COMPLETED / ERROR / CANCELLED
 </pre></div>
   <ul class="facts">
@@ -345,8 +349,8 @@ sequenceDiagram
     <li><b>الإلغاء</b> (<code>Transaction.cancel()</code>): تُنشر <code>CANCELLING</code> (القرار)، فتتوقف قراءة البطاقة، ويتوقف الـ EMV عند أول <code>goToStep</code>. لا يُقاطَع الـ thread أبدًا.</li>
     <li><b>إعادة المحاولة</b> (fallback، tap again، See Phone): يطلبها الـ EMV بـ <code>requestRetry(...)</code> ثم يرجع الـ kernel، فيبدأ <code>run</code> محاولة جديدة من <code>TERMINAL_INITIALIZATION</code>، في العملية نفسها.</li>
     <li><b>النتيجة ليست النهاية:</b> <code>APPROVED</code> / <code>DECLINED</code> / <code>FAILED</code> تُنشر فور معرفتها، أما <code>COMPLETED</code> فبعد التأكيد / الإلغاء عند البنك وتحرير الجهاز.</li>
-    <li>ترى الشاشة مثلًا: <code>ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED → ENDING → ACKNOWLEDGING → CLOSING_COMPLETED → COMPLETED</code>.</li>
-    <li>⚠ <code>onEnding</code> تعمل والـ lock مأخوذ، ومعها نداءات البنك. لذلك <code>cancel</code> و <code>publish</code> و <code>decide</code> تنظر في القرار قبل أخذ الـ lock، فلا تنتظر الإغلاقات. والخطوات التي قد تنتظر البنك أو شخصًا (<code>ONLINE_PROCESSING</code>، و Single Tap مستقبلًا) تبقى تقارير لا دوال.</li>
+    <li>ترى الشاشة مثلًا: <code>ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED → ACKNOWLEDGING → CLOSING_COMPLETED → ENDING → COMPLETED</code>.</li>
+    <li>⚠ الـ cases تعمل والـ lock مأخوذ، ومعها نداءات البنك (التأكيد / الإلغاء). لذلك <code>publish</code> تنظر في القرار قبل أخذ الـ lock، فلا ينتظر <code>cancel</code> الإغلاقات. والخطوات التي قد تنتظر البنك أو شخصًا (<code>ONLINE_PROCESSING</code>، و Single Tap مستقبلًا) تبقى تقارير لا دوال.</li>
   </ul>
 </section>
 
@@ -713,7 +717,11 @@ sequenceDiagram
 
 <section id="end">
   <h2>7. النتيجة والنهاية الآمنة</h2>
-  <p>الـ EMV يبلّغ بالنتيجة (<code>finishApproved</code> / <code>finishDeclined</code> / <code>finishError</code> → <code>Transaction.emvFinished</code>)، والـ <code>Transaction</code> هي التي تنهي العملية. وقبل أن يصبح الجهاز متاحًا، يُغلق كل طلب أُرسل إلى البنك: <b>تأكيد</b> (acknowledgement) أو <b>إلغاء</b> (reversal).</p>
+  <p>الـ EMV يبلّغ بالنتيجة (<code>finishApproved</code> / <code>finishDeclined</code> → <code>publish(APPROVED / DECLINED)</code>، و <code>finishError</code> → <code>fail</code>)، والـ <code>Transaction</code> هي التي تنهي العملية. وقبل أن يصبح الجهاز متاحًا، يُغلق كل طلب أُرسل إلى البنك: <b>تأكيد</b> (acknowledgement) أو <b>إلغاء</b> (reversal).</p>
+  <ul class="facts">
+    <li><b>القرار نفسه يُغلق آخر طلب:</b> <code>case APPROVED</code> → تأكيد، و <code>case DECLINED</code> → إلغاء، بشرط أن البنك وافق على آخر طلب (إن رفض البنك فلا شيء). في هذه اللحظة رد البنك معروف، والبطاقة قررت، والـ reader مغلق.</li>
+    <li><b><code>ENDING</code> يُغلق الباقي:</b> كل طلب لا توجد له <code>ACKNOWLEDGING</code> / <code>REVERSING</code> بالـ id نفسه في الخطوات يُلغى إن كان البنك ربما وافق (موافقة، <code>failed</code>، لا رد). هذا يغطي الإلغاء (قد يأتي والبنك ما زال يرد)، و <code>FAILED</code>، وطلبات محاولة سابقة. ثم يتحرر الجهاز وتُسلَّم النهاية.</li>
+  </ul>
   <div class="table-wrap"><table>
     <thead><tr><th>البنك</th><th>البطاقة في الـ 2nd GAC</th><th>النتيجة</th><th>عند البنك بعدها</th></tr></thead>
     <tbody>
@@ -738,16 +746,18 @@ sequenceDiagram
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 46}}}%%
 flowchart TD
-  E["runTransaction finally [lock]<br/>a decision exists (else FAILED) → deliver ENDING"] --> ON["onEnding: for i in online"]
-  ON --> N{"closingFor(i):<br/>ack, reversal or nothing"}
-  N -- "ack / reversal" --> D["closeAtHost: ACKNOWLEDGING / REVERSING (report)<br/>the call, waited for"]
-  D --> C["CLOSING_COMPLETED (closedOk, report)"]
-  C --> ON
-  N -- "nothing" --> ON
-  ON -- "all done" --> F["current = null — terminal free<br/>deliver the end: COMPLETED / ERROR / CANCELLED"]
+  A["case APPROVED"] --> AK{"the host approved<br/>the last request?"}
+  AK -- "yes" --> ACK["ACKNOWLEDGING → the call → CLOSING_COMPLETED"]
+  D["case DECLINED"] --> DK{"the host approved<br/>the last request?"}
+  DK -- "yes" --> REV1["REVERSING → the call → CLOSING_COMPLETED"]
+  E["runTransaction finally<br/>a decision exists (else FAILED) → ENDING"] --> ON["case ENDING: each request<br/>with no ACK / REV by its id"]
+  ON --> N{"its answer?"}
+  N -- "approved / failed / none" --> REV2["REVERSING → the call → CLOSING_COMPLETED"]
+  N -- "notSent / declined" --> NO["nothing"]
+  ON -- "all done" --> F["current = null — terminal free<br/>the end: COMPLETED / ERROR / CANCELLED"]
 </pre></div>
   <h3>كيف يُقرَّر التأكيد أو الإلغاء لكل طلب</h3>
-  <p>كل طلب أُرسل يُسجَّل لحظة إرساله (<code>wentOnline</code>) ومعه رده. عند <code>ENDING</code> يُقرَّر لكل طلب بالترتيب:</p>
+  <p>كل طلب أُرسل يُسجَّل لحظة إرساله (<code>wentOnline</code>) ومعه رده و id. القرار يُغلق آخر طلب، و <code>ENDING</code> يُغلق الباقي، والـ id هو الذي يربط بينهما:</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
 flowchart TD
@@ -757,14 +767,15 @@ flowchart TD
   C -- "notSent (decided by the network: answerOf)" --> NS["request.answer = AuthResult.notSent"]
   C -- "any other error / timeout" --> F["request.answer = AuthResult.failed"]
   R & NS & F --> E["EMV carries on → the end"]
-  E --> CO["ENDING → onEnding → closingFor(i):<br/>one decision per request, in order"]
+  E --> CO["case APPROVED / DECLINED: the last request<br/>case ENDING: every request still open (by id)"]
   CO --> D{"answer?"}
-  D -- "approved + last request + the decision is APPROVED" --> ACK["ACKNOWLEDGEMENT"]
-  D -- "approved, any other decision" --> REV["REVERSAL"]
-  D -- "failed / no answer" --> REV
+  D -- "approved + the card approved (case APPROVED)" --> ACK["ACKNOWLEDGEMENT"]
+  D -- "approved + the card declined (case DECLINED)" --> REV["REVERSAL"]
+  D -- "approved, cancelled / failed / an earlier attempt (ENDING)" --> REV
+  D -- "failed / no answer (ENDING)" --> REV
   D -- "notSent" --> NO1["nothing — trace: no reversal + why"]
   D -- "declined" --> NO2["nothing"]
-  ACK & REV --> FU["ACKNOWLEDGING / REVERSING · closeAtHost, waited for (25 s per call)<br/>→ CLOSING_COMPLETED (closedOk) → the next request (the loop), or terminal free"]
+  ACK & REV --> FU["ACKNOWLEDGING / REVERSING · closeAtHost, waited for (25 s per call)<br/>→ CLOSING_COMPLETED (closedOk)"]
 </pre></div>
   <h3>من يقرر <code>notSent</code>؟ الـ network وحده</h3>
   <div class="table-wrap"><table>
@@ -790,7 +801,7 @@ flowchart TD
   </ul>
   <ul class="facts">
     <li>يظهر اسم المرحلة في رسالة الـ ERROR وفي الـ trace: <code>Online Failed: Exchange: HTTP 403 Forbidden</code>.</li>
-    <li>الـ trace (tag <code>HOST</code>): <code>ACKNOWLEDGEMENT for request &lt;id&gt;</code>، <code>REVERSAL for request &lt;id&gt;: approved, not completed</code>، <code>REVERSAL …: no usable host answer — Sale: timeout</code>، <code>no reversal …: the host could not have approved it — Exchange: HTTP 403 Forbidden</code>.</li>
+    <li>الـ trace (tag <code>HOST</code>): <code>Acknowledgement &lt;id&gt; sent</code> أو <code>… failed — not retried: &lt;why&gt;</code>، <code>REVERSAL for request &lt;id&gt;: approved, not completed</code>، <code>REVERSAL …: no usable host answer — Sale: timeout</code>، <code>no reversal …: the host could not have approved it — Exchange: HTTP 403 Forbidden</code>.</li>
     <li>لا يتغير شيء بالنسبة للبطاقة: <code>failed</code> و <code>notSent</code> كلاهما <code>RESULT_ONLINE_FAILED</code> (2nd GENERATE AC بـ AAC). الفرق في الإلغاء فقط.</li>
     <li>⚠ لم يُختبر على الجهاز ولا مع الـ host. احتياج الإلغاء والتأكيد إلى <code>mToken</code> افتراض.</li>
   </ul>
@@ -1080,6 +1091,86 @@ flowchart TD
       <tr><td><b>Fail closed</b></td><td>عند الشك نرفض، لا نوافق</td><td>لا رد = online failed؛ لا PIN = <code>USER_CANCEL</code>؛ الـ callback يرد دائمًا (<code>setCallBackResult</code>)</td></tr>
     </tbody>
   </table></div>
+</section>
+
+<section id="sdk">
+  <h2>11. استخدامنا كـ SDK (أي تطبيق يعمل integration)</h2>
+  <p>الفكرة: أي تطبيق يستخدمنا للجزء بتاع الكارت والـ EMV. <b>أبسط عقد:</b> التطبيق يدّينا البنك بتاعه، ويسمع للـ steps. الـ <code>dispatchTransactionStep</code> (التأكيد والإلغاء) يفضل جوّانا، والتطبيق لا يكتبه.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>الاتجاه</th><th>ماذا</th><th>كيف</th></tr></thead>
+    <tbody>
+      <tr><td>التطبيق → إحنا</td><td><b>البنك</b></td><td>يكتب <code>CommunicationBehavior</code>: <code>connectToHost(request)</code> إجباري (يبعت البيع ويرجّع <code>AuthResult</code>)، و <code>acknowledge</code> / <code>reverse</code> اختياريين لو البنك بيدعمهم. الطلب يوصله وعليه الـ id (<code>request.getAsyncRequestId()</code>) جاهز.</td></tr>
+      <tr><td>التطبيق → إحنا</td><td>الطباعة (اختياري)</td><td><code>PrinterBehavior.print(lines)</code></td></tr>
+      <tr><td>إحنا → التطبيق</td><td><b>الـ steps</b></td><td><code>transaction.steps()</code>: يعمل subscribe ويعرض: <code>APPROVED</code> / <code>DECLINED</code> / <code>FAILED</code>، والنهاية <code>COMPLETED</code> / <code>ERROR</code> / <code>CANCELLED</code> (الجهاز متاح)، والباقي تقدّم.</td></tr>
+      <tr><td>التطبيق → إحنا</td><td>البدء والإلغاء</td><td><code>pos.acceptCard(type, amount)</code> و <code>transaction.cancel()</code></td></tr>
+    </tbody>
+  </table></div>
+<pre class="codebox"><span class="c">// the integrator's bank — the only code they must write for the EMV part</span>
+class MyBank implements CommunicationBehavior {
+    <span class="c">// required: send the sale, return the answer</span>
+    public Single&lt;AuthResult&gt; connectToHost(TransactionConfig request) { … }
+    <span class="c">// optional</span>
+    public Completable acknowledge(TransactionConfig sent) { … }
+    public Completable reverse(TransactionConfig sent) { … }
+}
+
+<span class="c">// their own screen (level B): start, observe, cancel</span>
+Transaction t = pos.acceptCard(TransactionType.SALE, amountMinor);
+t.steps().subscribe(e -&gt; {
+    switch (e.getStep()) {
+        case APPROVED:  <span class="c">/* approved + receipt fields */</span> break;
+        case DECLINED:  <span class="c">/* declined */</span> break;
+        case FAILED:    <span class="c">/* the error */</span> break;
+        case COMPLETED:
+        case ERROR:
+        case CANCELLED: <span class="c">/* done, terminal free */</span> break;
+        default:        <span class="c">/* progress: CARD_READ, ONLINE_* … */</span> break;
+    }
+});
+cancelButton.setOnClickListener(v -&gt; t.cancel());</pre>
+  <ul class="facts">
+    <li><b>ليه الـ switch بتاعنا يفضل جوّانا:</b> هو اللي بيحمي الفلوس. تأكيد لما الكارت يوافق، وإلغاء لما يرفض، وإلغاء في <code>ENDING</code> بعد cancel أو failure (الـ cancel ممكن ييجي والبنك لسه بيرد). لو كل تطبيق كتبه، واحد هينسى الإلغاء بعد الـ cancel، فالفلوس تتخصم من العميل. جوّانا هو مكتوب مرة واحدة ومتغطّي بالـ tests.</li>
+    <li><b>الـ id بتاع التطبيق مش بتاعنا:</b> <code>sendToBank</code> بيسمّي الطلب (<code>asyncRequestId</code>) قبل ما يوصل للتطبيق، والتأكيد والإلغاء بيرجعوا بنفس الـ id. الـ EMV عمره ما بيشوفه.</li>
+    <li>الـ switch اللي فوق في كود التطبيق للشاشة بتاعته بس. هو مش اللي بيحرّك العملية.</li>
+  </ul>
+
+  <h3>أبسط integration: بشاشة الـ search card بتاعتنا (level A)</h3>
+  <p>التطبيق ما يكتبش شاشة خالص: يفتح شاشتنا بالمبلغ، ويستلم النتيجة.</p>
+<pre class="codebox"><span class="c">// once, in their Application</span>
+class App extends Application implements TerminalProvider {
+    private PosTerminal pos;
+
+    public void onCreate() {
+        super.onCreate();
+        pos = TerminalFactory.create(this, new MyBank(), new MyPrinter());
+    }
+
+    public PosTerminal terminal() {
+        return pos;
+    }
+}
+
+<span class="c">// to take a payment: one launch, one result</span>
+ActivityResultLauncher&lt;PaymentRequest&gt; pay =
+        registerForActivityResult(new EasyLinkPayment(), outcome -&gt; {
+            <span class="c">// APPROVED / DECLINED / FAILED / CANCELLED,</span>
+            <span class="c">// the message, the masked PAN</span>
+        });
+pay.launch(new PaymentRequest(TransactionType.SALE, amountMinor));</pre>
+
+  <h3>أسهل الخطوات عشان نطلّع الـ SDK والشاشة</h3>
+  <div class="table-wrap"><table class="wrap-code">
+    <thead><tr><th>#</th><th>الخطوة</th><th>ليه</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>TerminalFactory.create(app, communication, printer)</code>: البنك والطابعة يدخلوا من برّه. لو التطبيق ما بعتش حاجة، يفضل الـ default (<code>SaleCommunicationBehavior</code> و <code>PaxPrinter</code>).</td><td>النهارده <code>PaxTerminal()</code> بيعمل البنك والطابعة بنفسه، فالـ integrator مش هيقدر يدّينا البنك بتاعه. الـ constructor اللي بياخدهم موجود، بس <code>private</code>.</td></tr>
+      <tr><td>2</td><td>Android library module جديد (مثلًا <code>easylink-ui</code>) معتمد على <code>core</code> بس، فيه <code>SearchCardFragment</code> و <code>MainViewModel</code> (+ الـ Factory) و <code>Event</code>، والـ layouts التلاتة (<code>fragment_search_card</code> و <code>item_entry_method</code> و <code>item_kv_row</code>) والـ strings بتاعتهم.</td><td>الشاشة النهارده جوّه <code>app</code>. نسمّي الـ resources بـ prefix (<code>easylink_</code>) عشان ما تتخانقش مع resources التطبيق.</td></tr>
+      <tr><td>3</td><td>interface اسمه <code>TerminalProvider</code> فيه <code>PosTerminal terminal()</code>. الـ <code>Application</code> بتاع التطبيق يعمله implement، و <code>EmvEnhanceApp</code> كمان.</td><td>ده الرابط الوحيد بين الشاشة والتطبيق. النهارده الشاشة بتعمل <code>((EmvEnhanceApp) getApplication()).getTerminal()</code>. وده interface ليه تطبيقين، فقاعدة 5 مش بتمنعه.</td></tr>
+      <tr><td>4</td><td><code>PaymentActivity</code> (أو contract زي <code>EasyLinkPayment</code>) شايل الـ fragment ويرجّع النتيجة بالـ Activity Result API.</td><td>النهارده زرار Done بيعمل <code>finish()</code> بس، والنتيجة ما بترجعش لحد.</td></tr>
+      <tr><td>5</td><td>الحاجات بتاعة الـ debug (الـ APDU trace على الشاشة وطباعته، ونافذة اختيار التطبيق حتى لو AID واحد) تشتغل في debug بس.</td><td>دي أدوات لينا، مش للـ integrator.</td></tr>
+      <tr><td>6</td><td>⚠ قبل ما نسلّم الـ SDK لأي حد: بوابة الـ release (BACKLOG §5): الـ PAN كامل و field 55 على الشاشة والإيصال، و logging <code>Level.BODY</code>، و mToken حقيقي في الكود.</td><td>دي لو راحت لحد تاني، تبقى بيانات كروت متسربة.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">الـ vendor (PAX) لسه بيتختار بالـ flavor و <code>TerminalFactory</code>، فالـ integrator بياخد <code>core</code> و <code>vendor-pax</code> (ومكتباته) و <code>easylink-ui</code>. الكلام ده لسه اتجاه، ومفيش كود اتعمل له.</p>
 </section>
 
 <section id="other-branch">

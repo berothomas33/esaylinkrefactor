@@ -57,31 +57,33 @@
 
 ## 3. العملية وخطواتها
 
-`TransactionStepObserver` هو المدخل الوحيد إلى `dispatchTransactionStep`:
+كل خطوة تدخل من باب واحد، `publish` (يُسقط ما يأتي بعد القرار، قبل الـ lock وتحته)، ثم يشغّل `TransactionStepObserver` الـ case الخاص بها في `dispatchTransactionStep`:
 
 | الخطوة | الدالة | ماذا تفعل |
 |---|---|---|
 | `TRANSACTION_STARTED` | `onTransactionStarted` | تنقل العملية إلى الـ transaction thread (`runTransaction`) |
 | `CANCELLING` | `onCancelling` | توقف البحث عن البطاقة |
-| `ENDING` | `onEnding` | الإغلاقات في loop واحدة: لكل طلب أُرسل، `closingFor(i)` ثم `closeAtHost` (تأكيد أو إلغاء). بعدها يتحرر الجهاز وتُسلَّم النهاية |
-| الباقي | — | تقرير للشاشة: `ONLINE_*`، `CARD_*`، `APPROVED` / `DECLINED` / `FAILED`، `ACKNOWLEDGING` / `REVERSING` / `CLOSING_COMPLETED`، `COMPLETED` / `ERROR` / `CANCELLED` |
+| `APPROVED` | `closeLast(ACKNOWLEDGING)` | إن وافق البنك على آخر طلب: تأكيد عنده (`closeAtHost`) |
+| `DECLINED` | `closeLast(REVERSING)` | إن وافق البنك على آخر طلب ورفض الكارت: إلغاء عنده |
+| `ENDING` | `onEnding` | كل طلب بلا `ACKNOWLEDGING` / `REVERSING` بالـ id نفسه يُلغى إن كان البنك ربما وافق (بعد cancel، أو FAILED، أو محاولة سابقة). ثم يتحرر الجهاز وتُسلَّم النهاية |
+| الباقي | — | تقرير للشاشة: `ONLINE_*`، `CARD_*`، `FAILED`، `ACKNOWLEDGING` / `REVERSING` / `CLOSING_COMPLETED`، `COMPLETED` / `ERROR` / `CANCELLED` |
 
-**الترتيب:** `TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → … → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → ENDING → (ACKNOWLEDGING|REVERSING → CLOSING_COMPLETED)… → COMPLETED`، أو `FAILED → ENDING → … → ERROR`، أو `CANCELLING → ENDING → … → CANCELLED`.
+**الترتيب:** `TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → … → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → (ACKNOWLEDGING|REVERSING → CLOSING_COMPLETED) → ENDING → (REVERSING → CLOSING_COMPLETED)… → COMPLETED`، أو `FAILED → ENDING → … → ERROR`، أو `CANCELLING → ENDING → … → CANCELLED`.
 
-- **حالة العملية هي خطواتها (لا field):** أول خطوة "قرار" تُسلَّم هي الحالة: `decision()` تبحث في الخطوات المحفوظة (`ReplaySubject`، يحفظ كل شيء) عن أول `CANCELLING` أو `APPROVED` أو `DECLINED` أو `FAILED` (`TransactionStep.isDecision()`). `isRunning()` = لا قرار؛ `isCancelled()` = القرار `CANCELLING`. أول قرار يكسب (`decide`)، وما بعده يُتجاهل.
+- **حالة العملية هي خطواتها (لا field):** أول خطوة "قرار" تُسلَّم هي الحالة: `decision()` تبحث في الخطوات المحفوظة (`ReplaySubject`، يحفظ كل شيء) عن أول `CANCELLING` أو `APPROVED` أو `DECLINED` أو `FAILED` (`TransactionStep.isDecision()`). `isRunning()` = لا قرار؛ `isCancelled()` = القرار `CANCELLING`. أول قرار يكسب (في `publish`)، وما بعده يُتجاهل.
 
 | القرار | من أين | النهاية التي تُسلَّم أخيرًا (`endOfDecision`) |
 |---|---|---|
 | `CANCELLING` | `cancel()` | `CANCELLED` |
-| `APPROVED` / `DECLINED` | `finishApproved` / `finishDeclined` → `emvFinished` | `COMPLETED` |
-| `FAILED` + الرسالة | `finishError` / `end(error)`، أو الـ `finally` ("Transaction ended without an outcome") | `ERROR` بالرسالة نفسها |
+| `APPROVED` / `DECLINED` | `finishApproved` / `finishDeclined` → `publish` (الخطوة تُضبط هناك دائمًا) | `COMPLETED` |
+| `FAILED` + الرسالة | `finishError` / `fail(message)`، أو الـ `finally` ("Transaction ended without an outcome") | `ERROR` بالرسالة نفسها |
 
 - **لماذا `FAILED`:** `ERROR` هي النهاية التي تعرضها الشاشة، والجهاز مشغول حتى تنتهي الإغلاقات. فالفشل يحتاج خطوة تظهر لحظة حدوثه، والنهاية تأتي بعدها.
 - **النهاية:** الـ `finally` في `runTransaction` يتأكد أن هناك قرارًا ويسلّم `ENDING`. الجهاز يبقى مشغولًا حتى تنتهي كل الإغلاقات، ثم `current = null`، ثم تُسلَّم النهاية.
 - **الإلغاء:** `cancel()` ينشر `CANCELLING` (قرار). يتوقف الـ EMV عند أول `goToStep`. لا يُقاطَع الـ thread أبدًا.
 - **الـ vendor لا يقرر بالنشر:** `AbstractEmvBehavior.publish` يُسقط كل خطوة قرار أو نهاية.
 - **إعادة المحاولة:** يطلبها الـ EMV (`requestRetry`)، ثم يبدأ `run` محاولة جديدة من `TERMINAL_INITIALIZATION` في العملية نفسها.
-- ⚠ `onEnding` تعمل والـ lock مأخوذ، ومعها نداءات البنك؛ لذلك `cancel` و `publish` و `decide` تنظر في القرار قبل أخذ الـ lock، فلا تنتظر الإغلاقات. لذلك الخطوات التي قد تنتظر البنك أو شخصًا قبل تحديد النهاية تبقى تقارير.
+- ⚠ الـ cases تعمل والـ lock مأخوذ، ومعها نداءات البنك (التأكيد / الإلغاء)؛ لذلك `publish` تنظر في القرار قبل أخذ الـ lock، فلا ينتظر `cancel` الإغلاقات. لذلك الخطوات التي قد تنتظر البنك أو شخصًا قبل تحديد النهاية تبقى تقارير.
 
 ## 4. خطوات الـ EMV
 
@@ -124,7 +126,7 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 - `bankAnswer` يُحفظ فقط حين يُرسل الطلب. إن رجعت `askTheBank` مبكرًا (لا field 55، أو إلغاء) يبقى `null`، ويُعامل كـ online failed.
 - **ARQC وحده يذهب إلى البنك** (الاسترداد كالبيع). الاستثناء: TC (`RESULT_OFFLINE_APPROVED`) يُرسل دون ARQC ويكون رد البنك هو النتيجة. AAC = رفض.
 
-**النهاية الآمنة** (عند `ENDING`، لكل طلب أُرسل):
+**النهاية الآمنة** (`case APPROVED` / `case DECLINED` لآخر طلب، و `ENDING` للباقي):
 
 | الرد | النهاية | يُرسل |
 |---|---|---|
