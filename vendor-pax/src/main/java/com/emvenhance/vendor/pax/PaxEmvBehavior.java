@@ -290,7 +290,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless app select failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV app select failed");
+            finishError(errorText(e, "Contactless EMV app select failed"));
         } finally {
             if (!proceed) {
                 finishContactlessStage();
@@ -340,8 +340,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless set transaction data failed", e);
-            finishError(e.getMessage() != null ? e.getMessage()
-                    : "Contactless EMV set transaction data failed");
+            finishError(errorText(e, "Contactless EMV set transaction data failed"));
         } finally {
             if (!proceed) {
                 finishContactlessStage();
@@ -372,7 +371,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless read app data failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV read app data failed");
+            finishError(errorText(e, "Contactless EMV read app data failed"));
         } finally {
             if (!proceed) {
                 captureSummaryAfterCardRead();
@@ -406,8 +405,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless offline data authentication failed", e);
-            finishError(e.getMessage() != null
-                    ? e.getMessage() : "Contactless EMV offline data authentication failed");
+            finishError(errorText(e, "Contactless EMV offline data authentication failed"));
         } finally {
             if (!proceed) {
                 captureSummaryAfterCardRead();
@@ -445,8 +443,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless processing restrictions failed", e);
-            finishError(e.getMessage() != null
-                    ? e.getMessage() : "Contactless EMV processing restrictions failed");
+            finishError(errorText(e, "Contactless EMV processing restrictions failed"));
         } finally {
             if (!proceed) {
                 captureSummaryAfterCardRead();
@@ -481,7 +478,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless execution failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
+            finishError(errorText(e, "Contactless EMV failed"));
             online = false;
         } finally {
             if (!online) {
@@ -546,7 +543,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless online result failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contactless online result failed");
+            finishError(errorText(e, "Contactless online result failed"));
             issuer = false;
         } finally {
             if (!issuer) {
@@ -569,8 +566,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             captureTransactionSummary();
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless issuer authentication failed", e);
-            finishError(e.getMessage() != null ? e.getMessage()
-                    : "Contactless issuer authentication failed");
+            finishError(errorText(e, "Contactless issuer authentication failed"));
         } finally {
             finishContactlessStage();
         }
@@ -649,7 +645,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             checkContactlessResult();
         } catch (Exception e) {
             LogUtils.e(TAG, "checkClsResult error", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "checkClsResult failed");
+            finishError(errorText(e, "checkClsResult failed"));
         }
     }
 
@@ -752,7 +748,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact app select failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV app select failed");
+            finishError(errorText(e, "Contact EMV app select failed"));
         } finally {
             if (!proceed) {
                 finishContactStage();
@@ -795,7 +791,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact read app data failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV read app data failed");
+            finishError(errorText(e, "Contact EMV read app data failed"));
         } finally {
             if (!proceed) {
                 finishContactStage();
@@ -816,8 +812,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact set transaction data failed", e);
-            finishError(e.getMessage() != null ? e.getMessage()
-                    : "Contact EMV set transaction data failed");
+            finishError(errorText(e, "Contact EMV set transaction data failed"));
         } finally {
             if (!proceed) {
                 finishContactStage();
@@ -838,7 +833,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact card auth failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV card auth failed");
+            finishError(errorText(e, "Contact EMV card auth failed"));
         } finally {
             if (!proceed) {
                 finishContactStage();
@@ -876,7 +871,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact execution failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
+            finishError(errorText(e, "Contact EMV failed"));
             online = false;
         } finally {
             if (!online) {
@@ -922,7 +917,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact online result failed", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "Contact online result failed");
+            finishError(errorText(e, "Contact online result failed"));
             issuer = false;
         } finally {
             if (!issuer) {
@@ -941,8 +936,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             captureTransactionSummary();
         } catch (Exception e) {
             LogUtils.e(TAG, "contact issuer authentication failed", e);
-            finishError(e.getMessage() != null ? e.getMessage()
-                    : "Contact issuer authentication failed");
+            finishError(errorText(e, "Contact issuer authentication failed"));
         } finally {
             finishContactStage();
         }
@@ -985,7 +979,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             checkContactResult();
         } catch (Exception e) {
             LogUtils.e(TAG, "checkContactResult error", e);
-            finishError(e.getMessage() != null ? e.getMessage() : "checkContactResult failed");
+            finishError(errorText(e, "checkContactResult failed"));
         }
     }
 
@@ -1414,7 +1408,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         completeDeclined("Offline Denied code=" + resultCode);
     }
 
-    public void seePhone() {
+    private void seePhone() {
         int retries = retryCount();
         if (retries >= MAX_TAP_RETRIES) {
             engine().apduTrace().note("PICC", "SEE PHONE again after " + retries
@@ -1427,12 +1421,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 "See phone — verify on your phone, then tap again");
     }
 
-    public void tryAnotherInterface() {
+    private void tryAnotherInterface() {
         retryWithMode(EntryMethod.CHIP,
                 "Try Another Interface: retrying with contact", "Insert the card");
     }
 
-    public void tryAgain() {
+    private void tryAgain() {
         int retries = retryCount();
         if (retries >= MAX_TAP_RETRIES) {
             LogUtils.w(TAG, "Try Again after " + retries + " retries — declining");
@@ -1447,7 +1441,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 "Card not read — tap again and hold the card still");
     }
 
-    public void fallback() {
+    private void fallback() {
         retryWithMode(EntryMethod.MAGSTRIPE, "Fallback: retrying with magstripe",
                 "Chip not readable — swipe the card");
     }
@@ -1512,6 +1506,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private static String timestamp() {
         return new SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(new Date());
+    }
+
+    /** The exception's message, or {@code fallback} when it has none. */
+    private static String errorText(Exception e, String fallback) {
+        return e.getMessage() != null ? e.getMessage() : fallback;
     }
 
     private static String safe(@Nullable String s) {

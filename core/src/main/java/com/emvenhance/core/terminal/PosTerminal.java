@@ -196,6 +196,9 @@ public abstract class PosTerminal {
     public final class Transaction {
 
         private final TransactionConfig config;
+        // The steps ARE the transaction's state (see decision()): keep every step — a
+        // ReplaySubject with no size or time limit. A PublishSubject, or a bounded replay,
+        // would forget the decision and the transaction would look like it is still running.
         private final ReplaySubject<TransactionStepEvent> steps = ReplaySubject.create();
         private final List<OnlineRequest> online = new ArrayList<>();
 
@@ -233,6 +236,8 @@ public abstract class PosTerminal {
         /**
          * The transaction's state is its steps: the first decision it delivered (CANCELLING,
          * APPROVED, DECLINED or FAILED), or null while it runs. No field keeps a copy.
+         * A decision is visible here before its step's method runs: ReplaySubject.onNext stores
+         * the step first, then emits it — so onCancelling already sees isCancelled().
          */
         @Nullable
         private TransactionStepEvent decision() {
