@@ -182,7 +182,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 .build());
     }
 
-    /** The EMV approved. The step is always APPROVED; the event brings the receipt fields. */
+    /**
+     * The EMV approved. The step is always APPROVED; the event brings the receipt fields.
+     * Call it only once the card is done — the reader closed, the kernel released (PAX: from
+     * finishContactStage / finishContactlessStage): its case acknowledges at the host at once.
+     */
     protected final void finishApproved(TransactionStepEvent approved) {
         if (transaction == null) {
             EmvLog.d("EMV outcome dropped, no transaction: " + approved);
@@ -198,7 +202,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 .build());
     }
 
-    /** The EMV declined. The step is always DECLINED; the event brings the receipt fields. */
+    /**
+     * The EMV declined. The step is always DECLINED; the event brings the receipt fields.
+     * Call it only once the card is done — the reader closed, the kernel released (PAX: from
+     * finishContactStage / finishContactlessStage): its case may reverse at the host at once.
+     */
     protected final void finishDeclined(TransactionStepEvent declined) {
         if (transaction == null) {
             EmvLog.d("EMV outcome dropped, no transaction: " + declined);
