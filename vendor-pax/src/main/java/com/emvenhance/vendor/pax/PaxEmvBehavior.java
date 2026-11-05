@@ -55,7 +55,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private static final String TAG = "PaxEmvBehavior";
 
-    private static final int CONTACTLESS_FLOW_TYPE = EmvTransParam.FLOWTYPE_COMPLETE;
 
     private static final int MAX_TAP_RETRIES = 3;
 
@@ -513,10 +512,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 || transResultEnum == TransResultEnum.RESULT_TRY_AGAIN) {
             return false;
         }
-        if (CONTACTLESS_FLOW_TYPE == EmvTransParam.FLOWTYPE_SIMPLE) {
-            tx.clsTransResult = new TransResult(0, TransResultEnum.RESULT_SIMPLE_FLOW_END, CvmResultEnum.CVM_NO_CVM);
-            return false;
-        }
         if (cvmResult == CvmResultEnum.CVM_ONLINE_PIN || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
             int ret = onCardHolderPwd(true, pinEntry.onlineBypassEnabled(), 0, null);
             if (ret != RetCode.EMV_OK && ret != EmvConstant.ContactCallbackStatus.NO_PASSWORD) {
@@ -706,11 +701,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 LogUtils.d(TAG, "CDCVM performed on the consumer device");
             }
             if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
-                offlineApproved(cvmResult == CvmResultEnum.CVM_SIG);
+                offlineApproved();
             } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_APPROVED) {
-                onlineApproved(cvmResult == CvmResultEnum.CVM_SIG);
-            } else if (transResultEnum == TransResultEnum.RESULT_SIMPLE_FLOW_END) {
-                simpleFlowEnd();
+                onlineApproved();
             } else {
                 offlineDenied(RetCode.CLSS_DECLINE);
             }
@@ -1024,13 +1017,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         LogUtils.d(TAG, "check result: code = " + resultCode
                 + ", enum = " + transResultEnum.name()
                 + ", cvm = " + cvmResult.name());
-        boolean isNeedSignature = cvmResult == CvmResultEnum.CVM_SIG || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG;
         switch (transResultEnum) {
             case RESULT_OFFLINE_APPROVED:
-                offlineApproved(isNeedSignature, true);
+                offlineApproved();
                 break;
             case RESULT_ONLINE_APPROVED:
-                onlineApproved(isNeedSignature);
+                onlineApproved();
                 break;
             case RESULT_ONLINE_CARD_DENIED:
                 onlineCardDenied(resultCode);
@@ -1046,9 +1038,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 break;
             case RESULT_OFFLINE_DENIED:
                 offlineDenied(resultCode);
-                break;
-            case RESULT_SIMPLE_FLOW_END:
-                simpleFlowEnd();
                 break;
             case RESULT_FALLBACK:
                 fallback();
@@ -1416,18 +1405,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return seePhone;
     }
 
-    public void offlineApproved(boolean needSignature) {
+    public void offlineApproved() {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
         engine().apduTrace().note("EMV", "offline approval without the host — online failed");
         completeError("Online Failed: not sent to the host");
     }
 
-    public void offlineApproved(boolean needSignature, boolean needSetARC) {
-        offlineApproved(needSignature);
-    }
-
-    public void onlineApproved(boolean needSignature) {
-        completeApproved("RESULT_ONLINE_APPROVED", true);
+    public void onlineApproved() {
+        completeApproved("RESULT_ONLINE_APPROVED");
     }
 
     public void onlineDenied() {
@@ -1497,12 +1482,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         requestRetry(activeConfig.withMode(mode), prompt);
     }
 
-    public void simpleFlowEnd() {
-        completeApproved("RESULT_SIMPLE_FLOW_END", false);
-    }
-
-    private void completeApproved(String result, boolean scripts) {
-        if (scripts && !tx.scriptsProcessed) {
+    private void completeApproved(String result) {
+        if (!tx.scriptsProcessed) {
             goToStep(EmvStep.SCRIPT_PROCESSING, null);
         }
         if (goToStep(EmvStep.TRANSACTION_COMPLETION, result)) {
