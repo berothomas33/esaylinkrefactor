@@ -619,7 +619,30 @@ flowchart LR
   </table></div>
   <p><b>نحن نستخدم Dependency Injection فعلًا، بلا framework</b> (manual constructor injection): <code>TerminalFactory</code> في كل flavor يختار الـ vendor، و <code>PaxTerminal</code> يمرّر الأجزاء الثلاثة إلى <code>PosTerminal</code>: <code>super(new PaxEmvBehavior(kernel, pinEntry()), communication, printer)</code>. لا يُنشئ أي كلاس ما يحتاجه بنفسه، بل يأخذه من الخارج. Dagger / Hilt يصبح مفيدًا حين يكبر الـ graph (شاشات و ViewModels كثيرة تشترك في الـ services)، لكنه لن يلغي <code>attach</code>.</p>
 
-  </section>
+  
+  <h3 id="di">ليه <code>attach</code> مهمة: كل كلاس ماسك مسؤوليته</h3>
+  <p><code>attach</code> نوع من الـ <b>Dependency Injection</b> اسمه <b>setter injection</b>. والفكرة كلها إن كل كلاس يأخذ ما يحتاجه من الخارج، ولا يصنعه بنفسه، فيبقى مسؤولًا عن شغله فقط.</p>
+  <ul class="facts">
+    <li><b>بدون DI:</b> كان الـ EMV سيضطر أن يعرف <code>PosTerminal</code> بنفسه، أو أن يتصل بالبنك بنفسه، فيحمل مسؤولية ليست له.</li>
+    <li><b>مع DI:</b> يأخذ الـ EMV "طريق البنك" من الخارج (<code>BankRequest</code>) ويستخدمه فقط. لا يعرف من على الطرف الآخر، ولا كيف يتكلم البنك.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <thead><tr><th>الكلاس</th><th>شغله</th><th>ما يأخذه من الخارج</th></tr></thead>
+    <tbody>
+      <tr><td><code>AbstractEmvBehavior</code></td><td>البطاقة والـ kernel</td><td><code>BankRequest</code> (بـ <code>attach</code>)</td></tr>
+      <tr><td><code>PosTerminal</code></td><td>العملية والجهاز</td><td>الـ behavior والـ communication والـ printer (في الـ constructor)</td></tr>
+      <tr><td><code>SaleCommunicationBehavior</code></td><td>الكلام مع البنك</td><td>مفاتيح وإعدادات الـ onboarding</td></tr>
+    </tbody>
+  </table></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>المفهوم</th><th>معناه</th><th>دوره هنا</th></tr></thead>
+    <tbody>
+      <tr><td><b>Single Responsibility</b></td><td>كل كلاس له شغلة واحدة</td><td><b>الهدف</b></td></tr>
+      <tr><td><b>Dependency Injection</b></td><td>كيف يصل كل كلاس إلى ما يحتاجه: من الخارج بدل أن يصنعه (constructor مثل <code>PosTerminal</code>، أو <code>attach</code> مثل <code>bankRequest</code>)</td><td>أداة</td></tr>
+      <tr><td><b>Dependency Inversion</b></td><td>ما يُحقَن يكون interface (<code>BankRequest</code>) لا كلاسًا محددًا</td><td>أداة: لهذا لا يعرف الـ EMV <code>PosTerminal</code> إطلاقًا</td></tr>
+    </tbody>
+  </table></div>
+</section>
 
 <section id="contact">
   <h2>6. مسار الـ contact (بترتيب الـ kernel نفسه)</h2>
