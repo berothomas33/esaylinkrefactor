@@ -703,7 +703,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
                 offlineApproved();
             } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_APPROVED) {
-                onlineApproved();
+                completeApproved("RESULT_ONLINE_APPROVED");
             } else {
                 offlineDenied(RetCode.CLSS_DECLINE);
             }
@@ -712,13 +712,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                     || resultCode == RetCode.CLSS_USE_CONTACT) {
                 tryAnotherInterface();
             } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_DENIED) {
-                onlineDenied();
+                completeDeclined("Online Denied");
             } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_FAILED) {
                 onlineFailed();
             } else if (transResultEnum == TransResultEnum.RESULT_ONLINE_CARD_DENIED) {
-                onlineCardDenied(resultCode);
-            } else if (transResultEnum == TransResultEnum.RESULT_OFFLINE_DENIED) {
-                offlineDenied(resultCode);
+                completeDeclined("Online Card Denied code=" + resultCode);
             } else {
                 offlineDenied(resultCode);
             }
@@ -1022,19 +1020,17 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 offlineApproved();
                 break;
             case RESULT_ONLINE_APPROVED:
-                onlineApproved();
+                completeApproved("RESULT_ONLINE_APPROVED");
                 break;
             case RESULT_ONLINE_CARD_DENIED:
-                onlineCardDenied(resultCode);
+                completeDeclined("Online Card Denied code=" + resultCode);
                 break;
             case RESULT_ONLINE_FAILED_CARD_APPROVED:
-                onlineFailed();
-                break;
             case RESULT_ONLINE_FAILED:
                 onlineFailed();
                 break;
             case RESULT_ONLINE_DENIED:
-                onlineDenied();
+                completeDeclined("Online Denied");
                 break;
             case RESULT_OFFLINE_DENIED:
                 offlineDenied(resultCode);
@@ -1405,25 +1401,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return seePhone;
     }
 
-    public void offlineApproved() {
+    private void offlineApproved() {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
         engine().apduTrace().note("EMV", "offline approval without the host — online failed");
         completeError("Online Failed: not sent to the host");
     }
 
-    public void onlineApproved() {
-        completeApproved("RESULT_ONLINE_APPROVED");
-    }
-
-    public void onlineDenied() {
-        completeDeclined("Online Denied");
-    }
-
-    public void onlineCardDenied(int resultCode) {
-        completeDeclined("Online Card Denied code=" + resultCode);
-    }
-
-    public void onlineFailed() {
+    private void onlineFailed() {
         AuthResult answer = bankAnswer();
         String reason = answer != null && answer.isFailed() && answer.getMessage() != null
                 ? "Online Failed: " + answer.getMessage()
@@ -1431,7 +1415,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         completeError(reason);
     }
 
-    public void offlineDenied(int resultCode) {
+    private void offlineDenied(int resultCode) {
         completeDeclined("Offline Denied code=" + resultCode);
     }
 
