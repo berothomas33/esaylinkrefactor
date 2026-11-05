@@ -493,18 +493,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 || transResultEnum == TransResultEnum.RESULT_TRY_AGAIN) {
             return resultCode;
         }
-        int ret = confirmCard();
-        LogUtils.d(TAG, "confirm card: " + ret);
-        if (ret != RetCode.EMV_OK) {
-            tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
-            return ret;
-        }
         if (CONTACTLESS_FLOW_TYPE == EmvTransParam.FLOWTYPE_SIMPLE) {
             tx.clsTransResult = new TransResult(0, TransResultEnum.RESULT_SIMPLE_FLOW_END, CvmResultEnum.CVM_NO_CVM);
             return 0;
         }
         if (cvmResult == CvmResultEnum.CVM_ONLINE_PIN || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
-            ret = onCardHolderPwd(true, pinEntry.onlineBypassEnabled(), 0, null);
+            int ret = onCardHolderPwd(true, pinEntry.onlineBypassEnabled(), 0, null);
             if (ret != RetCode.EMV_OK && ret != EmvConstant.ContactCallbackStatus.NO_PASSWORD) {
                 engine().apduTrace().note("PICC", "online PIN not entered (" + ret + ")");
                 finishError("Online PIN not entered — cancelled or timed out");
@@ -1088,19 +1082,19 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         return searchCardMode;
     }
 
+    /**
+     * The kernel calls this as soon as it has read the card (GPO + records), before it decides
+     * the outcome. So this is where the card is "read": the card data is there, and nothing the
+     * card decides has happened yet. A kernel without granular steps does set-data and read in
+     * one call, so both steps are announced here, in their EMV order.
+     */
     @Override
     public void onReadCardOk() {
         if (!kernel.contactless.supportsGranularSteps()) {
+            goToStep(EmvStep.SET_TRANSACTION_DATA, null);
             goToStep(EmvStep.READ_APPLICATION_DATA, null);
         }
         publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
-    }
-
-    @Override
-    public int confirmCard() {
-        if (!kernel.contactless.supportsGranularSteps()) {
-            goToStep(EmvStep.SET_TRANSACTION_DATA, null);
-        }
         kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
                 kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());
         publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
@@ -1109,6 +1103,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, safe(getContactlessCardholderName()))
                 .put(TransactionStepEvent.KEY_MODE, "Contactless")
                 .build());
+    }
+
+    /**
+     * Part of PAX's callback interface, but the PAX kernel never calls it. The card work it
+     * used to do (step announcements, terminal ID, CARD_READ) is in {@link #onReadCardOk()}.
+     */
+    @Override
+    public int confirmCard() {
         return EmvConstant.ContactCallbackStatus.CONTACT_OK;
     }
 
