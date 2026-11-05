@@ -182,8 +182,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 .build());
     }
 
+    /** The EMV approved. The step is always APPROVED; the event brings the receipt fields. */
     protected final void finishApproved(TransactionStepEvent approved) {
-        emvFinished(approved);
+        if (transaction == null) {
+            EmvLog.d("EMV outcome dropped, no transaction: " + approved);
+            return;
+        }
+        transaction.decide(TransactionStepEvent.of(TransactionStep.APPROVED,
+                approved.getMessage(), approved.getData()));
     }
 
     protected final void finishDeclined(String message) {
@@ -192,8 +198,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 .build());
     }
 
+    /** The EMV declined. The step is always DECLINED; the event brings the receipt fields. */
     protected final void finishDeclined(TransactionStepEvent declined) {
-        emvFinished(declined);
+        if (transaction == null) {
+            EmvLog.d("EMV outcome dropped, no transaction: " + declined);
+            return;
+        }
+        transaction.decide(TransactionStepEvent.of(TransactionStep.DECLINED,
+                declined.getMessage(), declined.getData()));
     }
 
     protected final void finishError(String message) {
@@ -202,14 +214,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return;
         }
         transaction.end(PosTerminal.errorEvent(message));
-    }
-
-    private void emvFinished(TransactionStepEvent outcome) {
-        if (transaction == null) {
-            EmvLog.d("EMV outcome dropped, no transaction: " + outcome);
-            return;
-        }
-        transaction.emvFinished(outcome);
     }
 
     protected final void publish(TransactionStepEvent event) {
