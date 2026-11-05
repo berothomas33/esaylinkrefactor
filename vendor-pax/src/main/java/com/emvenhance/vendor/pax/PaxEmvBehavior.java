@@ -154,8 +154,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
+        askTheBank();
         if (card.isNonEmv()) {
-            askTheBank();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
         } else if (card.isContactless()) {
             runContactlessOnline();
@@ -538,14 +538,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * ONLINE_AUTHORIZATION, contactless: ask the bank. A card that approved offline
+     * ONLINE_AUTHORIZATION, contactless, after the bank answered. A card that approved offline
      * (online-only terminal) ends with the host's answer. An ARQC the host did not approve ends
      * here too; an approved one goes on to ISSUER_AUTHENTICATION.
      */
     private void runContactlessOnline() {
         boolean issuer = false;
         try {
-            askTheBank();
             OnlineResultWrapper online = PaxHostAnswer.toOnlineResult(bankAnswer());
             TransResultEnum cardResult = tx.clsTransResult.getTransResult();
             TransResultEnum hostResult = online.getTransResultEnum();
@@ -914,14 +913,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     /**
-     * ONLINE_AUTHORIZATION, contact: ask the bank. A card that approved offline
+     * ONLINE_AUTHORIZATION, contact, after the bank answered. A card that approved offline
      * (online-only terminal) ends with the host's answer. An ARQC always goes on to
      * ISSUER_AUTHENTICATION, whatever the host said: the card must give its second GENERATE AC.
      */
     private void runContactOnline() {
         boolean issuer = false;
         try {
-            askTheBank();
             OnlineResultWrapper online = PaxHostAnswer.toOnlineResult(bankAnswer());
             if (tx.transResult.getTransResult() == TransResultEnum.RESULT_OFFLINE_APPROVED) {
                 tx.transResult = hostOutcome(online, tx.transResult.getCvmResult());
