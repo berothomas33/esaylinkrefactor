@@ -197,7 +197,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     protected final void finishError(String message) {
-        emvFinished(PosTerminal.errorEvent(message));
+        if (transaction == null) {
+            EmvLog.d("EMV error dropped, no transaction: " + message);
+            return;
+        }
+        transaction.end(PosTerminal.errorEvent(message));
     }
 
     private void emvFinished(TransactionStepEvent outcome) {

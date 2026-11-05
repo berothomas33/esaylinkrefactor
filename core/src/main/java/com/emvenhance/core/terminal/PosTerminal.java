@@ -308,17 +308,19 @@ public abstract class PosTerminal {
                     "transaction step dropped, the transaction has ended: " + event);
         }
 
+        /**
+         * The EMV's outcome (finishApproved / finishDeclined). Its errors come through end().
+         * Fails closed: an event that is not APPROVED / DECLINED never decides an outcome.
+         */
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
-            if (isOutcome(step)) {
-                decide(outcome);
-            } else if (step == TransactionStep.ERROR) {
-                end(outcome);
-            } else {
+            if (!isOutcome(step)) {
                 apduTrace().note("EMV", "EMV finished with no outcome (" + step
                         + ") — the transaction ends with an error");
                 end(errorEvent("EMV finished with no outcome: " + step));
+                return;
             }
+            decide(outcome);
         }
 
         private boolean isOutcome(TransactionStep step) {
