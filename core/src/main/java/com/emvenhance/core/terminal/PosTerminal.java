@@ -317,12 +317,6 @@ public abstract class PosTerminal {
                 case CANCELLING:
                     onCancelling();
                     break;
-                case APPROVED:
-                    closeLast(TransactionStep.ACKNOWLEDGING);
-                    break;
-                case DECLINED:
-                    closeLast(TransactionStep.REVERSING);
-                    break;
                 case ENDING:
                     onEnding();
                     break;
@@ -358,8 +352,8 @@ public abstract class PosTerminal {
         }
 
         /**
-         * APPROVED / DECLINED: if the host approved the last request, it is closed now —
-         * acknowledged when the card approved, reversed when the card declined.
+         * If the host approved the last request, it is closed: acknowledged when the card
+         * approved, reversed when the card declined.
          */
         private void closeLast(TransactionStep closing) {
             OnlineRequest last = online.isEmpty() ? null : online.get(online.size() - 1);
@@ -369,20 +363,28 @@ public abstract class PosTerminal {
         }
 
         /**
-         * ENDING: whatever is still open is reversed — after a cancel (it can come while the bank's
-         * call is in flight, so the answer is known only now), a failure, or an earlier attempt's
-         * request. Then the terminal is freed and the end delivered. Freed first: published from
-         * inside a step's case, the end reaches the screen before a case of its own would run, and
-         * a new sale started then must not find the terminal busy.
+         * ENDING: the EMV has returned — its reader closed, its kernel done — so the closings at
+         * the host start only now. The last request by the decision (APPROVED → acknowledged,
+         * DECLINED → reversed, if the host approved it); then whatever is still open is reversed —
+         * after a cancel (it can come while the bank's call is in flight, so the answer is known
+         * only now), a failure, or an earlier attempt's request. Then the terminal is freed and the
+         * end delivered. Freed first: published from inside a step's case, the end reaches the
+         * screen before a case of its own would run, and a new sale started then must not find
+         * the terminal busy.
          */
         private void onEnding() {
+            TransactionStepEvent decision = decision();
+            if (decision.getStep() == TransactionStep.APPROVED) {
+                closeLast(TransactionStep.ACKNOWLEDGING);
+            } else if (decision.getStep() == TransactionStep.DECLINED) {
+                closeLast(TransactionStep.REVERSING);
+            }
             for (OnlineRequest request : online) {
                 if (!closed(request) && needsReversal(request)) {
                     closeAtHost(request, TransactionStep.REVERSING);
                 }
             }
             current.compareAndSet(this, null);
-            TransactionStepEvent decision = decision();
             TransactionStep end = decision.getStep().endOfDecision();
             publish(end == TransactionStep.ERROR
                     ? errorEvent(decision.getString(TransactionStepEvent.KEY_ERROR))
