@@ -67,6 +67,15 @@ public enum TransactionStep {
         return this == CANCELLING || this == APPROVED || this == DECLINED || this == FAILED;
     }
 
+    /**
+     * The steps the transaction itself delivers after its decision: ENDING, the closings at the
+     * host and the end. Nothing else gets in once a transaction is decided.
+     */
+    public boolean isAfterDecision() {
+        return this == ENDING || this == ACKNOWLEDGING || this == REVERSING
+                || this == CLOSING_COMPLETED || isEnd();
+    }
+
     /** The end a decision leads to: CANCELLED, COMPLETED or ERROR. */
     public TransactionStep endOfDecision() {
         switch (this) {

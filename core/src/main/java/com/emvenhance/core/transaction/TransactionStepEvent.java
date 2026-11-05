@@ -23,6 +23,8 @@ public final class TransactionStepEvent {
     public static final String KEY_RETRY_PROMPT     = "retryPrompt";
     public static final String KEY_REQUEST_ID       = "asyncRequestId";
     public static final String KEY_CLOSED_OK        = "closedOk";
+    /** Where the request a closing step closes is in the transaction's online requests. */
+    public static final String KEY_REQUEST_INDEX    = "requestIndex";
 
     private final TransactionStep step;
     private final String message;

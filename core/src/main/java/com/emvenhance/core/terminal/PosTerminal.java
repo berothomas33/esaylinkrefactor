@@ -228,15 +228,55 @@ public abstract class PosTerminal {
         }
 
         public void cancel() {
-            TransactionStepEvent cancelling = TransactionStepEvent.of(TransactionStep.CANCELLING,
-                    "Cancelling — finishing with the card");
-            decide(cancelling);
+            publish(TransactionStepEvent.of(TransactionStep.CANCELLING,
+                    "Cancelling — finishing with the card"));
+        }
+
+        /** Ends the transaction with an error: FAILED now, ERROR with the same message at the end. */
+        void fail(String message) {
+            publish(TransactionStepEvent.builder(TransactionStep.FAILED)
+                    .message(message)
+                    .put(TransactionStepEvent.KEY_ERROR, message)
+                    .build());
+        }
+
+        /**
+         * The one way in, for every step; its case in dispatchTransactionStep runs as it is
+         * delivered. After the decision only the steps that follow it pass (ENDING, the closings,
+         * the end): a second decision, or a report from code still unwinding, is dropped.
+         * Checked before the lock: the closings call the host while holding it, and a cancel on a
+         * decided transaction must not wait for them
+         * (PosTerminalCloseAtHostTest.aCancelDuringASlowAcknowledgementDoesNotWaitForIt).
+         * Checked again under it: a cancel and an outcome at the same moment — only one goes in.
+         */
+        void publish(TransactionStepEvent event) {
+            if (droppedAfterDecision(event)) {
+                return;
+            }
+            synchronized (steps) {
+                if (droppedAfterDecision(event)) {
+                    return;
+                }
+                EmvLog.d("TransactionStep: " + event);
+                traceTransactionStep(event);
+                steps.onNext(event);
+            }
+        }
+
+        private boolean droppedAfterDecision(TransactionStepEvent event) {
+            if (event.getStep().isAfterDecision() || isRunning()) {
+                return false;
+            }
+            EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
+            apduTrace().note("EMV",
+                    "transaction step dropped, the transaction has ended: " + event);
+            return true;
         }
 
         /**
          * The transaction's state is its steps: the first decision it delivered (CANCELLING,
          * APPROVED, DECLINED or FAILED), or null while it runs. No field keeps a copy.
-         * A decision is visible here before its step's method runs: ReplaySubject.onNext stores
+         * A decision is visible here before its step's case runs: ReplaySubject.onNext stores
          * the step first, then emits it — so onCancelling already sees isCancelled().
          */
         @Nullable
@@ -249,11 +289,6 @@ public abstract class PosTerminal {
             return null;
         }
 
-        // cancel / publish / decide look at decision() before taking the lock on purpose: the
-        // closings (ACKNOWLEDGING / REVERSING) call the host while holding it, and a decided
-        // transaction must not wait for them
-        // (PosTerminalCloseAtHostTest.aCancelDuringASlowAcknowledgement…).
-
         boolean isRunning() {
             return decision() == null;
         }
@@ -261,61 +296,6 @@ public abstract class PosTerminal {
         boolean isCancelled() {
             TransactionStepEvent d = decision();
             return d != null && d.getStep() == TransactionStep.CANCELLING;
-        }
-
-        void publish(TransactionStepEvent event) {
-            if (decision() != null) {
-                dropped(event);
-                return;
-            }
-            synchronized (steps) {
-                if (decision() != null) {
-                    dropped(event);
-                    return;
-                }
-                deliver(event);
-            }
-        }
-
-        /** Ends the transaction with an error: FAILED now, ERROR as its end. */
-        void end(TransactionStepEvent error) {
-            String message = error.getMessage() != null ? error.getMessage() : "Error";
-            decide(TransactionStepEvent.builder(TransactionStep.FAILED)
-                    .message(message)
-                    .put(TransactionStepEvent.KEY_ERROR, message)
-                    .build());
-        }
-
-        /**
-         * The first decision wins; anything after it is dropped. Called by cancel(), end(error)
-         * and the EMV's finishApproved / finishDeclined (which set the step themselves).
-         */
-        void decide(TransactionStepEvent decision) {
-            if (decision() != null) {
-                dropped(decision);
-                return;
-            }
-            synchronized (steps) {
-                if (decision() != null) {
-                    dropped(decision);
-                    return;
-                }
-                apduTrace().note("EMV", "the transaction is decided: " + decision.getStep());
-                deliver(decision);
-            }
-        }
-
-        private void dropped(TransactionStepEvent event) {
-            EmvLog.d("TransactionStep dropped, the transaction has ended: " + event);
-            apduTrace().note("EMV",
-                    "transaction step dropped, the transaction has ended: " + event);
-        }
-
-
-        private void deliver(TransactionStepEvent event) {
-            EmvLog.d("TransactionStep: " + event);
-            traceTransactionStep(event);
-            steps.onNext(event);
         }
 
         private void begin() {
@@ -331,7 +311,11 @@ public abstract class PosTerminal {
                     onCancelling();
                     break;
                 case ENDING:
-                    onEnding();
+                    closeFrom(0);
+                    break;
+                case ACKNOWLEDGING:
+                case REVERSING:
+                    onClosing(event);
                     break;
                 default:
                     break;
@@ -351,14 +335,12 @@ public abstract class PosTerminal {
                 }
             } catch (Throwable t) {
                 t.printStackTrace();
-                end(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
+                fail(t.getMessage() != null ? t.getMessage() : "Transaction failed");
             } finally {
-                synchronized (steps) {
-                    if (decision() == null) {
-                        end(errorEvent("Transaction ended without an outcome"));
-                    }
-                    deliver(TransactionStepEvent.of(TransactionStep.ENDING));
+                if (isRunning()) {
+                    fail("Transaction ended without an outcome");
                 }
+                publish(TransactionStepEvent.of(TransactionStep.ENDING));
             }
         }
 
@@ -367,72 +349,60 @@ public abstract class PosTerminal {
         }
 
         /**
-         * The safe end: each request sent to the host is acknowledged or reversed, in order,
-         * then the terminal is freed and the end delivered. ACKNOWLEDGING / REVERSING and
-         * CLOSING_COMPLETED are reports the screen sees. Runs under the steps lock (ENDING is
-         * delivered under it); an ended transaction's cancel / publish don't wait for it.
+         * The closings at the host, one step each, in order (ENDING starts them at 0): the next
+         * request that needs an acknowledgement or a reversal gets its step; none left → the
+         * terminal is freed and the end delivered. Freed before the end is published: published
+         * from inside another step's case, the end reaches the screen before a case of its own
+         * would run, and a new sale started then must not find the terminal busy.
          */
-        private void onEnding() {
-            synchronized (steps) {
-                TransactionStepEvent decision = decision();
-                boolean completedApproved = decision.getStep() == TransactionStep.APPROVED;
-                for (int i = 0; i < online.size(); i++) {
-                    TransactionStepEvent closing = closingFor(i, completedApproved);
-                    if (closing != null) {
-                        closeAtHost(online.get(i).sent, closing);
-                    }
+        private void closeFrom(int from) {
+            TransactionStepEvent decision = decision();
+            boolean approved = decision.getStep() == TransactionStep.APPROVED;
+            for (int i = from; i < online.size(); i++) {
+                TransactionStepEvent closing = closingFor(i, approved);
+                if (closing != null) {
+                    publish(closing);
+                    return;
                 }
-                current.compareAndSet(this, null);
-                deliver(endOf(decision));
             }
+            current.compareAndSet(this, null);
+            TransactionStep end = decision.getStep().endOfDecision();
+            publish(end == TransactionStep.ERROR
+                    ? errorEvent(decision.getString(TransactionStepEvent.KEY_ERROR))
+                    : TransactionStepEvent.of(end));
         }
 
-        private void closeAtHost(TransactionConfig sent, TransactionStepEvent closing) {
-            deliver(closing);
+        /** ACKNOWLEDGING / REVERSING: the call at the host, waited for; then the next closing. */
+        private void onClosing(TransactionStepEvent closing) {
+            int index = closing.get(TransactionStepEvent.KEY_REQUEST_INDEX);
             Function<TransactionConfig, Completable> call =
                     closing.getStep() == TransactionStep.ACKNOWLEDGING
                             ? communication::acknowledge : communication::reverse;
             String what = closing.getMessage();
+            boolean ok;
+            String result;
             try {
-                call.apply(sent).timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
+                call.apply(online.get(index).sent)
+                        .timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
                         .blockingAwait();
-                EmvLog.d(what + " sent");
-                apduTrace().note("HOST", what + " sent");
-                deliver(closingCompleted(closing, true, what + " sent"));
+                ok = true;
+                result = what + " sent";
+                EmvLog.d(result);
             } catch (RuntimeException e) {
-                String failed = what + " failed — not retried: "
+                ok = false;
+                result = what + " failed — not retried: "
                         + (e.getCause() instanceof TimeoutException
                                 ? "the host didn't answer in time" : e.getMessage());
                 EmvLog.d(what + " failed: " + e);
-                apduTrace().note("HOST", failed);
-                deliver(closingCompleted(closing, false, failed));
             }
-        }
-
-        private static TransactionStepEvent closingCompleted(TransactionStepEvent closing,
-                boolean ok, String message) {
-            return TransactionStepEvent.builder(TransactionStep.CLOSING_COMPLETED)
-                    .message(message)
+            apduTrace().note("HOST", result);
+            publish(TransactionStepEvent.builder(TransactionStep.CLOSING_COMPLETED)
+                    .message(result)
                     .put(TransactionStepEvent.KEY_REQUEST_ID,
                             closing.getString(TransactionStepEvent.KEY_REQUEST_ID))
                     .put(TransactionStepEvent.KEY_CLOSED_OK, ok)
-                    .build();
-        }
-
-        private static TransactionStepEvent closeAtHostStep(TransactionStep step, String what,
-                String id) {
-            return TransactionStepEvent.builder(step)
-                    .message(what + " " + id)
-                    .put(TransactionStepEvent.KEY_REQUEST_ID, id)
-                    .build();
-        }
-
-        /** The end step a decision leads to; ERROR keeps the failure's message. */
-        private TransactionStepEvent endOf(TransactionStepEvent decision) {
-            TransactionStep end = decision.getStep().endOfDecision();
-            return end == TransactionStep.ERROR
-                    ? errorEvent(decision.getString(TransactionStepEvent.KEY_ERROR))
-                    : TransactionStepEvent.of(end);
+                    .build());
+            closeFrom(index + 1);
         }
 
         OnlineRequest wentOnline(TransactionConfig sent) {
@@ -443,14 +413,14 @@ public abstract class PosTerminal {
 
         /** ACKNOWLEDGING, REVERSING, or null (nothing to close) for the request at {@code i}. */
         @Nullable
-        private TransactionStepEvent closingFor(int i, boolean completedApproved) {
+        private TransactionStepEvent closingFor(int i, boolean approved) {
             OnlineRequest request = online.get(i);
             AuthResult answer = request.answer;
             boolean last = i == online.size() - 1;
             String id = request.sent.getAsyncRequestId();
-            if (answer != null && answer.isApproved() && last && completedApproved) {
+            if (answer != null && answer.isApproved() && last && approved) {
                 apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                return closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id);
+                return closingStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id, i);
             } else if (answer != null && answer.isNotSent()) {
                 apduTrace().note("HOST", "no reversal for request " + id
                         + ": the host could not have approved it — " + answer.getMessage());
@@ -460,9 +430,18 @@ public abstract class PosTerminal {
                                 : answer.isFailed() ? "no usable host answer — "
                                         + answer.getMessage()
                                         : "approved, not completed"));
-                return closeAtHostStep(TransactionStep.REVERSING, "Reversal", id);
+                return closingStep(TransactionStep.REVERSING, "Reversal", id, i);
             }
             return null;
+        }
+
+        private static TransactionStepEvent closingStep(TransactionStep step, String what,
+                String id, int index) {
+            return TransactionStepEvent.builder(step)
+                    .message(what + " " + id)
+                    .put(TransactionStepEvent.KEY_REQUEST_ID, id)
+                    .put(TransactionStepEvent.KEY_REQUEST_INDEX, index)
+                    .build();
         }
     }
 

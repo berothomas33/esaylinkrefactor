@@ -188,7 +188,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             EmvLog.d("EMV outcome dropped, no transaction: " + approved);
             return;
         }
-        transaction.decide(TransactionStepEvent.of(TransactionStep.APPROVED,
+        transaction.publish(TransactionStepEvent.of(TransactionStep.APPROVED,
                 approved.getMessage(), approved.getData()));
     }
 
@@ -204,7 +204,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             EmvLog.d("EMV outcome dropped, no transaction: " + declined);
             return;
         }
-        transaction.decide(TransactionStepEvent.of(TransactionStep.DECLINED,
+        transaction.publish(TransactionStepEvent.of(TransactionStep.DECLINED,
                 declined.getMessage(), declined.getData()));
     }
 
@@ -213,7 +213,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             EmvLog.d("EMV error dropped, no transaction: " + message);
             return;
         }
-        transaction.end(PosTerminal.errorEvent(message));
+        transaction.fail(message);
     }
 
     protected final void publish(TransactionStepEvent event) {
@@ -222,10 +222,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return;
         }
         TransactionStep step = event.getStep();
-        if (step.isEnd() || step.isDecision()) {
-            EmvLog.d("TransactionStep dropped, an outcome goes through finish*: " + event);
-            engine().apduTrace().note("EMV",
-                    "transaction step dropped — an outcome goes through finish*: " + event);
+        if (step.isDecision() || step.isAfterDecision()) {
+            EmvLog.d("TransactionStep dropped, a vendor reports only (outcomes go through"
+                    + " finish*, the end belongs to the transaction): " + event);
+            engine().apduTrace().note("EMV", "transaction step dropped — a vendor reports only"
+                    + " (outcomes go through finish*, the end belongs to the transaction): " + event);
             return;
         }
         transaction.publish(event);
@@ -499,7 +500,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             if (isStale("onSearchTimeout")) {
                 return;
             }
-            owner.end(PosTerminal.errorEvent("No card presented — card search timed out"));
+            owner.fail("No card presented — card search timed out");
         }
 
         @Override
@@ -507,7 +508,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             if (isStale("onSearchCancelled")) {
                 return;
             }
-            owner.end(PosTerminal.errorEvent("Card search cancelled"));
+            owner.fail("Card search cancelled");
         }
 
         @Override
@@ -515,7 +516,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             if (isStale("onReaderError")) {
                 return;
             }
-            owner.end(PosTerminal.errorEvent(message != null ? message : "Reader error"));
+            owner.fail(message != null ? message : "Reader error");
         }
 
         @Override
