@@ -1,7 +1,6 @@
 package com.emvenhance.vendor.pax;
 
 import androidx.annotation.Nullable;
-import com.emvenhance.core.transaction.TransactionStep;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.TransResult;
@@ -36,8 +35,9 @@ final class PaxKernelSession {
     @Nullable
     PinRequest pinRequest;
 
+    /** The outcome's report, run by the TRANSACTION_COMPLETION hook. */
     @Nullable
-    Outcome outcome;
+    Runnable outcome;
 
     @Nullable
     PaxPinPad activePinPad;
@@ -68,16 +68,6 @@ final class PaxKernelSession {
             this.online = online;
             this.supportPinBypass = supportPinBypass;
             this.leftTimes = leftTimes;
-        }
-    }
-
-    static final class Outcome {
-        final TransactionStep step;
-        final String message;
-
-        Outcome(TransactionStep step, String message) {
-            this.step = step;
-            this.message = message;
         }
     }
 }

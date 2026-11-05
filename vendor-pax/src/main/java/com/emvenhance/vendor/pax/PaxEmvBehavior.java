@@ -29,7 +29,6 @@ import com.pax.emvbase.constant.EmvConstant;
 import com.pax.emvbase.constant.TagsTable;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.EmvTransParam;
-import com.emvenhance.vendor.pax.PaxKernelSession.Outcome;
 import com.emvenhance.vendor.pax.PaxKernelSession.PinRequest;
 import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.contact.IContactCallback;
@@ -177,10 +176,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             }
             return;
         }
-        Outcome outcome = tx.outcome;
+        Runnable report = tx.outcome;
         tx.outcome = null;
-        if (outcome != null) {
-            reportOutcome(outcome);
+        if (report != null) {
+            report.run();
         }
     }
 
@@ -1422,8 +1421,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void offlineApproved(boolean needSignature) {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
         engine().apduTrace().note("EMV", "offline approval without the host — online failed");
-        finishWithOutcome(TransactionStep.ERROR, "Online Failed",
-                "Online Failed: not sent to the host");
+        completeError("Online Failed: not sent to the host");
     }
 
     public void offlineApproved(boolean needSignature, boolean needSetARC) {
@@ -1447,7 +1445,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         String reason = answer != null && answer.isFailed() && answer.getMessage() != null
                 ? "Online Failed: " + answer.getMessage()
                 : "Online Failed: no host response";
-        finishWithOutcome(TransactionStep.ERROR, "Online Failed", reason);
+        completeError(reason);
     }
 
     public void offlineDenied(int resultCode) {
@@ -1509,33 +1507,27 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (scripts && !tx.scriptsProcessed) {
             goToStep(EmvStep.SCRIPT_PROCESSING, null);
         }
-        finishWithOutcome(TransactionStep.APPROVED, result, result);
+        complete(result, () -> finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
+                TransactionStepEvent.KEY_RESULT, result)));
     }
 
     private void completeDeclined(String reason) {
-        finishWithOutcome(TransactionStep.DECLINED, reason, reason);
+        complete(reason, () -> finishDeclined(buildOutcomeEvent(TransactionStep.DECLINED,
+                TransactionStepEvent.KEY_ERROR, reason)));
     }
 
-    private void finishWithOutcome(TransactionStep step, String stepDetail, String message) {
-        tx.outcome = new Outcome(step, message);
-        goToStep(EmvStep.TRANSACTION_COMPLETION, stepDetail);
+    private void completeError(String reason) {
+        complete("Online Failed", () -> finishError(reason));
+    }
+
+    /**
+     * TRANSACTION_COMPLETION reports the outcome: the step's hook runs {@code report}
+     * (see {@link #onTransactionCompletion}). Not reported if the step is dropped (cancelled).
+     */
+    private void complete(String detail, Runnable report) {
+        tx.outcome = report;
+        goToStep(EmvStep.TRANSACTION_COMPLETION, detail);
         tx.outcome = null;
-    }
-
-    private void reportOutcome(Outcome outcome) {
-        switch (outcome.step) {
-            case APPROVED:
-                finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
-                        TransactionStepEvent.KEY_RESULT, outcome.message));
-                break;
-            case DECLINED:
-                finishDeclined(buildOutcomeEvent(TransactionStep.DECLINED,
-                        TransactionStepEvent.KEY_ERROR, outcome.message));
-                break;
-            default:
-                finishError(outcome.message);
-                break;
-        }
     }
 
     private TransactionStepEvent buildOutcomeEvent(TransactionStep step, String messageKey,
