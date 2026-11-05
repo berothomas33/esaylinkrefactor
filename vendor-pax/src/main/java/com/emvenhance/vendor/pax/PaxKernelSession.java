@@ -55,6 +55,9 @@ final class PaxKernelSession {
 
     boolean scriptsProcessed;
 
+    /** Mastercard Single Tap: the PIN was asked for once in this attempt — never a second time. */
+    boolean singleTapPinEntered;
+
     static final class PinRequest {
         final boolean online;
         final boolean supportPinBypass;

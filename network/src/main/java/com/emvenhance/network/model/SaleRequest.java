@@ -55,6 +55,15 @@ public final class SaleRequest {
     public SaleRequest(double amount, double netAmount, int cvm, String pan, @Nullable String pinBlock,
             @Nullable String chipData, int expirationMonth, int expirationYear, String trailer,
             String posEntryMode, @Nullable String cardType, String dcc, String extraData) {
+        this(amount, netAmount, cvm, pan, pinBlock, chipData, expirationMonth, expirationYear,
+                trailer, posEntryMode, cardType, dcc, null, extraData);
+    }
+
+    /** {@code singleTap}: "ST" on the Mastercard Single Tap resend (the sale again with the PIN). */
+    public SaleRequest(double amount, double netAmount, int cvm, String pan, @Nullable String pinBlock,
+            @Nullable String chipData, int expirationMonth, int expirationYear, String trailer,
+            String posEntryMode, @Nullable String cardType, String dcc, @Nullable String singleTap,
+            String extraData) {
         this.amount = amount;
         this.netAmount = netAmount;
         this.cvm = cvm;
@@ -67,7 +76,7 @@ public final class SaleRequest {
         this.posEntryMode = posEntryMode;
         this.cardType = cardType;
         this.dcc = dcc;
-        this.singleTap = null;
+        this.singleTap = singleTap;
         this.extraData = extraData;
     }
 

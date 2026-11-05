@@ -22,6 +22,9 @@ public enum TransactionStep {
 
     ONLINE_COMPLETED("Online authorization completed"),
 
+    /** Mastercard Single Tap: the bank asks for the PIN; the same sale goes again with it. */
+    SINGLE_TAP_PIN_REQUIRED("The bank asks for the PIN"),
+
     CANCELLING("Cancelling"),
 
     CANCELLED("Transaction cancelled"),

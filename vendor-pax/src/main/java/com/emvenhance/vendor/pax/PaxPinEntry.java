@@ -63,7 +63,7 @@ final class PaxPinEntry {
 
         boolean bypassAllowed = supportPINByPass && pinBypass.isOnlinePinBypassEnabled();
         tx.lastOnlinePinBlock = null;
-        provisionOnlinePinKey(tx);
+        ensureOnlinePinKey(tx);
 
         PaxPinPad pad = new PaxPinPad(bypassAllowed
                 ? "Enter Online PIN (Enter to skip)" : "Enter Online PIN");
@@ -111,6 +111,17 @@ final class PaxPinEntry {
     static void clearOnlinePin(PaxKernelSession tx) {
         tx.lastOnlinePinBlock = null;
         tx.lastOnlinePinKeyEncrypted = null;
+    }
+
+    /**
+     * One online PIN key per attempt, made before its first online request: the key goes with
+     * every exchange (the host needs it for a Single Tap PIN that comes later, with no exchange
+     * of its own), and a PIN block entered after that is made under the same key.
+     */
+    void ensureOnlinePinKey(PaxKernelSession tx) {
+        if (tx.lastOnlinePinKeyEncrypted == null) {
+            provisionOnlinePinKey(tx);
+        }
     }
 
     private void provisionOnlinePinKey(PaxKernelSession tx) {

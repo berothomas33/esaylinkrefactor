@@ -57,12 +57,21 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     private static final double NET_AMOUNT = 0.0;
     private static final String MASTERCARD_RID = "A000000004";
+    /** The host's "PIN required" for a contactless Mastercard sale sent without one (old app). */
+    static final int RC_SINGLE_TAP_PIN_REQUIRED = 90;
+    static final String SINGLE_TAP = "ST";
 
     private final HostApiConnection connection;
     private final OnboardingClient onboarding;
     private final OnboardingState onboardingState;
     private final HostSettings hostSettings;
     private final String sn;
+    /**
+     * The sale the host answered "PIN required" (Mastercard Single Tap), kept for its one resend:
+     * the same asyncRequestId and TEK, no new exchange. One transaction at a time, on its thread.
+     */
+    @Nullable
+    private SingleTapSale singleTapSale;
     private final Gson gson = new Gson();
 
     public SaleCommunicationBehavior(Context context, String sn) {
@@ -112,6 +121,14 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                     "No EmvTransactionResult on TransactionConfig — the vendor EmvBehavior must "
                             + "attach one (see TransactionConfig#withEmvResult) before going online");
         }
+        SingleTapSale resend = singleTapSale;
+        singleTapSale = null;
+        if (resend != null && resend.asyncRequestId.equals(config.getAsyncRequestId())
+                && pinBlockToSend(config) != null) {
+            Log.i(TAG, "Single Tap: the same sale again with the PIN — same id and TEK, no exchange");
+            return callSale(resend.headers, config, emvResult, resend.tek, resend.asyncRequestId,
+                    SINGLE_TAP);
+        }
         String hostPublicKey = onboardingState.getPublicKey();
         if (hostPublicKey == null) {
             throw new HostNotReachedException(
@@ -143,7 +160,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         } catch (RuntimeException e) {
             return answerOf(exchangeError(unwrapped(e)));
         }
-        return callSale(headers, config, emvResult, tek, asyncRequestId);
+        return callSale(headers, config, emvResult, tek, asyncRequestId, null);
     }
 
     private static byte[] newTek() {
@@ -259,10 +276,12 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     }
 
     private AuthResult callSale(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, byte[] tek, String asyncRequestId) {
+            EmvTransactionResult emvResult, byte[] tek, String asyncRequestId,
+            @Nullable String singleTap) {
         boolean refund = isRefund(config);
         String step = refund ? "Refund" : "Sale";
-        GeneralRequest saleRequest = prepareSaleRequest(config, emvResult, tek, asyncRequestId, step);
+        GeneralRequest saleRequest =
+                prepareSaleRequest(config, emvResult, tek, asyncRequestId, step, singleTap);
         Map<String, String> withToken = withMToken(headers);
         SaleResponse saleResponse;
         try {
@@ -273,13 +292,46 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         } catch (RuntimeException e) {
             return answerOf(classify(step, unwrapped(e)));
         }
+        if (singleTapPinRequired(saleResponse.getResponseCode(), config, emvResult)) {
+            singleTapSale = new SingleTapSale(asyncRequestId, tek, headers);
+            Log.i(TAG, "Single Tap: the host asks for the PIN (RC " + RC_SINGLE_TAP_PIN_REQUIRED + ")");
+            return AuthResult.pinRequired(String.valueOf(RC_SINGLE_TAP_PIN_REQUIRED),
+                    saleResponse.getResponseMessage() != null
+                            ? saleResponse.getResponseMessage() : "PIN required");
+        }
         return toAuthResult(saleResponse);
     }
 
+    /**
+     * Mastercard Single Tap: RC 90 for a contactless Mastercard sale sent without a PIN. With a
+     * PIN (the resend) RC 90 is a plain decline — never a second PIN request.
+     */
+    static boolean singleTapPinRequired(@Nullable Integer responseCode, TransactionConfig config,
+            EmvTransactionResult emvResult) {
+        String aid = emvResult.getAid();
+        return responseCode != null && responseCode == RC_SINGLE_TAP_PIN_REQUIRED
+                && !isRefund(config)
+                && emvResult.getEntryMethod() == EntryMethod.CONTACTLESS
+                && pinBlockToSend(config) == null
+                && aid != null && aid.toUpperCase(Locale.US).startsWith(MASTERCARD_RID);
+    }
+
+    private static final class SingleTapSale {
+        final String asyncRequestId;
+        final byte[] tek;
+        final Map<String, String> headers;
+
+        SingleTapSale(String asyncRequestId, byte[] tek, Map<String, String> headers) {
+            this.asyncRequestId = asyncRequestId;
+            this.tek = tek;
+            this.headers = headers;
+        }
+    }
+
     private GeneralRequest prepareSaleRequest(TransactionConfig config, EmvTransactionResult emvResult,
-            byte[] tek, String asyncRequestId, String step) {
+            byte[] tek, String asyncRequestId, String step, @Nullable String singleTap) {
         Object body = isRefund(config)
-                ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult);
+                ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult, singleTap);
         String encSerializedRequest = encrypted(tek, step.toUpperCase(Locale.US) + "_REQUEST", body,
                 step.toLowerCase(Locale.US));
         logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
@@ -406,6 +458,11 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     }
 
     SaleRequest buildSaleRequest(TransactionConfig config, EmvTransactionResult emvResult) {
+        return buildSaleRequest(config, emvResult, null);
+    }
+
+    SaleRequest buildSaleRequest(TransactionConfig config, EmvTransactionResult emvResult,
+            @Nullable String singleTap) {
         CardFields card = cardFields(emvResult);
 
         double amountMajor = config.getAmountMinor() / 100.0;
@@ -423,6 +480,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 PosEntryModeCodes.forEntryMethod(emvResult.getEntryMethod()),
                 cardType(emvResult),
                 dcc(emvResult),
+                singleTap,
                 extraDataJson(config, emvResult));
     }
 
@@ -461,9 +519,14 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         return pinBlock == null || pinBlock.trim().isEmpty() ? null : pinBlock;
     }
 
+    /**
+     * The online PIN key goes with every exchange, PIN or not (old app): a Single Tap sale has no
+     * PIN at first, and its resend has no exchange of its own to bring the key.
+     */
     @Nullable
     static String pinKeyToSend(TransactionConfig config) {
-        return pinBlockToSend(config) != null ? config.getOnlinePinKeyEncrypted() : null;
+        String pinKey = config.getOnlinePinKeyEncrypted();
+        return pinKey == null || pinKey.trim().isEmpty() ? null : pinKey;
     }
 
     static String pinEnterMode(TransactionConfig config, EmvTransactionResult emvResult) {

@@ -523,6 +523,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
      * here too; an approved one goes on to ISSUER_AUTHENTICATION.
      */
     private void runContactlessOnline() {
+        AuthResult answer = bankAnswer();
+        if (answer != null && answer.isPinRequired()) {
+            runSingleTap();
+            return;
+        }
         boolean issuer = false;
         try {
             OnlineResultWrapper online = PaxHostAnswer.toOnlineResult(bankAnswer());
@@ -550,6 +555,47 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         if (issuer) {
             advanceContactlessStage(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail());
+        }
+    }
+
+    /**
+     * Mastercard Single Tap: the bank asks for the PIN after a tap that sent none. No second tap:
+     * the PIN (CARDHOLDER_VERIFICATION, the same hook as any online PIN), then the same sale again
+     * (ONLINE_AUTHORIZATION once more; PosTerminal keeps its request and id). Once only: the
+     * network never asks twice (RC 90 with a PIN is a decline), and should a second "PIN
+     * required" come here anyway it ends as declined — no loop.
+     */
+    private void runSingleTap() {
+        boolean again = false;
+        try {
+            if (tx.singleTapPinEntered) {
+                engine().apduTrace().note("EMV", "Single Tap: the PIN asked for again — declined");
+                tx.clsTransResult.setTransResult(TransResultEnum.RESULT_ONLINE_DENIED);
+                tx.clsTransResult.setResultCode(TransResultEnum.RESULT_ONLINE_DENIED.ordinal());
+            } else {
+                engine().apduTrace().note("EMV", "Single Tap: the bank asks for the PIN — no second tap");
+                publish(TransactionStepEvent.of(TransactionStep.SINGLE_TAP_PIN_REQUIRED,
+                        "The bank asks for the PIN"));
+                int ret = onCardHolderPwd(true, false, 0, null);
+                if (ret == RetCode.EMV_OK) {
+                    tx.singleTapPinEntered = true;
+                    again = true;
+                } else {
+                    engine().apduTrace().note("PICC", "Single Tap: PIN not entered (" + ret + ")");
+                    finishError("Online PIN not entered — cancelled or timed out");
+                }
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "single tap failed", e);
+            finishError(errorText(e, "Single Tap failed"));
+            again = false;
+        } finally {
+            if (!again) {
+                finishContactlessStage();
+            }
+        }
+        if (again) {
+            advanceContactlessStage(EmvStep.ONLINE_AUTHORIZATION, "Single Tap: the sale again with the PIN");
         }
     }
 
@@ -1295,6 +1341,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (activeCard == null || activeCard.isNonEmv()) {
             return config;
         }
+        pinEntry.ensureOnlinePinKey(tx);
         boolean contactless = activeCard.isContactless();
         String pan = contactless ? getContactlessPan() : getContactPan();
         String track2 = contactless ? getContactlessTrack2Data() : getContactTrack2Data();

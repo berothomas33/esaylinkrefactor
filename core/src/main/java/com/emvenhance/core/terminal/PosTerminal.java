@@ -57,9 +57,18 @@ public abstract class PosTerminal {
     public AuthResult sendToBank(TransactionConfig config) {
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_REQUIRED));
         publish(TransactionStepEvent.of(TransactionStep.ONLINE_PROCESSING));
-        TransactionConfig sent = config.withAsyncRequestId(UUID.randomUUID().toString());
         Transaction transaction = current.get();
-        OnlineRequest request = transaction != null ? transaction.wentOnline(sent) : null;
+        OnlineRequest pinRequired = transaction != null ? transaction.pinRequired() : null;
+        TransactionConfig sent;
+        OnlineRequest request;
+        if (pinRequired != null) {
+            // Single Tap: the same sale again, now with the PIN — the same request and id
+            sent = config.withAsyncRequestId(pinRequired.sent.getAsyncRequestId());
+            request = pinRequired;
+        } else {
+            sent = config.withAsyncRequestId(UUID.randomUUID().toString());
+            request = transaction != null ? transaction.wentOnline(sent) : null;
+        }
         AuthResult result;
         try {
             result = communication.connectToHost(sent)
@@ -452,6 +461,16 @@ public abstract class PosTerminal {
             OnlineRequest request = new OnlineRequest(sent);
             online.add(request);
             return request;
+        }
+
+        /** The last request, if the host answered it "PIN required" (Single Tap); else null. */
+        @Nullable
+        OnlineRequest pinRequired() {
+            if (online.isEmpty()) {
+                return null;
+            }
+            OnlineRequest last = online.get(online.size() - 1);
+            return last.answer != null && last.answer.isPinRequired() ? last : null;
         }
     }
 
