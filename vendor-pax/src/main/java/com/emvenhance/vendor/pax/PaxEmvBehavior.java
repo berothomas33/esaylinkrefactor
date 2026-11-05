@@ -568,8 +568,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishContactlessStage();
             }
         }
-        if (issuer && !goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())) {
-            finishContactlessStage();
+        if (issuer) {
+            advanceContactlessStage(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail());
         }
     }
 
@@ -674,7 +674,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private void advanceContactlessStage(EmvStep next) {
-        if (!goToStep(next)) {
+        advanceContactlessStage(next, null);
+    }
+
+    private void advanceContactlessStage(EmvStep next, @Nullable String detail) {
+        if (!goToStep(next, detail)) {
             finishContactlessStage();
         }
     }
@@ -863,7 +867,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private void advanceContactStage(EmvStep next) {
-        if (!goToStep(next)) {
+        advanceContactStage(next, null);
+    }
+
+    private void advanceContactStage(EmvStep next, @Nullable String detail) {
+        if (!goToStep(next, detail)) {
             finishContactStage();
         }
     }
@@ -938,8 +946,8 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 finishContactStage();
             }
         }
-        if (issuer && !goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())) {
-            finishContactStage();
+        if (issuer) {
+            advanceContactStage(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail());
         }
     }
 
