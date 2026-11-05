@@ -154,9 +154,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
-        askTheBank();
         if (card.isNonEmv()) {
+            askTheBank();
             goToStep(EmvStep.TRANSACTION_COMPLETION);
+        } else if (card.isContactless()) {
+            runContactlessOnline();
+        } else {
+            runContactOnline();
         }
     }
 
@@ -267,7 +271,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public void onIssuerAuthentication(TransactionConfig config, CardPresence card) {
-        completeIssuerAuthentication();
+        if (card.isContactless()) {
+            runContactlessIssuerAuthentication();
+        } else {
+            runContactIssuerAuthentication();
+        }
     }
 
     @Override
@@ -466,36 +474,52 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    /**
+     * PROCESS_RESTRICTIONS (or OFFLINE_DATA_AUTHENTICATION) ends here: the kernel's one call does
+     * the rest of the card side up to the first GENERATE AC. If the card goes online, the next
+     * step is ONLINE_AUTHORIZATION; otherwise the stage ends with the card's own result.
+     */
     private void runContactlessStartTransaction() {
+        boolean online = false;
         try {
             LogUtils.d(TAG, "============ Contactless EMV: Start Transaction ============");
-            int ret = startContactlessTransProcess();
-            LogUtils.d(TAG, "startTransProcess ret=" + ret);
-            captureTransactionSummary();
+            online = startContactlessTransProcess();
+            LogUtils.d(TAG, "startTransProcess result=" + tx.clsTransResult.getTransResult()
+                    + ", online=" + online);
+            if (!online) {
+                captureTransactionSummary();
+            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contactless execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contactless EMV failed");
+            online = false;
         } finally {
-            finishContactlessStage();
+            if (!online) {
+                finishContactlessStage();
+            }
+        }
+        if (online) {
+            advanceContactlessStage(EmvStep.ONLINE_AUTHORIZATION);
         }
     }
 
-    private int startContactlessTransProcess() {
+    /** Runs the kernel up to the first GENERATE AC; true when the card goes to the host. */
+    private boolean startContactlessTransProcess() {
         tx.clsTransResult = kernel.contactless.startTransProcess();
         CvmResultEnum cvmResult = tx.clsTransResult.getCvmResult();
         int resultCode = tx.clsTransResult.getResultCode();
         TransResultEnum transResultEnum = tx.clsTransResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
             markTryAgainOnCommunicationError(resultCode);
-            return resultCode;
+            return false;
         }
         if (transResultEnum == TransResultEnum.RESULT_CLSS_SEE_PHONE
                 || transResultEnum == TransResultEnum.RESULT_TRY_AGAIN) {
-            return resultCode;
+            return false;
         }
         if (CONTACTLESS_FLOW_TYPE == EmvTransParam.FLOWTYPE_SIMPLE) {
             tx.clsTransResult = new TransResult(0, TransResultEnum.RESULT_SIMPLE_FLOW_END, CvmResultEnum.CVM_NO_CVM);
-            return 0;
+            return false;
         }
         if (cvmResult == CvmResultEnum.CVM_ONLINE_PIN || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
             int ret = onCardHolderPwd(true, pinEntry.onlineBypassEnabled(), 0, null);
@@ -503,29 +527,69 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 engine().apduTrace().note("PICC", "online PIN not entered (" + ret + ")");
                 finishError("Online PIN not entered — cancelled or timed out");
                 tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
-                return ret;
+                return false;
             }
         }
         if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
             noteOnlineWithoutArqc(transResultEnum);
-            OnlineResultWrapper online = startOnlineProcess();
-            tx.clsTransResult = hostOutcome(online, cvmResult);
-            return tx.clsTransResult.getResultCode();
+            return true;
         }
-        if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
-            OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
-            TransResultEnum onlineTransResultEnum = onlineResultWrapper.getTransResultEnum();
-            if (TransResultEnum.RESULT_ONLINE_APPROVED != onlineTransResultEnum) {
-                tx.clsTransResult.setTransResult(onlineTransResultEnum);
-                tx.clsTransResult.setResultCode(onlineTransResultEnum.ordinal());
-                return onlineTransResultEnum.ordinal();
+        return transResultEnum == TransResultEnum.RESULT_REQ_ONLINE;
+    }
+
+    /**
+     * ONLINE_AUTHORIZATION, contactless: ask the bank. A card that approved offline
+     * (online-only terminal) ends with the host's answer. An ARQC the host did not approve ends
+     * here too; an approved one goes on to ISSUER_AUTHENTICATION.
+     */
+    private void runContactlessOnline() {
+        boolean issuer = false;
+        try {
+            askTheBank();
+            OnlineResultWrapper online = PaxHostAnswer.toOnlineResult(bankAnswer());
+            TransResultEnum cardResult = tx.clsTransResult.getTransResult();
+            TransResultEnum hostResult = online.getTransResultEnum();
+            if (cardResult == TransResultEnum.RESULT_OFFLINE_APPROVED) {
+                tx.clsTransResult = hostOutcome(online, tx.clsTransResult.getCvmResult());
+            } else if (hostResult != TransResultEnum.RESULT_ONLINE_APPROVED) {
+                tx.clsTransResult.setTransResult(hostResult);
+                tx.clsTransResult.setResultCode(hostResult.ordinal());
+            } else {
+                issuer = true;
             }
-            runIssuerAuthentication();
+            if (!issuer) {
+                captureTransactionSummary();
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contactless online result failed", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "Contactless online result failed");
+            issuer = false;
+        } finally {
+            if (!issuer) {
+                finishContactlessStage();
+            }
+        }
+        if (issuer && !goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())) {
+            finishContactlessStage();
+        }
+    }
+
+    /** ISSUER_AUTHENTICATION, contactless: the second tap (if the card needs it), then the end. */
+    private void runContactlessIssuerAuthentication() {
+        try {
+            CvmResultEnum cvmResult = tx.clsTransResult.getCvmResult();
+            completeContactlessIssuerAuthentication(PaxHostAnswer.toOnlineResult(bankAnswer()));
             if (cvmResult == CvmResultEnum.CVM_SIG || cvmResult == CvmResultEnum.CVM_ONLINE_PIN_SIG) {
                 tx.clsTransResult.setCvmResult(CvmResultEnum.CVM_SIG);
             }
+            captureTransactionSummary();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contactless issuer authentication failed", e);
+            finishError(e.getMessage() != null ? e.getMessage()
+                    : "Contactless issuer authentication failed");
+        } finally {
+            finishContactlessStage();
         }
-        return tx.clsTransResult.getResultCode();
     }
 
     private void completeContactlessIssuerAuthentication(OnlineResultWrapper onlineResultWrapper) {
@@ -805,41 +869,94 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    /**
+     * PROCESS_RESTRICTIONS ends here: the kernel's one call does restrictions, CVM, risk
+     * management, action analysis and the first GENERATE AC. If the card goes online, the next
+     * step is ONLINE_AUTHORIZATION; otherwise the stage ends with the card's own result.
+     */
     private void runContactStartTransaction() {
+        boolean online = false;
         try {
             LogUtils.d(TAG, "============ Contact EMV: Start Transaction ============");
-            int ret = startContactTransProcess();
-            LogUtils.d(TAG, "startTransProcess ret=" + ret);
-            captureTransactionSummary();
+            online = startContactTransProcess();
+            LogUtils.d(TAG, "startTransProcess result=" + tx.transResult.getTransResult()
+                    + ", online=" + online);
+            if (!online) {
+                captureTransactionSummary();
+            }
         } catch (Exception e) {
             LogUtils.e(TAG, "contact execution failed", e);
             finishError(e.getMessage() != null ? e.getMessage() : "Contact EMV failed");
+            online = false;
         } finally {
-            finishContactStage();
+            if (!online) {
+                finishContactStage();
+            }
+        }
+        if (online) {
+            advanceContactStage(EmvStep.ONLINE_AUTHORIZATION);
         }
     }
 
-    private int startContactTransProcess() {
+    /** Runs the kernel up to the first GENERATE AC; true when the card goes to the host. */
+    private boolean startContactTransProcess() {
         tx.transResult = kernel.contact.startTransProcess();
         int resultCode = tx.transResult.getResultCode();
         TransResultEnum transResultEnum = tx.transResult.getTransResult();
         if (resultCode != RetCode.EMV_OK) {
-            return resultCode;
+            return false;
         }
         if (transResultEnum == TransResultEnum.RESULT_OFFLINE_APPROVED) {
             noteOnlineWithoutArqc(transResultEnum);
-            OnlineResultWrapper online = startOnlineProcess();
-            tx.transResult = hostOutcome(online, tx.transResult.getCvmResult());
-            return tx.transResult.getResultCode();
+            return true;
         }
-        if (transResultEnum == TransResultEnum.RESULT_REQ_ONLINE) {
-            OnlineResultWrapper onlineResultWrapper = startOnlineProcess();
-            tx.transResult.setResultCode(onlineResultWrapper.getResultCode());
-            tx.transResult.setTransResult(onlineResultWrapper.getTransResultEnum());
-            runIssuerAuthentication();
-            return tx.transResult.getResultCode();
+        return transResultEnum == TransResultEnum.RESULT_REQ_ONLINE;
+    }
+
+    /**
+     * ONLINE_AUTHORIZATION, contact: ask the bank. A card that approved offline
+     * (online-only terminal) ends with the host's answer. An ARQC always goes on to
+     * ISSUER_AUTHENTICATION, whatever the host said: the card must give its second GENERATE AC.
+     */
+    private void runContactOnline() {
+        boolean issuer = false;
+        try {
+            askTheBank();
+            OnlineResultWrapper online = PaxHostAnswer.toOnlineResult(bankAnswer());
+            if (tx.transResult.getTransResult() == TransResultEnum.RESULT_OFFLINE_APPROVED) {
+                tx.transResult = hostOutcome(online, tx.transResult.getCvmResult());
+                captureTransactionSummary();
+            } else {
+                tx.transResult.setResultCode(online.getResultCode());
+                tx.transResult.setTransResult(online.getTransResultEnum());
+                issuer = true;
+            }
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contact online result failed", e);
+            finishError(e.getMessage() != null ? e.getMessage() : "Contact online result failed");
+            issuer = false;
+        } finally {
+            if (!issuer) {
+                finishContactStage();
+            }
         }
-        return 0;
+        if (issuer && !goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())) {
+            finishContactStage();
+        }
+    }
+
+    /** ISSUER_AUTHENTICATION, contact: ARPC, scripts and the second GENERATE AC, then the end. */
+    private void runContactIssuerAuthentication() {
+        try {
+            completeContactIssuerAuthentication(PaxHostAnswer.toOnlineResult(bankAnswer()));
+            captureTransactionSummary();
+        } catch (Exception e) {
+            LogUtils.e(TAG, "contact issuer authentication failed", e);
+            finishError(e.getMessage() != null ? e.getMessage()
+                    : "Contact issuer authentication failed");
+        } finally {
+            finishContactStage();
+        }
     }
 
     private void completeContactIssuerAuthentication(OnlineResultWrapper onlineResultWrapper) {
@@ -1165,13 +1282,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 ? getContactlessPan() : getContactPan());
     }
 
+    /**
+     * Part of PAX's callback interface, but the PAX kernel never calls it. Going online is the
+     * ONLINE_AUTHORIZATION step ({@link #onOnlineAuthorization}); this only gives the bank's
+     * answer in PAX's shape if anything ever asks.
+     */
     @NonNull
     @Override
     public OnlineResultWrapper startOnlineProcess() {
-        goToStep(EmvStep.ONLINE_AUTHORIZATION, null);
-        if (bankAnswer() == null) {
-            engine().apduTrace().note("EMV", "online step did not run — online failed");
-        }
         return PaxHostAnswer.toOnlineResult(bankAnswer());
     }
 
@@ -1182,23 +1300,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
         return auth.isApproved() ? "host approved"
                 : auth.isFailed() ? "online failed: " + auth.getMessage() : "host declined";
-    }
-
-    private void runIssuerAuthentication() {
-        if (!goToStep(EmvStep.ISSUER_AUTHENTICATION, issuerAuthenticationDetail())) {
-            engine().apduTrace().note("EMV",
-                    "issuer authentication step did not run — completing with the card anyway");
-            completeIssuerAuthentication();
-        }
-    }
-
-    private void completeIssuerAuthentication() {
-        OnlineResultWrapper online = PaxHostAnswer.toOnlineResult(bankAnswer());
-        if (activeCard != null && activeCard.isContactless()) {
-            completeContactlessIssuerAuthentication(online);
-        } else {
-            completeContactIssuerAuthentication(online);
-        }
     }
 
     @Override
