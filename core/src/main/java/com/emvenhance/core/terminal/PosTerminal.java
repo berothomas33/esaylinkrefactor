@@ -241,6 +241,10 @@ public abstract class PosTerminal {
             }
         }
 
+        // cancel / publish / end look at `end` before taking the lock on purpose: the closings
+        // (ACKNOWLEDGING / REVERSING) call the host while holding it, and an ended transaction
+        // must not wait for them (PosTerminalCloseAtHostTest.aCancelDuringASlowAcknowledgement…).
+
         boolean isRunning() {
             return end == null;
         }
@@ -265,14 +269,27 @@ public abstract class PosTerminal {
         }
 
         void end(TransactionStepEvent end) {
+            end(null, end);
+        }
+
+        /**
+         * The first end wins; anything after it is dropped. An EMV outcome (APPROVED / DECLINED)
+         * is delivered under the same hold of the lock, then COMPLETED becomes the end.
+         */
+        private void end(@Nullable TransactionStepEvent outcome, TransactionStepEvent end) {
             if (this.end != null) {
-                dropped(end);
+                dropped(outcome != null ? outcome : end);
                 return;
             }
             synchronized (steps) {
                 if (this.end != null) {
-                    dropped(end);
+                    dropped(outcome != null ? outcome : end);
                     return;
+                }
+                if (outcome != null) {
+                    apduTrace().note("EMV", "EMV finished: " + outcome.getStep()
+                            + " — the transaction completes");
+                    deliver(outcome);
                 }
                 this.end = end;
             }
@@ -287,7 +304,7 @@ public abstract class PosTerminal {
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
             if (isOutcome(step)) {
-                outcome(outcome);
+                end(outcome, TransactionStepEvent.of(TransactionStep.COMPLETED));
             } else if (step == TransactionStep.ERROR) {
                 end(outcome);
             } else {
@@ -366,21 +383,6 @@ public abstract class PosTerminal {
                     }
                     deliver(TransactionStepEvent.of(TransactionStep.ENDING));
                 }
-            }
-        }
-
-        private void outcome(TransactionStepEvent outcome) {
-            synchronized (steps) {
-                if (end != null) {
-                    EmvLog.d("EMV outcome dropped, the transaction has ended: " + outcome);
-                    apduTrace().note("EMV", "EMV outcome dropped, the transaction has ended ("
-                            + end.getStep() + "): " + outcome.getStep());
-                    return;
-                }
-                apduTrace().note("EMV", "EMV finished: " + outcome.getStep()
-                        + " — the transaction completes");
-                deliver(outcome);
-                end = TransactionStepEvent.of(TransactionStep.COMPLETED);
             }
         }
 
