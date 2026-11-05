@@ -348,15 +348,6 @@ public abstract class PosTerminal {
                 case ENDING:
                     onEnding();
                     break;
-                case ACKNOWLEDGING:
-                    onAcknowledging(event);
-                    break;
-                case REVERSING:
-                    onReversing(event);
-                    break;
-                case CLOSING_COMPLETED:
-                    onClosingCompleted(event);
-                    break;
                 default:
                     break;
             }
@@ -390,75 +381,64 @@ public abstract class PosTerminal {
             behavior.cancelCardSearch();
         }
 
+        /**
+         * The safe end: each request sent to the host is acknowledged or reversed, in order,
+         * then the terminal is freed and the end delivered. ACKNOWLEDGING / REVERSING and
+         * CLOSING_COMPLETED are reports the screen sees. Runs under the steps lock (ENDING is
+         * delivered under it); an ended transaction's cancel / publish don't wait for it.
+         */
         private void onEnding() {
-            closeNext(0);
-        }
-
-        private void onClosingCompleted(TransactionStepEvent completed) {
-            int index = completed.get(TransactionStepEvent.KEY_REQUEST_INDEX);
-            closeNext(index + 1);
-        }
-
-        private void closeNext(int from) {
             synchronized (steps) {
-                TransactionStepEvent closing = nextClosing(from);
-                if (closing != null) {
-                    deliver(closing);
-                    return;
+                boolean completedApproved = end.getStep() == TransactionStep.COMPLETED
+                        && delivered(TransactionStep.APPROVED);
+                for (int i = 0; i < online.size(); i++) {
+                    TransactionStepEvent closing = closingFor(i, completedApproved);
+                    if (closing != null) {
+                        closeAtHost(online.get(i).sent, closing);
+                    }
                 }
                 current.compareAndSet(this, null);
                 deliver(end);
             }
         }
 
-        private void onAcknowledging(TransactionStepEvent step) {
-            closeAtHost(step, communication::acknowledge);
-        }
-
-        private void onReversing(TransactionStepEvent step) {
-            closeAtHost(step, communication::reverse);
-        }
-
-        private void closeAtHost(TransactionStepEvent step,
-                Function<TransactionConfig, Completable> call) {
-            String what = step.getMessage();
-            int index = step.get(TransactionStepEvent.KEY_REQUEST_INDEX);
-            TransactionConfig sent = online.get(index).sent;
+        private void closeAtHost(TransactionConfig sent, TransactionStepEvent closing) {
+            deliver(closing);
+            Function<TransactionConfig, Completable> call =
+                    closing.getStep() == TransactionStep.ACKNOWLEDGING
+                            ? communication::acknowledge : communication::reverse;
+            String what = closing.getMessage();
             try {
                 call.apply(sent).timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
                         .blockingAwait();
                 EmvLog.d(what + " sent");
                 apduTrace().note("HOST", what + " sent");
-                closingCompleted(step, true, what + " sent");
+                deliver(closingCompleted(closing, true, what + " sent"));
             } catch (RuntimeException e) {
                 String failed = what + " failed — not retried: "
                         + (e.getCause() instanceof TimeoutException
                                 ? "the host didn't answer in time" : e.getMessage());
                 EmvLog.d(what + " failed: " + e);
                 apduTrace().note("HOST", failed);
-                closingCompleted(step, false, failed);
+                deliver(closingCompleted(closing, false, failed));
             }
         }
 
-        private void closingCompleted(TransactionStepEvent step, boolean ok, String message) {
-            synchronized (steps) {
-                deliver(TransactionStepEvent.builder(TransactionStep.CLOSING_COMPLETED)
-                        .message(message)
-                        .put(TransactionStepEvent.KEY_REQUEST_ID,
-                                step.getString(TransactionStepEvent.KEY_REQUEST_ID))
-                        .put(TransactionStepEvent.KEY_REQUEST_INDEX,
-                                (int) step.get(TransactionStepEvent.KEY_REQUEST_INDEX))
-                        .put(TransactionStepEvent.KEY_CLOSED_OK, ok)
-                        .build());
-            }
+        private static TransactionStepEvent closingCompleted(TransactionStepEvent closing,
+                boolean ok, String message) {
+            return TransactionStepEvent.builder(TransactionStep.CLOSING_COMPLETED)
+                    .message(message)
+                    .put(TransactionStepEvent.KEY_REQUEST_ID,
+                            closing.getString(TransactionStepEvent.KEY_REQUEST_ID))
+                    .put(TransactionStepEvent.KEY_CLOSED_OK, ok)
+                    .build();
         }
 
         private static TransactionStepEvent closeAtHostStep(TransactionStep step, String what,
-                String id, int index) {
+                String id) {
             return TransactionStepEvent.builder(step)
                     .message(what + " " + id)
                     .put(TransactionStepEvent.KEY_REQUEST_ID, id)
-                    .put(TransactionStepEvent.KEY_REQUEST_INDEX, index)
                     .build();
         }
 
@@ -468,29 +448,26 @@ public abstract class PosTerminal {
             return request;
         }
 
+        /** ACKNOWLEDGING, REVERSING, or null (nothing to close) for the request at {@code i}. */
         @Nullable
-        private TransactionStepEvent nextClosing(int from) {
-            boolean completedApproved = end.getStep() == TransactionStep.COMPLETED
-                    && delivered(TransactionStep.APPROVED);
-            for (int i = from; i < online.size(); i++) {
-                OnlineRequest request = online.get(i);
-                AuthResult answer = request.answer;
-                boolean last = i == online.size() - 1;
-                String id = request.sent.getAsyncRequestId();
-                if (answer != null && answer.isApproved() && last && completedApproved) {
-                    apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
-                    return closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id, i);
-                } else if (answer != null && answer.isNotSent()) {
-                    apduTrace().note("HOST", "no reversal for request " + id
-                            + ": the host could not have approved it — " + answer.getMessage());
-                } else if (answer == null || answer.isApproved() || answer.isFailed()) {
-                    apduTrace().note("HOST", "REVERSAL for request " + id + ": "
-                            + (answer == null ? "no host answer"
-                                    : answer.isFailed() ? "no usable host answer — "
-                                            + answer.getMessage()
-                                            : "approved, not completed"));
-                    return closeAtHostStep(TransactionStep.REVERSING, "Reversal", id, i);
-                }
+        private TransactionStepEvent closingFor(int i, boolean completedApproved) {
+            OnlineRequest request = online.get(i);
+            AuthResult answer = request.answer;
+            boolean last = i == online.size() - 1;
+            String id = request.sent.getAsyncRequestId();
+            if (answer != null && answer.isApproved() && last && completedApproved) {
+                apduTrace().note("HOST", "ACKNOWLEDGEMENT for request " + id);
+                return closeAtHostStep(TransactionStep.ACKNOWLEDGING, "Acknowledgement", id);
+            } else if (answer != null && answer.isNotSent()) {
+                apduTrace().note("HOST", "no reversal for request " + id
+                        + ": the host could not have approved it — " + answer.getMessage());
+            } else if (answer == null || answer.isApproved() || answer.isFailed()) {
+                apduTrace().note("HOST", "REVERSAL for request " + id + ": "
+                        + (answer == null ? "no host answer"
+                                : answer.isFailed() ? "no usable host answer — "
+                                        + answer.getMessage()
+                                        : "approved, not completed"));
+                return closeAtHostStep(TransactionStep.REVERSING, "Reversal", id);
             }
             return null;
         }
