@@ -231,16 +231,14 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return transaction != null && transaction.isCancelled();
     }
 
-    protected final void askTheBank() {
-        bankAnswer = callTheBank();
-    }
+
 
     @Nullable
     protected final AuthResult bankAnswer() {
         return bankAnswer;
     }
 
-    private AuthResult callTheBank() {
+    protected AuthResult askTheBank() {
         if (activeConfig == null) {
             return AuthResult.failed("Online failed: no active transaction");
         }
@@ -260,7 +258,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         }
         config = addOnlineRequestData(config);
         activeConfig = config;
-        return bankRequest.send(config);
+        return  bankAnswer = bankRequest.send(config);
     }
 
     protected TransactionConfig addOnlineRequestData(TransactionConfig config) {
