@@ -349,23 +349,14 @@ public abstract class PosTerminal {
         }
 
         /**
-         * APPROVED / DECLINED: the bank's answers are in and the card has decided. If the host
-         * approved the last request, it is closed at once: acknowledged when the card approved,
-         * reversed when the card declined. A request the host declined needs nothing.
+         * APPROVED / DECLINED: if the host approved the last request, it is closed now —
+         * acknowledged when the card approved, reversed when the card declined.
          */
         private void closeLast(TransactionStep closing) {
-            if (online.isEmpty()) {
-                return;
+            OnlineRequest last = online.isEmpty() ? null : online.get(online.size() - 1);
+            if (last != null && last.answer != null && last.answer.isApproved()) {
+                closeAtHost(last, closing);
             }
-            OnlineRequest last = online.get(online.size() - 1);
-            if (last.answer == null || !last.answer.isApproved()) {
-                return;
-            }
-            String id = last.sent.getAsyncRequestId();
-            apduTrace().note("HOST", closing == TransactionStep.ACKNOWLEDGING
-                    ? "ACKNOWLEDGEMENT for request " + id + ": the host and the card approved"
-                    : "REVERSAL for request " + id + ": the host approved, the card declined");
-            closeAtHost(last, closing);
         }
 
         /**
@@ -422,41 +413,39 @@ public abstract class PosTerminal {
             return false;
         }
 
-        /**
-         * One request acknowledged or reversed at the host: ACKNOWLEDGING / REVERSING, the call
-         * (waited for, not retried), then CLOSING_COMPLETED — all three reports.
-         */
+        /** One request closed at the host: ACKNOWLEDGING / REVERSING, the call, CLOSING_COMPLETED. */
         private void closeAtHost(OnlineRequest request, TransactionStep closing) {
-            String id = request.sent.getAsyncRequestId();
             boolean acknowledge = closing == TransactionStep.ACKNOWLEDGING;
+            String id = request.sent.getAsyncRequestId();
             String what = (acknowledge ? "Acknowledgement " : "Reversal ") + id;
             publish(TransactionStepEvent.builder(closing)
                     .message(what)
                     .put(TransactionStepEvent.KEY_REQUEST_ID, id)
                     .build());
-            boolean ok;
-            String result;
-            try {
-                (acknowledge ? communication.acknowledge(request.sent)
-                        : communication.reverse(request.sent))
-                        .timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
-                        .blockingAwait();
-                ok = true;
-                result = what + " sent";
-                EmvLog.d(result);
-            } catch (RuntimeException e) {
-                ok = false;
-                result = what + " failed — not retried: "
-                        + (e.getCause() instanceof TimeoutException
-                                ? "the host didn't answer in time" : e.getMessage());
-                EmvLog.d(what + " failed: " + e);
-            }
+            String failure = callHost(request.sent, acknowledge);
+            String result = what + (failure == null ? " sent" : " failed — not retried: " + failure);
+            EmvLog.d(result);
             apduTrace().note("HOST", result);
             publish(TransactionStepEvent.builder(TransactionStep.CLOSING_COMPLETED)
                     .message(result)
                     .put(TransactionStepEvent.KEY_REQUEST_ID, id)
-                    .put(TransactionStepEvent.KEY_CLOSED_OK, ok)
+                    .put(TransactionStepEvent.KEY_CLOSED_OK, failure == null)
                     .build());
+        }
+
+        /** The call at the host, waited for, not retried: null when it went through, else why not. */
+        @Nullable
+        private String callHost(TransactionConfig sent, boolean acknowledge) {
+            try {
+                (acknowledge ? communication.acknowledge(sent) : communication.reverse(sent))
+                        .timeout(closeAtHostTimeoutMs(), TimeUnit.MILLISECONDS)
+                        .blockingAwait();
+                return null;
+            } catch (RuntimeException e) {
+                EmvLog.d("closing at the host failed: " + e);
+                return e.getCause() instanceof TimeoutException
+                        ? "the host didn't answer in time" : e.getMessage();
+            }
         }
 
         OnlineRequest wentOnline(TransactionConfig sent) {
