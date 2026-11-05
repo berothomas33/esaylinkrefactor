@@ -143,7 +143,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         sleep(200);
 
         if (card.isContactless()) {
-            goToStep(EmvStep.TRANSACTION_COMPLETION);
+            finishFromBankAnswer(card);
             return;
         }
         if (card.isNonEmv()) {
@@ -199,7 +199,7 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
         if (card.isChip()) {
             goToStep(EmvStep.ISSUER_AUTHENTICATION);
         } else {
-            goToStep(EmvStep.TRANSACTION_COMPLETION);
+            finishFromBankAnswer(card);
         }
     }
 
@@ -230,11 +230,11 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onScriptProcessing(TransactionConfig config, CardPresence card) {
-        goToStep(EmvStep.TRANSACTION_COMPLETION);
+        finishFromBankAnswer(card);
     }
 
-    @Override
-    public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
+    /** The end of the flow: the outcome from the bank's answer (no step of its own). */
+    private void finishFromBankAnswer(CardPresence card) {
         AuthResult answer = bankAnswer();
         if (card.isContactless() && answer == null) {
             finishApproved("OFFLINE APPROVED");

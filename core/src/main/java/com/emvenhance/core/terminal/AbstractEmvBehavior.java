@@ -306,8 +306,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected abstract void onScriptProcessing(TransactionConfig config, CardPresence card);
 
-    protected abstract void onTransactionCompletion(TransactionConfig config, CardPresence card);
-
     protected abstract Field55 field55();
 
     private boolean enterStep(EmvStep step, @Nullable String detail) {
@@ -404,9 +402,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 break;
             case SCRIPT_PROCESSING:
                 onScriptProcessing(activeConfig, activeCard);
-                break;
-            case TRANSACTION_COMPLETION:
-                onTransactionCompletion(activeConfig, activeCard);
                 break;
             default:
                 unknownStep(step);

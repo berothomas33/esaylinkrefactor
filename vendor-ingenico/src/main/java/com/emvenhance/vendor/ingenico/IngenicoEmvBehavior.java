@@ -169,7 +169,7 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     @Override
     public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
         askTheBank();
-        goToStep(EmvStep.TRANSACTION_COMPLETION);
+        finishFromBankAnswer();
     }
 
     @Override
@@ -190,8 +190,8 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
         }
     }
 
-    @Override
-    public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
+    /** The end of the flow: the outcome from the bank's answer (no step of its own). */
+    private void finishFromBankAnswer() {
         AuthResult answer = bankAnswer();
         if (answer != null && answer.isApproved()) {
             finishApproved("INGENICO STUB APPROVED");

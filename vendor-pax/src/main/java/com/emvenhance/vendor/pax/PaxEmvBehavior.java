@@ -154,7 +154,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public void onOnlineAuthorization(TransactionConfig config, CardPresence card) {
         askTheBank();
         if (card.isNonEmv()) {
-            goToStep(EmvStep.TRANSACTION_COMPLETION);
+            finishNonEmv(card);
         } else if (card.isContactless()) {
             runContactlessOnline();
         } else {
@@ -162,21 +162,16 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    @Override
-    public void onTransactionCompletion(TransactionConfig config, CardPresence card) {
-        if (card.isNonEmv()) {
-            AuthResult answer = bankAnswer();
-            if (answer != null && answer.isApproved()) {
-                String msg = card.isManual() ? "MANUAL ONLINE APPROVED" : "MAG ONLINE APPROVED";
-                finishApproved(msg);
-            } else {
-                finishDeclined(answer != null && answer.getMessage() != null
-                        ? answer.getMessage() : "DECLINED");
-            }
+    /** Manual / swipe: no kernel, the bank's answer is the outcome. */
+    private void finishNonEmv(CardPresence card) {
+        AuthResult answer = bankAnswer();
+        if (answer != null && answer.isApproved()) {
+            String msg = card.isManual() ? "MANUAL ONLINE APPROVED" : "MAG ONLINE APPROVED";
+            finishApproved(msg);
+        } else {
+            finishDeclined(answer != null && answer.getMessage() != null
+                    ? answer.getMessage() : "DECLINED");
         }
-        // Chip / contactless: no kernel work here — the kernel is done and the stage closed
-        // (finishContactStage / finishContactlessStage). completeApproved / completeDeclined /
-        // completeError report the outcome right after this step.
     }
 
     @Override
@@ -1404,7 +1399,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void offlineApproved() {
         LogUtils.e(TAG, "Offline approval reached without the host — reporting online failed");
         engine().apduTrace().note("EMV", "offline approval without the host — online failed");
-        completeError("Online Failed: not sent to the host");
+        finishError("Online Failed: not sent to the host");
     }
 
     private void onlineFailed() {
@@ -1412,7 +1407,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         String reason = answer != null && answer.isFailed() && answer.getMessage() != null
                 ? "Online Failed: " + answer.getMessage()
                 : "Online Failed: no host response";
-        completeError(reason);
+        finishError(reason);
     }
 
     private void offlineDenied(int resultCode) {
@@ -1470,23 +1465,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (!tx.scriptsProcessed) {
             goToStep(EmvStep.SCRIPT_PROCESSING, null);
         }
-        if (goToStep(EmvStep.TRANSACTION_COMPLETION, result)) {
-            finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
-                    TransactionStepEvent.KEY_RESULT, result));
-        }
+        finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
+                TransactionStepEvent.KEY_RESULT, result));
     }
 
     private void completeDeclined(String reason) {
-        if (goToStep(EmvStep.TRANSACTION_COMPLETION, reason)) {
-            finishDeclined(buildOutcomeEvent(TransactionStep.DECLINED,
-                    TransactionStepEvent.KEY_ERROR, reason));
-        }
-    }
-
-    private void completeError(String reason) {
-        if (goToStep(EmvStep.TRANSACTION_COMPLETION, "Online Failed")) {
-            finishError(reason);
-        }
+        finishDeclined(buildOutcomeEvent(TransactionStep.DECLINED,
+                TransactionStepEvent.KEY_ERROR, reason));
     }
 
     private TransactionStepEvent buildOutcomeEvent(TransactionStep step, String messageKey,

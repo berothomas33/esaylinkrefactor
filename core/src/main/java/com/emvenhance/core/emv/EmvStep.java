@@ -25,8 +25,7 @@ public enum EmvStep {
     ONLINE_AUTHORIZATION(13, "Online authorization"),
 
     ISSUER_AUTHENTICATION(14, "Issuer authentication"),
-    SCRIPT_PROCESSING(15, "Issuer script processing"),
-    TRANSACTION_COMPLETION(16, "Transaction completion");
+    SCRIPT_PROCESSING(15, "Issuer script processing");
 
     private final int number;
     private final String title;
