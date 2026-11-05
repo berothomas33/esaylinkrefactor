@@ -522,7 +522,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             if (ret != RetCode.EMV_OK && ret != EmvConstant.ContactCallbackStatus.NO_PASSWORD) {
                 engine().apduTrace().note("PICC", "online PIN not entered (" + ret + ")");
                 finishError("Online PIN not entered — cancelled or timed out");
-                tx.clsTransResult = new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, cvmResult);
                 return false;
             }
         }
@@ -652,7 +651,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     private void finishContactlessStage() {
         kernel.contactless.unregisterClssProcessListener();
         PaxReaders.close(true);
-        if (isCancelled()) {
+        if (!isRunning()) {
             noteResultNotReported();
             return;
         }
@@ -664,9 +663,11 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    /** The transaction was cancelled or has already ended (an error): it ends only once. */
     private void noteResultNotReported() {
-        LogUtils.i(TAG, "Cancelled — the card's result is not reported");
-        engine().apduTrace().note("EMV", "cancelled — the card's result is not reported");
+        String why = isCancelled() ? "cancelled" : "the transaction has already ended";
+        LogUtils.i(TAG, why + " — the card's result is not reported");
+        engine().apduTrace().note("EMV", why + " — the card's result is not reported");
     }
 
     private void advanceContactlessStage(EmvStep next) {
@@ -990,7 +991,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
             tx.activePinPad.dismiss();
             tx.activePinPad = null;
         }
-        if (isCancelled()) {
+        if (!isRunning()) {
             noteResultNotReported();
             return;
         }
