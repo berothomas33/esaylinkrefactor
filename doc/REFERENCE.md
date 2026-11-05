@@ -24,7 +24,7 @@
 | ماذا | أين |
 |---|---|
 | الجهاز، العملية، خطواتها، الإلغاء، النهاية الآمنة | `core/.../terminal/PosTerminal.java` (+ `Transaction`) |
-| الـ EMV المشترك: المحاولات، `goToStep`، `askStep`، `askTheBank`، الـ 17 `onXxx` | `core/.../terminal/AbstractEmvBehavior.java` |
+| الـ EMV المشترك: المحاولات، `goToStep`، `askStep`، `askTheBank`، الـ 16 `onXxx` | `core/.../terminal/AbstractEmvBehavior.java` |
 | طريق الـ EMV إلى البنك | `core/.../terminal/BankRequest.java` |
 | شريط خطوات الـ EMV والـ APDU trace | `core/.../emv/EmvEngine.java`، `ApduTrace.java` |
 | field 55 | `core/.../emv/Field55.java` (+ `field55()` في كل vendor) |
@@ -63,18 +63,25 @@
 |---|---|---|
 | `TRANSACTION_STARTED` | `onTransactionStarted` | تنقل العملية إلى الـ transaction thread (`runTransaction`) |
 | `CANCELLING` | `onCancelling` | توقف البحث عن البطاقة |
-| `ENDING` | `onEnding` | تبدأ سلسلة الإغلاق: `closeNext(0)` |
-| `ACKNOWLEDGING` / `REVERSING` | `onAcknowledging` / `onReversing` | `closeAtHost`: التأكيد / الإلغاء عند البنك |
-| `CLOSING_COMPLETED` | `onClosingCompleted` | الطلب التالي، أو تحرير الجهاز وتسليم النهاية |
-| الباقي | — | تقرير للشاشة: `ONLINE_*`، `CARD_*`، `APPROVED` / `DECLINED`، `COMPLETED` / `ERROR` / `CANCELLED` |
+| `ENDING` | `onEnding` | الإغلاقات في loop واحدة: لكل طلب أُرسل، `closingFor(i)` ثم `closeAtHost` (تأكيد أو إلغاء). بعدها يتحرر الجهاز وتُسلَّم النهاية |
+| الباقي | — | تقرير للشاشة: `ONLINE_*`، `CARD_*`، `APPROVED` / `DECLINED` / `FAILED`، `ACKNOWLEDGING` / `REVERSING` / `CLOSING_COMPLETED`، `COMPLETED` / `ERROR` / `CANCELLED` |
 
-**الترتيب:** `TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → … → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → ENDING → (ACKNOWLEDGING|REVERSING → CLOSING_COMPLETED)… → COMPLETED`، أو `ERROR`، أو `CANCELLING` ثم `CANCELLED`.
+**الترتيب:** `TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → … → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → ENDING → (ACKNOWLEDGING|REVERSING → CLOSING_COMPLETED)… → COMPLETED`، أو `FAILED → ENDING → … → ERROR`، أو `CANCELLING → ENDING → … → CANCELLED`.
 
-- **النتيجة:** الـ EMV يبلّغ (`finishApproved` / `finishDeclined` / `finishError` → `Transaction.emvFinished`)، والـ `Transaction` تضبط النهاية. إلغاء يسبق النتيجة يجعلها تُتجاهل.
-- **النهاية:** الـ `finally` في `runTransaction` يحدد النهاية (أو ERROR "Transaction ended without an outcome") ويسلّم `ENDING`. الجهاز يبقى مشغولًا حتى تنتهي كل الإغلاقات، ثم `current = null`، ثم تُسلَّم النهاية.
-- **الإلغاء:** `cancel()` يضبط `end = CANCELLED` وينشر `CANCELLING`. يتوقف الـ EMV عند أول `goToStep`. لا يُقاطَع الـ thread أبدًا.
+- **حالة العملية هي خطواتها (لا field):** أول خطوة "قرار" تُسلَّم هي الحالة: `decision()` تبحث في الخطوات المحفوظة (`ReplaySubject`، يحفظ كل شيء) عن أول `CANCELLING` أو `APPROVED` أو `DECLINED` أو `FAILED` (`TransactionStep.isDecision()`). `isRunning()` = لا قرار؛ `isCancelled()` = القرار `CANCELLING`. أول قرار يكسب (`decide`)، وما بعده يُتجاهل.
+
+| القرار | من أين | النهاية التي تُسلَّم أخيرًا (`endOfDecision`) |
+|---|---|---|
+| `CANCELLING` | `cancel()` | `CANCELLED` |
+| `APPROVED` / `DECLINED` | `finishApproved` / `finishDeclined` → `emvFinished` | `COMPLETED` |
+| `FAILED` + الرسالة | `finishError` / `end(error)`، أو الـ `finally` ("Transaction ended without an outcome") | `ERROR` بالرسالة نفسها |
+
+- **لماذا `FAILED`:** `ERROR` هي النهاية التي تعرضها الشاشة، والجهاز مشغول حتى تنتهي الإغلاقات. فالفشل يحتاج خطوة تظهر لحظة حدوثه، والنهاية تأتي بعدها.
+- **النهاية:** الـ `finally` في `runTransaction` يتأكد أن هناك قرارًا ويسلّم `ENDING`. الجهاز يبقى مشغولًا حتى تنتهي كل الإغلاقات، ثم `current = null`، ثم تُسلَّم النهاية.
+- **الإلغاء:** `cancel()` ينشر `CANCELLING` (قرار). يتوقف الـ EMV عند أول `goToStep`. لا يُقاطَع الـ thread أبدًا.
+- **الـ vendor لا يقرر بالنشر:** `AbstractEmvBehavior.publish` يُسقط كل خطوة قرار أو نهاية.
 - **إعادة المحاولة:** يطلبها الـ EMV (`requestRetry`)، ثم يبدأ `run` محاولة جديدة من `TERMINAL_INITIALIZATION` في العملية نفسها.
-- ⚠ دالة الخطوة تعمل والـ lock مأخوذ، فترى الشاشة `ACKNOWLEDGING` / `REVERSING` بعد نداء البنك (10.4). لذلك الخطوات التي قد تنتظر البنك أو شخصًا قبل تحديد النهاية تبقى تقارير.
+- ⚠ `onEnding` تعمل والـ lock مأخوذ، ومعها نداءات البنك؛ لذلك `cancel` و `publish` و `decide` تنظر في القرار قبل أخذ الـ lock، فلا تنتظر الإغلاقات. لذلك الخطوات التي قد تنتظر البنك أو شخصًا قبل تحديد النهاية تبقى تقارير.
 
 ## 4. خطوات الـ EMV
 
@@ -92,12 +99,12 @@
 | 8 | PROCESS_RESTRICTIONS | `runContactStartTransaction` (`EMVStartTrans` = PR+CVM+TRM+TAA+1st GAC)، ثم 13 إن ذهب الكارت إلى البنك، وإلا تنتهي المرحلة | `runContactlessProcessRestrictions` ← `runContactlessStartTransaction` (مثله) | الاستدعاء الواحد كله، ثم مثله | — |
 | 9 / 10 | CARDHOLDER / OFFLINE_PIN_VERIFICATION | `askStep` ← `onCardHolderPwd` | online PIN بعد الاستدعاء | = | — |
 | 11 / 12 | TERMINAL_RISK_MANAGEMENT / ACTION_ANALYSIS | لا تُنشر (داخل `EMVStartTrans`) | = | = | — |
-| 13 | ONLINE_AUTHORIZATION | `runContactOnline`: `askTheBank()` ثم 14 دائمًا (الـ 2nd GAC) | `runContactlessOnline`: `askTheBank()` ثم 14 إن وافق البنك، وإلا النهاية | = | `askTheBank()` ← 16 |
+| 13 | ONLINE_AUTHORIZATION | `askTheBank()` (أول سطر في الـ hook، لكل البطاقات)، ثم `runContactOnline`: 14 دائمًا (الـ 2nd GAC) | `runContactlessOnline`: 14 إن وافق البنك، وإلا النهاية | = | `askTheBank()` ثم `finishNonEmv`: النتيجة من `bankAnswer()` |
 | 14 | ISSUER_AUTHENTICATION | `runContactIssuerAuthentication`: `EMVCompleteTrans` (ARPC + scripts + 2nd GAC)، ثم نهاية المرحلة | `runContactlessIssuerAuthentication`: Visa: الـ tap الثاني + `Clss_IssuerAuth_Wave`، ثم النهاية | = | — |
 | 15 | SCRIPT_PROCESSING | عنوان فقط (داخل `EMVCompleteTrans`) | Visa: `Clss_IssScriptProc_Wave` | = | — |
-| 16 | TRANSACTION_COMPLETION | `reportOutcome` | = | = | `finishApproved` / `finishDeclined` من `bankAnswer()` |
 
-- **كل خطوة تعمل عملها ثم تسلّم التالية** (`goToStep`). لا تعمل خطوة داخل أخرى: البنك والـ issuer لم يعودا داخل الـ hook الخاص بـ `PROCESS_RESTRICTIONS`. نهاية المرحلة (`finishContactStage` / `finishContactlessStage`: إغلاق الـ reader ثم قراءة النتيجة) في آخر خطوة تعمل، أو حيث يتوقف المسار.
+- **لا `TRANSACTION_COMPLETION`:** لم يكن فيها عمل kernel في أي vendor، فحُذفت (16 hook الآن). بعد نهاية المرحلة (`finishXStage` → `checkXResult`) تُبلَّغ النتيجة مباشرة (`completeApproved` / `completeDeclined` → `finishApproved` / `finishDeclined`، أو `finishError`).
+- **كل خطوة تعمل عملها ثم تسلّم التالية** (`advanceContactStage` / `advanceContactlessStage`). لا تعمل خطوة داخل أخرى: البنك والـ issuer لم يعودا داخل الـ hook الخاص بـ `PROCESS_RESTRICTIONS`. نهاية المرحلة (`finishContactStage` / `finishContactlessStage`: إغلاق الـ reader ثم قراءة النتيجة) في آخر خطوة تعمل، أو حيث يتوقف المسار. إن كانت العملية قد انتهت (إلغاء، أو خطأ قبلها) لا تُقرأ النتيجة مرة ثانية: العملية تنتهي مرة واحدة.
 - الكود يتبع ترتيب الـ kernel لا الأرقام (PayWave: PR ثم ODA؛ atomic: تُعلَن 5 و 6 حين يقول الـ kernel إنهما حدثتا).
 - الكل `protected abstract`: vendor ينسى خطوة يحصل على خطأ ترجمة. و `onTerminalInitialization` يجب أن تنتهي بـ `searchCard()`.
 
@@ -121,7 +128,7 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 
 | الرد | النهاية | يُرسل |
 |---|---|---|
-| موافقة، APPROVED، COMPLETED، وآخر طلب | — | تأكيد (`orchestration/acknowledgement`) |
+| موافقة، والقرار APPROVED، وآخر طلب | — | تأكيد (`orchestration/acknowledgement`) |
 | موافقة مع نهاية أخرى، أو طلب قديم | — | إلغاء (`orchestration/reverse`) |
 | `failed` (أُرسل ولا رد صالح) | — | إلغاء |
 | `notSent` أو رفض | — | لا شيء |
@@ -181,7 +188,7 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 | `BankRequest.send` (ملف مستقل)، `PosTerminal.sendToBank` | `AbstractEmvBehavior.Authorizer.authorize`، `PosTerminal.authorize` |
 | `CommunicationBehavior.connectToHost` | `CommunicationBehavior.authorize` |
 | `ONLINE_AUTHORIZATION` / `onOnlineAuthorization` | `START_ONLINE_PROCESS` / `onStartOnlineProcess` |
-| `TransactionStepObserver` مدخل وحيد، `ENDING`، سلسلة إغلاق، `CLOSING_COMPLETED` | الـ switch تستدعيه عدة جهات، `onEnd` بحلقة، `CLOSED` |
+| `TransactionStepObserver` مدخل وحيد، `ENDING` بـ loop للإغلاقات، الحالة من الخطوات (`decision()`، `FAILED`)، لا `TRANSACTION_COMPLETION` | الـ switch تستدعيه عدة جهات، `onEnd` بحلقة، `CLOSED`، field `end` |
 | `TERMINAL_INITIALIZATION` تبدأ البحث | `run` يبدأ البحث بـ `if` |
 | `field55()` abstract، `Field55.TagReader` | `readIccTag` abstract، `IntFunction` |
 | `CardPresence.isEmv()` / `isNonEmv()` | `AbstractEmvBehavior.isNonEmv(card)` |

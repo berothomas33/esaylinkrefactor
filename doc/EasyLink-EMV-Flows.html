@@ -177,7 +177,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
           <li><b>Facade:</b> <code>PosTerminal</code> هو الواجهة الوحيدة لواجهة المستخدم: الـ thread، حالة الانشغال، الـ host، الطابعة، ونهاية العملية الآمنة</li>
           <li><code>PosTerminal.Transaction</code>: حالة العملية كاملة (<code>end</code>، الخطوات، الإلغاء)</li>
           <li><code>EmvEngine</code>: خطوات الـ EMV والـ APDU trace</li>
-          <li><code>AbstractEmvBehavior</code>: الـ EMV كله (<code>run</code>: البحث عن البطاقة والإعادات)، والـ 17 <code>onXxx</code> التي يكتبها الـ vendor، و <code>goToStep</code>، و <code>askStep</code>، و field 55، والطريق إلى البنك (<code>askTheBank</code> / <code>bankAnswer</code>)</li>
+          <li><code>AbstractEmvBehavior</code>: الـ EMV كله (<code>run</code>: البحث عن البطاقة والإعادات)، والـ 16 <code>onXxx</code> التي يكتبها الـ vendor، و <code>goToStep</code>، و <code>askStep</code>، و field 55، والطريق إلى البنك (<code>askTheBank</code> / <code>bankAnswer</code>)</li>
           <li>اختيار الـ vendor: <code>TerminalFactory</code> الخاص بالـ flavor الذي بُني (<code>pax</code> / <code>ingenico</code> / <code>fake</code>)</li>
         </ul></div>
       <div class="box core plug"><b>NETWORK</b><span class="mod">:network</span>
@@ -192,7 +192,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="box ven"><b>VENDOR PAX</b><span class="mod">:vendor-pax</span>
         <ul>
           <li><code>PaxTerminal extends PosTerminal</code>: الـ host والطابعة والإعدادات</li>
-          <li><code>PaxEmvBehavior extends AbstractEmvBehavior</code>: الـ 17 <code>onXxx</code>، و <code>runContact*</code> / <code>runContactless*</code>، وردود الـ kernel</li>
+          <li><code>PaxEmvBehavior extends AbstractEmvBehavior</code>: الـ 16 <code>onXxx</code>، و <code>runContact*</code> / <code>runContactless*</code>، وردود الـ kernel</li>
           <li><code>PaxCardSearch</code> (البحث عن البطاقة)، <code>PaxKernel</code>، <code>PaxEmvParams</code>، <code>PaxPinPad</code>، <code>PaxAppSelectDialog</code></li>
         </ul></div>
       <div class="box ven stub"><b>VENDOR INGENICO</b><span class="mod">:vendor-ingenico</span>
@@ -230,7 +230,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </div>
   <div class="comp core">
     <div class="head"><b>CORE — المنسّق</b><span class="mod">:core</span><span class="job">العملية من بدايتها إلى نهايتها، بالكود نفسه لأي vendor: واجهة المستخدم تتعامل معه وحده، وهو يتعامل مع الـ vendor من خلال واجهات (abstract classes و interfaces).</span></div>
-    <div class="grid"><div class="grp"><h4><code>terminal</code> — الجهاز</h4><dl><dt>PosTerminal</dt><dd>الـ Facade: المدخل الوحيد لواجهة المستخدم. thread واحد، حالة الانشغال، الذهاب إلى البنك (<code>sendToBank</code>)، الطابعة</dd><dt>PosTerminal.Transaction</dt><dd>عملية واحدة: حالتها (<code>end</code>)، وخطواتها (يشغّلها <code>TransactionStepObserver</code>)، والإلغاء، والطلبات المرسلة إلى البنك ونهايتها الآمنة</dd><dt>EmvBehavior</dt><dd>الواجهة: <code>run</code> · <code>cancelCardSearch</code> · <code>dispose</code></dd><dt>BankRequest</dt><dd>طريق الـ EMV إلى البنك: <code>send(config)</code>؛ يعطيه <code>PosTerminal</code> للـ behavior بـ <code>attach(this::sendToBank)</code></dd><dt>AbstractEmvBehavior</dt><dd>الـ EMV المشترك: <code>run</code> (المحاولات والبحث والإعادة: <code>requestRetry</code> / <code>retryCount()</code>)، <code>goToStep</code>، <code>askStep</code>، field 55، والـ 17 <code>onXxx</code> التي يكتبها الـ vendor. موجود هنا لأنه يستدعي <code>Transaction</code> باستدعاءات package-private</dd><dt>TerminalBusyException</dt><dd>محاولة بدء عملية بينما أخرى قيد التنفيذ</dd></dl></div><div class="grp"><h4><code>transaction</code> — العملية</h4><dl><dt>TransactionConfig</dt><dd>النوع، المبلغ، طريقة إدخال البطاقة، field 55، الـ PIN block، <code>asyncRequestId</code></dd><dt>TransactionType</dt><dd>sale / refund / cash in</dd><dt>TransactionStep / Event</dt><dd>مراحل العملية: البدء، انتظار البطاقة، الاتصال بالـ host، الموافقة، التأكيد أو الإلغاء… والخطوات التي تقود العملية (البدء، الإلغاء، النتيجة، التأكيد / الإلغاء عند الـ host، النهاية) لكل منها دالة</dd></dl></div><div class="grp"><h4><code>emv</code> — الـ EMV</h4><dl><dt>EmvEngine</dt><dd>يرسل كل خطوة EMV إلى من يشغّلها وإلى الشريط العلوي، ويحتفظ بالـ APDU trace. لا علاقة له بحالة العملية ولا بإعادة المحاولة ولا بالبنك</dd><dt>EmvStep / Event</dt><dd>الخطوات الـ 17 الخاصة بالـ kernel (EMV Book 3)</dd><dt>EmvTransactionResult</dt><dd>ما قُرئ من البطاقة ويحتاجه الـ host</dd><dt>Field55</dt><dd>يبني field 55 من الـ tags بالطريقة نفسها لكل vendor</dd><dt>ApduTrace</dt><dd>سجل الـ APDU والخطوات (في نسخة الـ debug فقط)</dd></dl></div><div class="grp"><h4><code>card</code> — البطاقة</h4><dl><dt>CardPresence / CardSearchListener</dt><dd>البطاقة التي عُثر عليها (<code>isEmv()</code> / <code>isNonEmv()</code>)، وأحداث البحث</dd><dt>EntryMethod</dt><dd>chip / tap / swipe / manual</dd></dl></div><div class="grp"><h4><code>host</code> — الواجهات الخارجية</h4><dl><dt>CommunicationBehavior</dt><dd>الـ host: <code>connectToHost</code> · <code>acknowledge</code> · <code>reverse</code></dd><dt>AuthResult</dt><dd>رد الـ host: approved / declined / failed / notSent</dd><dt>PrinterBehavior</dt><dd>الطابعة</dd><dt>HostDefaults</dt><dd>host وطابعة وهميان للعرض التجريبي</dd></dl></div><div class="grp"><h4><code>cardholder</code> — انتظار حامل البطاقة</h4><dl><dt>AbstractAppSelectDialog</dt><dd>اختيار التطبيق على البطاقة: الانتظار والمهلة، ولا يختار الأول تلقائيًا أبدًا</dd><dt>PinPadBehavior / AbstractPinPadBehavior / PinKey</dt><dd>شاشة الـ PIN: النقاط والأزرار فقط، والتشفير من مهام الـ SDK</dd></dl></div><div class="grp"><h4><code>param</code> · <code>util</code></h4><dl><dt>EmvParams</dt><dd>واجهة شاشة الـ EMV params</dd><dt>EmvLog</dt><dd>السجلات</dd></dl></div></div>
+    <div class="grid"><div class="grp"><h4><code>terminal</code> — الجهاز</h4><dl><dt>PosTerminal</dt><dd>الـ Facade: المدخل الوحيد لواجهة المستخدم. thread واحد، حالة الانشغال، الذهاب إلى البنك (<code>sendToBank</code>)، الطابعة</dd><dt>PosTerminal.Transaction</dt><dd>عملية واحدة: حالتها (<code>end</code>)، وخطواتها (يشغّلها <code>TransactionStepObserver</code>)، والإلغاء، والطلبات المرسلة إلى البنك ونهايتها الآمنة</dd><dt>EmvBehavior</dt><dd>الواجهة: <code>run</code> · <code>cancelCardSearch</code> · <code>dispose</code></dd><dt>BankRequest</dt><dd>طريق الـ EMV إلى البنك: <code>send(config)</code>؛ يعطيه <code>PosTerminal</code> للـ behavior بـ <code>attach(this::sendToBank)</code></dd><dt>AbstractEmvBehavior</dt><dd>الـ EMV المشترك: <code>run</code> (المحاولات والبحث والإعادة: <code>requestRetry</code> / <code>retryCount()</code>)، <code>goToStep</code>، <code>askStep</code>، field 55، والـ 16 <code>onXxx</code> التي يكتبها الـ vendor. موجود هنا لأنه يستدعي <code>Transaction</code> باستدعاءات package-private</dd><dt>TerminalBusyException</dt><dd>محاولة بدء عملية بينما أخرى قيد التنفيذ</dd></dl></div><div class="grp"><h4><code>transaction</code> — العملية</h4><dl><dt>TransactionConfig</dt><dd>النوع، المبلغ، طريقة إدخال البطاقة، field 55، الـ PIN block، <code>asyncRequestId</code></dd><dt>TransactionType</dt><dd>sale / refund / cash in</dd><dt>TransactionStep / Event</dt><dd>مراحل العملية: البدء، انتظار البطاقة، الاتصال بالـ host، الموافقة، التأكيد أو الإلغاء… والخطوات التي تقود العملية (البدء، الإلغاء، النتيجة، التأكيد / الإلغاء عند الـ host، النهاية) لكل منها دالة</dd></dl></div><div class="grp"><h4><code>emv</code> — الـ EMV</h4><dl><dt>EmvEngine</dt><dd>يرسل كل خطوة EMV إلى من يشغّلها وإلى الشريط العلوي، ويحتفظ بالـ APDU trace. لا علاقة له بحالة العملية ولا بإعادة المحاولة ولا بالبنك</dd><dt>EmvStep / Event</dt><dd>الخطوات الـ 17 الخاصة بالـ kernel (EMV Book 3)</dd><dt>EmvTransactionResult</dt><dd>ما قُرئ من البطاقة ويحتاجه الـ host</dd><dt>Field55</dt><dd>يبني field 55 من الـ tags بالطريقة نفسها لكل vendor</dd><dt>ApduTrace</dt><dd>سجل الـ APDU والخطوات (في نسخة الـ debug فقط)</dd></dl></div><div class="grp"><h4><code>card</code> — البطاقة</h4><dl><dt>CardPresence / CardSearchListener</dt><dd>البطاقة التي عُثر عليها (<code>isEmv()</code> / <code>isNonEmv()</code>)، وأحداث البحث</dd><dt>EntryMethod</dt><dd>chip / tap / swipe / manual</dd></dl></div><div class="grp"><h4><code>host</code> — الواجهات الخارجية</h4><dl><dt>CommunicationBehavior</dt><dd>الـ host: <code>connectToHost</code> · <code>acknowledge</code> · <code>reverse</code></dd><dt>AuthResult</dt><dd>رد الـ host: approved / declined / failed / notSent</dd><dt>PrinterBehavior</dt><dd>الطابعة</dd><dt>HostDefaults</dt><dd>host وطابعة وهميان للعرض التجريبي</dd></dl></div><div class="grp"><h4><code>cardholder</code> — انتظار حامل البطاقة</h4><dl><dt>AbstractAppSelectDialog</dt><dd>اختيار التطبيق على البطاقة: الانتظار والمهلة، ولا يختار الأول تلقائيًا أبدًا</dd><dt>PinPadBehavior / AbstractPinPadBehavior / PinKey</dt><dd>شاشة الـ PIN: النقاط والأزرار فقط، والتشفير من مهام الـ SDK</dd></dl></div><div class="grp"><h4><code>param</code> · <code>util</code></h4><dl><dt>EmvParams</dt><dd>واجهة شاشة الـ EMV params</dd><dt>EmvLog</dt><dd>السجلات</dd></dl></div></div>
   </div>
   <div class="comp core net">
     <div class="head"><b>NETWORK</b><span class="mod">:network</span><span class="job">التواصل مع الـ host الخاص بنا. ينفّذ <code>CommunicationBehavior</code> ولا يعرف أي vendor.</span></div>
@@ -238,7 +238,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </div>
   <div class="comp ven">
     <div class="head"><b>VENDOR PAX</b><span class="mod">:vendor-pax</span><span class="job">PAX A920: ينفّذ واجهات الـ CORE باستخدام SDK الخاص بـ PAX. هذا هو المكان الوحيد الذي يظهر فيه اسم PAX.</span></div>
-    <div class="grid"><div class="grp"><h4>البدء</h4><dl><dt>TerminalFactory</dt><dd>المكان الوحيد الذي يُنشئ <code>PaxTerminal</code></dd><dt>VendorApplication</dt><dd>الـ Application الخاص بـ PAX (الـ SDK يحتاج <code>BaseApplication</code>)</dd><dt>PaxHardwarePermissions</dt><dd>صلاحيات قارئات ICC / Mag / PICC</dd><dt>PaxSetup</dt><dd>الدولة والعملة، والبيانات الأولية عند أول تشغيل (خرجت من <code>PaxTerminal</code>)</dd></dl></div><div class="grp"><h4>البطاقة والـ EMV</h4><dl><dt>PaxTerminal</dt><dd><code>extends PosTerminal</code>: الـ host والطابعة الفعليان، والإعدادات</dd><dt>PaxCardSearch</dt><dd>البحث عن البطاقة (polling): عمل الخطوة <code>SEARCH_CARD</code> (<code>onSearchCard</code>)، و <code>stop()</code> عند الإلغاء</dd><dt>PaxEmvBehavior</dt><dd><code>extends AbstractEmvBehavior</code>: الـ 17 <code>onXxx</code> (استدعاء native لكل خطوة)، والرد على أسئلة الـ kernel، و <code>field55()</code></dd><dt>PaxKernelSession</dt><dd>ما عُرف خلال المحاولة الحالية، ويُنشأ من جديد مع كل محاولة</dd><dt>PaxKernel</dt><dd>كائنات الـ kernel: params، contact، contactless، mag</dd></dl></div><div class="grp"><h4>مساعدات الـ EMV</h4><dl><dt>PaxPinEntry</dt><dd>الـ PIN: اللوحة، مفتاح الـ online PIN (AES) ولفّه بـ RSA للـ host، وقواعد الـ bypass. مفتاح الـ host العام يأتيه من <code>PaxTerminal</code>، فلا يقرأ الـ EMV حالة الـ host بنفسه</dd><dt>PaxHostAnswer</dt><dd>رد الـ host بالشكل الذي يأخذه الـ kernel للـ 2nd GENERATE AC (<code>toOnlineResult</code>)</dd><dt>PaxReaders</dt><dd>إغلاق القارئات (mag، ICC، PICC) كلٌّ على حدة</dd><dt>PaxCardData</dt><dd>بيانات البطاقة كنص: الـ PAN من track 2 أو tag 5A، وإخفاء الـ PAN، والـ tags النصية (دوال ثابتة، وعليها أول اختبارات PAX)</dd></dl></div><div class="grp"><h4>الشاشات والأجهزة</h4><dl><dt>PaxPinPad</dt><dd>شاشة الـ PIN</dd><dt>PaxAppSelectDialog</dt><dd>اختيار التطبيق</dd><dt>PaxPrinter</dt><dd>الطابعة الحرارية</dd><dt>PaxEmvParams</dt><dd>بيانات شاشة EMV Params (الـ cache / قاعدة البيانات / التنزيل)</dd></dl></div></div>
+    <div class="grid"><div class="grp"><h4>البدء</h4><dl><dt>TerminalFactory</dt><dd>المكان الوحيد الذي يُنشئ <code>PaxTerminal</code></dd><dt>VendorApplication</dt><dd>الـ Application الخاص بـ PAX (الـ SDK يحتاج <code>BaseApplication</code>)</dd><dt>PaxHardwarePermissions</dt><dd>صلاحيات قارئات ICC / Mag / PICC</dd><dt>PaxSetup</dt><dd>الدولة والعملة، والبيانات الأولية عند أول تشغيل (خرجت من <code>PaxTerminal</code>)</dd></dl></div><div class="grp"><h4>البطاقة والـ EMV</h4><dl><dt>PaxTerminal</dt><dd><code>extends PosTerminal</code>: الـ host والطابعة الفعليان، والإعدادات</dd><dt>PaxCardSearch</dt><dd>البحث عن البطاقة (polling): عمل الخطوة <code>SEARCH_CARD</code> (<code>onSearchCard</code>)، و <code>stop()</code> عند الإلغاء</dd><dt>PaxEmvBehavior</dt><dd><code>extends AbstractEmvBehavior</code>: الـ 16 <code>onXxx</code> (استدعاء native لكل خطوة)، والرد على أسئلة الـ kernel، و <code>field55()</code></dd><dt>PaxKernelSession</dt><dd>ما عُرف خلال المحاولة الحالية، ويُنشأ من جديد مع كل محاولة</dd><dt>PaxKernel</dt><dd>كائنات الـ kernel: params، contact، contactless، mag</dd></dl></div><div class="grp"><h4>مساعدات الـ EMV</h4><dl><dt>PaxPinEntry</dt><dd>الـ PIN: اللوحة، مفتاح الـ online PIN (AES) ولفّه بـ RSA للـ host، وقواعد الـ bypass. مفتاح الـ host العام يأتيه من <code>PaxTerminal</code>، فلا يقرأ الـ EMV حالة الـ host بنفسه</dd><dt>PaxHostAnswer</dt><dd>رد الـ host بالشكل الذي يأخذه الـ kernel للـ 2nd GENERATE AC (<code>toOnlineResult</code>)</dd><dt>PaxReaders</dt><dd>إغلاق القارئات (mag، ICC، PICC) كلٌّ على حدة</dd><dt>PaxCardData</dt><dd>بيانات البطاقة كنص: الـ PAN من track 2 أو tag 5A، وإخفاء الـ PAN، والـ tags النصية (دوال ثابتة، وعليها أول اختبارات PAX)</dd></dl></div><div class="grp"><h4>الشاشات والأجهزة</h4><dl><dt>PaxPinPad</dt><dd>شاشة الـ PIN</dd><dt>PaxAppSelectDialog</dt><dd>اختيار التطبيق</dd><dt>PaxPrinter</dt><dd>الطابعة الحرارية</dd><dt>PaxEmvParams</dt><dd>بيانات شاشة EMV Params (الـ cache / قاعدة البيانات / التنزيل)</dd></dl></div></div>
   </div>
   <div class="comp ven">
     <div class="head"><b>VENDOR INGENICO</b><span class="mod">:vendor-ingenico</span><span class="job">الواجهات نفسها تمامًا، لكن بنسخة مبدئية: تعيد بطاقة ونتيجة وهميتين إلى أن يُضاف الـ SDK. عند إضافته لن يتغير الـ CORE ولا واجهة المستخدم.</span></div>
@@ -260,7 +260,7 @@ private   final Scheduler             transactionScheduler; <span class="c">// o
     <tbody>
       <tr><td><code>PosTerminal</code></td><td>عملية واحدة في كل مرة (<code>current</code> = مشغول)، والذهاب إلى البنك (<code>sendToBank</code>)، والطابعة</td><td>أي منطق EMV</td></tr>
       <tr><td><code>PosTerminal.Transaction</code></td><td>حالة العملية كلها (<code>end</code>)، وخطواتها (<code>steps</code>)، والإلغاء، والطلبات المرسلة إلى البنك ونهايتها الآمنة</td><td>نشر أي شيء بعد انتهائها</td></tr>
-      <tr><td><code>AbstractEmvBehavior</code></td><td>الـ EMV المشترك: المحاولات، و <code>goToStep</code>، و <code>askStep</code>، و <code>askTheBank</code> / <code>bankAnswer</code>، والـ 17 <code>onXxx</code> التي يكتبها الـ vendor</td><td>الـ threads، والانشغال، والبنك مباشرة</td></tr>
+      <tr><td><code>AbstractEmvBehavior</code></td><td>الـ EMV المشترك: المحاولات، و <code>goToStep</code>، و <code>askStep</code>، و <code>askTheBank</code> / <code>bankAnswer</code>، والـ 16 <code>onXxx</code> التي يكتبها الـ vendor</td><td>الـ threads، والانشغال، والبنك مباشرة</td></tr>
       <tr><td><code>PaxEmvBehavior</code></td><td>الـ <code>onXxx</code> على PAX: استدعاء native لكل خطوة، وردود الـ kernel</td><td>أن يستدعي أحدٌ <code>onXxx</code> مباشرة</td></tr>
       <tr><td><code>EmvEngine</code></td><td>شريط خطوات الـ EMV (<code>emvSteps</code>) والـ APDU trace</td><td>أي حالة للعملية</td></tr>
       <tr><td><code>SaleCommunicationBehavior</code></td><td>الاتصال بالبنك: <code>connectToHost</code> (token ← exchange ← sale / refund)، والتأكيد، والإلغاء؛ ويقرر هل وصل الطلب أم لا</td><td>أن يقرر التأكيد أو الإلغاء</td></tr>
@@ -274,14 +274,14 @@ flowchart LR
   UI["UI (app/src/main)<br/>MainViewModel · SearchCardFragment"]
   subgraph core["core"]
     PT["PosTerminal<br/>transactionScheduler (1 thread)<br/>current = busy<br/>sendToBank() → the bank<br/>printReceipt()"]
-    TX["PosTerminal.Transaction<br/>config · volatile end<br/>ReplaySubject steps (= lock)<br/>TransactionStepObserver → dispatchTransactionStep<br/>runTransaction · outcome() · onEnding · closeNext · cancel()<br/>emvFinished · the safe end"]
+    TX["PosTerminal.Transaction<br/>config · ReplaySubject steps (= lock, = state)<br/>decision(): the first CANCELLING / APPROVED / DECLINED / FAILED<br/>TransactionStepObserver → dispatchTransactionStep<br/>runTransaction · decide · onEnding (closings loop) · cancel()<br/>emvFinished · end(error) · the safe end"]
     CB["CommunicationBehavior<br/>connectToHost · acknowledge · reverse"]
     EN["EmvEngine<br/>emvSteps (PublishSubject)<br/>ApduTrace<br/>(made by the behavior, final)"]
     AB["AbstractEmvBehavior<br/>run: attempts · SEARCH_CARD · retry<br/>goToStep · askStep / answerStep<br/>publish · finish*<br/>EmvStepObserver → dispatchStepMethod"]
   end
   subgraph pax["vendor-pax"]
     PTM["PaxTerminal<br/>host · printer · setup"]
-    PB["PaxEmvBehavior<br/>17 onXxx · runContact* stages<br/>IContactCallback"]
+    PB["PaxEmvBehavior<br/>16 onXxx · runContact* stages<br/>IContactCallback"]
     CS["PaxCardSearch<br/>polling (onSearchCard) · stop()"]
   end
   subgraph lib["emvlib:dpas"]
@@ -312,11 +312,9 @@ flowchart LR
 switch (event.getStep()) {
     case TRANSACTION_STARTED: onTransactionStarted(event);   <span class="c">// → the transaction thread</span>
     case CANCELLING:          onCancelling();                <span class="c">// stop the card search</span>
-    case ENDING:              onEnding();                    <span class="c">// the closings start</span>
-    case ACKNOWLEDGING:       onAcknowledging(event);        <span class="c">// tell the bank: done</span>
-    case REVERSING:           onReversing(event);            <span class="c">// ask the bank to reverse</span>
-    case CLOSING_COMPLETED:   onClosingCompleted(event);     <span class="c">// the next closing, or the end</span>
-    default:                  <span class="c">// a report: ONLINE_*, APPROVED, DECLINED, COMPLETED / ERROR / CANCELLED…</span>
+    case ENDING:              onEnding();                    <span class="c">// the closings, one loop, then the end</span>
+    default:                  <span class="c">// a report: ONLINE_*, APPROVED / DECLINED / FAILED, ACKNOWLEDGING / REVERSING /</span>
+                              <span class="c">// CLOSING_COMPLETED, COMPLETED / ERROR / CANCELLED…</span>
 }</pre>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15}}}%%
@@ -336,18 +334,19 @@ sequenceDiagram
     BH->>BH: SEARCH_CARD → card found → start(card): the EMV chain (§3–§8)
   end
   BH-->>TX: run returns (the outcome was reported: finish* → emvFinished)
-  TX->>TX: finally [lock]: the end decided → ENDING
-  TX->>TX: onEnding → closeNext: ACKNOWLEDGING / REVERSING → the bank (§7)
-  TX->>TX: CLOSING_COMPLETED → the next one, or: current = null (terminal free)
+  TX->>TX: finally [lock]: a decision exists (else FAILED) → ENDING
+  TX->>TX: onEnding: for each request sent → ACKNOWLEDGING / REVERSING → the bank → CLOSING_COMPLETED (§7)
+  TX->>TX: current = null (terminal free)
   TX-->>UI: COMPLETED / ERROR / CANCELLED
 </pre></div>
   <ul class="facts">
     <li><b>الانشغال:</b> يُفحص على الـ main thread نفسه، فتُرفض عملية ثانية فورًا بـ <code>TerminalBusyException</code>، بلا طابور.</li>
-    <li><b>الإلغاء</b> (<code>Transaction.cancel()</code>): تُضبط النهاية <code>CANCELLED</code> وتُنشر <code>CANCELLING</code>، فتتوقف قراءة البطاقة، ويتوقف الـ EMV عند أول <code>goToStep</code>. لا يُقاطَع الـ thread أبدًا.</li>
+    <li><b>حالة العملية هي خطواتها:</b> لا field. أول خطوة "قرار" تُسلَّم هي الحالة (<code>decision()</code>): <code>CANCELLING</code> أو <code>APPROVED</code> أو <code>DECLINED</code> أو <code>FAILED</code>. لا قرار = العملية شغالة. أول قرار يكسب وما بعده يُتجاهل. النهاية تُسلَّم أخيرًا من القرار: <code>CANCELLED</code> / <code>COMPLETED</code> / <code>ERROR</code> (بالرسالة نفسها). <code>FAILED</code> خطوة جديدة لأن <code>ERROR</code> يجب أن تبقى آخر خطوة.</li>
+    <li><b>الإلغاء</b> (<code>Transaction.cancel()</code>): تُنشر <code>CANCELLING</code> (القرار)، فتتوقف قراءة البطاقة، ويتوقف الـ EMV عند أول <code>goToStep</code>. لا يُقاطَع الـ thread أبدًا.</li>
     <li><b>إعادة المحاولة</b> (fallback، tap again، See Phone): يطلبها الـ EMV بـ <code>requestRetry(...)</code> ثم يرجع الـ kernel، فيبدأ <code>run</code> محاولة جديدة من <code>TERMINAL_INITIALIZATION</code>، في العملية نفسها.</li>
-    <li><b>النتيجة ليست النهاية:</b> <code>APPROVED</code> / <code>DECLINED</code> تُنشر فور معرفتها، أما <code>COMPLETED</code> فبعد التأكيد / الإلغاء عند البنك وتحرير الجهاز.</li>
+    <li><b>النتيجة ليست النهاية:</b> <code>APPROVED</code> / <code>DECLINED</code> / <code>FAILED</code> تُنشر فور معرفتها، أما <code>COMPLETED</code> فبعد التأكيد / الإلغاء عند البنك وتحرير الجهاز.</li>
     <li>ترى الشاشة مثلًا: <code>ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED → ENDING → ACKNOWLEDGING → CLOSING_COMPLETED → COMPLETED</code>.</li>
-    <li>⚠ دالة الخطوة تعمل والـ lock مأخوذ، فترى الشاشة <code>ACKNOWLEDGING</code> / <code>REVERSING</code> بعد انتهاء نداء البنك (BACKLOG 10.4). لهذا تبقى الخطوات التي قد تنتظر البنك أو شخصًا قبل تحديد النهاية (<code>ONLINE_PROCESSING</code>، و Single Tap مستقبلًا) تقارير لا دوال.</li>
+    <li>⚠ <code>onEnding</code> تعمل والـ lock مأخوذ، ومعها نداءات البنك. لذلك <code>cancel</code> و <code>publish</code> و <code>decide</code> تنظر في القرار قبل أخذ الـ lock، فلا تنتظر الإغلاقات. والخطوات التي قد تنتظر البنك أو شخصًا (<code>ONLINE_PROCESSING</code>، و Single Tap مستقبلًا) تبقى تقارير لا دوال.</li>
   </ul>
 </section>
 
@@ -512,8 +511,8 @@ behavior.attach(this::sendToBank);</pre>
     <li><b>الـ EMV لا يعرف <code>PosTerminal</code>:</b> معه <code>BankRequest</code> فقط (Dependency Inversion). الـ field <code>private</code> و <code>attach</code> <code>final</code>، فلا يغيّر أحد الطريق.</li>
     <li><b>نسختان من الرد، لكلٍّ مالك:</b> <code>bankAnswer()</code> للـ EMV (ليكمل مع البطاقة، وتُمسح مع كل محاولة)، و <code>OnlineRequest.answer</code> لـ <code>PosTerminal</code> (ليقرر التأكيد أو الإلغاء). لا يقرأ أحدهما نسخة الآخر.</li>
     <li><b><code>startOnlineProcess()</code> لا يناديها أحد:</b> هي method في واجهات PAX (<code>IContactCallback</code> / <code>IContactlessCallback</code>)، لا يناديها الـ kernel ولا كودنا. الذهاب إلى البنك هو خطوة <code>ONLINE_AUTHORIZATION</code> نفسها، وهي ترجع <code>bankAnswer()</code> بشكل PAX لو سألها أحد. تبقى لأن الواجهة تطلبها.</li>
-    <li><b><code>bankAnswer</code> يُحفظ فقط حين يُرسل الطلب.</b> إن رجعت <code>askTheBank</code> مبكرًا (لا field 55، أو إلغاء) يبقى <code>null</code>، ويُعامل كـ online failed.</li>
-    <li>الـ swipe والإدخال اليدوي لا kernel لهما: <code>onReadApplicationData</code> يذهب مباشرة إلى <code>ONLINE_AUTHORIZATION</code>، ثم <code>TRANSACTION_COMPLETION</code> يقرر من <code>bankAnswer()</code>.</li>
+    <li><b><code>askTheBank</code> تحفظ الرد في كل حالة</b> (<code>return bankAnswer = …</code>)، حتى حين ترجع مبكرًا (لا field 55، أو إلغاء)، فيقرأ الـ vendor السبب الحقيقي.</li>
+    <li>الـ swipe والإدخال اليدوي لا kernel لهما: <code>onReadApplicationData</code> يذهب مباشرة إلى <code>ONLINE_AUTHORIZATION</code>، وفيها بعد <code>askTheBank()</code> يُقرَّر من <code>bankAnswer()</code> (<code>finishNonEmv</code>).</li>
   </ul>
 
   <h3>ما تراه الشاشة بعد الذهاب إلى البنك</h3>
@@ -687,7 +686,7 @@ sequenceDiagram
     B->>B: declined
   end
   B->>B: finishContactStage → PaxReaders.close → checkContactResult
-  B->>B: finishWithOutcome → TRANSACTION_COMPLETION → reportOutcome
+  B->>B: completeApproved / completeDeclined → finishApproved / finishDeclined (no completion step)
 </pre></div>
   <div class="table-wrap"><table>
     <thead><tr><th>#</th><th>EmvStep</th><th>الدالة في PAX</th><th>native</th><th>يسأل شخصًا؟</th></tr></thead>
@@ -701,7 +700,6 @@ sequenceDiagram
       <tr><td>8</td><td><code>PROCESS_RESTRICTIONS</code></td><td><code>runContactStartTransaction</code>، ثم 13 إن ذهب الكارت إلى البنك، وإلا نهاية المرحلة</td><td><code>EMVStartTrans</code> = PR + CVM + TRM + TAA + 1st GAC</td><td>الـ PIN</td></tr>
       <tr><td>13</td><td><code>ONLINE_AUTHORIZATION</code></td><td><code>onOnlineAuthorization</code> → <code>runContactOnline</code>، ثم 14 دائمًا</td><td>— (البنك)</td><td>—</td></tr>
       <tr><td>14</td><td><code>ISSUER_AUTHENTICATION</code></td><td><code>runContactIssuerAuthentication</code>، ثم نهاية المرحلة</td><td><code>EMVCompleteTrans</code> = ARPC + scripts + 2nd GAC</td><td>—</td></tr>
-      <tr><td>16</td><td><code>TRANSACTION_COMPLETION</code></td><td><code>finishWithOutcome</code> → <code>reportOutcome</code></td><td>—</td><td>—</td></tr>
     </tbody>
   </table></div>
   <ul class="facts">
@@ -740,13 +738,13 @@ sequenceDiagram
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 46}}}%%
 flowchart TD
-  E["runTransaction finally [lock]<br/>the end decided → deliver ENDING"] --> ON["onEnding → closeNext(0)"]
-  ON --> N{"nextClosing(from):<br/>the next request that needs an ack or a reversal"}
-  N -- "found" --> D["ACKNOWLEDGING / REVERSING<br/>closeAtHost: the call, waited for"]
-  D --> C["CLOSING_COMPLETED (closedOk)"]
-  C --> OC["onClosingCompleted → closeNext(the request after it)"]
-  OC --> N
-  N -- "none left" --> F["current = null — terminal free<br/>deliver the end: COMPLETED / ERROR / CANCELLED"]
+  E["runTransaction finally [lock]<br/>a decision exists (else FAILED) → deliver ENDING"] --> ON["onEnding: for i in online"]
+  ON --> N{"closingFor(i):<br/>ack, reversal or nothing"}
+  N -- "ack / reversal" --> D["closeAtHost: ACKNOWLEDGING / REVERSING (report)<br/>the call, waited for"]
+  D --> C["CLOSING_COMPLETED (closedOk, report)"]
+  C --> ON
+  N -- "nothing" --> ON
+  ON -- "all done" --> F["current = null — terminal free<br/>deliver the end: COMPLETED / ERROR / CANCELLED"]
 </pre></div>
   <h3>كيف يُقرَّر التأكيد أو الإلغاء لكل طلب</h3>
   <p>كل طلب أُرسل يُسجَّل لحظة إرساله (<code>wentOnline</code>) ومعه رده. عند <code>ENDING</code> يُقرَّر لكل طلب بالترتيب:</p>
@@ -759,14 +757,14 @@ flowchart TD
   C -- "notSent (decided by the network: answerOf)" --> NS["request.answer = AuthResult.notSent"]
   C -- "any other error / timeout" --> F["request.answer = AuthResult.failed"]
   R & NS & F --> E["EMV carries on → the end"]
-  E --> CO["ENDING → onEnding → nextClosing(from):<br/>one decision per request, in order"]
+  E --> CO["ENDING → onEnding → closingFor(i):<br/>one decision per request, in order"]
   CO --> D{"answer?"}
-  D -- "approved + last request + APPROVED published + end COMPLETED" --> ACK["ACKNOWLEDGEMENT"]
-  D -- "approved, any other end" --> REV["REVERSAL"]
+  D -- "approved + last request + the decision is APPROVED" --> ACK["ACKNOWLEDGEMENT"]
+  D -- "approved, any other decision" --> REV["REVERSAL"]
   D -- "failed / no answer" --> REV
   D -- "notSent" --> NO1["nothing — trace: no reversal + why"]
   D -- "declined" --> NO2["nothing"]
-  ACK & REV --> FU["ACKNOWLEDGING / REVERSING · closeAtHost, waited for (25 s per call)<br/>→ CLOSING_COMPLETED (closedOk) → the next request, or terminal free"]
+  ACK & REV --> FU["ACKNOWLEDGING / REVERSING · closeAtHost, waited for (25 s per call)<br/>→ CLOSING_COMPLETED (closedOk) → the next request (the loop), or terminal free"]
 </pre></div>
   <h3>من يقرر <code>notSent</code>؟ الـ network وحده</h3>
   <div class="table-wrap"><table>
@@ -1069,7 +1067,7 @@ flowchart TD
       <tr><td><b>Layers + Facade</b></td><td>طبقات، كل طبقة تكلم التي تحتها فقط. والـ UI يرى بابًا واحدًا يخفي ما خلفه</td><td><code>PosTerminal</code> هو الباب الوحيد للـ UI (<code>startTransaction</code> / <code>acceptCard</code> / <code>steps()</code> / <code>cancel()</code>). ليس طبقة تمرير فارغة: يملك العملية فعلًا (القاعدة 5 تمنع الطبقات التي تمرّر فقط)</td></tr>
       <tr><td><b>Strategy / Polymorphism</b></td><td>واجهة واحدة وأكثر من تنفيذ، يُختار واحد منها</td><td><code>EmvBehavior</code> (PAX / Ingenico / Fake)، <code>CommunicationBehavior</code>، <code>PrinterBehavior</code></td></tr>
       <tr><td><b>Open / Closed</b></td><td>نضيف بدل أن نعدّل</td><td>vendor جديد = flavor جديد بـ <code>TerminalFactory</code> وكلاساته، والـ core لا يتغيّر</td></tr>
-      <tr><td><b>Template Method</b></td><td>الكلاس الأب يحدد الترتيب، والابن يملأ الخطوات</td><td><code>AbstractEmvBehavior</code>: <code>run</code> و <code>goToStep</code> والـ dispatch، و 17 <code>onXxx</code> يملؤها الـ vendor؛ <code>askTheBank()</code> <code>final</code></td></tr>
+      <tr><td><b>Template Method</b></td><td>الكلاس الأب يحدد الترتيب، والابن يملأ الخطوات</td><td><code>AbstractEmvBehavior</code>: <code>run</code> و <code>goToStep</code> والـ dispatch، و 16 <code>onXxx</code> يملؤها الـ vendor؛ <code>askTheBank()</code> <code>final</code></td></tr>
       <tr><td><b>Observer</b></td><td>من يهمه الأمر يشترك، ويصله كل جديد</td><td><code>Transaction.steps()</code> (<code>ReplaySubject</code>) والشاشة مشتركة؛ <code>EmvEngine.emvSteps</code> و <code>EmvStepObserver</code>؛ <code>TransactionStepObserver</code></td></tr>
       <tr><td><b>Callback</b></td><td>تعطي جهة "رقمًا تتصل بك عليه"</td><td><code>BankRequest</code> (§5)، <code>CardSearchListener</code>، <code>IContactCallback</code> و <code>askStep</code> (§4)</td></tr>
       <tr><td><b>Adapter</b></td><td>محوّل بين شكلين لا يعرف أحدهما الآخر</td><td><code>PaxHostAnswer</code> (<code>AuthResult</code> → شكل PAX)؛ <code>ContactProcess.EmvCallBackListener</code> (native → listener)؛ <code>PaxEmvBehavior</code> بصفته <code>IContactCallback</code></td></tr>

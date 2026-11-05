@@ -39,7 +39,7 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
   logic, no retry, no way to the host, no transaction state.
 - `AbstractEmvBehavior` (core) — the whole EMV of a transaction (`run`): terminal
   initialization, the card search (`onSearchCard`, the vendor's polling) and the retries the
-  kernel asks for (`requestRetry` / `retryCount()`); the 17 EMV step hooks a vendor implements,
+  kernel asks for (`requestRetry` / `retryCount()`); the 16 EMV step hooks a vendor implements,
   `goToStep`, `askStep`, field 55, `authorizeOnline` (through the `Authorizer` PosTerminal hands
   it: `attach(this::authorize)`); makes and keeps its engine (`engine()`, final); reports the
   EMV's outcome with `finish*` (it doesn't end the transaction).
@@ -108,9 +108,10 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
    one owner, never two `cancelled` flags; found twice already: two `cancelled` flags; two
    `TransactionStepEvent` streams). Owners today:
    busy = `PosTerminal.current`; the transaction thread = `PosTerminal.transactionScheduler`;
-   a transaction's whole state (running / ended / cancelled) =
-   `PosTerminal.Transaction.end` (`volatile`, written only under the steps lock; an EMV outcome
-   becomes the end only through `Transaction.emvFinished`); transaction
+   a transaction's whole state (running / ended / cancelled) = its own steps: the first
+   decision step it delivered (`Transaction.decision()`: CANCELLING, APPROVED, DECLINED or
+   FAILED; no field since `42028fb`; an EMV outcome decides only through
+   `Transaction.emvFinished`, an error only through `Transaction.end`); transaction
    steps = `Transaction.steps` (one `ReplaySubject` per transaction); EMV steps =
    `EmvEngine.emvSteps`; the engine = `AbstractEmvBehavior.engine` (private, final, made with
    the behavior); retry state = `AbstractEmvBehavior` (`requestRetry`). A class that needs another's state gets a narrow read (e.g. the behavior asks its
@@ -279,11 +280,15 @@ after**. Each carries docs that match its own code.
   `TerminalBusyException` at once, never queued — then `transaction.begin()`; returns the
   `Transaction` (the handle a screen cancels and observes). `PosTerminal.authorize` = the host
   call, 90 s, `ONLINE_*` steps around it.
-- **`PosTerminal.Transaction`**: `end` (`volatile`, written only under the lock) is its whole
-  state — `null` = running; the first COMPLETED / ERROR, or the cancel's CANCELLED, = ended.
+- **`PosTerminal.Transaction`** (05/11): its state is its steps — `decision()` = the first
+  CANCELLING / APPROVED / DECLINED / FAILED it delivered (`TransactionStep.isDecision()`), none
+  = running. The first decision wins (`decide`). Its end is delivered last, after the closings:
+  CANCELLED / COMPLETED / ERROR (`endOfDecision()`; ERROR keeps FAILED's message). FAILED is a
+  step of its own because ERROR must stay the last step. `steps` must stay a ReplaySubject
+  that keeps everything (it is the state).
   `steps()`: its own `ReplaySubject` (replays everything to a late subscriber, never completes;
   each subscriber a `SafeObserver`); the subject is also the lock, so a cancel's CANCELLING never
-  lands after the end. `cancel()` = CANCELLED as the end + CANCELLING at once, whose method
+  lands after the end. `cancel()` = CANCELLING (the decision; CANCELLED is its end), whose method
   stops the card search (`behavior.cancelCardSearch()`); the EMV winds down at its next `goToStep`.
 - **The transaction runs from its own steps** (`2e4fbb4`, design idea 2 — Ebram's goal: the
   transaction has its own TransactionStep events that drive it, as EmvSteps drive the EMV).
@@ -325,8 +330,8 @@ after**. Each carries docs that match its own code.
   so `this::authorize` can't go in its constructor).
 - **Contracts**: `EmvBehavior` = `run` / `cancelCardSearch` / `dispose` only
   (`EmvBehaviorContractTest`); `attach(authorizer)` / `engine()` are `AbstractEmvBehavior`'s, so
-  `PosTerminal.behavior` is an `AbstractEmvBehavior`. `AbstractEmvBehavior`: 17 `protected
-  abstract onXxx` (`onSearchCard` included — no optional hook left), `readIccTag`,
+  `PosTerminal.behavior` is an `AbstractEmvBehavior`. `AbstractEmvBehavior`: 16 `protected
+  abstract onXxx` (`onSearchCard` included; `TRANSACTION_COMPLETION` removed 05/11, `ffd9277`), `readIccTag`,
   `cardSearchListener()`, `goToStep` (the one cancel check), `askStep(step, detail,
   failClosed)` / `answerStep`, `publish`, `finish*`. `initEmvObserver()` runs at the start of
   each attempt (`prepare`; it keeps the dispatch observer the last subscriber). The kernel's
@@ -363,15 +368,16 @@ after**. Each carries docs that match its own code.
 **Contact** [rxSet]: APP_SEL (`EMVAppSelect`; app choice via `askStep`) → READ
 (`EMVReadAppData`) → SET (`setTransactionData`: confirm card, 9C) → ODA (`EMVCardAuth`) → PR
 (`EMVStartTrans`: PR+CVM+TRM+TAA+1st GAC; PIN via `askStep`) → ONLINE_AUTHORIZATION (host) →
-ISSUER_AUTH (`EMVCompleteTrans`) → COMPLETION (reports the outcome once). Each step hands over
+ISSUER_AUTH (`EMVCompleteTrans`) → the outcome reported once (`finish*`, no completion step since `ffd9277`). Each step hands over
 to the next (`5d27307`): the host and the issuer no longer run inside the PR hook. Contactless
-the same; the card-read work (9F1C, `CARD_READ`) is in `onReadCardOk` (`1d9bbeb`).
+the same; the card-read work (9F1C, `CARD_READ`) is in `onReadCardOk` (`1d9bbeb`). Closings at
+the host: one loop in `onEnding` (`d93f5ce`); ACKNOWLEDGING / REVERSING / CLOSING_COMPLETED are reports.
 
 **Contactless**: `ClssKernelProcess#supportsGranularSteps()` — granular: EFT, PayPass, PayWave
 [rxSet]; atomic: the other 7 (one call, steps announced from callbacks).
 - Granular: APP_SEL → SET → READ → ODA/PR (PayWave: PR then ODA,
   `restrictionsBeforeOfflineDataAuth()`) → remaining call → online → ISSUER_AUTH (2nd tap) →
-  SCRIPT (PayWave `Clss_IssScriptProc_Wave`) → COMPLETION.
+  SCRIPT (PayWave `Clss_IssScriptProc_Wave`) → the outcome.
 - PayPass: the ODA stage loads the CAPK; the ODA itself is inside `Clss_TransProc_MC_MChip`.
 - `CLSS_RESELECT_APP` from any granular stage → `reselectApplication()` → start over at SET.
 - An AAC from `Clss_Proctrans_Wave` makes no further kernel call (`cardDeclined`).
