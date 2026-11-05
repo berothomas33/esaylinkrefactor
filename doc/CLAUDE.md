@@ -182,6 +182,10 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 
 ## 4. Branches (as of 2026-11-02)
 
+**Docs note (05/11):** `doc/REFERENCE.md` and `doc/EasyLink-EMV-Flows.html` / `.pdf` now describe
+`transactionStepObserver` (the line Ebram works on), not this branch's code; REFERENCE §9 lists
+the differences.
+
 **This branch, `paxEmvBehaviorSplit-tests`** = `paxEmvBehaviorSplit` (the 01/11 work: PAX
 classes split out, authorize without the engine, closeAtHost, publish / end, isNonEmv, the
 refund-AAC case removed — no Java comments) **+ its tests and these docs**. Twins, same code:
@@ -373,7 +377,7 @@ ISSUER_AUTH (`EMVCompleteTrans`) → COMPLETION (reports the outcome once).
   −11; device-confirmed). `readIccTag` answers 9F03 as zeros. Sale transType `0x00`.
 - Online-only: `forceOnline=1`; nothing is approved offline. A kernel TC
   (`RESULT_OFFLINE_APPROVED`) after the 1st GAC goes to the host without an ARQC and the host's
-  answer is the result (REFERENCE §5.5). (Decide if TC-to-host is the rule: BACKLOG 1.6.)
+  answer is the result (REFERENCE §5). (Decide if TC-to-host is the rule: BACKLOG 1.6.)
   **Refunds ask for an ARQC like a sale** (production cards, 01/11): they go online the normal
   way; an AAC on a refund is a decline, as in PAX's demo (the old "refund AAC → host" case was
   an assumption, removed).
@@ -425,7 +429,7 @@ major-unit doubles, `accountId` header. mToken expires ~3 days (`403 Token has e
 editable on onboarding). 90 s timeout in `PosTerminal.authorize`. Sale request matches the old
 app (`OldAppSaleRequestTest`): posEntryMode chip 051 / contactless 071 / swipe 901 / manual
 011, cvm 3 offline PIN / 2 online PIN.
-**Acknowledgement / reversal** (`3d5fea1`, `30cd5aa`; REFERENCE §2.7): `PosTerminal.authorize`
+**Acknowledgement / reversal** (`3d5fea1`, `30cd5aa`; REFERENCE §5): `PosTerminal.authorize`
 names each request (`asyncRequestId`, a UUID, on `TransactionConfig`) before sending; after the
 end `closeOnline` sends `orchestration/acknowledgement` (host approved + APPROVED + COMPLETED,
 last request) or `orchestration/reverse` (host approved but not completed, or no usable answer);
