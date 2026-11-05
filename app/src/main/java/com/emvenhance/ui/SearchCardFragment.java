@@ -170,6 +170,7 @@ public class SearchCardFragment extends Fragment {
                             event.get(TransactionStepEvent.KEY_ERROR));
                     btnCancelSearch.setVisibility(View.GONE);
                     break;
+                case FAILED:
                 case ERROR:
                     showOutcome(view, R.string.outcome_failed, false, event.getMessage() != null
                             ? event.getMessage() : event.get(TransactionStepEvent.KEY_ERROR));

@@ -30,6 +30,9 @@ public enum TransactionStep {
 
     DECLINED("Declined"),
 
+    /** The transaction failed; ERROR, with the same message, is delivered as its end. */
+    FAILED("Failed"),
+
     ENDING("Ending the transaction"),
 
     ACKNOWLEDGING("Acknowledging the sale with the host"),
@@ -54,5 +57,26 @@ public enum TransactionStep {
 
     public boolean isEnd() {
         return this == COMPLETED || this == ERROR || this == CANCELLED;
+    }
+
+    /**
+     * The step that decides how a transaction ends — the first one delivered is its state:
+     * nothing after it runs. Its end is delivered last, after the closings at the host.
+     */
+    public boolean isDecision() {
+        return this == CANCELLING || this == APPROVED || this == DECLINED || this == FAILED;
+    }
+
+    /** The end a decision leads to: CANCELLED, COMPLETED or ERROR. */
+    public TransactionStep endOfDecision() {
+        switch (this) {
+            case CANCELLING:
+                return CANCELLED;
+            case APPROVED:
+            case DECLINED:
+                return COMPLETED;
+            default:
+                return ERROR;
+        }
     }
 }

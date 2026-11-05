@@ -196,8 +196,6 @@ public abstract class PosTerminal {
     public final class Transaction {
 
         private final TransactionConfig config;
-        @Nullable
-        private volatile TransactionStepEvent end;
         private final ReplaySubject<TransactionStepEvent> steps = ReplaySubject.create();
         private final List<OnlineRequest> online = new ArrayList<>();
 
@@ -229,38 +227,44 @@ public abstract class PosTerminal {
         public void cancel() {
             TransactionStepEvent cancelling = TransactionStepEvent.of(TransactionStep.CANCELLING,
                     "Cancelling — finishing with the card");
-            if (end != null) {
-                return;
-            }
-            synchronized (steps) {
-                if (end != null) {
-                    return;
-                }
-                end = TransactionStepEvent.of(TransactionStep.CANCELLED);
-                deliver(cancelling);
-            }
+            decide(cancelling);
         }
 
-        // cancel / publish / end look at `end` before taking the lock on purpose: the closings
-        // (ACKNOWLEDGING / REVERSING) call the host while holding it, and an ended transaction
-        // must not wait for them (PosTerminalCloseAtHostTest.aCancelDuringASlowAcknowledgement…).
+        /**
+         * The transaction's state is its steps: the first decision it delivered (CANCELLING,
+         * APPROVED, DECLINED or FAILED), or null while it runs. No field keeps a copy.
+         */
+        @Nullable
+        private TransactionStepEvent decision() {
+            for (TransactionStepEvent e : steps.getValues(new TransactionStepEvent[0])) {
+                if (e.getStep().isDecision()) {
+                    return e;
+                }
+            }
+            return null;
+        }
+
+        // cancel / publish / decide look at decision() before taking the lock on purpose: the
+        // closings (ACKNOWLEDGING / REVERSING) call the host while holding it, and a decided
+        // transaction must not wait for them
+        // (PosTerminalCloseAtHostTest.aCancelDuringASlowAcknowledgement…).
 
         boolean isRunning() {
-            return end == null;
+            return decision() == null;
         }
 
         boolean isCancelled() {
-            TransactionStepEvent e = end;
-            return e != null && e.getStep() == TransactionStep.CANCELLED;
+            TransactionStepEvent d = decision();
+            return d != null && d.getStep() == TransactionStep.CANCELLING;
         }
 
         void publish(TransactionStepEvent event) {
-            if (end != null) {
+            if (decision() != null) {
                 dropped(event);
                 return;
             }
             synchronized (steps) {
-                if (end != null) {
+                if (decision() != null) {
                     dropped(event);
                     return;
                 }
@@ -268,30 +272,28 @@ public abstract class PosTerminal {
             }
         }
 
-        void end(TransactionStepEvent end) {
-            end(null, end);
+        /** Ends the transaction with an error: FAILED now, ERROR as its end. */
+        void end(TransactionStepEvent error) {
+            String message = error.getMessage() != null ? error.getMessage() : "Error";
+            decide(TransactionStepEvent.builder(TransactionStep.FAILED)
+                    .message(message)
+                    .put(TransactionStepEvent.KEY_ERROR, message)
+                    .build());
         }
 
-        /**
-         * The first end wins; anything after it is dropped. An EMV outcome (APPROVED / DECLINED)
-         * is delivered under the same hold of the lock, then COMPLETED becomes the end.
-         */
-        private void end(@Nullable TransactionStepEvent outcome, TransactionStepEvent end) {
-            if (this.end != null) {
-                dropped(outcome != null ? outcome : end);
+        /** The first decision wins; anything after it is dropped. */
+        private void decide(TransactionStepEvent decision) {
+            if (decision() != null) {
+                dropped(decision);
                 return;
             }
             synchronized (steps) {
-                if (this.end != null) {
-                    dropped(outcome != null ? outcome : end);
+                if (decision() != null) {
+                    dropped(decision);
                     return;
                 }
-                if (outcome != null) {
-                    apduTrace().note("EMV", "EMV finished: " + outcome.getStep()
-                            + " — the transaction completes");
-                    deliver(outcome);
-                }
-                this.end = end;
+                apduTrace().note("EMV", "the transaction is decided: " + decision.getStep());
+                deliver(decision);
             }
         }
 
@@ -304,7 +306,7 @@ public abstract class PosTerminal {
         void emvFinished(TransactionStepEvent outcome) {
             TransactionStep step = outcome.getStep();
             if (isOutcome(step)) {
-                end(outcome, TransactionStepEvent.of(TransactionStep.COMPLETED));
+                decide(outcome);
             } else if (step == TransactionStep.ERROR) {
                 end(outcome);
             } else {
@@ -316,15 +318,6 @@ public abstract class PosTerminal {
 
         private boolean isOutcome(TransactionStep step) {
             return step == TransactionStep.APPROVED || step == TransactionStep.DECLINED;
-        }
-
-        private boolean delivered(TransactionStep step) {
-            for (TransactionStepEvent e : steps.getValues(new TransactionStepEvent[0])) {
-                if (e.getStep() == step) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         private void deliver(TransactionStepEvent event) {
@@ -369,8 +362,8 @@ public abstract class PosTerminal {
                 end(errorEvent(t.getMessage() != null ? t.getMessage() : "Transaction failed"));
             } finally {
                 synchronized (steps) {
-                    if (end == null) {
-                        end = errorEvent("Transaction ended without an outcome");
+                    if (decision() == null) {
+                        end(errorEvent("Transaction ended without an outcome"));
                     }
                     deliver(TransactionStepEvent.of(TransactionStep.ENDING));
                 }
@@ -389,8 +382,8 @@ public abstract class PosTerminal {
          */
         private void onEnding() {
             synchronized (steps) {
-                boolean completedApproved = end.getStep() == TransactionStep.COMPLETED
-                        && delivered(TransactionStep.APPROVED);
+                TransactionStepEvent decision = decision();
+                boolean completedApproved = decision.getStep() == TransactionStep.APPROVED;
                 for (int i = 0; i < online.size(); i++) {
                     TransactionStepEvent closing = closingFor(i, completedApproved);
                     if (closing != null) {
@@ -398,7 +391,7 @@ public abstract class PosTerminal {
                     }
                 }
                 current.compareAndSet(this, null);
-                deliver(end);
+                deliver(endOf(decision));
             }
         }
 
@@ -440,6 +433,14 @@ public abstract class PosTerminal {
                     .message(what + " " + id)
                     .put(TransactionStepEvent.KEY_REQUEST_ID, id)
                     .build();
+        }
+
+        /** The end step a decision leads to; ERROR keeps the failure's message. */
+        private TransactionStepEvent endOf(TransactionStepEvent decision) {
+            TransactionStep end = decision.getStep().endOfDecision();
+            return end == TransactionStep.ERROR
+                    ? errorEvent(decision.getString(TransactionStepEvent.KEY_ERROR))
+                    : TransactionStepEvent.of(end);
         }
 
         OnlineRequest wentOnline(TransactionConfig sent) {

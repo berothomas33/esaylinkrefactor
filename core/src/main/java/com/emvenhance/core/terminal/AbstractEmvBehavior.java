@@ -214,7 +214,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
             return;
         }
         TransactionStep step = event.getStep();
-        if (step.isEnd() || step == TransactionStep.APPROVED || step == TransactionStep.DECLINED) {
+        if (step.isEnd() || step.isDecision()) {
             EmvLog.d("TransactionStep dropped, an outcome goes through finish*: " + event);
             engine().apduTrace().note("EMV",
                     "transaction step dropped — an outcome goes through finish*: " + event);
