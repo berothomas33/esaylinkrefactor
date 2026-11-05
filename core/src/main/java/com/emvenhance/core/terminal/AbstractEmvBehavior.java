@@ -231,9 +231,8 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return transaction != null && transaction.isCancelled();
     }
 
-    protected final AuthResult askTheBank() {
+    protected final void askTheBank() {
         bankAnswer = callTheBank();
-        return bankAnswer;
     }
 
     @Nullable
