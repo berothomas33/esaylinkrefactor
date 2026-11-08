@@ -387,6 +387,11 @@ public abstract class PosTerminal {
             publish(end == TransactionStep.ERROR
                     ? errorEvent(decision.getString(TransactionStepEvent.KEY_ERROR))
                     : TransactionStepEvent.of(end));
+            // Nothing follows the end: complete, so every subscriber is let go without having to
+            // dispose. The steps stay readable (decision(), a late subscriber's replay).
+            synchronized (steps) {
+                steps.onComplete();
+            }
         }
 
         /** Closed already: an ACKNOWLEDGING / REVERSING with its request id is in the steps. */

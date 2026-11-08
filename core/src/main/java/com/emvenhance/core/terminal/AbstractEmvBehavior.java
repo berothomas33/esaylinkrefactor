@@ -52,9 +52,26 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     @Override
     public void run(TransactionConfig config, PosTerminal.Transaction transaction) {
         resetRetry();
-        for (TransactionConfig attempt = config; attempt != null; attempt = nextAttempt()) {
-            prepare(attempt, transaction);
+        try {
+            for (TransactionConfig attempt = config; attempt != null; attempt = nextAttempt()) {
+                prepare(attempt, transaction);
+            }
+        } finally {
+            forgetTransaction();
         }
+    }
+
+    /**
+     * The EMV has returned: stop listening to the EMV steps and let go of the transaction and the
+     * card (the config carries the chip data), so nothing of this sale stays held until the next.
+     */
+    private void forgetTransaction() {
+        disposables.clear();
+        transaction = null;
+        activeConfig = null;
+        activeCard = null;
+        cardSearch = null;
+        bankAnswer = null;
     }
 
     private void resetRetry() {

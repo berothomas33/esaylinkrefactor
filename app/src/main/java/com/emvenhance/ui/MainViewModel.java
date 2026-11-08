@@ -12,6 +12,7 @@ import com.emvenhance.core.terminal.TerminalBusyException;
 import com.emvenhance.core.emv.ApduTrace;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
+import io.reactivex.rxjava3.disposables.Disposable;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -19,6 +20,7 @@ public class MainViewModel extends ViewModel {
 
     private final PosTerminal terminal;
     private final CompositeDisposable disposables = new CompositeDisposable();
+    private Disposable emvStepsOfTrx = Disposable.disposed();
 
     private final MutableLiveData<Event<EmvStepEvent>> emvStep = new MutableLiveData<>();
     private final MutableLiveData<String> apduTrace;
@@ -29,10 +31,6 @@ public class MainViewModel extends ViewModel {
     public MainViewModel(@NonNull PosTerminal terminal) {
         this.terminal = terminal;
         this.apduTrace = new MutableLiveData<>(terminal.apduTrace().text());
-
-        disposables.add(terminal.emvSteps()
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(event -> emvStep.setValue(new Event<>(event))));
 
         ApduTrace trace = terminal.apduTrace();
         disposables.add(trace.changes()
@@ -64,10 +62,21 @@ public class MainViewModel extends ViewModel {
 
     public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
         try {
-            transaction.setValue(terminal.acceptCard(type, amountMinor, referenceNumber));
+            PosTerminal.Transaction trx = terminal.acceptCard(type, amountMinor, referenceNumber);
+            transaction.setValue(trx);
+            listenToEmvStepsOf(trx);
         } catch (TerminalBusyException busy) {
             terminalBusy.setValue(new Event<>(true));
         }
+    }
+
+    /** The EMV steps of this transaction only: the subscription ends with the transaction. */
+    private void listenToEmvStepsOf(PosTerminal.Transaction trx) {
+        emvStepsOfTrx.dispose();
+        emvStepsOfTrx = terminal.emvSteps()
+                .takeUntil(trx.steps().filter(e -> e.getStep().isEnd()))
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(event -> emvStep.setValue(new Event<>(event)));
     }
 
     public void cancel() {
@@ -92,6 +101,7 @@ public class MainViewModel extends ViewModel {
     @Override
     protected void onCleared() {
         cancel();
+        emvStepsOfTrx.dispose();
         disposables.clear();
         super.onCleared();
     }
