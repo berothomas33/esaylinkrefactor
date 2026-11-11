@@ -137,7 +137,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#steps">EMV steps: goToStep and onXxx</a></li>
     <li><a href="#ask">When the kernel waits: askStep</a></li>
     <li><a href="#bank">The way to the bank</a></li>
-    <li><a href="#contact">مسار الـ contact</a></li>
+    <li><a href="#contact">The contact path</a></li>
     <li><a href="#end">النتيجة والنهاية الآمنة</a></li>
     <li><a href="#contactless">مسار الـ contactless</a></li>
     <li><a href="#params">الـ EMV params</a></li>
@@ -616,70 +616,65 @@ classDiagram
   <p class="note">All of this is synchronous on the transaction thread: <code>askTheBank</code> waits for <code>sendToBank</code> to return its <code>AuthResult</code>, then the code carries on with the card.</p>
 </section>
 
-<section id="contact">
-  <h2>6. مسار الـ contact (بترتيب الـ kernel نفسه)</h2>
-  <p>كل مرحلة = استدعاء native واحد = <code>EmvStep</code> واحدة. كل <code>runContact*</code> تستدعي الـ kernel: إن نجحت تنتقل بـ <code>advanceContactStage(NEXT)</code>، وإلا تنهي المسار بـ <code>finishContactStage()</code> (تحرير الـ listener، وإغلاق القارئات، وحساب النتيجة).</p>
+<section id="contact" dir="ltr" class="en">
+  <h2>6. The contact path (in the kernel's own order)</h2>
+  <p>One stage = one native call = one <code>EmvStep</code>. Each <code>runContact*</code> method calls the kernel. On success it moves on with <code>advanceContactStage(NEXT)</code>; otherwise it ends the path with <code>finishContactStage()</code>, which releases the listener, closes the readers and reads the result.</p>
+  <div class="table-wrap"><table>
+    <colgroup><col style="width:5%"><col style="width:29%"><col style="width:28%"><col style="width:24%"><col style="width:14%"></colgroup>
+    <thead><tr><th>#</th><th>EmvStep</th><th>PAX method</th><th>Native call</th><th>Asks a person?</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td><code>TERMINAL_INITIALIZATION</code></td><td><code>prepareKernel</code> → <code>preTransProcess</code></td><td><code>EMVCoreInit</code>, <code>EMVAddApp</code></td><td>—</td></tr>
+      <tr><td>1</td><td><code>SEARCH_CARD</code></td><td><code>onSearchCard</code> → <code>PaxCardSearch</code></td><td>polling</td><td>—</td></tr>
+      <tr><td>2</td><td><code>APPLICATION_SELECTION</code></td><td><code>runContactAppSelect</code></td><td><code>EMVAppSelect</code></td><td>Application choice</td></tr>
+      <tr><td>5</td><td><code>READ_APPLICATION_DATA</code></td><td><code>runContactReadAppData</code></td><td><code>EMVReadAppData</code> (GPO + records)</td><td>—</td></tr>
+      <tr><td>6</td><td><code>SET_TRANSACTION_DATA</code></td><td><code>runContactSetTransactionData</code></td><td>9C, <code>CARD_READ</code></td><td>—</td></tr>
+      <tr><td>7</td><td><code>OFFLINE_DATA_AUTHENTICATION</code></td><td><code>runContactCardAuth</code></td><td><code>EMVAddCAPK</code>, <code>EMVCardAuth</code></td><td>—</td></tr>
+      <tr><td>8</td><td><code>PROCESS_RESTRICTIONS</code></td><td><code>runContactStartTransaction</code>; then 13 if the card goes online, else the stage ends</td><td><code>EMVStartTrans</code> = PR + CVM + TRM + TAA + 1st GAC</td><td>PIN</td></tr>
+      <tr><td>13</td><td><code>ONLINE_AUTHORIZATION</code></td><td><code>onOnlineAuthorization</code> → <code>askTheBank</code> → <code>runContactOnline</code>; then 14</td><td>— (the bank)</td><td>—</td></tr>
+      <tr><td>14</td><td><code>ISSUER_AUTHENTICATION</code></td><td><code>runContactIssuerAuthentication</code>; then the stage ends</td><td><code>EMVCompleteTrans</code> = ARPC + scripts + 2nd GAC</td><td>—</td></tr>
+    </tbody>
+  </table></div>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}}}%%
 sequenceDiagram
   autonumber
   participant B as PaxEmvBehavior
   participant C as ContactProcess
   participant K as native kernel
-  participant H as PosTerminal.sendToBank → the bank
-  Note over B: TERMINAL_INITIALIZATION → SEARCH_CARD (onSearchCard: PaxCardSearch)
-  B->>C: preTransProcess(params from the cache)
-  C->>K: EMVCoreInit · EMVSetParameter/MCK (AID[0]) · EMVSetPCIModeParam · EMVAddApp ×n
-  Note over B: card found → start(card) → APPLICATION_SELECTION
-  B->>C: runContactAppSelect → selectApplication (≤ 3 tries, ICC power-cycle)
+  participant H as the bank (§5)
+  B->>C: 0 · preTransProcess (cached params)
+  C->>K: EMVCoreInit · EMVAddApp ×n
+  B->>C: 2 · runContactAppSelect (≤ 3 tries)
   C->>K: EMVAppSelect
-  K-->>C: emvWaitAppSel → askStep WAIT_APPLICATION_SELECTION
-  B->>C: READ_APPLICATION_DATA → readApplicationData
+  K-->>B: emvWaitAppSel → askStep (app choice)
+  B->>C: 5 · readApplicationData
   C->>K: EMVReadAppData (GPO + records)
-  K-->>C: emvSetParam → resetParam(AID): 9F33 / 9F40 / 9F35
-  B->>C: SET_TRANSACTION_DATA → setTransactionData
-  C-->>B: showConfirmCard → CARD_READ (PAN, name)
-  C->>K: changeTAG9CValue (9C)
-  B->>C: OFFLINE_DATA_AUTHENTICATION → cardAuthentication
-  C->>K: addCapk (+ revocations) · EMVCardAuth
-  B->>C: PROCESS_RESTRICTIONS → runContactStartTransaction → startTransProcess
-  C->>K: EMVStartTrans = PR → CVM → TRM → TAA → 1st GAC
-  K-->>C: emvGetHolderPwd → askStep CARDHOLDER_VERIFICATION / OFFLINE_PIN
-  K-->>C: acType: ARQC / TC / AAC
-  alt ARQC (RESULT_REQ_ONLINE)
-    B->>B: ARQC → PROCESS_RESTRICTIONS ends → goToStep(ONLINE_AUTHORIZATION) → runContactOnline → askTheBank
-    B->>H: field 55 (field55()) + PAN / PIN block → sendToBank → the bank
-    H-->>B: AuthResult → OnlineResultWrapper
-    B->>C: goToStep(ISSUER_AUTHENTICATION) → runContactIssuerAuthentication → completeTransProcess(issuerRsp)
-    C->>K: EMVCompleteTrans = 89 / 91 + scripts + 2nd GAC (always, AET-146)
-  else TC (RESULT_OFFLINE_APPROVED)
-    B->>H: host without an ARQC — the host's answer is the result, no 2nd GAC
+  B->>C: 6 · setTransactionData
+  C->>K: 9C · CARD_READ (PAN, name)
+  B->>C: 7 · cardAuthentication
+  C->>K: addCapk · EMVCardAuth
+  B->>C: 8 · startTransProcess
+  C->>K: EMVStartTrans: PR → CVM → TRM → TAA → 1st GAC
+  K-->>B: emvGetHolderPwd → askStep (PIN)
+  alt ARQC
+    B->>H: 13 · askTheBank → field 55 → the bank
+    H-->>B: AuthResult
+    B->>C: 14 · completeTransProcess(ARPC, scripts)
+    C->>K: EMVCompleteTrans → 2nd GAC
+  else TC (online-only terminal)
+    B->>H: 13 · sent without an ARQC, the bank's answer is the result
   else AAC
     B->>B: declined
   end
-  B->>B: finishContactStage → PaxReaders.close → checkContactResult
-  B->>B: completeApproved / completeDeclined → finishApproved / finishDeclined (no completion step)
+  B->>B: finishContactStage → close readers → result → finish*
 </pre></div>
-  <div class="table-wrap"><table>
-    <thead><tr><th>#</th><th>EmvStep</th><th>الدالة في PAX</th><th>native</th><th>يسأل شخصًا؟</th></tr></thead>
-    <tbody>
-      <tr><td>0</td><td><code>TERMINAL_INITIALIZATION</code></td><td><code>prepareKernel</code> → <code>preTransProcess</code></td><td><code>EMVCoreInit</code>، <code>EMVAddApp</code></td><td>—</td></tr>
-      <tr><td>1</td><td><code>SEARCH_CARD</code></td><td><code>onSearchCard</code> → <code>PaxCardSearch</code></td><td>polling</td><td>—</td></tr>
-      <tr><td>2</td><td><code>APPLICATION_SELECTION</code></td><td><code>runContactAppSelect</code></td><td><code>EMVAppSelect</code></td><td>اختيار التطبيق</td></tr>
-      <tr><td>5</td><td><code>READ_APPLICATION_DATA</code></td><td><code>runContactReadAppData</code></td><td><code>EMVReadAppData</code> (GPO + records)</td><td>—</td></tr>
-      <tr><td>6</td><td><code>SET_TRANSACTION_DATA</code></td><td><code>runContactSetTransactionData</code></td><td>9C · <code>CARD_READ</code></td><td>—</td></tr>
-      <tr><td>7</td><td><code>OFFLINE_DATA_AUTHENTICATION</code></td><td><code>runContactCardAuth</code></td><td><code>EMVAddCAPK</code>، <code>EMVCardAuth</code></td><td>—</td></tr>
-      <tr><td>8</td><td><code>PROCESS_RESTRICTIONS</code></td><td><code>runContactStartTransaction</code>، ثم 13 إن ذهب الكارت إلى البنك، وإلا نهاية المرحلة</td><td><code>EMVStartTrans</code> = PR + CVM + TRM + TAA + 1st GAC</td><td>الـ PIN</td></tr>
-      <tr><td>13</td><td><code>ONLINE_AUTHORIZATION</code></td><td><code>onOnlineAuthorization</code> → <code>runContactOnline</code>، ثم 14 دائمًا</td><td>— (البنك)</td><td>—</td></tr>
-      <tr><td>14</td><td><code>ISSUER_AUTHENTICATION</code></td><td><code>runContactIssuerAuthentication</code>، ثم نهاية المرحلة</td><td><code>EMVCompleteTrans</code> = ARPC + scripts + 2nd GAC</td><td>—</td></tr>
-    </tbody>
-  </table></div>
   <ul class="facts">
-    <li><b>متى يذهب الطلب إلى البنك:</b> حين يرد الكارت بـ ARQC. الاسترداد يطلب ARQC كالبيع. الاستثناء: TC (<code>RESULT_OFFLINE_APPROVED</code>) على جهاز online فقط، فيُرسل دون ARQC ويكون رد البنك هو النتيجة. AAC = رفض.</li>
-    <li><b>كل خطوة تعمل عملها ثم تسلّم التالية:</b> <code>PROCESS_RESTRICTIONS</code> → <code>ONLINE_AUTHORIZATION</code> → <code>ISSUER_AUTHENTICATION</code>، كل منها بالـ hook الخاص بها. البنك والـ issuer لم يعودا داخل الـ hook الخاص بـ <code>PROCESS_RESTRICTIONS</code>. و <code>finishContactStage</code> في آخر خطوة تعمل، أو حيث يتوقف المسار. الإلغاء أثناء انتظار البنك يُغلق المرحلة دون 2nd GAC.</li>
-    <li><b>الـ 2nd GENERATE AC دائمًا</b> بعد البنك (AET-146)، حتى لو رفض البنك أو لم يرد.</li>
-    <li>في الـ contact، الـ scripts تعمل داخل <code>EMVCompleteTrans</code> نفسه، فـ <code>SCRIPT_PROCESSING</code> هنا مجرد عنوان، وليست مرحلة منفصلة.</li>
-    <li>⚠ <code>TERMINAL_RISK_MANAGEMENT</code> و <code>TERMINAL_ACTION_ANALYSIS</code> لا تُنشران: لا يوجد لهما استدعاء native منفصل (داخل <code>EMVStartTrans</code>).</li>
+    <li><b>When the sale goes to the bank.</b> When the card answers with an ARQC; a refund asks for an ARQC like a sale. The exception: a TC (<code>RESULT_OFFLINE_APPROVED</code>) on this online-only terminal is sent without an ARQC, and the bank's answer is the result. An AAC is a decline.</li>
+    <li><b>Each step does its own work, then hands over.</b> <code>PROCESS_RESTRICTIONS</code> → <code>ONLINE_AUTHORIZATION</code> → <code>ISSUER_AUTHENTICATION</code>, each in its own hook. <code>finishContactStage</code> runs in the last step that works, or where the path stops.</li>
+    <li><b>The 2nd GENERATE AC always follows the bank</b> (AET-146), even when the bank declined or did not answer. Only a cancel while waiting for the bank skips it: <code>goToStep(ISSUER_AUTHENTICATION)</code> returns <code>false</code> and the stage ends.</li>
+    <li><b>Scripts</b> run inside <code>EMVCompleteTrans</code>, so in contact <code>SCRIPT_PROCESSING</code> is a label, not a stage.</li>
+    <li><code>TERMINAL_RISK_MANAGEMENT</code> and <code>TERMINAL_ACTION_ANALYSIS</code> are not published: they have no native call of their own (they run inside <code>EMVStartTrans</code>).</li>
+    <li><b>The outcome</b> is reported once: <code>completeApproved</code> / <code>completeDeclined</code> → <code>finishApproved</code> / <code>finishDeclined</code> (no completion step).</li>
   </ul>
 </section>
 
