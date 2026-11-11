@@ -136,7 +136,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#life">A sale from start to end</a></li>
     <li><a href="#steps">EMV steps: goToStep and onXxx</a></li>
     <li><a href="#ask">When the kernel waits: askStep</a></li>
-    <li><a href="#bank">الطريق إلى البنك</a></li>
+    <li><a href="#bank">The way to the bank</a></li>
     <li><a href="#contact">مسار الـ contact</a></li>
     <li><a href="#end">النتيجة والنهاية الآمنة</a></li>
     <li><a href="#contactless">مسار الـ contactless</a></li>
@@ -479,15 +479,15 @@ sequenceDiagram
   </ul>
 </section>
 
-<section id="bank">
-  <h2>5. الطريق إلى البنك</h2>
-  <p>حين يرد الكارت بـ ARQC في الـ 1st GENERATE AC، <b>ينتهي الاستدعاء الـ native ويرجع</b> بالنتيجة <code>RESULT_REQ_ONLINE</code>. بعدها كودنا هو الذي يذهب إلى البنك، ثم يعود إلى الـ kernel بالـ 2nd GENERATE AC في خطوة أخرى. ثلاث طبقات، لكل منها اسمها:</p>
+<section id="bank" dir="ltr" class="en">
+  <h2>5. The way to the bank</h2>
+  <p>When the card answers the 1st GENERATE AC with an ARQC, the native call <b>returns</b> with <code>RESULT_REQ_ONLINE</code>. Our code then calls the bank, and goes back to the kernel for the 2nd GENERATE AC in a later step. Three layers take part:</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>الطبقة</th><th>الاسم</th><th>ماذا تفعل</th></tr></thead>
+    <thead><tr><th>Layer</th><th>Method</th><th>Does</th></tr></thead>
     <tbody>
-      <tr><td>الـ EMV</td><td><code>askTheBank()</code> (خطوة <code>ONLINE_AUTHORIZATION</code>)</td><td>يجهّز field 55 وبيانات البطاقة، ويسأل البنك، ويحفظ الرد: <code>bankAnswer()</code></td></tr>
-      <tr><td>الجهاز</td><td><code>PosTerminal.sendToBank(config)</code></td><td>يسمّي الطلب (<code>asyncRequestId</code>) ويسجّله للنهاية الآمنة، وينشر <code>ONLINE_*</code></td></tr>
-      <tr><td>البنك</td><td><code>CommunicationBehavior.connectToHost</code></td><td>token ← exchange ← sale / refund عبر HTTP</td></tr>
+      <tr><td>EMV</td><td><code>askTheBank()</code>, in step <code>ONLINE_AUTHORIZATION</code></td><td>Builds field 55 and the card data, asks the bank, keeps the answer (<code>bankAnswer()</code>).</td></tr>
+      <tr><td>Terminal</td><td><code>PosTerminal.sendToBank(config)</code></td><td>Names the request (<code>asyncRequestId</code>), records it for the safe end, publishes <code>ONLINE_*</code>.</td></tr>
+      <tr><td>Bank</td><td><code>CommunicationBehavior.connectToHost</code></td><td>token → exchange → sale / refund, over HTTP.</td></tr>
     </tbody>
   </table></div>
   <div class="diagram"><pre class="mermaid">
@@ -498,62 +498,80 @@ sequenceDiagram
   participant PB as PaxEmvBehavior
   participant AB as AbstractEmvBehavior
   participant PT as PosTerminal
-  participant H as SaleCommunicationBehavior
-  K-->>PB: startTransProcess returns: ARQC (RESULT_REQ_ONLINE)
-  PB->>PB: PROCESS_RESTRICTIONS ends → goToStep(ONLINE_AUTHORIZATION) → onOnlineAuthorization
+  participant H as Communication
+  K-->>PB: returns ARQC (RESULT_REQ_ONLINE)
+  PB->>PB: goToStep(ONLINE_AUTHORIZATION)
   PB->>AB: askTheBank()
-  AB->>AB: field55() + PAN / PIN block
-  AB->>PT: bankRequest.send(config) = sendToBank(config)
-  PT->>H: connectToHost(sent) — token → exchange → sale
-  H-->>PT: AuthResult (approved / declined / failed / notSent · ARPC · scripts)
-  PT-->>AB: the answer → kept: bankAnswer()
-  PB->>PB: PaxHostAnswer.toOnlineResult(bankAnswer()) → the online result
-  PB->>PB: goToStep(ISSUER_AUTHENTICATION) → onIssuerAuthentication
-  PB->>K: completeTransProcess(ARPC, scripts) → 2nd GENERATE AC → TC / AAC
+  AB->>AB: field 55 + PAN / PIN block
+  AB->>PT: bankRequest.send(config)
+  PT->>H: connectToHost: token → exchange → sale
+  H-->>PT: AuthResult
+  PT-->>AB: answer kept: bankAnswer()
+  PB->>PB: PaxHostAnswer.toOnlineResult(answer)
+  PB->>PB: goToStep(ISSUER_AUTHENTICATION)
+  PB->>K: completeTransProcess → 2nd GENERATE AC
 </pre></div>
 
-  <h3>كيف يعرف الـ EMV طريق البنك: <code>attach</code></h3>
+  <h3>What the screen sees after the bank</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Case</th><th>Steps after <code>ONLINE_COMPLETED</code></th></tr></thead>
+    <tbody>
+      <tr><td>Bank approved, card approved (TC)</td><td><code>APPROVED → ACKNOWLEDGING → CLOSING_COMPLETED → ENDING → COMPLETED</code></td></tr>
+      <tr><td>Bank approved, card declined (AAC)</td><td><code>DECLINED → REVERSING → CLOSING_COMPLETED → ENDING → COMPLETED</code></td></tr>
+      <tr><td>Bank declined</td><td><code>DECLINED → ENDING → COMPLETED</code></td></tr>
+      <tr><td>No usable answer (<code>failed</code>)</td><td><code>FAILED → ENDING → REVERSING → CLOSING_COMPLETED → ERROR</code></td></tr>
+      <tr><td>Never sent (<code>notSent</code>)</td><td><code>FAILED → ENDING → ERROR</code></td></tr>
+      <tr><td>Bank asks for the PIN (Single Tap, §8)</td><td><code>SINGLE_TAP_PIN_REQUIRED</code> → the PIN → <code>ONLINE_*</code> again → one of the rows above</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="facts">
+    <li><b>Two copies of the answer, each with one owner.</b> <code>bankAnswer()</code> is the EMV's: it carries on with the card, and is cleared at each attempt. <code>OnlineRequest.answer</code> is the terminal's: it decides the acknowledgement or the reversal. Neither reads the other's copy.</li>
+    <li><b><code>askTheBank</code> always keeps its answer,</b> even when it returns early (no field 55, or a cancel), so the vendor reads the real reason.</li>
+    <li><b>Swipe and manual entry</b> have no kernel: <code>onReadApplicationData</code> goes straight to <code>ONLINE_AUTHORIZATION</code>, and the result comes from <code>bankAnswer()</code> (<code>finishNonEmv</code>).</li>
+    <li><b><code>startOnlineProcess()</code> is never called.</b> It is part of PAX's callback interfaces, but neither the kernel nor our code calls it; going online is the <code>ONLINE_AUTHORIZATION</code> step. It stays only because the interface requires it.</li>
+  </ul>
+
+  <h3 id="why-attach">How the EMV reaches the bank: <code>attach</code></h3>
+  <p>The EMV must call the bank, but must not know <code>PosTerminal</code>. So <code>PosTerminal</code> gives it one thing to call, a <code>BankRequest</code>, once, when it is created:</p>
 <pre class="codebox"><span class="c">// BankRequest.java</span>
 public interface BankRequest { AuthResult send(TransactionConfig config); }
 
 <span class="c">// AbstractEmvBehavior</span>
 private BankRequest bankRequest;
-public final void attach(BankRequest bankRequest) { this.bankRequest = bankRequest; }
-protected AuthResult askTheBank() { … return bankAnswer = bankRequest.send(config); }
-protected final AuthResult bankAnswer() { return bankAnswer; }      <span class="c">// read it, never ask again</span>
+public final void attach(BankRequest bankRequest) {
+    this.bankRequest = bankRequest;
+}
+protected AuthResult askTheBank() {
+    … return bankAnswer = bankRequest.send(config);
+}
 
-<span class="c">// PosTerminal, in its constructor, once</span>
+<span class="c">// PosTerminal constructor, once</span>
 behavior.attach(this::sendToBank);</pre>
-  <ul class="facts">
-    <li><b>لماذا <code>attach</code> وليس الـ constructor؟</b> دائرة: <code>PosTerminal</code> يحتاج الـ behavior في الـ constructor الخاص به، والـ behavior يحتاج <code>PosTerminal::sendToBank</code> الذي لا يوجد إلا بعده. فيُنشأ الـ behavior أولًا، ثم يوصّله <code>PosTerminal</code> بالبنك مرة واحدة (setter injection). Dagger لا يحل هذه الدائرة؛ حلّه هو <code>attach</code> نفسها خلف annotations.</li>
-    <li><b>الـ EMV لا يعرف <code>PosTerminal</code>:</b> معه <code>BankRequest</code> فقط (Dependency Inversion). الـ field <code>private</code> و <code>attach</code> <code>final</code>، فلا يغيّر أحد الطريق.</li>
-    <li><b>نسختان من الرد، لكلٍّ مالك:</b> <code>bankAnswer()</code> للـ EMV (ليكمل مع البطاقة، وتُمسح مع كل محاولة)، و <code>OnlineRequest.answer</code> لـ <code>PosTerminal</code> (ليقرر التأكيد أو الإلغاء). لا يقرأ أحدهما نسخة الآخر.</li>
-    <li><b><code>startOnlineProcess()</code> لا يناديها أحد:</b> هي method في واجهات PAX (<code>IContactCallback</code> / <code>IContactlessCallback</code>)، لا يناديها الـ kernel ولا كودنا. الذهاب إلى البنك هو خطوة <code>ONLINE_AUTHORIZATION</code> نفسها، وهي ترجع <code>bankAnswer()</code> بشكل PAX لو سألها أحد. تبقى لأن الواجهة تطلبها.</li>
-    <li><b><code>askTheBank</code> تحفظ الرد في كل حالة</b> (<code>return bankAnswer = …</code>)، حتى حين ترجع مبكرًا (لا field 55، أو إلغاء)، فيقرأ الـ vendor السبب الحقيقي.</li>
-    <li>الـ swipe والإدخال اليدوي لا kernel لهما: <code>onReadApplicationData</code> يذهب مباشرة إلى <code>ONLINE_AUTHORIZATION</code>، وفيها بعد <code>askTheBank()</code> يُقرَّر من <code>bankAnswer()</code> (<code>finishNonEmv</code>).</li>
-  </ul>
-
-  <h3>ما تراه الشاشة بعد الذهاب إلى البنك</h3>
-  <p>الخطوات التي تصل إلى الشاشة بعد <code>ONLINE_COMPLETED</code>، في كل حالة:</p>
+  <p><b>Why not pass it in the constructor?</b> The two objects need each other. <code>PosTerminal</code> needs the behavior in its constructor, and the behavior needs <code>PosTerminal::sendToBank</code>, which exists only after <code>PosTerminal</code> is built. So the behavior is built first, and wired to the bank right after:</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 34}}}%%
+flowchart TB
+  F["TerminalFactory (vendor flavor)"] --> B["① new PaxEmvBehavior(...) — no bank yet"]
+  B --> T["② new PaxTerminal(behavior, communication, printer)"]
+  T --> A["③ PosTerminal constructor: behavior.attach(this::sendToBank)"]
+  A --> R["ready: askTheBank() → bankRequest.send(...)"]
+</pre></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>الحالة</th><th>ما تراه الشاشة بعد <code>ONLINE_COMPLETED</code></th></tr></thead>
+    <thead><tr><th>Option</th><th>Result</th></tr></thead>
     <tbody>
-      <tr><td>الـ host وافق والبطاقة أعطت TC</td><td><code>APPROVED → ENDING → ACKNOWLEDGING → CLOSING_COMPLETED → COMPLETED</code></td></tr>
-      <tr><td>الـ host وافق والبطاقة رفضت (AAC)</td><td><code>DECLINED → ENDING → REVERSING → CLOSING_COMPLETED → COMPLETED</code></td></tr>
-      <tr><td>الـ host رفض</td><td><code>DECLINED → ENDING → COMPLETED</code></td></tr>
-      <tr><td>لا رد / انتهاء المهلة (<code>failed</code>)</td><td><code>ENDING → REVERSING → CLOSING_COMPLETED → ERROR</code></td></tr>
-      <tr><td>لم يُرسل (<code>notSent</code>)</td><td><code>ENDING → ERROR</code></td></tr>
+      <tr><td>The behavior's constructor takes a <code>BankRequest</code></td><td>Not possible: <code>PosTerminal</code> does not exist yet.</td></tr>
+      <tr><td><code>PosTerminal</code> creates the behavior</td><td>Rejected: the core would have to know vendor classes.</td></tr>
+      <tr><td>Dagger / Hilt</td><td>Same cycle; its fix (<code>Lazy</code>, <code>Provider</code>, injection after creation) is <code>attach</code> behind annotations. Nothing gets simpler.</td></tr>
+      <tr><td><b><code>attach</code>, once</b></td><td><b>Chosen.</b> The field is <code>private</code>, <code>attach</code> is <code>final</code>, and it runs before any sale.</td></tr>
     </tbody>
   </table></div>
-  <h3 id="bank-oop">الطريق إلى البنك من الداخل: من أعطى "الرقم" لمن، وبأي مفهوم OOP</h3>
-  <p><code>PosTerminal</code> يعطي الـ behavior "رقمًا يتصل به" مرة واحدة عند إنشائه، والـ behavior يتصل به حين يرجع الـ kernel بـ ARQC، ثم يحوّل PAX الرد إلى شكله ليكمل مع البطاقة.</p>
+
+  <h3 id="bank-oop">The design behind it</h3>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "16px"}}}%%
 classDiagram
-  direction LR
+  direction TB
   class PosTerminal {
-    -AbstractEmvBehavior behavior
-    -CommunicationBehavior communication
     +sendToBank(TransactionConfig) AuthResult
   }
   class BankRequest {
@@ -563,103 +581,39 @@ classDiagram
   class AbstractEmvBehavior {
     &lt;&lt;abstract&gt;&gt;
     -BankRequest bankRequest
-    -AuthResult bankAnswer
     +attach(BankRequest)
     #askTheBank() AuthResult
-    #bankAnswer() AuthResult
     #onOnlineAuthorization()*
   }
-  class PaxEmvBehavior {
-    -PaxKernelSession tx
-    +onOnlineAuthorization()
-    +startOnlineProcess() OnlineResultWrapper
-  }
+  class PaxEmvBehavior
   class CommunicationBehavior {
     &lt;&lt;interface&gt;&gt;
     +connectToHost(TransactionConfig) Single
   }
-  class SaleCommunicationBehavior
-  class AuthResult {
-    &lt;&lt;value&gt;&gt;
-    +approved()$
-    +declined()$
-    +failed()$
-    +notSent()$
-  }
   class PaxHostAnswer {
     &lt;&lt;adapter&gt;&gt;
-    +toOnlineResult(AuthResult) OnlineResultWrapper
+    +toOnlineResult(AuthResult)
   }
-  PosTerminal ..> BankRequest : its sendToBank method is one
+  PosTerminal ..> BankRequest : sendToBank is one
   PosTerminal --> AbstractEmvBehavior : attach
-  AbstractEmvBehavior --> BankRequest : calls back
+  AbstractEmvBehavior --> BankRequest : calls
   AbstractEmvBehavior &lt;|-- PaxEmvBehavior
-  PosTerminal --> CommunicationBehavior : the bank
-  CommunicationBehavior &lt;|.. SaleCommunicationBehavior
+  PosTerminal --> CommunicationBehavior
   PaxEmvBehavior ..> PaxHostAnswer
-  PaxHostAnswer ..> AuthResult
 </pre></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>المفهوم</th><th>أين في القصة</th><th>ماذا يعطينا</th></tr></thead>
+    <thead><tr><th>Concept</th><th>Where</th><th>What it gives us</th></tr></thead>
     <tbody>
-      <tr><td><b>Callback</b></td><td><code>attach(this::sendToBank)</code> ثم <code>bankRequest.send(config)</code></td><td>الـ behavior لا يستدعي <code>PosTerminal</code> بالاسم؛ معه "رقم" فقط، ويتصل به حين يحتاج.</td></tr>
-      <tr><td><b>Dependency Inversion</b> (الـ D في SOLID)</td><td><code>AbstractEmvBehavior</code> يعتمد على الـ interface <code>BankRequest</code>، لا على <code>PosTerminal</code></td><td>طبقة الـ EMV لا تعرف شيئًا عن البنك أو الـ terminal. في الـ tests يُعطى <code>BankRequest</code> مزيف بسطر واحد.</td></tr>
-      <tr><td><b>Functional interface + method reference</b></td><td><code>BankRequest</code> له method واحدة، و<code>this::sendToBank</code> تكتب تنفيذها</td><td>لا حاجة لكلاس يطبّق <code>BankRequest</code>؛ الـ method الموجودة في <code>PosTerminal</code> هي التنفيذ.</td></tr>
-      <tr><td><b>Template Method</b></td><td><code>askTheBank()</code> (في الـ abstract) و <code>onOnlineAuthorization()</code> (abstract، كل vendor يملؤها)</td><td>الخطوات المشتركة (الفحوص، field 55، الاتصال) في مكان واحد؛ الـ vendor يقرّر متى يطلبها وماذا يفعل بالرد.</td></tr>
-      <tr><td><b>Encapsulation</b></td><td><code>private BankRequest bankRequest</code> و <code>attach</code> <code>final</code></td><td>لا يغيّر أحد "الرقم".</td></tr>
-      <tr><td><b>Polymorphism</b></td><td><code>CommunicationBehavior</code> (التطبيق: <code>SaleCommunicationBehavior</code>)، و <code>AbstractEmvBehavior</code> (PAX، Ingenico، Fake)</td><td><code>PosTerminal</code> يتعامل مع الواجهة؛ يتغيّر البنك أو الـ vendor دون أن يتغيّر هو.</td></tr>
-      <tr><td><b>Value Object</b></td><td><code>AuthResult</code>: constructor خاص، وأربع factory methods (<code>approved</code> / <code>declined</code> / <code>failed</code> / <code>notSent</code>)، ولا setters</td><td>رد البنك شيء ثابت لا يتغيّر بعد إنشائه، وبشكل واحد لا يخص vendor.</td></tr>
-      <tr><td><b>Adapter</b></td><td><code>PaxHostAnswer.toOnlineResult(AuthResult)</code></td><td>يحوّل الرد العام إلى شكل PAX (<code>OnlineResultWrapper</code> / <code>IssuerRspData</code>) الذي يفهمه الـ kernel. vendor آخر يكتب Adapter خاصًا به.</td></tr>
+      <tr><td><b>Dependency Injection</b> (no framework)</td><td>Each class gets what it needs from outside: <code>PosTerminal</code> its behavior, communication and printer in the constructor; the behavior its <code>BankRequest</code> through <code>attach</code>.</td><td>Each class keeps one job (Single Responsibility).</td></tr>
+      <tr><td><b>Dependency Inversion</b></td><td>The behavior depends on the <code>BankRequest</code> interface, not on <code>PosTerminal</code>.</td><td>The EMV knows nothing of the terminal or the bank. A test passes a one-line fake.</td></tr>
+      <tr><td><b>Callback</b> via a method reference</td><td><code>this::sendToBank</code> is the <code>BankRequest</code>.</td><td>No extra class implements the interface.</td></tr>
+      <tr><td><b>Template Method</b></td><td><code>askTheBank()</code> is shared; <code>onOnlineAuthorization()</code> is each vendor's.</td><td>Checks, field 55 and the call live in one place; the vendor decides what to do with the answer.</td></tr>
+      <tr><td><b>Polymorphism</b></td><td><code>CommunicationBehavior</code>, <code>AbstractEmvBehavior</code> (PAX, Ingenico, Fake).</td><td>The bank or the vendor changes without touching <code>PosTerminal</code>.</td></tr>
+      <tr><td><b>Value Object</b></td><td><code>AuthResult</code>: private constructor, factories (<code>approved</code>, <code>declined</code>, <code>failed</code>, <code>notSent</code>, <code>pinRequired</code>), no setters.</td><td>The answer never changes after it is made, and has one vendor-free shape.</td></tr>
+      <tr><td><b>Adapter</b></td><td><code>PaxHostAnswer.toOnlineResult(AuthResult)</code></td><td>Turns the shared answer into the shape the PAX kernel reads. Another vendor writes its own.</td></tr>
     </tbody>
   </table></div>
-  <p class="note">كل ذلك متزامن على الـ transaction thread: <code>askTheBank</code> تنتظر <code>PosTerminal.sendToBank</code> حتى يرجع <code>AuthResult</code>، ثم يكمل الكود مع البطاقة.</p>
-
-
-  
-  <h3 id="why-attach">لماذا <code>attach</code>، لا constructor ولا Dagger</h3>
-  <p><b>المشكلة دائرة.</b> <code>PosTerminal</code> يحتاج الـ behavior في الـ constructor الخاص به، والـ behavior يحتاج <code>PosTerminal::sendToBank</code>، وهذه لا توجد إلا بعد أن يُنشأ <code>PosTerminal</code>. أيهما يُنشأ أولًا لا يجد الآخر.</p>
-  <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 45}}}%%
-flowchart LR
-  F["TerminalFactory (the vendor's flavor)"] --> B["① new PaxEmvBehavior(...)<br/>no bank yet"]
-  B --> T["② new PaxTerminal(behavior, communication, printer)<br/>→ PosTerminal constructor"]
-  T --> A["③ behavior.attach(this::sendToBank)<br/>the cycle closes, once"]
-  A --> R["ready: askTheBank() → bankRequest.send(...)"]
-</pre></div>
-  <div class="table-wrap"><table>
-    <thead><tr><th>الحل</th><th>ماذا يحدث</th><th>القرار</th></tr></thead>
-    <tbody>
-      <tr><td>constructor للـ behavior يأخذ <code>BankRequest</code></td><td>عند إنشاء الـ behavior لا يوجد <code>PosTerminal</code> بعد، فلا يوجد <code>this::sendToBank</code> نمرّره</td><td>غير ممكن</td></tr>
-      <tr><td><code>PosTerminal</code> هو الذي يُنشئ الـ behavior</td><td>الـ core يصبح مضطرًا لمعرفة كلاسات الـ vendor (<code>PaxEmvBehavior</code>)، وهذا يكسر فصل الـ vendor</td><td>مرفوض</td></tr>
-      <tr><td>Dagger / Hilt</td><td>يواجه الدائرة نفسها، وحلّه <code>Lazy&lt;&gt;</code> أو <code>Provider&lt;&gt;</code> أو الحقن بعد الإنشاء: أي <code>attach</code> نفسها خلف annotations، مع Modules و Components وكود مولّد ووقت build أطول، لـ graph صغير</td><td>لا يبسّط شيئًا هنا</td></tr>
-      <tr><td><b><code>attach</code></b> مرة واحدة في constructor الـ <code>PosTerminal</code></td><td>"حقن بعد الإنشاء" (setter injection) واحد: الـ field <code>private</code>، و <code>attach</code> <code>final</code>، ويحدث قبل أي عملية</td><td><b>المختار</b></td></tr>
-    </tbody>
-  </table></div>
-  <p><b>نحن نستخدم Dependency Injection فعلًا، بلا framework</b> (manual constructor injection): <code>TerminalFactory</code> في كل flavor يختار الـ vendor، و <code>PaxTerminal</code> يمرّر الأجزاء الثلاثة إلى <code>PosTerminal</code>: <code>super(new PaxEmvBehavior(kernel, pinEntry()), communication, printer)</code>. لا يُنشئ أي كلاس ما يحتاجه بنفسه، بل يأخذه من الخارج. Dagger / Hilt يصبح مفيدًا حين يكبر الـ graph (شاشات و ViewModels كثيرة تشترك في الـ services)، لكنه لن يلغي <code>attach</code>.</p>
-
-  
-  <h3 id="di">ليه <code>attach</code> مهمة: كل كلاس ماسك مسؤوليته</h3>
-  <p><code>attach</code> نوع من الـ <b>Dependency Injection</b> اسمه <b>setter injection</b>. والفكرة كلها إن كل كلاس يأخذ ما يحتاجه من الخارج، ولا يصنعه بنفسه، فيبقى مسؤولًا عن شغله فقط.</p>
-  <ul class="facts">
-    <li><b>بدون DI:</b> كان الـ EMV سيضطر أن يعرف <code>PosTerminal</code> بنفسه، أو أن يتصل بالبنك بنفسه، فيحمل مسؤولية ليست له.</li>
-    <li><b>مع DI:</b> يأخذ الـ EMV "طريق البنك" من الخارج (<code>BankRequest</code>) ويستخدمه فقط. لا يعرف من على الطرف الآخر، ولا كيف يتكلم البنك.</li>
-  </ul>
-  <div class="table-wrap"><table>
-    <thead><tr><th>الكلاس</th><th>شغله</th><th>ما يأخذه من الخارج</th></tr></thead>
-    <tbody>
-      <tr><td><code>AbstractEmvBehavior</code></td><td>البطاقة والـ kernel</td><td><code>BankRequest</code> (بـ <code>attach</code>)</td></tr>
-      <tr><td><code>PosTerminal</code></td><td>العملية والجهاز</td><td>الـ behavior والـ communication والـ printer (في الـ constructor)</td></tr>
-      <tr><td><code>SaleCommunicationBehavior</code></td><td>الكلام مع البنك</td><td>مفاتيح وإعدادات الـ onboarding</td></tr>
-    </tbody>
-  </table></div>
-  <div class="table-wrap"><table>
-    <thead><tr><th>المفهوم</th><th>معناه</th><th>دوره هنا</th></tr></thead>
-    <tbody>
-      <tr><td><b>Single Responsibility</b></td><td>كل كلاس له شغلة واحدة</td><td><b>الهدف</b></td></tr>
-      <tr><td><b>Dependency Injection</b></td><td>كيف يصل كل كلاس إلى ما يحتاجه: من الخارج بدل أن يصنعه (constructor مثل <code>PosTerminal</code>، أو <code>attach</code> مثل <code>bankRequest</code>)</td><td>أداة</td></tr>
-      <tr><td><b>Dependency Inversion</b></td><td>ما يُحقَن يكون interface (<code>BankRequest</code>) لا كلاسًا محددًا</td><td>أداة: لهذا لا يعرف الـ EMV <code>PosTerminal</code> إطلاقًا</td></tr>
-    </tbody>
-  </table></div>
+  <p class="note">All of this is synchronous on the transaction thread: <code>askTheBank</code> waits for <code>sendToBank</code> to return its <code>AuthResult</code>, then the code carries on with the card.</p>
 </section>
 
 <section id="contact">
