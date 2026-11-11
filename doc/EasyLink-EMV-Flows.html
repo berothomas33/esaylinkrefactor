@@ -123,7 +123,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <div dir="rtl">
 <main>
 <header>
-  <div class="eyebrow">transactionStepObserver · from the code, 2026-11-05</div>
+  <div class="eyebrow">transactionStepObserver · from the code, 2026-11-11 (213762c)</div>
   <h1>مسارات الـ EMV في EasyLink</h1>
   <p class="lead">رحلة العملية من زر البيع حتى نهايتها: البطاقة، والـ kernel، والبنك، ثم التأكيد أو الإلغاء عند البنك. كل اسم في الصفحة موجود في الكود، وكل سهم استدعاء حقيقي. الشرح كله على فرع <code>transactionStepObserver</code>.</p>
 </header>
@@ -261,10 +261,10 @@ private   final Scheduler             transactionScheduler; <span class="c">// o
     <thead><tr><th>الكلاس</th><th>مسؤول عن</th><th>ممنوع عليه</th></tr></thead>
     <tbody>
       <tr><td><code>PosTerminal</code></td><td>عملية واحدة في كل مرة (<code>current</code> = مشغول)، والذهاب إلى البنك (<code>sendToBank</code>)، والطابعة</td><td>أي منطق EMV</td></tr>
-      <tr><td><code>PosTerminal.Transaction</code></td><td>حالة العملية كلها (<code>end</code>)، وخطواتها (<code>steps</code>)، والإلغاء، والطلبات المرسلة إلى البنك ونهايتها الآمنة</td><td>نشر أي شيء بعد انتهائها</td></tr>
+      <tr><td><code>PosTerminal.Transaction</code></td><td>حالة العملية كلها (من خطواتها: <code>decision()</code>)، وخطواتها (<code>steps</code>، تكتمل بعد النهاية)، والإلغاء، والطلبات المرسلة إلى البنك ونهايتها الآمنة</td><td>نشر أي شيء بعد انتهائها</td></tr>
       <tr><td><code>AbstractEmvBehavior</code></td><td>الـ EMV المشترك: المحاولات، و <code>goToStep</code>، و <code>askStep</code>، و <code>askTheBank</code> / <code>bankAnswer</code>، والـ 16 <code>onXxx</code> التي يكتبها الـ vendor</td><td>الـ threads، والانشغال، والبنك مباشرة</td></tr>
       <tr><td><code>PaxEmvBehavior</code></td><td>الـ <code>onXxx</code> على PAX: استدعاء native لكل خطوة، وردود الـ kernel</td><td>أن يستدعي أحدٌ <code>onXxx</code> مباشرة</td></tr>
-      <tr><td><code>EmvEngine</code></td><td>شريط خطوات الـ EMV (<code>emvSteps</code>) والـ APDU trace</td><td>أي حالة للعملية</td></tr>
+      <tr><td><code>EmvEngine</code></td><td>شريط خطوات الـ EMV (<code>emvSteps</code>، واحد للجهاز كله ولا يكتمل أبدًا) والـ APDU trace</td><td>أي حالة للعملية</td></tr>
       <tr><td><code>SaleCommunicationBehavior</code></td><td>الاتصال بالبنك: <code>connectToHost</code> (token ← exchange ← sale / refund)، والتأكيد، والإلغاء؛ ويقرر هل وصل الطلب أم لا</td><td>أن يقرر التأكيد أو الإلغاء</td></tr>
     </tbody>
   </table></div>
@@ -338,10 +338,11 @@ sequenceDiagram
     BH->>BH: SEARCH_CARD → card found → start(card): the EMV chain (§3–§8)
   end
   BH->>TX: finishApproved → publish(APPROVED) → its case: ACKNOWLEDGING → the bank → CLOSING_COMPLETED (§7)
+  BH->>BH: finally: forgetTransaction() — dispose the EMV dispatcher, clear the sale's fields
   BH-->>TX: run returns
   TX->>TX: finally: a decision exists (else FAILED) → ENDING
   TX->>TX: ENDING → its case: reverse what is still open → current = null (terminal free)
-  TX-->>UI: COMPLETED / ERROR / CANCELLED
+  TX-->>UI: COMPLETED / ERROR / CANCELLED, then steps.onComplete()
 </pre></div>
   <ul class="facts">
     <li><b>الانشغال:</b> يُفحص على الـ main thread نفسه، فتُرفض عملية ثانية فورًا بـ <code>TerminalBusyException</code>، بلا طابور.</li>
@@ -349,8 +350,14 @@ sequenceDiagram
     <li><b>الإلغاء</b> (<code>Transaction.cancel()</code>): تُنشر <code>CANCELLING</code> (القرار)، فتتوقف قراءة البطاقة، ويتوقف الـ EMV عند أول <code>goToStep</code>. لا يُقاطَع الـ thread أبدًا.</li>
     <li><b>إعادة المحاولة</b> (fallback، tap again، See Phone): يطلبها الـ EMV بـ <code>requestRetry(...)</code> ثم يرجع الـ kernel، فيبدأ <code>run</code> محاولة جديدة من <code>TERMINAL_INITIALIZATION</code>، في العملية نفسها.</li>
     <li><b>النتيجة ليست النهاية:</b> <code>APPROVED</code> / <code>DECLINED</code> / <code>FAILED</code> تُنشر فور معرفتها، أما <code>COMPLETED</code> فبعد التأكيد / الإلغاء عند البنك وتحرير الجهاز.</li>
+    <li><b>بعد النهاية لا يبقى شيء معلّقًا</b> (<code>213762c</code>):
+      <ul>
+        <li><code>onEnding</code> تنشر النهاية ثم <code>steps.onComplete()</code>. الـ <code>ReplaySubject</code> يترك كل من اشترك فيه بنفسه، دون أن يحتاج أحد إلى dispose. الخطوات تبقى محفوظة: <code>decision()</code> تقرؤها، ومن يشترك متأخرًا يصله كل شيء ثم الـ complete. ولذلك <code>steps().blockingLast()</code> و <code>lastElement()</code> ترجعان الآن.</li>
+        <li><code>AbstractEmvBehavior.run</code> في الـ <code>finally</code>: <code>forgetTransaction()</code> توقف الـ dispatcher الخاص بخطوات الـ EMV، وتمسح <code>transaction</code> و <code>activeConfig</code> (فيه field 55) و <code>activeCard</code> و <code>cardSearch</code> و <code>bankAnswer</code>. بيانات البطاقة لا تبقى في الذاكرة حتى العملية التالية.</li>
+        <li><code>emvSteps</code> لا يكتمل: هو الجهاز كله، لا العملية. لو اكتمل لابتلع كل <code>goToStep</code> في العملية التالية. الشاشة تشترك فيه لكل عملية وحدها: <code>takeUntil</code> نهاية العملية (<code>MainViewModel.emvStepsOfTrx</code>).</li>
+      </ul></li>
     <li>ترى الشاشة مثلًا: <code>ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED → ACKNOWLEDGING → CLOSING_COMPLETED → ENDING → COMPLETED</code>.</li>
-    <li>⚠ الـ cases تعمل والـ lock مأخوذ، ومعها نداءات البنك (التأكيد / الإلغاء). لذلك <code>publish</code> تنظر في القرار قبل أخذ الـ lock، فلا ينتظر <code>cancel</code> الإغلاقات. والخطوات التي قد تنتظر البنك أو شخصًا (<code>ONLINE_PROCESSING</code>، و Single Tap مستقبلًا) تبقى تقارير لا دوال.</li>
+    <li>⚠ الـ cases تعمل والـ lock مأخوذ، ومعها نداءات البنك (التأكيد / الإلغاء). لذلك <code>publish</code> تنظر في القرار قبل أخذ الـ lock، فلا ينتظر <code>cancel</code> الإغلاقات. والخطوات التي قد تنتظر البنك أو شخصًا (<code>ONLINE_PROCESSING</code>، و <code>SINGLE_TAP_PIN_REQUIRED</code>) تبقى تقارير لا دوال.</li>
   </ul>
 </section>
 
@@ -379,7 +386,7 @@ sequenceDiagram
   <ul class="facts">
     <li><b>البداية:</b> <code>TERMINAL_INITIALIZATION</code> تجهّز الـ kernel ثم تنادي <code>searchCard()</code> بنفسها، فتبدأ <code>SEARCH_CARD</code>. إن فشل التجهيز تنتهي العملية بـ ERROR، ولا بحث.</li>
     <li><b>يجب أن يبقى التشغيل متزامنًا</b> (بلا <code>observeOn</code> وبلا serialize): لو تأخرت الدالة إلى thread آخر لعادت <code>goToStep</code> قبل أن تعمل، فيرد <code>askStep</code> بـ "إلغاء" قبل أن تُفتح شاشة الـ PIN، وتتداخل استدعاءات native على kernel واحد.</li>
-    <li>الشاشة وحدها تستخدم <code>observeOn(main)</code> على <code>emvSteps</code>، لأنها تعرض الشريط فقط ولا ينتظرها أحد.</li>
+    <li>الشاشة وحدها تستخدم <code>observeOn(main)</code> على <code>emvSteps</code>، لأنها تعرض الشريط فقط ولا ينتظرها أحد. تشترك مع كل عملية في <code>acceptCard</code> حتى نهايتها (<code>takeUntil</code>)، فقد يفوتها أول خطوة EMV: العملية تبدأ على الـ thread الخاص بها قبل أن تشترك الشاشة. الشريط يعرض آخر خطوة فقط، والتشغيل لا يتأثر.</li>
   </ul>
   <h3>لماذا يجب أن يبقى التشغيل متزامنًا (بلا <code>observeOn</code> وبلا serialize)</h3>
   <p>تعني <code>observeOn(X)</code> أن يوضع <code>onNext</code> في طابور ويُنفَّذ لاحقًا على thread آخر، وأن تعود <code>goToStep</code> فورًا. لو طُبّق ذلك على <code>EmvStepObserver</code> لعملت <code>onXxx</code> خارج الـ transaction thread، وهذا يكسر ثلاثة أشياء:</p>
@@ -796,12 +803,14 @@ flowchart TD
     </tbody>
   </table></div>
   <ul class="facts">
+    <li>⚠ <b>مهلتا الـ 90 ث و 60 ث لا تقطعان الانتظار:</b> <code>connectToHost</code> / <code>acknowledge</code> / <code>reverse</code> مبنية بـ <code>fromCallable</code> بلا <code>subscribeOn</code>، فتعمل على الـ transaction thread نفسه، و <code>timeout</code> لا تعود قبل أن ينتهي النداء (تجربة: مهلة 500 ms انتظرت 3124 ms). الحد الفعلي هو <code>callTimeout</code> (25 ث لكل نداء). إن جاء رد بعد المهلة يُرمى ويُعامل كـ <code>failed</code>، فيُلغى الطلب (آمن ماليًا). الإصلاح (<code>subscribeOn(io)</code>) يحتاج نقاشًا: النداء يستمر في الخلفية بعد المهلة.</li>
     <li>نداءات الدفع تستخدم الـ adapter المتزامن (<code>createSynchronous()</code>)، وإلا يبتلع Retrofit الخطأ حين يقطع <code>callTimeout</code> النداء، فيبقى الجهاز مشغولًا للأبد (أُصلح في <code>1a97dee</code>).</li>
     <li>⚠ التأكيد / الإلغاء يُرسل مرة واحدة: إن فشل يُسجَّل في الـ trace فقط، بلا سجل محفوظ لإعادة الإرسال (BACKLOG 0.15).</li>
   </ul>
   <ul class="facts">
     <li>يظهر اسم المرحلة في رسالة الـ ERROR وفي الـ trace: <code>Online Failed: Exchange: HTTP 403 Forbidden</code>.</li>
     <li>الـ trace (tag <code>HOST</code>): <code>Acknowledgement &lt;id&gt; sent</code> أو <code>… failed — not retried: &lt;why&gt;</code>، <code>REVERSAL for request &lt;id&gt;: approved, not completed</code>، <code>REVERSAL …: no usable host answer — Sale: timeout</code>، <code>no reversal …: the host could not have approved it — Exchange: HTTP 403 Forbidden</code>.</li>
+    <li><b><code>pinRequired</code></b> (Mastercard Single Tap، RC 90، §8): ليس موافقة ولا فشلًا، فلا يُلغى. الإعادة بالـ PIN هي الطلب نفسه (<code>OnlineRequest</code> و <code>asyncRequestId</code> نفسهما، والرد يُستبدل)، فيُغلق مرة واحدة.</li>
     <li>لا يتغير شيء بالنسبة للبطاقة: <code>failed</code> و <code>notSent</code> كلاهما <code>RESULT_ONLINE_FAILED</code> (2nd GENERATE AC بـ AAC). الفرق في الإلغاء فقط.</li>
     <li>⚠ لم يُختبر على الجهاز ولا مع الـ host. احتياج الإلغاء والتأكيد إلى <code>mToken</code> افتراض.</li>
   </ul>
@@ -854,6 +863,11 @@ sequenceDiagram
     end
     B->>H: ARQC → goToStep(ONLINE_AUTHORIZATION) → runContactlessOnline → askTheBank
     H-->>B: bankAnswer()
+    opt Mastercard Single Tap: the bank asks for the PIN (RC 90)
+      B->>B: runSingleTap → SINGLE_TAP_PIN_REQUIRED → onCardHolderPwd(online) → PIN pad
+      B->>H: goToStep(ONLINE_AUTHORIZATION) again → askTheBank (+ PIN block): the same sale
+      H-->>B: bankAnswer() — approved / declined, never "PIN" again
+    end
     opt the bank approved
       B->>P: goToStep(ISSUER_AUTHENTICATION) → runContactlessIssuerAuthentication → isNeedSecondTap?
       opt Visa: second tap
@@ -868,6 +882,26 @@ sequenceDiagram
     <li><b>الترتيب يتبع الـ kernel، لا الأرقام:</b> في الـ atomic تُعلَن <code>READ_APPLICATION_DATA</code> و <code>SET_TRANSACTION_DATA</code> من الـ callbacks في اللحظة التي يقول فيها الـ kernel إنها حدثت، ولا تُعاد القراءة (الـ hooks لا تعمل شيئًا للـ atomic).</li>
     <li>إذا لم يوافق البنك، فلا issuer authentication ولا 2nd GENERATE AC: البطاقة غادرت الحقل.</li>
     <li>⚠ رسالة الـ tap الثاني لا تنتظر البطاقة قبل <code>Clss_FinalSelect_Entry</code> (BACKLOG 1.4).</li>
+  </ul>
+  <h3>Mastercard Single Tap: البنك يطلب الـ PIN (<code>35ce685</code>)</h3>
+  <p>بيع contactless بـ Mastercard تحت حد الـ CVM يذهب إلى البنك بلا PIN. قد يرد البنك بـ RC 90 ("PIN required"). عندها يأخذ الجهاز الـ PIN، <b>بلا tap ثانٍ</b>، ويرسل البيع نفسه مرة أخرى، كما كان التطبيق القديم يفعل.</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 46}}}%%
+flowchart TD
+  A["ONLINE_AUTHORIZATION<br/>askTheBank() — no PIN"] --> N{"network: RC 90 · contactless ·<br/>Mastercard AID · sale · no PIN block?"}
+  N -- "no" --> R["a normal answer → runContactlessOnline"]
+  N -- "yes" --> P["AuthResult.pinRequired<br/>the network keeps the id, TEK, headers (one resend)"]
+  P --> S["runContactlessOnline → runSingleTap<br/>SINGLE_TAP_PIN_REQUIRED (report)"]
+  S --> PIN["onCardHolderPwd(online, no bypass)<br/>CARDHOLDER_VERIFICATION → PIN pad"]
+  PIN -- "PIN entered" --> B["ONLINE_AUTHORIZATION again → askTheBank (+ PIN block)<br/>same asyncRequestId · same TEK · no token / exchange · singleTap = ST"]
+  PIN -- "cancel / timeout" --> E["ERROR: Online PIN not entered"]
+  B --> R2["the answer as any other:<br/>approved → ISSUER_AUTHENTICATION → APPROVED → ACK<br/>declined → DECLINED"]
+</pre></div>
+  <ul class="facts">
+    <li><b>لا حلقة، بثلاثة حراس منفصلين</b> (لكل واحد test يفشل بدونه): الـ network: RC 90 مع PIN رفض عادي، لا "PIN" مرة ثانية. الـ core: الإعادة هي الطلب نفسه، فتُغلق مرة واحدة، و <code>pinRequired</code> لا يُلغى أبدًا. PAX: الـ PIN يُطلب مرة واحدة في المحاولة (<code>tx.singleTapPinEntered</code>)، وطلب ثانٍ يُنهي العملية DECLINED.</li>
+    <li><b>مفتاح الـ PIN:</b> يُرسل مع كل exchange، بـ PIN أو بدونه (<code>pinKeyToSend</code>)، ومفتاح واحد لكل محاولة (<code>ensureOnlinePinKey</code> في <code>addOnlineRequestData</code>). فالـ PIN block في الإعادة مبني بالمفتاح الذي استلمه البنك في الـ exchange الأول.</li>
+    <li>الـ PIN pad والإعادة لا يمسكان الـ lock الخاص بخطوات العملية، فلا ينتظر <code>cancel</code>.</li>
+    <li>⚠ <b>مفتوح:</b> كيف يصل RC 90 (HTTP 200 أم 4xx)؟ لو جاء 4xx يصبح <code>failed</code> + إلغاء، ولا يبدأ Single Tap (BACKLOG 4.11). و posEntryMode في الإعادة 071 (افتراض). ⚠ لم يُجرَّب على الجهاز ولا مع البنك.</li>
   </ul>
 <div class="table-wrap"><table>
     <thead><tr><th>EmvStep</th><th>PayPass (<code>ClssPayPassProcess</code>)</th><th>PayWave (<code>ClssPayWaveProcess</code>)</th><th>EFT (<code>ClssEFTProcess</code>)</th></tr></thead>
@@ -888,6 +922,7 @@ sequenceDiagram
     <tbody>
       <tr><td><code>RESULT_CLSS_SEE_PHONE</code> (أي ret)</td><td><code>seePhone</code> (+ <code>clsLastNeedSeePhone</code>)</td><td>إعادة المحاولة بالـ CONTACTLESS، وبعد 3 مرات رفض</td></tr>
       <tr><td><code>RESULT_TRY_AGAIN</code> (أي ret)</td><td><code>tryAgain</code></td><td>إعادة المحاولة بالطريقة نفسها، وبعد 3 مرات رفض</td></tr>
+      <tr><td>رد البنك <code>pinRequired</code> (قبل قراءة النتيجة)</td><td><code>runSingleTap</code></td><td>الـ PIN ثم <code>ONLINE_AUTHORIZATION</code> مرة ثانية</td></tr>
       <tr><td>OK + <code>ONLINE_APPROVED</code></td><td><code>onlineApproved</code></td><td>APPROVED</td></tr>
       <tr><td>OK + <code>OFFLINE_APPROVED</code></td><td><code>offlineApproved</code></td><td>ERROR "Online Failed"</td></tr>
       <tr><td>OK + غير ذلك</td><td><code>offlineDenied(CLSS_DECLINE)</code></td><td>DECLINED</td></tr>
@@ -1086,7 +1121,7 @@ flowchart TD
       <tr><td><b>Dependency Injection</b> (يدوي)</td><td>الكلاس يأخذ ما يحتاجه من الخارج ولا يُنشئه</td><td><code>PaxTerminal</code> → <code>super(behavior, communication, printer)</code>؛ و <code>attach(this::sendToBank)</code> للدائرة الوحيدة</td></tr>
       <tr><td><b>Dependency Inversion</b> (الـ D في SOLID)</td><td>الطبقة العليا تعتمد على واجهة، لا على كلاس محدد</td><td><code>AbstractEmvBehavior</code> يعرف <code>BankRequest</code>، لا <code>PosTerminal</code>؛ الـ core يعرف <code>CommunicationBehavior</code>، لا Retrofit</td></tr>
       <tr><td><b>Single Responsibility</b></td><td>كل كلاس له شغلة واحدة</td><td><code>PaxCardSearch</code> (البحث)، <code>PaxPinEntry</code> (الـ PIN)، <code>PaxHostAnswer</code>، <code>PaxReaders</code>، <code>PaxCardData</code>، <code>PaxSetup</code>، <code>PaxKernelSession</code></td></tr>
-      <tr><td><b>Single source of truth</b></td><td>كل حالة لها مالك واحد ونسخة واحدة</td><td>الجهاز مشغول = <code>PosTerminal.current</code>؛ حالة العملية كلها = <code>Transaction.end</code>؛ خطواتها = <code>Transaction.steps</code></td></tr>
+      <tr><td><b>Single source of truth</b></td><td>كل حالة لها مالك واحد ونسخة واحدة</td><td>الجهاز مشغول = <code>PosTerminal.current</code>؛ حالة العملية كلها = خطواتها (<code>Transaction.decision()</code>)؛ خطواتها = <code>Transaction.steps</code></td></tr>
       <tr><td><b>Immutability / Value Object</b></td><td>الشيء لا يتغيّر بعد إنشائه؛ التعديل يعطي نسخة جديدة</td><td><code>AuthResult</code>، <code>TransactionStepEvent</code>، <code>TransactionConfig.withXxx(...)</code> يرجع config جديدًا</td></tr>
       <tr><td><b>Fail closed</b></td><td>عند الشك نرفض، لا نوافق</td><td>لا رد = online failed؛ لا PIN = <code>USER_CANCEL</code>؛ الـ callback يرد دائمًا (<code>setCallBackResult</code>)</td></tr>
     </tbody>

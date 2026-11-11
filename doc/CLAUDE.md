@@ -286,8 +286,9 @@ after**. Each carries docs that match its own code.
   CANCELLED / COMPLETED / ERROR (`endOfDecision()`; ERROR keeps FAILED's message). FAILED is a
   step of its own because ERROR must stay the last step. `steps` must stay a ReplaySubject
   that keeps everything (it is the state).
-  `steps()`: its own `ReplaySubject` (replays everything to a late subscriber, never completes;
-  each subscriber a `SafeObserver`); the subject is also the lock, so a cancel's CANCELLING never
+  `steps()`: its own `ReplaySubject` (replays everything to a late subscriber; each subscriber a
+  `SafeObserver`; since `213762c` it completes right after the end — `onEnding` publishes the end
+  then `steps.onComplete()`, so every subscriber is let go without disposing); the subject is also the lock, so a cancel's CANCELLING never
   lands after the end. `cancel()` = CANCELLING (the decision; CANCELLED is its end), whose method
   stops the card search (`behavior.cancelCardSearch()`); the EMV winds down at its next `goToStep`.
 - **The transaction runs from its own steps** (`2e4fbb4`, design idea 2 — Ebram's goal: the
@@ -322,9 +323,15 @@ after**. Each carries docs that match its own code.
   `AbstractEmvBehavior.finishApproved / finishDeclined` → `transaction.publish(APPROVED /
   DECLINED)` (the step forced, `0622ff0`), `finishError` → `transaction.fail(message)`; the first
   decision wins under the lock (no APPROVED-then-CANCELLED). `AbstractEmvBehavior.publish` drops
-  decisions, ENDING, the closings and the end steps (a vendor only reports). This is where Mastercard
-  single tap will be decided (BACKLOG 4.11).
-- **`EmvEngine`**: `emvSteps` (PublishSubject, not serialized, no `observeOn`) and `ApduTrace`.
+  decisions, ENDING, the closings and the end steps (a vendor only reports). Mastercard Single Tap
+  (`35ce685`): RC 90 → `AuthResult.pinRequired` → PAX `runSingleTap` → PIN → ONLINE_AUTHORIZATION
+  again, the same request / id / TEK, no exchange, "ST" (REFERENCE §5).
+- **`EmvEngine`**: `emvSteps` (PublishSubject, not serialized, no `observeOn`; the terminal's,
+  shared by every sale — it never completes, or the next sale's `goToStep` would be swallowed)
+  and `ApduTrace`. `MainViewModel` listens to it per sale (`emvStepsOfTrx`: `takeUntil` the
+  sale's end). `AbstractEmvBehavior.run` ends with `forgetTransaction()` in a `finally`
+  (`213762c`): the dispatcher disposed, the sale's fields (transaction, config with field 55,
+  card, search, bank answer) cleared.
   No retry, no way online, no transaction state. Made by `AbstractEmvBehavior` itself (private
   final field); everyone reads it through `engine()`. The way online is handed to the behavior
   by PosTerminal: `behavior.attach(this::authorize)` (the behavior is built before PosTerminal,
@@ -504,7 +511,9 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
   §5.4 is answered) → release guards (risks 4–7) → payment safety around the host (risks 1–3).
 - Payment safety: ack / reversal are sent now but never stored or retried (BACKLOG 0.15); Retry
   is offered after "the host didn't answer" (1.5); 4xx other than 401/403 still reversed (1.16).
-- Mastercard single tap (BACKLOG 4.11): waiting for the host's exact "PIN required" answer.
+- Mastercard Single Tap is built (`35ce685`); open (BACKLOG 4.11): RC 90 as HTTP 200 or 4xx,
+  posEntryMode 071 assumed. The 90 s / 60 s host timeouts don't cut the wait (`fromCallable` on
+  the transaction thread; `callTimeout` is the real bound) — fix needs a decision.
 - Design idea 2 is built (`2e4fbb4`, synchronous since `8843cb1`); the end itself is still a
   direct `onEnd()` call (the `finally` of `runTransaction`), not a step. Search + retry in the
   EMV (`9a911d1`) and the safe end (`9278c35`): not device-tested — chip, tap, swipe, tap again,
