@@ -62,6 +62,8 @@ ul.facts { margin: 0; padding-inline-start: 20px; display: flex; flex-direction:
 nav ol { margin: 0; padding-inline-start: 20px; columns: 2; column-gap: 32px; }
 @media (max-width: 560px) { nav ol { columns: 1; } h1 { font-size: 24px; } }
 a { color: var(--accent); }
+[dir="ltr"] th, [dir="ltr"] td { text-align: left; }
+.en p, .en ul.facts { max-width: 80ch; }
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Layer pyramid: UI on top, CORE, vendors side by side, SDKs at the base. */
@@ -131,9 +133,9 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <nav aria-label="الفهرس">
   <ol>
     <li><a href="#owners">المكوّنات: من يملك ماذا</a></li>
-    <li><a href="#life">العملية من البداية إلى النهاية</a></li>
-    <li><a href="#steps">خطوات الـ EMV: goToStep و onXxx</a></li>
-    <li><a href="#ask">حين ينتظر الـ kernel شخصًا: askStep</a></li>
+    <li><a href="#life">A sale from start to end</a></li>
+    <li><a href="#steps">EMV steps: goToStep and onXxx</a></li>
+    <li><a href="#ask">When the kernel waits: askStep</a></li>
     <li><a href="#bank">الطريق إلى البنك</a></li>
     <li><a href="#contact">مسار الـ contact</a></li>
     <li><a href="#end">النتيجة والنهاية الآمنة</a></li>
@@ -251,119 +253,126 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="grid"><div class="grp"><h4>الـ kernels</h4><dl><dt>:emvlib:dpas — ContactProcess</dt><dd>الـ contact kernel: من <code>EMVAppSelect</code> إلى <code>EMVCompleteTrans</code>، و <code>EmvCallBackListener</code></dd><dt>:emvlib — ClssProcess + Clss*Process</dt><dd>الـ contactless: kernel لكل scheme (PayPass، PayWave، …)</dd><dt>:emvlib:base / :emvbase</dt><dd>الكلاسات الأساسية، والـ params، والنتائج، والردود</dd></dl></div><div class="grp"><h4>الجهاز</h4><dl><dt>:emvflow</dt><dd>EmvFlowRuntime (DAL)، EmvDeviceImpl (APDU، PIN، trace)</dd><dt>:emvservice</dt><dd>PinService، MagCardService</dd><dt>:poslib / :commonutils / :bizlib</dt><dd>أدوات PAX الخاصة بالجهاز</dd></dl></div><div class="grp"><h4>الـ params</h4><dl><dt>:bizentity</dt><dd>GreenDAO (قاعدة البيانات)، <code>EmvParamService</code> (الـ cache)، قارئات الـ XML، <code>EmvParamUpdater</code>، <code>ConfigInit</code> (أول تشغيل)</dd></dl></div></div>
   </div>
 
-    <h3><code>PosTerminal</code> هو الجهاز نفسه</h3>
+  <div dir="ltr" class="en">
+  <h3><code>PosTerminal</code> is the machine</h3>
 <pre class="codebox"><span class="c">// PosTerminal = the POS machine</span>
-protected final AbstractEmvBehavior   behavior;       <span class="c">// the card: EMV (search + reader + kernel)</span>
-protected final CommunicationBehavior communication;  <span class="c">// HTTP to the bank</span>
-protected final PrinterBehavior       printer;        <span class="c">// the receipt</span>
-private   final Scheduler             transactionScheduler; <span class="c">// one sale at a time, one thread</span></pre>
+AbstractEmvBehavior   behavior;       <span class="c">// the card: search, reader, kernel</span>
+CommunicationBehavior communication;  <span class="c">// HTTP to the bank</span>
+PrinterBehavior       printer;        <span class="c">// the receipt</span>
+Scheduler             transactionScheduler;
+                      <span class="c">// one sale at a time, on one thread</span></pre>
   <div class="table-wrap"><table>
-    <thead><tr><th>الكلاس</th><th>مسؤول عن</th><th>ممنوع عليه</th></tr></thead>
+    <thead><tr><th>Class</th><th>Owns</th><th>Must not</th></tr></thead>
     <tbody>
-      <tr><td><code>PosTerminal</code></td><td>عملية واحدة في كل مرة (<code>current</code> = مشغول)، والذهاب إلى البنك (<code>sendToBank</code>)، والطابعة</td><td>أي منطق EMV</td></tr>
-      <tr><td><code>PosTerminal.Transaction</code></td><td>حالة العملية كلها (من خطواتها: <code>decision()</code>)، وخطواتها (<code>steps</code>، تكتمل بعد النهاية)، والإلغاء، والطلبات المرسلة إلى البنك ونهايتها الآمنة</td><td>نشر أي شيء بعد انتهائها</td></tr>
-      <tr><td><code>AbstractEmvBehavior</code></td><td>الـ EMV المشترك: المحاولات، و <code>goToStep</code>، و <code>askStep</code>، و <code>askTheBank</code> / <code>bankAnswer</code>، والـ 16 <code>onXxx</code> التي يكتبها الـ vendor</td><td>الـ threads، والانشغال، والبنك مباشرة</td></tr>
-      <tr><td><code>PaxEmvBehavior</code></td><td>الـ <code>onXxx</code> على PAX: استدعاء native لكل خطوة، وردود الـ kernel</td><td>أن يستدعي أحدٌ <code>onXxx</code> مباشرة</td></tr>
-      <tr><td><code>EmvEngine</code></td><td>شريط خطوات الـ EMV (<code>emvSteps</code>، واحد للجهاز كله ولا يكتمل أبدًا) والـ APDU trace</td><td>أي حالة للعملية</td></tr>
-      <tr><td><code>SaleCommunicationBehavior</code></td><td>الاتصال بالبنك: <code>connectToHost</code> (token ← exchange ← sale / refund)، والتأكيد، والإلغاء؛ ويقرر هل وصل الطلب أم لا</td><td>أن يقرر التأكيد أو الإلغاء</td></tr>
+      <tr><td><code>PosTerminal</code></td><td>One sale at a time (<code>current</code> = busy), the call to the bank (<code>sendToBank</code>), the printer.</td><td>Hold any EMV logic.</td></tr>
+      <tr><td><code>PosTerminal.Transaction</code></td><td>The sale's state, read from its steps (<code>decision()</code>); the steps themselves; cancel; the requests sent to the bank and their safe closing.</td><td>Publish anything after its end.</td></tr>
+      <tr><td><code>AbstractEmvBehavior</code></td><td>The shared EMV: attempts, <code>goToStep</code>, <code>askStep</code>, <code>askTheBank</code> / <code>bankAnswer</code>, and the 16 <code>onXxx</code> hooks a vendor writes.</td><td>Know about threads, the busy state, or call the bank directly.</td></tr>
+      <tr><td><code>PaxEmvBehavior</code></td><td>The <code>onXxx</code> hooks on PAX: one native call per step, and the kernel callbacks.</td><td>Be called directly (only through <code>goToStep</code>).</td></tr>
+      <tr><td><code>EmvEngine</code></td><td>The EMV step stream (<code>emvSteps</code>: one for the terminal, never completes) and the APDU trace.</td><td>Hold any transaction state.</td></tr>
+      <tr><td><code>SaleCommunicationBehavior</code></td><td>The bank: <code>connectToHost</code> (token → exchange → sale / refund), acknowledge, reverse. Decides whether a request reached the bank.</td><td>Decide to acknowledge or reverse.</td></tr>
     </tbody>
   </table></div>
-  <h3>من يتعامل مع من (الكلاسات)</h3>
-  <p>كل سهم استدعاء حقيقي. الأسهم المتقطعة تُوصَل مرة واحدة عند البداية.</p>
+  <h3>Who calls whom</h3>
+  <p>A solid arrow is a real call. A dashed arrow is wired once, at start-up.</p>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
-flowchart LR
-  UI["UI (app/src/main)<br/>MainViewModel · SearchCardFragment"]
+%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 36, "rankSpacing": 46}}}%%
+flowchart TB
+  UI["UI<br/>MainViewModel · SearchCardFragment"]
   subgraph core["core"]
-    PT["PosTerminal<br/>transactionScheduler (1 thread)<br/>current = busy<br/>sendToBank() → the bank<br/>printReceipt()"]
-    TX["PosTerminal.Transaction<br/>config · ReplaySubject steps (= lock, = state)<br/>decision(): the first CANCELLING / APPROVED / DECLINED / FAILED<br/>publish (the one way in) · cancel() · fail()<br/>dispatchTransactionStep: APPROVED → ACK · DECLINED → reversal<br/>ENDING → what is still open + the end"]
+    PT["PosTerminal<br/>current = busy · sendToBank · printReceipt"]
+    TX["Transaction<br/>steps = state + lock<br/>publish · cancel · fail"]
+    AB["AbstractEmvBehavior<br/>run · goToStep · askStep · finish*"]
+    EN["EmvEngine<br/>emvSteps · ApduTrace"]
     CB["CommunicationBehavior<br/>connectToHost · acknowledge · reverse"]
-    EN["EmvEngine<br/>emvSteps (PublishSubject)<br/>ApduTrace<br/>(made by the behavior, final)"]
-    AB["AbstractEmvBehavior<br/>run: attempts · SEARCH_CARD · retry<br/>goToStep · askStep / answerStep<br/>publish · finish*<br/>EmvStepObserver → dispatchStepMethod"]
   end
   subgraph pax["vendor-pax"]
-    PTM["PaxTerminal<br/>host · printer · setup"]
-    PB["PaxEmvBehavior<br/>16 onXxx · runContact* stages<br/>IContactCallback"]
-    CS["PaxCardSearch<br/>polling (onSearchCard) · stop()"]
+    PTM["PaxTerminal"]
+    PB["PaxEmvBehavior<br/>16 onXxx hooks"]
+    CS["PaxCardSearch"]
   end
-  subgraph lib["emvlib:dpas"]
-    CP["ContactProcess<br/>EmvCallBackListener"]
-    NK[("native EMV kernel<br/>EMVCallback.EMV*")]
+  subgraph lib["emvlib"]
+    CP["ContactProcess"]
+    NK[("native kernel")]
   end
-  UI -- "acceptCard / cancel / steps()" --> PT
+  UI -- "acceptCard · cancel · steps()" --> PT
   PT --> TX
-  PT -. "behavior.attach(this::sendToBank)" .-> AB
+  PT -. "attach(sendToBank)" .-> AB
+  TX -- "run(config, t)" --> AB
   AB --> EN
-  PB -- extends --> AB
+  AB -- "send(config)" --> PT
+  PT --> CB
   PTM -- extends --> PT
+  PB -- extends --> AB
   PB --> CS
-  PT -. "behavior.run(config, t)" .-> AB
   PB --> CP --> NK
-  NK -- callbacks --> CP -- "IContactCallback" --> PB
-  AB -- "bankRequest.send(config) = sendToBank" --> PT
-  PT -- "connectToHost · acknowledge · reverse" --> CB
+  NK -- callbacks --> CP --> PB
 </pre></div>
-
-  
+  </div>
 </section>
 
-<section id="life">
-  <h2>2. العملية من البداية إلى النهاية</h2>
-  <p>العملية تسير <b>بخطواتها</b> (TransactionSteps). كل خطوة تدخل من باب واحد، <code>publish</code>، فتُحفظ في <code>Transaction.steps</code>، ثم يشغّل <code>TransactionStepObserver</code> الـ case الخاص بها في <code>dispatchTransactionStep</code>. ما ليس له case تقرير للشاشة فقط.</p>
+<section id="life" dir="ltr" class="en">
+  <h2>2. A sale from start to end</h2>
+  <p>A sale runs on its own steps (<code>TransactionStep</code>). Every step enters through one method, <code>publish</code>, and is stored in <code>Transaction.steps</code>. <code>TransactionStepObserver</code> then runs the step's case in <code>dispatchTransactionStep</code>. A step with no case is only a report for the screen.</p>
 <pre class="codebox"><span class="c">// TransactionStepObserver.onNext → dispatchTransactionStep(event)</span>
 switch (event.getStep()) {
-    case TRANSACTION_STARTED: onTransactionStarted(event);       <span class="c">// → the transaction thread</span>
-    case CANCELLING:          onCancelling();                    <span class="c">// stop the card search</span>
-    case APPROVED:            closeLast(ACKNOWLEDGING);          <span class="c">// the host + the card approved → ACK</span>
-    case DECLINED:            closeLast(REVERSING);              <span class="c">// the host approved, the card declined → reversal</span>
-    case ENDING:              onEnding();                        <span class="c">// reverse what is still open, then the end</span>
-    default:                  <span class="c">// a report: ONLINE_*, CARD_*, FAILED, ACKNOWLEDGING / REVERSING /</span>
-                              <span class="c">// CLOSING_COMPLETED, COMPLETED / ERROR / CANCELLED…</span>
+  case TRANSACTION_STARTED: onTransactionStarted(event);
+      <span class="c">// move to the transaction thread</span>
+  case CANCELLING: onCancelling();
+      <span class="c">// stop the card search</span>
+  case APPROVED:   closeLast(ACKNOWLEDGING);
+      <span class="c">// bank and card approved → acknowledge</span>
+  case DECLINED:   closeLast(REVERSING);
+      <span class="c">// bank approved, card declined → reverse</span>
+  case ENDING:     onEnding();
+      <span class="c">// reverse what is still open, free the terminal, deliver the end</span>
+  default:
+      <span class="c">// a report: ONLINE_*, CARD_*, FAILED, the closings, the end</span>
 }</pre>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15}}}%%
 sequenceDiagram
   autonumber
-  participant UI as screen (main thread)
+  participant UI as Screen (main)
   participant PT as PosTerminal
-  participant TX as Transaction (transaction thread)
+  participant TX as Transaction
   participant BH as PaxEmvBehavior
   UI->>PT: acceptCard(type, amount)
-  PT->>PT: current.compareAndSet(null, t) — busy? TerminalBusyException
-  PT->>TX: TRANSACTION_STARTED → onTransactionStarted → scheduleDirect(runTransaction)
-  PT-->>UI: t (its steps() and cancel())
-  TX->>BH: behavior.run(config, t)
-  loop each attempt (the first, then each retry the kernel asked for)
-    BH->>BH: TERMINAL_INITIALIZATION → prepare the kernel → searchCard()
-    BH->>BH: SEARCH_CARD → card found → start(card): the EMV chain (§3–§8)
+  PT->>PT: busy? → TerminalBusyException
+  PT->>TX: TRANSACTION_STARTED → transaction thread
+  PT-->>UI: the Transaction (steps, cancel)
+  TX->>BH: run(config, t)
+  loop each attempt
+    BH->>BH: TERMINAL_INITIALIZATION → SEARCH_CARD
+    BH->>BH: card found → EMV steps (§3–§8)
   end
-  BH->>TX: finishApproved → publish(APPROVED) → its case: ACKNOWLEDGING → the bank → CLOSING_COMPLETED (§7)
-  BH->>BH: finally: forgetTransaction() — dispose the EMV dispatcher, clear the sale's fields
+  BH->>TX: APPROVED → acknowledge (§7)
+  BH->>BH: forgetTransaction()
   BH-->>TX: run returns
-  TX->>TX: finally: a decision exists (else FAILED) → ENDING
-  TX->>TX: ENDING → its case: reverse what is still open → current = null (terminal free)
-  TX-->>UI: COMPLETED / ERROR / CANCELLED, then steps.onComplete()
+  TX->>TX: no decision? → FAILED, then ENDING
+  TX->>TX: ENDING: reverse open requests, free terminal
+  TX-->>UI: COMPLETED / ERROR / CANCELLED, then complete
 </pre></div>
   <ul class="facts">
-    <li><b>الانشغال:</b> يُفحص على الـ main thread نفسه، فتُرفض عملية ثانية فورًا بـ <code>TerminalBusyException</code>، بلا طابور.</li>
-    <li><b>حالة العملية هي خطواتها:</b> لا field. أول خطوة "قرار" تُسلَّم هي الحالة (<code>decision()</code>): <code>CANCELLING</code> أو <code>APPROVED</code> أو <code>DECLINED</code> أو <code>FAILED</code>. لا قرار = العملية شغالة. أول قرار يكسب وما بعده يُتجاهل. النهاية تُسلَّم أخيرًا من القرار: <code>CANCELLED</code> / <code>COMPLETED</code> / <code>ERROR</code> (بالرسالة نفسها). <code>FAILED</code> خطوة جديدة لأن <code>ERROR</code> يجب أن تبقى آخر خطوة.</li>
-    <li><b>الإلغاء</b> (<code>Transaction.cancel()</code>): تُنشر <code>CANCELLING</code> (القرار)، فتتوقف قراءة البطاقة، ويتوقف الـ EMV عند أول <code>goToStep</code>. لا يُقاطَع الـ thread أبدًا.</li>
-    <li><b>إعادة المحاولة</b> (fallback، tap again، See Phone): يطلبها الـ EMV بـ <code>requestRetry(...)</code> ثم يرجع الـ kernel، فيبدأ <code>run</code> محاولة جديدة من <code>TERMINAL_INITIALIZATION</code>، في العملية نفسها.</li>
-    <li><b>النتيجة ليست النهاية:</b> <code>APPROVED</code> / <code>DECLINED</code> / <code>FAILED</code> تُنشر فور معرفتها، أما <code>COMPLETED</code> فبعد التأكيد / الإلغاء عند البنك وتحرير الجهاز.</li>
-    <li><b>بعد النهاية لا يبقى شيء معلّقًا</b> (<code>213762c</code>):
+    <li><b>Busy.</b> Checked on the caller's thread. A second sale is refused at once with <code>TerminalBusyException</code>; nothing is queued.</li>
+    <li><b>The state is the steps.</b> There is no state field. The first decision step delivered is the state (<code>decision()</code>): <code>CANCELLING</code>, <code>APPROVED</code>, <code>DECLINED</code> or <code>FAILED</code>. No decision means the sale is running. The first decision wins; later ones are dropped.</li>
+    <li><b>The end follows the decision.</b> <code>CANCELLING</code> → <code>CANCELLED</code>; <code>APPROVED</code> / <code>DECLINED</code> → <code>COMPLETED</code>; <code>FAILED</code> → <code>ERROR</code> with the same message. <code>FAILED</code> exists because <code>ERROR</code> must stay the last step.</li>
+    <li><b>Cancel.</b> <code>cancel()</code> publishes <code>CANCELLING</code>. The card search stops, and the EMV stops at its next <code>goToStep</code>. The thread is never interrupted.</li>
+    <li><b>Retry</b> (fallback, tap again, See Phone). The EMV calls <code>requestRetry(...)</code> and the kernel returns. <code>run</code> then starts a new attempt from <code>TERMINAL_INITIALIZATION</code>, in the same sale.</li>
+    <li><b>The result is not the end.</b> <code>APPROVED</code> / <code>DECLINED</code> / <code>FAILED</code> are published as soon as they are known. <code>COMPLETED</code> comes later, after the bank is acknowledged or reversed and the terminal is free.</li>
+    <li><b>Nothing stays attached after the end</b> (<code>213762c</code>):
       <ul>
-        <li><code>onEnding</code> تنشر النهاية ثم <code>steps.onComplete()</code>. الـ <code>ReplaySubject</code> يترك كل من اشترك فيه بنفسه، دون أن يحتاج أحد إلى dispose. الخطوات تبقى محفوظة: <code>decision()</code> تقرؤها، ومن يشترك متأخرًا يصله كل شيء ثم الـ complete. ولذلك <code>steps().blockingLast()</code> و <code>lastElement()</code> ترجعان الآن.</li>
-        <li><code>AbstractEmvBehavior.run</code> في الـ <code>finally</code>: <code>forgetTransaction()</code> توقف الـ dispatcher الخاص بخطوات الـ EMV، وتمسح <code>transaction</code> و <code>activeConfig</code> (فيه field 55) و <code>activeCard</code> و <code>cardSearch</code> و <code>bankAnswer</code>. بيانات البطاقة لا تبقى في الذاكرة حتى العملية التالية.</li>
-        <li><code>emvSteps</code> لا يكتمل: هو الجهاز كله، لا العملية. لو اكتمل لابتلع كل <code>goToStep</code> في العملية التالية. الشاشة تشترك فيه لكل عملية وحدها: <code>takeUntil</code> نهاية العملية (<code>MainViewModel.emvStepsOfTrx</code>).</li>
+        <li>The steps complete after the end (<code>steps.onComplete()</code>). Every subscriber is released without having to dispose. The steps stay readable, so a late subscriber still receives all of them.</li>
+        <li><code>run</code> ends with <code>forgetTransaction()</code>. The EMV dispatcher is disposed, and the sale's data is cleared: the config (with field 55), the card, the bank answer.</li>
+        <li><code>emvSteps</code> never completes. It belongs to the terminal, not to the sale; completing it would block the next sale. The screen listens to it per sale, until the sale ends (<code>takeUntil</code>).</li>
       </ul></li>
-    <li>ترى الشاشة مثلًا: <code>ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED → ACKNOWLEDGING → CLOSING_COMPLETED → ENDING → COMPLETED</code>.</li>
-    <li>⚠ الـ cases تعمل والـ lock مأخوذ، ومعها نداءات البنك (التأكيد / الإلغاء). لذلك <code>publish</code> تنظر في القرار قبل أخذ الـ lock، فلا ينتظر <code>cancel</code> الإغلاقات. والخطوات التي قد تنتظر البنك أو شخصًا (<code>ONLINE_PROCESSING</code>، و <code>SINGLE_TAP_PIN_REQUIRED</code>) تبقى تقارير لا دوال.</li>
+    <li>A typical run on screen: <code>ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED → ACKNOWLEDGING → CLOSING_COMPLETED → ENDING → COMPLETED</code>.</li>
+    <li>⚠ The step cases run while the steps lock is held, including the bank calls of the closings. <code>publish</code> therefore checks the decision before taking the lock, so <code>cancel()</code> never waits for a closing. Steps that may wait for the bank or a person (<code>ONLINE_PROCESSING</code>, <code>SINGLE_TAP_PIN_REQUIRED</code>) stay reports, with no case.</li>
   </ul>
 </section>
 
-<section id="steps">
-  <h2>3. خطوات الـ EMV: كيف يشغّل <code>goToStep</code> الدالة <code>onXxx</code></h2>
-  <p>لا يستدعي أحد <code>onXxx</code> مباشرة. <code>goToStep(STEP)</code> تنشر الخطوة على <code>emvSteps</code>، فيشغّل <code>EmvStepObserver</code> دالتها على الـ thread نفسه، وتنتهي قبل أن تعود <code>goToStep</code>. إن كانت العملية قد انتهت أو أُلغيت تُسقط الخطوة وتعيد <code>goToStep</code> القيمة <code>false</code>.</p>
+<section id="steps" dir="ltr" class="en">
+  <h2>3. EMV steps: how <code>goToStep</code> runs <code>onXxx</code></h2>
+  <p>Nobody calls an <code>onXxx</code> hook directly. <code>goToStep(STEP)</code> publishes the step on <code>emvSteps</code>. <code>EmvStepObserver</code> runs its hook on the same thread, and the hook finishes before <code>goToStep</code> returns. If the sale has ended or was cancelled, the step is dropped and <code>goToStep</code> returns <code>false</code>.</p>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15}}}%%
 sequenceDiagram
@@ -376,99 +385,97 @@ sequenceDiagram
   alt ended or cancelled
     AB-->>V: false (trace: "step dropped")
   else running
-    AB->>EN: notifyEmvStep(NEXT) → banner + APDU trace
+    AB->>EN: notifyEmvStep(NEXT) → banner + trace
     EN->>OB: emvSteps.onNext
     OB->>V: dispatchStepMethod → onNext...(config, card)
-    Note over V: the stage's native call — it may goToStep again (nested)
+    Note over V: the stage's native call, which may call goToStep again (nested)
     AB-->>V: true
   end
 </pre></div>
   <ul class="facts">
-    <li><b>البداية:</b> <code>TERMINAL_INITIALIZATION</code> تجهّز الـ kernel ثم تنادي <code>searchCard()</code> بنفسها، فتبدأ <code>SEARCH_CARD</code>. إن فشل التجهيز تنتهي العملية بـ ERROR، ولا بحث.</li>
-    <li><b>يجب أن يبقى التشغيل متزامنًا</b> (بلا <code>observeOn</code> وبلا serialize): لو تأخرت الدالة إلى thread آخر لعادت <code>goToStep</code> قبل أن تعمل، فيرد <code>askStep</code> بـ "إلغاء" قبل أن تُفتح شاشة الـ PIN، وتتداخل استدعاءات native على kernel واحد.</li>
-    <li>الشاشة وحدها تستخدم <code>observeOn(main)</code> على <code>emvSteps</code>، لأنها تعرض الشريط فقط ولا ينتظرها أحد. تشترك مع كل عملية في <code>acceptCard</code> حتى نهايتها (<code>takeUntil</code>)، فقد يفوتها أول خطوة EMV: العملية تبدأ على الـ thread الخاص بها قبل أن تشترك الشاشة. الشريط يعرض آخر خطوة فقط، والتشغيل لا يتأثر.</li>
+    <li><b>Start.</b> <code>TERMINAL_INITIALIZATION</code> prepares the kernel, then calls <code>searchCard()</code>, which starts <code>SEARCH_CARD</code>. If preparation fails, the sale ends with <code>ERROR</code> and no search runs.</li>
+    <li><b>The dispatch must stay synchronous:</b> no <code>observeOn</code> and no serialize on <code>EmvStepObserver</code>. The table below explains why.</li>
+    <li><b>The screen is the exception.</b> It may use <code>observeOn(main)</code> on <code>emvSteps</code>, because it only shows the banner and nothing waits for it. It subscribes per sale, so it can miss the first EMV step; the dispatch is not affected.</li>
   </ul>
-  <h3>لماذا يجب أن يبقى التشغيل متزامنًا (بلا <code>observeOn</code> وبلا serialize)</h3>
-  <p>تعني <code>observeOn(X)</code> أن يوضع <code>onNext</code> في طابور ويُنفَّذ لاحقًا على thread آخر، وأن تعود <code>goToStep</code> فورًا. لو طُبّق ذلك على <code>EmvStepObserver</code> لعملت <code>onXxx</code> خارج الـ transaction thread، وهذا يكسر ثلاثة أشياء:</p>
+  <h3>Why the dispatch must stay synchronous</h3>
+  <p><code>observeOn(X)</code> queues <code>onNext</code> and runs it later on another thread, so <code>goToStep</code> returns at once. On <code>EmvStepObserver</code> that breaks the flow:</p>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}}}%%
 sequenceDiagram
   autonumber
   participant NK as native EMVStartTrans
-  participant TX as tx thread: onCardHolderPwd / askStep
-  participant BUS as emvSteps (with observeOn)
-  participant IO as other thread: onCardholderVerification
+  participant TX as tx thread: askStep
+  participant BUS as emvSteps + observeOn
+  participant IO as other thread: hook
   NK->>TX: emvGetHolderPwd → onCardHolderPwd
-  TX->>BUS: askStep → goToStep → emvSteps.onNext
-  BUS-->>TX: queued only — goToStep returns at once
-  TX->>TX: askStep: nobody called answerStep → USER_CANCEL
-  TX->>NK: setCallBackResult(USER_CANCEL) — kernel goes on with no PIN
+  TX->>BUS: askStep → goToStep → onNext
+  BUS-->>TX: only queued, goToStep returns
+  TX->>TX: nobody answered → USER_CANCEL
+  TX->>NK: setCallBackResult(USER_CANCEL)
   BUS->>IO: later: onCardholderVerification
-  IO->>IO: PIN pad opens for a kernel call that already ended ✗
-  Note over TX,IO: two threads on one native kernel: APDUs mixed, readers closed under a running call
+  IO->>IO: PIN pad for a call that has ended ✗
+  Note over TX,IO: two threads on one native kernel
 </pre></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>لو استخدمنا</th><th>ما الذي سيحدث</th><th>السبب</th></tr></thead>
+    <thead><tr><th>If we use</th><th>What happens</th><th>Why</th></tr></thead>
     <tbody>
-      <tr><td><code>observeOn</code> على الـ observer</td><td>تعيد <code>askStep</code> القيمة <code>USER_CANCEL</code> قبل أن تُفتح شاشة الـ PIN أو نافذة الاختيار</td><td>تعمل الخطوة بعد عودة <code>goToStep</code>، فلا يكون أحد قد أجاب في تلك اللحظة</td></tr>
-      <tr><td><code>observeOn</code> على الـ observer</td><td>تداخل على الـ kernel: تستدعي <code>onXxx</code> دالة native (<code>EMVReadAppData</code>، <code>EMVCardAuth</code>) بينما الـ transaction thread ما زال داخل استدعاء native آخر، أو يغلق القارئات في <code>finishContactStage</code></td><td>الـ kernel الخاص بـ PAX والقارئ ليسا thread-safe: يجب أن يجري كل شيء على thread واحد وبالترتيب</td></tr>
-      <tr><td><code>observeOn</code> على الـ observer</td><td>يختل الترتيب: يكمل <code>runContactAppSelect</code> على افتراض أن مرحلة القراءة انتهت ونتيجتها في <code>tx.transResult</code>، وهي لم تنتهِ بعد</td><td>كل مرحلة تقرأ نتيجة سابقتها بعد عودة <code>goToStep</code></td></tr>
-      <tr><td><code>emvSteps.toSerialized()</code></td><td>لا تعمل الخطوة التالية داخل الحالية، بل توضع في طابور حتى ينتهي <code>onNext</code> الحالي</td><td>كل <code>onXxx</code> تستدعي <code>goToStep(NEXT)</code> من داخل <code>onNext</code>، والـ serialize يؤجّل الاستدعاء المتداخل، فتعيد <code>askStep</code> قيمة الأمان وتجد المرحلة النتيجة ناقصة</td></tr>
+      <tr><td><code>observeOn</code> on the observer</td><td><code>askStep</code> answers <code>USER_CANCEL</code> before the PIN pad or the app-selection dialog opens.</td><td>The hook runs after <code>goToStep</code> has returned, when nobody has answered yet.</td></tr>
+      <tr><td><code>observeOn</code> on the observer</td><td>Two threads call one kernel: a hook calls a native function (<code>EMVReadAppData</code>, <code>EMVCardAuth</code>) while the transaction thread is still inside another, or <code>finishContactStage</code> closes the readers under it.</td><td>The PAX kernel and readers are not thread-safe. Everything must run on one thread, in order.</td></tr>
+      <tr><td><code>observeOn</code> on the observer</td><td>The order breaks: <code>runContactAppSelect</code> continues as if the read stage had finished and stored its result in <code>tx.transResult</code>.</td><td>Each stage reads the previous stage's result after <code>goToStep</code> returns.</td></tr>
+      <tr><td><code>emvSteps.toSerialized()</code></td><td>A nested <code>goToStep(NEXT)</code> is queued until the current <code>onNext</code> returns.</td><td>Every hook calls <code>goToStep</code> from inside <code>onNext</code>. <code>askStep</code> then returns its fail-closed value, and the stage finds its result missing.</td></tr>
     </tbody>
   </table></div>
-  <p>بدونهما يصبح التشغيل مثل استدعاء دالة عادي: <code>goToStep</code> ← <code>onNext</code> ← <code>onXxx</code>، كله على الـ transaction thread، وينتهي قبل أن تعود <code>goToStep</code>. <b>لا مانع أن تستخدم واجهة المستخدم <code>observeOn(main)</code></b> (<code>MainViewModel</code> على <code>emvSteps</code>)، لأنها تعرض الشريط العلوي فقط، ولا تشغّل EMV، ولا ينتظر أحد ردًا منها. هذا الشرط خاص بـ <code>EmvStepObserver</code> وحده.</p>
 </section>
 
-<section id="ask">
-  <h2>4. حين ينتظر الـ kernel شخصًا: <code>askStep</code></h2>
-  <p>أثناء استدعاء native (مثل <code>EMVStartTrans</code>) يتوقف الـ kernel ويسأل سؤالًا عبر callback: اختر التطبيق، أدخل الـ PIN. يجب أن يعود له ردٌّ دائمًا (<code>setCallBackResult</code>)، وإلا يبقى منتظرًا. الـ callback لا يفتح شاشة بنفسه؛ يسأل الخطوة المسؤولة عبر <code>askStep</code>.</p>
+<section id="ask" dir="ltr" class="en">
+  <h2>4. When the kernel waits for a person: <code>askStep</code></h2>
+  <p>During a native call (for example <code>EMVStartTrans</code>) the kernel stops and asks through a callback: choose the application, enter the PIN. It must always get an answer (<code>setCallBackResult</code>), or it waits forever. The callback does not open a screen itself; it asks the responsible step through <code>askStep</code>.</p>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 46}}}%%
+%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 34}}}%%
 flowchart TD
-  K["① the kernel: onCardHolderPwd(...)<br/>waits for a number"]
-  K --> A["② askStep(OFFLINE_PIN_VERIFICATION, …, USER_CANCEL)<br/>an empty slot for the answer"]
-  A --> G["③ goToStep → onOfflinePinVerification<br/>opens the PIN pad"]
+  K["① kernel: onCardHolderPwd(...) waits for a value"]
+  K --> A["② askStep(OFFLINE_PIN_VERIFICATION, …, USER_CANCEL)"]
+  A --> G["③ goToStep → onOfflinePinVerification opens the PIN pad"]
   G --> ANS["④ answerStep(CONTACT_OK)"]
-  ANS --> CHK{"⑤ an answer, and still running?"}
+  ANS --> CHK{"⑤ answered and still running?"}
   CHK -- "yes" --> OK["the answer"]
-  CHK -- "cancel / no answer / exception" --> UC["USER_CANCEL"]
+  CHK -- "cancel / none / exception" --> UC["USER_CANCEL"]
   OK & UC --> R["⑥ setCallBackResult → the kernel goes on"]
 </pre></div>
   <ul class="facts">
-    <li>قيمتها في الحالات غير الطبيعية: إلغاء، أو لا رد، أو استثناء، فيصل إلى الـ kernel "إلغاء" فورًا ولا يبقى منتظرًا، ولا يوافق أبدًا دون رد (fail closed).</li>
-    <li>الـ callbacks التي تسأل: <code>onWaitAppSelect</code> (اختيار التطبيق)، و <code>onCardHolderPwd</code> (الـ PIN). أما callbacks البيانات (<code>emvSetParam</code>، <code>emvInputAmount</code>) فترد داخل <code>ContactProcess</code> دون أي خطوة.</li>
+    <li><b>Fail closed.</b> On cancel, no answer or an exception, <code>askStep</code> answers <code>USER_CANCEL</code> at once. The kernel never waits, and never approves without an answer.</li>
+    <li>Callbacks that ask a person: <code>onWaitAppSelect</code> (application selection) and <code>onCardHolderPwd</code> (PIN). Data callbacks (<code>emvSetParam</code>, <code>emvInputAmount</code>) answer inside <code>ContactProcess</code>, with no step.</li>
   </ul>
-  <h3>بالتفصيل (online PIN)</h3>
+  <h3>In detail: online PIN</h3>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}}}%%
 sequenceDiagram
   participant NK as native EMVStartTrans
-  participant L as ContactProcess.EmvCallBackListener
-  participant PB as PaxEmvBehavior (IContactCallback)
-  participant AB as AbstractEmvBehavior.askStep
+  participant L as ContactProcess listener
+  participant PB as PaxEmvBehavior
+  participant AB as askStep
   participant S as onCardholderVerification
-  NK->>L: emvGetHolderPwd(tryFlag, remainCnt, pinData = null)
+  NK->>L: emvGetHolderPwd(tryFlag, remainCnt, null)
   L->>PB: onCardHolderPwd(true, bypass, remain, null)
   PB->>PB: tx.pinRequest = new PinRequest(...)
-  PB->>AB: askStep(CARDHOLDER_VERIFICATION, "online PIN", USER_CANCEL)
-  AB->>AB: push StepAnswer, goToStep(...)
-  AB->>S: dispatch → onCardholderVerification
-  S->>S: enterPin(request): CARDHOLDER_VERIFIED,<br/>PIN key, PinService (blocking)
-  S->>AB: answerStep(CONTACT_OK | NO_PASSWORD | USER_CANCEL)
-  alt answered && isRunning()
+  PB->>AB: askStep(CARDHOLDER_VERIFICATION, USER_CANCEL)
+  AB->>S: goToStep → onCardholderVerification
+  S->>S: enterPin: PIN key, PinService (blocking)
+  S->>AB: answerStep(CONTACT_OK / NO_PASSWORD / USER_CANCEL)
+  alt answered and running
     AB-->>PB: the answer
   else no answer / cancelled / threw
-    AB-->>PB: USER_CANCEL + trace "no answer for ..."
+    AB-->>PB: USER_CANCEL + trace
   end
-  PB-->>L: result (tx.pinRequest = null in finally)
-  L->>NK: emvCallback.setCallBackResult(result)
-  Note over NK: kernel carries on: CVM → TRM → TAA → 1st GAC
+  PB-->>L: result (pinRequest cleared in finally)
+  L->>NK: setCallBackResult(result)
+  Note over NK: CVM → TRM → TAA → 1st GAC
 </pre></div>
   <ul class="facts">
-    <li>تعمل <code>askStep</code> فقط لأن الخطوة تنتهي قبل عودة <code>goToStep</code> (§3). واستدعاء <code>answerStep</code> دون <code>askStep</code> لا يفعل شيئًا.</li>
-    <li>الـ offline PIN: تُنشر <code>CARDHOLDER_VERIFICATION</code> للإعلان فقط، ثم <code>askStep(OFFLINE_PIN_VERIFICATION)</code>. الشاشة فقط، والـ kernel هو الذي يتحقق من الرقم مع البطاقة.</li>
-    <li>اختيار التطبيق: <code>emvWaitAppSel</code> ← <code>onWaitAppSelect</code> ← <code>askStep(WAIT_ / FINAL_APPLICATION_SELECTION)</code> ← <code>answerApplicationSelection</code> (نافذة اختيار، أو أول تطبيق حين يوجد تطبيق واحد).</li>
-    <li>الـ callbacks الخاصة بالبيانات تبقى في <code>ContactProcess</code> ولا تسأل أي خطوة: <code>emvInputAmount</code>، <code>emvSetParam</code> (← <code>resetParam(AID)</code>)، <code>emvUnknowTLVData</code>. وترد <code>certVerify</code> و <code>emvVerifyPINfailed</code> بـ <code>setCallBackResult</code>.</li>
+    <li><code>askStep</code> works only because the hook finishes before <code>goToStep</code> returns (§3). <code>answerStep</code> without <code>askStep</code> does nothing.</li>
+    <li><b>Offline PIN.</b> <code>CARDHOLDER_VERIFICATION</code> is published as an announcement, then <code>askStep(OFFLINE_PIN_VERIFICATION)</code>. Ours is the screen only; the kernel checks the PIN with the card.</li>
+    <li><b>Application selection.</b> <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>askStep(WAIT_ / FINAL_APPLICATION_SELECTION)</code> → <code>answerApplicationSelection</code> (a dialog, or the only application when there is one).</li>
+    <li>Data callbacks stay in <code>ContactProcess</code> and ask no step: <code>emvInputAmount</code>, <code>emvSetParam</code> (→ <code>resetParam(AID)</code>), <code>emvUnknowTLVData</code>. <code>certVerify</code> and <code>emvVerifyPINfailed</code> answer with <code>setCallBackResult</code>.</li>
   </ul>
 </section>
 
