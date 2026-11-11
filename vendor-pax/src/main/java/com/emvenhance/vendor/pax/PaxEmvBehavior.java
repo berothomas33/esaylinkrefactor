@@ -632,7 +632,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     private void runIssuerScriptProcessing(IssuerRspData issuerRspData) {
         tx.pendingScripts = issuerRspData;
-        tx.scriptsProcessed = true;
         goToStep(EmvStep.SCRIPT_PROCESSING, null);
         if (tx.pendingScripts != null) {
             engine().apduTrace().note("EMV",
@@ -1501,9 +1500,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private void completeApproved(String result) {
-        if (!tx.scriptsProcessed) {
-            goToStep(EmvStep.SCRIPT_PROCESSING, null);
-        }
         finishApproved(buildOutcomeEvent(TransactionStep.APPROVED,
                 TransactionStepEvent.KEY_RESULT, result));
     }

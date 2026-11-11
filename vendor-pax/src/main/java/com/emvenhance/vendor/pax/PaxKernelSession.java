@@ -53,8 +53,6 @@ final class PaxKernelSession {
     @Nullable
     String lastIccData;
 
-    boolean scriptsProcessed;
-
     /** Mastercard Single Tap: the PIN was asked for once in this attempt — never a second time. */
     boolean singleTapPinEntered;
 
