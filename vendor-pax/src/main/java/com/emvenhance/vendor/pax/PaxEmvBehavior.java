@@ -236,6 +236,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onCardholderVerification(TransactionConfig config, CardPresence card) {
         PinRequest request = tx.pinRequest;
+        tx.pinRequest = null;                    // read once
         if (request != null && request.online) {
             answerStep(enterPin(request));
         }
@@ -244,6 +245,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
         PinRequest request = tx.pinRequest;
+        tx.pinRequest = null;                    // read once
         if (request != null && !request.online) {
             answerStep(enterPin(request));
         }
@@ -1278,16 +1280,12 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
             byte[] pinData) {
         tx.pinRequest = new PinRequest(isOnlinePin, supportPINByPass, leftTimes);
-        try {
-            if (isOnlinePin) {
-                return askStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN",
-                        EmvConstant.ContactCallbackStatus.USER_CANCEL);
-            }
-            return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
+        if (isOnlinePin) {
+            return askStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN",
                     EmvConstant.ContactCallbackStatus.USER_CANCEL);
-        } finally {
-            tx.pinRequest = null;
         }
+        return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
+                EmvConstant.ContactCallbackStatus.USER_CANCEL);
     }
 
     private int enterPin(PinRequest request) {
