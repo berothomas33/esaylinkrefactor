@@ -123,13 +123,13 @@ During a native call the kernel can stop and ask a question through a callback. 
 
 ```
 ① step 8 (PROCESS_RESTRICTIONS) calls the kernel: EMVStartTrans — the thread waits inside it
-② the CVM needs a PIN → ContactProcess.emvGetHolderPwd(tryFlag, remainCnt, pinData)
+② the CVM needs a PIN → EMVCallback.cEMVGetHolderPwd (JNI) → ContactProcess.emvGetHolderPwd(tryFlag, remainCnt, pinData)
 ③ ContactProcess guards: online and offline mixed → EMV_DATA_ERR; pinData[0] ≠ 0 → the kernel's status (1 = timeout)
 ④ → PaxEmvBehavior.onCardHolderPwd: tx.pinRequest = …, then ask(9 online | 10 offline)
 ⑤ → ask: goToStep shows the step (false → USER_CANCEL, no PIN pad), then runs its hook:
      onCardholderVerification / onOfflinePinVerification → enterPin(tx.pinRequest) → PIN pad → returns the result
 ⑥ ← ask returns it (USER_CANCEL if the sale was cancelled while the pad was open)
-⑦ ← setCallBackResult(result): the kernel carries on with the CVM
+⑦ ← setCallBackResult(result): result = …, cv.open() → cEMVGetHolderPwd's cv.block() returns → the kernel carries on with the CVM
 ⑧ offline PIN wrong → emvVerifyPINfailed → EMV_OK → the kernel asks again: back to ② (one try less)
 ⑨ EMVStartTrans returns (TRM → TAA → 1st GAC) → step 8 hands over to 13 (ARQC) or ends
 ```
@@ -139,6 +139,28 @@ During a native call the kernel can stop and ask a question through a callback. 
 - A hook that throws goes out through `ask`: `ContactProcess` catches it and answers `USER_CANCEL`.
 - Application selection is the same circle: `EMVAppSelect` → `emvWaitAppSel` → `onWaitAppSelect` → `ask(3 / 4)` → the hook returns the dialog's index, or the only application.
 - Contactless has no PIN callback: the kernel returns first, then our code calls `onCardHolderPwd(true, …)` itself (CVM = online PIN, and Single Tap).
+
+**How the kernel waits** (`EMVCallback` in PAX's `EMV_v105.jar`, read with `javap`): the native kernel does not call our listener directly; it calls a Java method of `EMVCallback`, and that method waits for `setCallBackResult`:
+
+```java
+// EMVCallback (PAX, decompiled)
+public int cEMVGetHolderPwd(int tryFlag, int remainCnt, byte[] pinData) {
+    result = -14;                                   // default, before any answer
+    if (listener != null) {
+        cv = new ConditionVariable();
+        listener.emvGetHolderPwd(tryFlag, remainCnt, pinData);  // ContactProcess
+        cv.block();                                 // waits for setCallBackResult
+    }
+    return result;                                  // back to native EMVStartTrans
+}
+public void setCallBackResult(int value) { result = value; cv.open(); }
+```
+
+- What waits is `cv.block()` inside `EMVCallback`. We call `setCallBackResult` on the same thread before the listener returns, so `block()` returns at once.
+- Without `setCallBackResult`, `cv.block()` waits forever: the terminal hangs. So every `ContactProcess` callback calls it on every path.
+- A listener that throws never reaches `cv.block()`; the exception goes back into the native call. So `ContactProcess` catches `Throwable` and answers `EMV_USER_CANCEL`.
+- The `ConditionVariable` lets an answer come from another thread (PAX's design); we answer on the same thread.
+- The default `-14` (no listener) is not named in the jar; its meaning is not assumed.
 
 **The kernel's callbacks** (`ContactProcess.EmvCallBackListener`, new at each attempt in `preTransProcess`, so its counters start fresh):
 

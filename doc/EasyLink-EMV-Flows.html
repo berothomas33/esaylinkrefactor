@@ -417,12 +417,12 @@ sequenceDiagram
 %%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 36}}}%%
 flowchart TD
   S8["① PROCESS_RESTRICTIONS (8)<br/>runContactStartTransaction → native EMVStartTrans<br/>the thread now waits inside the kernel"]
-  CB["② the CVM needs a PIN → callback<br/>ContactProcess · emvGetHolderPwd(tryFlag, remainCnt, pinData)"]
+  CB["② the CVM needs a PIN → EMVCallback.cEMVGetHolderPwd (JNI, PAX jar)<br/>→ our listener: ContactProcess.emvGetHolderPwd(tryFlag, remainCnt, pinData)<br/>(cEMVGetHolderPwd then waits on cv.block())"]
   GU{"③ ContactProcess guards"}
   BH["④ PaxEmvBehavior.onCardHolderPwd<br/>tx.pinRequest = … · ask(9 online / 10 offline)"]
   HK["⑤ ask: goToStep shows the step, then runs its hook<br/>onCardholderVerification / onOfflinePinVerification<br/>return enterPin(tx.pinRequest) — the PIN pad"]
   RT["⑥ ask returns the result<br/>(USER_CANCEL: cancelled before or while open)"]
-  SR["⑦ setCallBackResult(result)<br/>the kernel carries on with the CVM"]
+  SR["⑦ setCallBackResult(result): result = …, cv.open()<br/>cv.block() returns · cEMVGetHolderPwd returns result<br/>the kernel carries on with the CVM"]
   PF{"⑧ offline PIN<br/>right?"}
   END["⑨ TRM → TAA → 1st GAC · EMVStartTrans returns<br/>step 8 hands over to 13 (ARQC) or ends"]
   S8 --> CB --> GU
@@ -439,6 +439,30 @@ flowchart TD
     <li><b>Online PIN</b> asks step 9 (<code>CARDHOLDER_VERIFICATION</code>): PIN pad + PIN key; the bank checks the PIN. <b>Offline PIN</b> asks step 10 (<code>OFFLINE_PIN_VERIFICATION</code>) directly (<code>93a798a</code>): PIN pad only; the kernel checks the PIN with the card.</li>
     <li><b>Application selection</b> is the same circle: <code>EMVAppSelect</code> → <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>ask(3 WAIT_ / 4 FINAL_APPLICATION_SELECTION)</code> → the hook returns <code>chooseApplication(tx.candidates)</code>: the dialog's index, or the only application.</li>
     <li><b>Contactless</b> has no PIN callback: the kernel returns first, then our code calls <code>onCardHolderPwd(true, …)</code> itself when the CVM is online PIN (and again for Single Tap, §8). Same <code>ask</code>, same hook.</li>
+  </ul>
+  <h3>How the kernel waits: <code>EMVCallback</code> (PAX's jar)</h3>
+  <p>The native kernel does not call our listener directly. It calls a Java method of <code>EMVCallback</code> (<code>EMV_v105.jar</code>, read with <code>javap</code>), and that method is what waits for <code>setCallBackResult</code>:</p>
+<pre class="codebox"><span class="c">// EMVCallback (PAX, decompiled)</span>
+public int cEMVGetHolderPwd(int tryFlag, int remainCnt, byte[] pinData) {
+    result = -14;                                   <span class="c">// default, before any answer</span>
+    if (listener != null) {
+        cv = new ConditionVariable();
+        listener.emvGetHolderPwd(tryFlag, remainCnt, pinData);  <span class="c">// ContactProcess</span>
+        cv.block();                                 <span class="c">// waits for setCallBackResult</span>
+    }
+    return result;                                  <span class="c">// back to native EMVStartTrans</span>
+}
+
+public void setCallBackResult(int value) {
+    result = value;
+    cv.open();                                      <span class="c">// releases cv.block()</span>
+}</pre>
+  <ul class="facts">
+    <li><b>What waits is <code>cv.block()</code></b> inside <code>EMVCallback</code>, not our code. We call <code>setCallBackResult</code> on the same thread before the listener returns, so the gate is already open and <code>block()</code> returns at once.</li>
+    <li><b>Never forget <code>setCallBackResult</code>:</b> without it <code>cv.block()</code> waits forever and the terminal hangs. That is why every callback in <code>ContactProcess</code> calls it on every path.</li>
+    <li><b>A listener that throws</b> never reaches <code>cv.block()</code>, and the exception goes back into the native call. That is why <code>ContactProcess</code> catches <code>Throwable</code> and answers <code>EMV_USER_CANCEL</code> with <code>setCallBackResult</code>.</li>
+    <li>PAX built it with a <code>ConditionVariable</code> so the answer could come from another thread (a dialog on main calling <code>setCallBackResult</code> later). We do not use that: we answer on the same thread.</li>
+    <li>The default <code>-14</code> (returned when no listener is registered) is not named in the jar; its meaning is not assumed here.</li>
   </ul>
   <h3>The kernel's callbacks: which are used</h3>
   <p><code>ContactProcess.EmvCallBackListener</code> is made new at each attempt (<code>preTransProcess</code>), so its counters (<code>isFirstCall</code>, <code>tmpRemainCount</code>) start fresh every time. Every callback ends with an answer.</p>
