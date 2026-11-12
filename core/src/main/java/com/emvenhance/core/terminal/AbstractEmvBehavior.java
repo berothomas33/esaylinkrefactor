@@ -169,13 +169,10 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * answer, or the sale ended meanwhile.
      */
     protected final int askStep(EmvStep step, @Nullable String detail, int failClosed) {
-        // A nested ask must not take the outer ask's answer: keep it, put it back after.
-        Integer outer = stepAnswer;
         stepAnswer = null;
         // The hook runs inside goToStep and calls answerStep.
         goToStep(step, detail);
         Integer answer = stepAnswer;
-        stepAnswer = outer;
 
         if (answer == null) {
             engine.apduTrace().note("EMV", "no answer for " + step.getTitle()
