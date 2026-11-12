@@ -440,6 +440,36 @@ flowchart TD
     <li><b>Application selection</b> is the same circle: <code>EMVAppSelect</code> → <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>ask(3 WAIT_ / 4 FINAL_APPLICATION_SELECTION)</code> → the hook returns <code>chooseApplication(tx.candidates)</code>: the dialog's index, or the only application.</li>
     <li><b>Contactless</b> has no PIN callback: the kernel returns first, then our code calls <code>onCardHolderPwd(true, …)</code> itself when the CVM is online PIN (and again for Single Tap, §8). Same <code>ask</code>, same hook.</li>
   </ul>
+  <h3>The online PIN key (RSA)</h3>
+  <p>An online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key. The bank gets that key wrapped with its own RSA public key, so only the bank can unwrap it and read the PIN block.</p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 36}}}%%
+flowchart TD
+  A["① ONLINE_AUTHORIZATION → askTheBank → addOnlineRequestData<br/>PaxPinEntry.ensureOnlinePinKey(tx) — one key per attempt"]
+  K["② provisionOnlinePinKey<br/>pinKey = 16 random bytes (SecureRandom, AES-128)"]
+  PED["③ the PED: erase the old AES_TPK / TPK at INDEX_AES_PEK<br/>writeAesKey(TLK index 0 → AES_TPK at INDEX_AES_PEK, pinKey)"]
+  RSA["④ RSA/ECB/PKCS1Padding(host public key, pinKey) → hex<br/>tx.lastOnlinePinKeyEncrypted"]
+  PIN["⑤ step 9 (online PIN): PinService.getEncryptedPinData(PAN)<br/>the PED builds the PIN block under AES_TPK (ISO 9564 format 4)<br/>tx.lastOnlinePinBlock"]
+  REQ["⑥ the request: withOnlinePinKeyEncrypted · withOnlinePinBlock"]
+  EX["exchange: GeneralRequest.forExchange(…, pinKeyToSend)<br/>the RSA-wrapped key, with every exchange"]
+  SALE["sale: GeneralRequest.forSale(…, pinBlockToSend)<br/>the PIN block, only when there is one"]
+  HOST["⑦ the bank: RSA private key → pinKey → decrypts the PIN block"]
+  NOTLK["no TLK at index 0 → the write fails<br/>log: 'no TLK at index 0?' · online PIN fails: Key does not exist"]
+  NOKEY["no host public key (onboarding not done)<br/>the key is in the PED, but never sent: the bank cannot read the PIN"]
+  A --> K --> PED --> RSA --> PIN --> REQ
+  REQ --> EX --> HOST
+  REQ --> SALE --> HOST
+  PED -. "PedDevException" .-> NOTLK
+  RSA -. "public key missing" .-> NOKEY
+</pre></div>
+  <ul class="facts">
+    <li><b>One key per attempt, made before the first online request.</b> It goes with <b>every</b> exchange, PIN or not (<code>pinKeyToSend</code>): a Single Tap PIN comes later in a resend that has no exchange of its own, so the bank must already hold the key (§8).</li>
+    <li><b>The clear key never leaves the terminal unwrapped.</b> It is written into the PED under the TLK (index 0), and sent only RSA-wrapped (<code>RsaPublicKeyEncryptor</code>, PKCS#1 v1.5, the host key in PKCS#1 DER).</li>
+    <li><b>The PIN block is built by the PED</b>, never by our code; we only carry the bytes (<code>tx.lastOnlinePinBlock</code>, hex in the request).</li>
+    <li>⚠ <b>The TLK must be injected</b> at index 0 for the key write to work. Without it, every online PIN fails (<code>Key does not exist</code>). How the TLK gets there (key injection / TMK provisioning) is not wired yet.</li>
+    <li>⚠ <b>No host public key</b> (onboarding not completed): the key is written but not sent, and the bank cannot decrypt the PIN block.</li>
+    <li>Code: <code>PaxPinEntry.provisionOnlinePinKey</code> / <code>enter</code>, <code>RsaPublicKeyEncryptor.encryptToHex</code>, <code>SaleCommunicationBehavior.pinKeyToSend</code> / <code>pinBlockToSend</code> / <code>prepareExchangeRequest</code>. Not device-tested on this branch (form rows 4, 5, 7, 9).</li>
+  </ul>
   <h3>How the kernel waits: <code>EMVCallback</code> (PAX's jar)</h3>
   <p>The native kernel does not call our listener directly. It calls a Java method of <code>EMVCallback</code> (<code>EMV_v105.jar</code>, read with <code>javap</code>), and that method is what waits for <code>setCallBackResult</code>:</p>
 <pre class="codebox"><span class="c">// EMVCallback (PAX, decompiled)</span>

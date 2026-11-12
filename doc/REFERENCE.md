@@ -213,6 +213,26 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 - ⚠ **The 90 s and 60 s nets do not cut the wait:** `connectToHost` / `acknowledge` / `reverse` are `fromCallable` with no `subscribeOn`, so they run on the transaction thread and `timeout` returns only when the call does (a 500 ms timeout waited 3124 ms). The real bound is `callTimeout`. An answer after the timeout is thrown away as `failed` → reversal (safe for the money). The fix (`subscribeOn(io)`) needs a decision.
 - ⚠ An acknowledgement / reversal is sent once, with no stored journal (0.15). ⚠ Not tried with the bank; that they need the `mToken` is an assumption.
 
+**The online PIN key (RSA):** an online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key; the bank gets that key wrapped with its own RSA public key.
+
+```
+① ONLINE_AUTHORIZATION → askTheBank → addOnlineRequestData → PaxPinEntry.ensureOnlinePinKey(tx)  (one key per attempt)
+② provisionOnlinePinKey: pinKey = 16 random bytes (SecureRandom, AES-128)
+③ PED: erase the old AES_TPK / TPK at INDEX_AES_PEK; writeAesKey(TLK index 0 → AES_TPK at INDEX_AES_PEK, pinKey)
+④ RSA/ECB/PKCS1Padding(host public key, pinKey) → hex → tx.lastOnlinePinKeyEncrypted
+⑤ step 9: PinService.getEncryptedPinData(PAN) → the PED builds the PIN block under AES_TPK (ISO 9564 format 4) → tx.lastOnlinePinBlock
+⑥ request: withOnlinePinKeyEncrypted · withOnlinePinBlock
+     exchange → GeneralRequest.forExchange(…, pinKeyToSend)   the wrapped key, with every exchange
+     sale     → GeneralRequest.forSale(…, pinBlockToSend)     the PIN block, only when there is one
+⑦ the bank: RSA private key → pinKey → decrypts the PIN block
+```
+
+- The key goes with every exchange, PIN or not: a Single Tap PIN comes later, in a resend with no exchange of its own.
+- The clear key never leaves the terminal unwrapped; the PIN block is built by the PED, not by our code.
+- ⚠ The TLK must be injected at index 0, or the key write fails and every online PIN fails (`Key does not exist`); TLK injection is not wired yet.
+- ⚠ No host public key (onboarding not completed): the key is written but not sent; the bank cannot read the PIN.
+- Not device-tested on this branch (form rows 4, 5, 7, 9).
+
 **Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:
 
 ```
