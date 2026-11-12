@@ -147,50 +147,65 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         return goToStep(step, null);
     }
 
+    /** Publishes the step; its hook runs before this returns. False when the step is dropped. */
     protected final boolean goToStep(@Nullable EmvStep step, @Nullable String detail) {
         if (step == null) {
             unknownStep(null);
             return false;
         }
-        if (activeConfig == null) {
+        if (!isRunning()) {
+            String why = isCancelled() ? "cancelled" : "the transaction has ended";
+            EmvStepEvent event = new EmvStepEvent(step, detail);
+            EmvLog.d("EmvStep dropped, " + why + ": " + event);
+            engine.apduTrace().note("EMV", "step dropped, " + why + ": " + event);
             return false;
         }
-        return enterStep(step, detail);
+        engine.notifyEmvStep(step, detail);
+        return true;
     }
 
+    /**
+     * Runs the step and returns what its hook answered (answerStep). failClosed when the hook
+     * gave no answer, or the sale ended meanwhile.
+     */
     protected final int askStep(EmvStep step, @Nullable String detail, int failClosed) {
-        StepAnswer outer = stepAnswer;
-        StepAnswer answer = new StepAnswer();
-        stepAnswer = answer;
+        StepAnswer outer = stepAnswer;   // an ask already open (nested): put it back after
+        StepAnswer mine = new StepAnswer();
+        stepAnswer = mine;
         try {
-            goToStep(step, detail);
+            goToStep(step, detail);      // the hook runs here and calls answerStep
         } finally {
             stepAnswer = outer;
         }
-        boolean ended = !isRunning();
-        if (!answer.answered || ended) {
-            engine.apduTrace().note("EMV", (answer.answered
-                    ? step.getTitle() + " answered after the transaction ended"
-                    : "no answer for " + step.getTitle()) + " — answering " + failClosed);
-            return failClosed;
+        if (mine.value == null) {
+            return answerFailClosed("no answer for " + step.getTitle(), failClosed);
         }
-        return answer.value;
+        if (!isRunning()) {
+            return answerFailClosed(step.getTitle() + " answered after the transaction ended",
+                    failClosed);
+        }
+        return mine.value;
     }
 
+    /** The hook's answer to the step being asked. Ignored when no step is asking. */
     protected final void answerStep(int value) {
-        if (stepAnswer == null) {
-            return;
+        if (stepAnswer != null) {
+            stepAnswer.value = value;
         }
-        stepAnswer.value = value;
-        stepAnswer.answered = true;
     }
 
+    private int answerFailClosed(String why, int failClosed) {
+        engine.apduTrace().note("EMV", why + " — answering " + failClosed);
+        return failClosed;
+    }
+
+    /** The answer of the step being asked; null when no step is asking. */
     @Nullable
     private StepAnswer stepAnswer;
 
     private static final class StepAnswer {
-        int value;
-        boolean answered;
+        @Nullable
+        Integer value;                   // null = not answered yet
     }
 
     protected final void finishApproved(String message) {
@@ -341,18 +356,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     protected abstract void onScriptProcessing(TransactionConfig config, CardPresence card);
 
     protected abstract Field55 field55();
-
-    private boolean enterStep(EmvStep step, @Nullable String detail) {
-        if (!isRunning()) {
-            EmvStepEvent event = new EmvStepEvent(step, detail);
-            String why = isCancelled() ? "cancelled" : "the transaction has ended";
-            EmvLog.d("EmvStep dropped, " + why + ": " + event);
-            engine.apduTrace().note("EMV", "step dropped, " + why + ": " + event);
-            return false;
-        }
-        engine.notifyEmvStep(step, detail);
-        return true;
-    }
 
     private final class EmvStepObserver extends DisposableObserver<EmvStepEvent> {
 
