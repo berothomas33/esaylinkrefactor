@@ -169,18 +169,25 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
      * answer, or the sale ended meanwhile.
      */
     protected final int askStep(EmvStep step, @Nullable String detail, int failClosed) {
-        Integer outer = stepAnswer;              // a nested ask must not take the outer's answer
+        // A nested ask must not take the outer ask's answer: keep it, put it back after.
+        Integer outer = stepAnswer;
         stepAnswer = null;
-        goToStep(step, detail);                  // the hook runs here and calls answerStep
+        // The hook runs inside goToStep and calls answerStep.
+        goToStep(step, detail);
         Integer answer = stepAnswer;
         stepAnswer = outer;
-        if (answer != null && isRunning()) {
-            return answer;
+
+        if (answer == null) {
+            engine.apduTrace().note("EMV", "no answer for " + step.getTitle()
+                    + " — answering " + failClosed);
+            return failClosed;
         }
-        String why = answer == null ? "no answer for " + step.getTitle()
-                : step.getTitle() + " answered after the transaction ended";
-        engine.apduTrace().note("EMV", why + " — answering " + failClosed);
-        return failClosed;
+        if (!isRunning()) {
+            engine.apduTrace().note("EMV", step.getTitle()
+                    + " answered after the transaction ended — answering " + failClosed);
+            return failClosed;
+        }
+        return answer;
     }
 
     /** The hook's answer to the step being asked. */
