@@ -140,7 +140,7 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     private void initEmvObserver() {
         disposables.clear();
-        disposables.add(engine.emvSteps().subscribeWith(new EmvStepObserver()));
+        disposables.add(engine.hookSteps().subscribeWith(new EmvStepObserver()));
     }
 
     protected final boolean goToStep(EmvStep step) {
