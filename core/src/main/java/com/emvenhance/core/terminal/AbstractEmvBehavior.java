@@ -174,12 +174,13 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
         goToStep(step, detail);                  // the hook runs here and calls answerStep
         Integer answer = stepAnswer;
         stepAnswer = outer;
-        if (answer == null || !isRunning()) {
-            String why = answer == null ? "no answer for " : "answered after the sale ended: ";
-            engine.apduTrace().note("EMV", why + step.getTitle() + " — answering " + failClosed);
-            return failClosed;
+        if (answer != null && isRunning()) {
+            return answer;
         }
-        return answer;
+        String why = answer == null ? "no answer for " + step.getTitle()
+                : step.getTitle() + " answered after the transaction ended";
+        engine.apduTrace().note("EMV", why + " — answering " + failClosed);
+        return failClosed;
     }
 
     /** The hook's answer to the step being asked. */
