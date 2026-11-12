@@ -15,6 +15,7 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.observers.DisposableObserver;
+import java.util.function.IntSupplier;
 
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
@@ -165,36 +166,23 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * Asks a step and returns its hook's answer (answerStep). failClosed when the hook gave no
-     * answer, or the sale ended meanwhile.
+     * Shows the step, then asks the cardholder: the question (a dialog, the PIN pad) returns its
+     * result, and that result is the kernel's answer. failClosed when the sale ended before the
+     * question, or while it was open.
      */
-    protected final int askStep(EmvStep step, @Nullable String detail, int failClosed) {
-        stepAnswer = null;
-        // The hook runs inside goToStep and calls answerStep.
-        goToStep(step, detail);
-        Integer answer = stepAnswer;
-
-        if (answer == null) {
-            engine.apduTrace().note("EMV", "no answer for " + step.getTitle()
-                    + " — answering " + failClosed);
+    protected final int ask(EmvStep step, @Nullable String detail, IntSupplier question,
+            int failClosed) {
+        if (!goToStep(step, detail)) {
             return failClosed;
         }
+        int result = question.getAsInt();
         if (!isRunning()) {
             engine.apduTrace().note("EMV", step.getTitle()
                     + " answered after the transaction ended — answering " + failClosed);
             return failClosed;
         }
-        return answer;
+        return result;
     }
-
-    /** The hook's answer to the step being asked. */
-    protected final void answerStep(int value) {
-        stepAnswer = value;
-    }
-
-    /** The answer to the step being asked; null until its hook answers. */
-    @Nullable
-    private Integer stepAnswer;
 
     protected final void finishApproved(String message) {
         finishApproved(TransactionStepEvent.builder(TransactionStep.APPROVED)

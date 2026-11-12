@@ -192,30 +192,29 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    /** The kernel waits in onWaitAppSelect, which asks the cardholder there (ask). */
     @Override
     public void onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
-        answerApplicationSelection();
     }
 
+    /** The kernel waits in onWaitAppSelect, which asks the cardholder there (ask). */
     @Override
     public void onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
-        answerApplicationSelection();
     }
 
-    private void answerApplicationSelection() {
-        List<CandidateAID> candList = tx.candidates;
+    /** The application chosen: the dialog's index, or the only one; USER_CANCEL with no answer. */
+    private int chooseApplication(@Nullable List<CandidateAID> candList) {
         publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
         if (!showsAppSelectDialog(candList)) {
-            answerStep(EmvConstant.ContactCallbackStatus.CONTACT_OK);
-            return;
+            return EmvConstant.ContactCallbackStatus.CONTACT_OK;
         }
         int index = new PaxAppSelectDialog().selectBlocking(
                 PaxAppSelectDialog.labels(candList), () -> !isRunning());
         if (index == AbstractAppSelectDialog.NO_ANSWER) {
             LogUtils.i(TAG, "Application not selected (timed out, cancelled or no screen)");
-            return;
+            return EmvConstant.ContactCallbackStatus.USER_CANCEL;
         }
-        answerStep(index);
+        return index;
     }
 
     private static boolean showsAppSelectDialog(@Nullable List<CandidateAID> candList) {
@@ -233,22 +232,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
+    /** The kernel waits in onCardHolderPwd, which opens the PIN pad there (ask). */
     @Override
     public void onCardholderVerification(TransactionConfig config, CardPresence card) {
-        PinRequest request = tx.pinRequest;
-        tx.pinRequest = null;                    // read once
-        if (request != null && request.online) {
-            answerStep(enterPin(request));
-        }
     }
 
+    /** The kernel waits in onCardHolderPwd, which opens the PIN pad there (ask). */
     @Override
     public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
-        PinRequest request = tx.pinRequest;
-        tx.pinRequest = null;                    // read once
-        if (request != null && !request.online) {
-            answerStep(enterPin(request));
-        }
     }
 
     @Override
@@ -1255,13 +1246,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
-        tx.candidates = candList;
         int candidates = candList == null ? 0 : candList.size();
-        return askStep(isFirstSelect
+        return ask(isFirstSelect
                         ? EmvStep.WAIT_APPLICATION_SELECTION
                         : EmvStep.FINAL_APPLICATION_SELECTION,
                 candidates + " candidate AID(s)"
                         + (showsAppSelectDialog(candList) ? "" : ", selecting first"),
+                () -> chooseApplication(candList),
                 EmvConstant.ContactCallbackStatus.USER_CANCEL);
     }
 
@@ -1279,12 +1270,10 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
             byte[] pinData) {
-        tx.pinRequest = new PinRequest(isOnlinePin, supportPINByPass, leftTimes);
-        if (isOnlinePin) {
-            return askStep(EmvStep.CARDHOLDER_VERIFICATION, "online PIN",
-                    EmvConstant.ContactCallbackStatus.USER_CANCEL);
-        }
-        return askStep(EmvStep.OFFLINE_PIN_VERIFICATION, null,
+        PinRequest request = new PinRequest(isOnlinePin, supportPINByPass, leftTimes);
+        return ask(isOnlinePin ? EmvStep.CARDHOLDER_VERIFICATION : EmvStep.OFFLINE_PIN_VERIFICATION,
+                isOnlinePin ? "online PIN" : null,
+                () -> enterPin(request),
                 EmvConstant.ContactCallbackStatus.USER_CANCEL);
     }
 

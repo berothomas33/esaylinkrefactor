@@ -1,10 +1,8 @@
 package com.emvenhance.vendor.pax;
 
 import androidx.annotation.Nullable;
-import com.pax.emvbase.process.contact.CandidateAID;
 import com.pax.emvbase.process.entity.IssuerRspData;
 import com.pax.emvbase.process.entity.TransResult;
-import java.util.List;
 
 final class PaxKernelSession {
 
@@ -28,12 +26,6 @@ final class PaxKernelSession {
 
     @Nullable
     IssuerRspData pendingScripts;
-
-    @Nullable
-    List<CandidateAID> candidates;
-
-    @Nullable
-    PinRequest pinRequest;
 
     @Nullable
     PaxPinPad activePinPad;

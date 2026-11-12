@@ -40,7 +40,7 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 - `AbstractEmvBehavior` (core) — the whole EMV of a transaction (`run`): terminal
   initialization, the card search (`onSearchCard`, the vendor's polling) and the retries the
   kernel asks for (`requestRetry` / `retryCount()`); the 16 EMV step hooks a vendor implements,
-  `goToStep`, `askStep`, field 55, `authorizeOnline` (through the `Authorizer` PosTerminal hands
+  `goToStep`, `ask`, field 55, `authorizeOnline` (through the `Authorizer` PosTerminal hands
   it: `attach(this::authorize)`); makes and keeps its engine (`engine()`, final); reports the
   EMV's outcome with `finish*` (it doesn't end the transaction).
 - `PaxEmvBehavior` (`vendor-pax`) — PAX's implementation: drives `ContactProcess` /
@@ -85,7 +85,9 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 2. **The kernel's order wins.** Steps follow what the kernel really does, even when numbers
    come out of order (contactless 2 → 6 → 5; Visa … → PR → ODA). Never reorder native calls.
 3. **Kernel callbacks are thin adapters.** A callback that needs the cardholder (app
-   selection, PIN) asks its step (`askStep`), the hook does the UI. Data callbacks
+   selection, PIN) calls `ask(step, detail, question, failClosed)`: the step is shown, the
+   question (the dialog, the PIN pad) returns its result, and that is the answer (since
+   2026-11-12; the hooks of steps 3 / 4 / 9 / 10 are empty). Data callbacks
    (`emvInputAmount`, `emvUnknowTLVData`, `emvSetParam`) stay in `ContactProcess`. The adapter
    always calls `setCallBackResult`.
 4. **Fail closed.** No answer → `USER_CANCEL` / online failed; never a hang, never approved.
@@ -131,7 +133,7 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
     steps from callbacks and leave the hooks empty with a comment; they don't fake a stage.
 12. **Kernel callbacks** (`IContactCallback`, `IContactlessCallback`, `EMVCallback` adapters):
     thin, plain (never `suspend`, never Rx), and on every path — including exceptions and
-    cancel — they end with `setCallBackResult` and a fail-closed value (`askStep` does this for
+    cancel — they end with `setCallBackResult` and a fail-closed value (`ask` does this for
     you). Anything that waits for a person has a timeout that answers `USER_CANCEL`, never
     "pick the first". (BACKLOG 0.4 and 1.1 are fixed.)
 13. **Rx only where it earns its place, and safely.** The kernel and every callback stay on the
@@ -166,7 +168,7 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 |---|---|
 | Transaction thread, busy, cancel, the end (`emvFinished`), host timeout, ack / reversal (`closeOnline`), printing | `core/.../terminal/PosTerminal.java` |
 | Step bus, drop-after-end, APDU trace | `core/.../emv/EmvEngine.java`, `core/.../emv/ApduTrace.java` |
-| Step hooks, `goToStep`, `askStep`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../emv/Field55.java` |
+| Step hooks, `goToStep`, `ask`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../emv/Field55.java` |
 | Core packages (by owner, `7f59e35`) | `terminal` (PosTerminal + Transaction, EmvBehavior / AbstractEmvBehavior), `transaction` (config, type, its steps), `emv` (engine, EmvStep, result, Field55, ApduTrace), `card`, `host`, `cardholder` (app select, PIN pad), `param`, `util` (EmvLog) |
 | PAX flow (contact / contactless runners, callbacks, online) | `vendor-pax/.../vendor/pax/PaxEmvBehavior.java` |
 | PIN (pad, AES PIN key + RSA wrap, bypass) · host answer → PAX · readers · card data · country / seed | `vendor-pax/.../vendor/pax/{PaxPinEntry,PaxHostAnswer,PaxReaders,PaxCardData,PaxSetup}.java` |
@@ -340,8 +342,8 @@ after**. Each carries docs that match its own code.
   (`EmvBehaviorContractTest`); `attach(authorizer)` / `engine()` are `AbstractEmvBehavior`'s, so
   `PosTerminal.behavior` is an `AbstractEmvBehavior`. `AbstractEmvBehavior`: 16 `protected
   abstract onXxx` (`onSearchCard` included; `TRANSACTION_COMPLETION` removed 05/11, `ffd9277`), `readIccTag`,
-  `cardSearchListener()`, `goToStep` (the one cancel check), `askStep(step, detail,
-  failClosed)` / `answerStep`, `publish`, `finish*`. `initEmvObserver()` runs at the start of
+  `cardSearchListener()`, `goToStep` (the one cancel check), `ask(step, detail,
+  question, failClosed)`, `publish`, `finish*`. `initEmvObserver()` runs at the start of
   each attempt (`prepare`; it keeps the dispatch observer the last subscriber). The kernel's
   listener (PAX) is registered once per flow and released once, in `finishContactStage` /
   `finishContactlessStage` (`ca1b16a`). `TransactionStep.isEnd()` = COMPLETED,
@@ -353,8 +355,9 @@ after**. Each carries docs that match its own code.
   `crypto/purchase` + `Purchase*`, `FakePinPad`, `IngenicoPinPad`. Kept on purpose: the online
   onboarding cycle (TMK provisioning, not wired yet) and `BuildConfig.MTOKEN_TEMP` (the way out
   of the mToken literal, BACKLOG 0.12).
-- **Threading**: kernel + callbacks on the transaction thread only. `askStep` works because
-  the hook runs before `goToStep` returns — keep dispatch synchronous.
+- **Threading**: kernel + callbacks on the transaction thread only. Keep dispatch
+  synchronous: a step's hook runs before `goToStep` returns, and the kernel waits on the
+  thread inside its native call.
 - **Rx facts (proven by tests or the lifecycle tests)**: PublishSubject is synchronous and
   re-entrant; `takeUntil` drops re-entrant `onNext`; a throwing observer sticks a
   `SerializedSubject`; `subscribe(Consumer)` errors crash.
@@ -373,9 +376,9 @@ after**. Each carries docs that match its own code.
 
 ## 7. EMV flow (PAX)
 
-**Contact** [rxSet]: APP_SEL (`EMVAppSelect`; app choice via `askStep`) → READ
+**Contact** [rxSet]: APP_SEL (`EMVAppSelect`; app choice via `ask`) → READ
 (`EMVReadAppData`) → SET (`setTransactionData`: confirm card, 9C) → ODA (`EMVCardAuth`) → PR
-(`EMVStartTrans`: PR+CVM+TRM+TAA+1st GAC; PIN via `askStep`) → ONLINE_AUTHORIZATION (host) →
+(`EMVStartTrans`: PR+CVM+TRM+TAA+1st GAC; PIN via `ask`) → ONLINE_AUTHORIZATION (host) →
 ISSUER_AUTH (`EMVCompleteTrans`) → the outcome reported once (`finish*`, no completion step since `ffd9277`). Each step hands over
 to the next (`5d27307`): the host and the issuer no longer run inside the PR hook. Contactless
 the same; the card-read work (9F1C, `CARD_READ`) is in `onReadCardOk` (`1d9bbeb`). Closings at
@@ -383,8 +386,8 @@ the host: `case APPROVED` / `case DECLINED` close the last request, `ENDING` the
 ACKNOWLEDGING / REVERSING / CLOSING_COMPLETED are reports. A step is published only where the
 kernel works: SCRIPT_PROCESSING only for PayWave's second tap (`cf04104`); an offline PIN asks
 step 10 directly, step 9 is the online PIN (`93a798a`). The PIN circle (kernel → `emvGetHolderPwd`
-→ `onCardHolderPwd` → `askStep` → hook → `setCallBackResult`, an offline-PIN retry loops back) is
-drawn in Flows §4 / REFERENCE §4; `askStep` / `goToStep` simplified in `441c662`.
+→ `onCardHolderPwd` → `ask` → the PIN pad returns → `setCallBackResult`, an offline-PIN retry
+loops back) is drawn in Flows §4 / REFERENCE §4 (askStep / answerStep replaced by `ask`, 12/11).
 
 **Contactless**: `ClssKernelProcess#supportsGranularSteps()` — granular: EFT, PayPass, PayWave
 [rxSet]; atomic: the other 7 (one call, steps announced from callbacks).
