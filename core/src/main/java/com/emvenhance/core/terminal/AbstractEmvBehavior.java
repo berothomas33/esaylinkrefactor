@@ -165,48 +165,31 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * Runs the step and returns what its hook answered (answerStep). failClosed when the hook
-     * gave no answer, or the sale ended meanwhile.
+     * Asks a step and returns its hook's answer (answerStep). failClosed when the hook gave no
+     * answer, or the sale ended meanwhile.
      */
     protected final int askStep(EmvStep step, @Nullable String detail, int failClosed) {
-        StepAnswer outer = stepAnswer;   // an ask already open (nested): put it back after
-        StepAnswer mine = new StepAnswer();
-        stepAnswer = mine;
-        try {
-            goToStep(step, detail);      // the hook runs here and calls answerStep
-        } finally {
-            stepAnswer = outer;
+        Integer outer = stepAnswer;              // a nested ask must not take the outer's answer
+        stepAnswer = null;
+        goToStep(step, detail);                  // the hook runs here and calls answerStep
+        Integer answer = stepAnswer;
+        stepAnswer = outer;
+        if (answer == null || !isRunning()) {
+            String why = answer == null ? "no answer for " : "answered after the sale ended: ";
+            engine.apduTrace().note("EMV", why + step.getTitle() + " — answering " + failClosed);
+            return failClosed;
         }
-        if (mine.value == null) {
-            return answerFailClosed("no answer for " + step.getTitle(), failClosed);
-        }
-        if (!isRunning()) {
-            return answerFailClosed(step.getTitle() + " answered after the transaction ended",
-                    failClosed);
-        }
-        return mine.value;
+        return answer;
     }
 
-    /** The hook's answer to the step being asked. Ignored when no step is asking. */
+    /** The hook's answer to the step being asked. */
     protected final void answerStep(int value) {
-        if (stepAnswer != null) {
-            stepAnswer.value = value;
-        }
+        stepAnswer = value;
     }
 
-    private int answerFailClosed(String why, int failClosed) {
-        engine.apduTrace().note("EMV", why + " — answering " + failClosed);
-        return failClosed;
-    }
-
-    /** The answer of the step being asked; null when no step is asking. */
+    /** The answer to the step being asked; null until its hook answers. */
     @Nullable
-    private StepAnswer stepAnswer;
-
-    private static final class StepAnswer {
-        @Nullable
-        Integer value;                   // null = not answered yet
-    }
+    private Integer stepAnswer;
 
     protected final void finishApproved(String message) {
         finishApproved(TransactionStepEvent.builder(TransactionStep.APPROVED)
