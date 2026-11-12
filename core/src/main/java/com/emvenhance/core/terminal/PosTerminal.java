@@ -216,9 +216,20 @@ public abstract class PosTerminal {
 
         private final class TransactionStepObserver extends DisposableObserver<TransactionStepEvent> {
 
+            /**
+             * A case that throws must not reach the subject: ReplaySubject would deliver nothing
+             * more to this observer — ENDING would never run and the terminal would stay busy.
+             */
             @Override
             public void onNext(TransactionStepEvent event) {
-                dispatchTransactionStep(event);
+                try {
+                    dispatchTransactionStep(event);
+                } catch (Throwable t) {
+                    String what = event.getStep() + " failed: " + t;
+                    EmvLog.d("TransactionStep " + what);
+                    apduTrace().note("EMV", "transaction step " + what + " — failing the transaction");
+                    fail(what);
+                }
             }
 
             @Override
@@ -376,21 +387,25 @@ public abstract class PosTerminal {
          * a new sale started then must not find the terminal busy.
          */
         private void onEnding() {
-            for (OnlineRequest request : online) {
-                if (!closed(request) && needsReversal(request)) {
-                    closeAtHost(request, TransactionStep.REVERSING);
+            try {
+                for (OnlineRequest request : online) {
+                    if (!closed(request) && needsReversal(request)) {
+                        closeAtHost(request, TransactionStep.REVERSING);
+                    }
                 }
-            }
-            current.compareAndSet(this, null);
-            TransactionStepEvent decision = decision();
-            TransactionStep end = decision.getStep().endOfDecision();
-            publish(end == TransactionStep.ERROR
-                    ? errorEvent(decision.getString(TransactionStepEvent.KEY_ERROR))
-                    : TransactionStepEvent.of(end));
-            // Nothing follows the end: complete, so every subscriber is let go without having to
-            // dispose. The steps stay readable (decision(), a late subscriber's replay).
-            synchronized (steps) {
-                steps.onComplete();
+            } finally {
+                // Whatever the closings did: the terminal is freed and the end delivered.
+                current.compareAndSet(this, null);
+                TransactionStepEvent decision = decision();
+                TransactionStep end = decision.getStep().endOfDecision();
+                publish(end == TransactionStep.ERROR
+                        ? errorEvent(decision.getString(TransactionStepEvent.KEY_ERROR))
+                        : TransactionStepEvent.of(end));
+                // Nothing follows the end: complete, so every subscriber is let go without having
+                // to dispose. The steps stay readable (decision(), a late subscriber's replay).
+                synchronized (steps) {
+                    steps.onComplete();
+                }
             }
         }
 
