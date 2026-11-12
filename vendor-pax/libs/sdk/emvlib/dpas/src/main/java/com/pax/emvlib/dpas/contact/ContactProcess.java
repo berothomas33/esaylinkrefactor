@@ -258,19 +258,13 @@ public class ContactProcess extends BaseContactProcess {
         if (ret != RetCode.EMV_OK) {
             return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
         }
-
-        TransResult transResult = new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
-        transResult.setResultCode(ret);
         if (acType.type == ACType.AC_TC) {
-            transResult.setTransResult(TransResultEnum.RESULT_OFFLINE_APPROVED);
-        } else if (acType.type == ACType.AC_AAC) {
-            transResult.setTransResult(TransResultEnum.RESULT_OFFLINE_DENIED);
-        } else {
-            transResult.setTransResult(TransResultEnum.RESULT_REQ_ONLINE);
+            return new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_OFFLINE_APPROVED, getCvm());
         }
-        transResult.setCvmResult(getCvm());
-        return transResult;
-
+        if (acType.type == ACType.AC_AAC) {
+            return new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_OFFLINE_DENIED, getCvm());
+        }
+        return new TransResult(RetCode.EMV_OK, TransResultEnum.RESULT_REQ_ONLINE, getCvm());
     }
 
     private void changeTAG9CValue() {
