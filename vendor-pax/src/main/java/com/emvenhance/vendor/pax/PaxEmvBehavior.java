@@ -192,14 +192,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    /** The kernel waits in onWaitAppSelect, which asks the cardholder there (ask). */
     @Override
-    public void onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
+    public int onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
+        return chooseApplication(tx.candidates);
     }
 
-    /** The kernel waits in onWaitAppSelect, which asks the cardholder there (ask). */
     @Override
-    public void onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
+    public int onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
+        return chooseApplication(tx.candidates);
     }
 
     /** The application chosen: the dialog's index, or the only one; USER_CANCEL with no answer. */
@@ -232,14 +232,14 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         }
     }
 
-    /** The kernel waits in onCardHolderPwd, which opens the PIN pad there (ask). */
     @Override
-    public void onCardholderVerification(TransactionConfig config, CardPresence card) {
+    public int onCardholderVerification(TransactionConfig config, CardPresence card) {
+        return enterPin(tx.pinRequest);
     }
 
-    /** The kernel waits in onCardHolderPwd, which opens the PIN pad there (ask). */
     @Override
-    public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
+    public int onOfflinePinVerification(TransactionConfig config, CardPresence card) {
+        return enterPin(tx.pinRequest);
     }
 
     @Override
@@ -1246,13 +1246,13 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
 
     @Override
     public int onWaitAppSelect(boolean isFirstSelect, List<CandidateAID> candList) {
+        tx.candidates = candList;
         int candidates = candList == null ? 0 : candList.size();
         return ask(isFirstSelect
                         ? EmvStep.WAIT_APPLICATION_SELECTION
                         : EmvStep.FINAL_APPLICATION_SELECTION,
                 candidates + " candidate AID(s)"
                         + (showsAppSelectDialog(candList) ? "" : ", selecting first"),
-                () -> chooseApplication(candList),
                 EmvConstant.ContactCallbackStatus.USER_CANCEL);
     }
 
@@ -1270,10 +1270,9 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     @Override
     public int onCardHolderPwd(boolean isOnlinePin, boolean supportPINByPass, int leftTimes,
             byte[] pinData) {
-        PinRequest request = new PinRequest(isOnlinePin, supportPINByPass, leftTimes);
+        tx.pinRequest = new PinRequest(isOnlinePin, supportPINByPass, leftTimes);
         return ask(isOnlinePin ? EmvStep.CARDHOLDER_VERIFICATION : EmvStep.OFFLINE_PIN_VERIFICATION,
                 isOnlinePin ? "online PIN" : null,
-                () -> enterPin(request),
                 EmvConstant.ContactCallbackStatus.USER_CANCEL);
     }
 

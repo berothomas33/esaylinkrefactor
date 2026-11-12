@@ -15,7 +15,6 @@ import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.util.EmvLog;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.observers.DisposableObserver;
-import java.util.function.IntSupplier;
 
 public abstract class AbstractEmvBehavior implements EmvBehavior {
 
@@ -166,22 +165,36 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
     }
 
     /**
-     * Shows the step, then asks the cardholder: the question (a dialog, the PIN pad) returns its
-     * result, and that result is the kernel's answer. failClosed when the sale ended before the
-     * question, or while it was open.
+     * Shows the step, then runs its hook, which asks the cardholder (a dialog, the PIN pad) and
+     * returns the result: that result is the kernel's answer. Steps 3, 4, 9 and 10 are asked this
+     * way. failClosed when the sale ended before the question, or while it was open.
      */
-    protected final int ask(EmvStep step, @Nullable String detail, IntSupplier question,
-            int failClosed) {
+    protected final int ask(EmvStep step, @Nullable String detail, int failClosed) {
         if (!goToStep(step, detail)) {
             return failClosed;
         }
-        int result = question.getAsInt();
+        int result = answerOf(step);
         if (!isRunning()) {
             engine.apduTrace().note("EMV", step.getTitle()
                     + " answered after the transaction ended — answering " + failClosed);
             return failClosed;
         }
         return result;
+    }
+
+    private int answerOf(EmvStep step) {
+        switch (step) {
+            case WAIT_APPLICATION_SELECTION:
+                return onWaitApplicationSelection(activeConfig, activeCard);
+            case FINAL_APPLICATION_SELECTION:
+                return onFinalApplicationSelection(activeConfig, activeCard);
+            case CARDHOLDER_VERIFICATION:
+                return onCardholderVerification(activeConfig, activeCard);
+            case OFFLINE_PIN_VERIFICATION:
+                return onOfflinePinVerification(activeConfig, activeCard);
+            default:
+                throw new IllegalArgumentException(step + " is not asked: use goToStep");
+        }
     }
 
     protected final void finishApproved(String message) {
@@ -303,9 +316,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected abstract void onApplicationSelection(TransactionConfig config, CardPresence card);
 
-    protected abstract void onWaitApplicationSelection(TransactionConfig config, CardPresence card);
+    /** Asked (ask): returns the kernel's answer. */
+    protected abstract int onWaitApplicationSelection(TransactionConfig config, CardPresence card);
 
-    protected abstract void onFinalApplicationSelection(TransactionConfig config,
+    /** Asked (ask): returns the kernel's answer. */
+    protected abstract int onFinalApplicationSelection(TransactionConfig config,
             CardPresence card);
 
     protected abstract void onReadApplicationData(TransactionConfig config, CardPresence card);
@@ -317,9 +332,11 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
 
     protected abstract void onProcessRestrictions(TransactionConfig config, CardPresence card);
 
-    protected abstract void onCardholderVerification(TransactionConfig config, CardPresence card);
+    /** Asked (ask): returns the kernel's answer. */
+    protected abstract int onCardholderVerification(TransactionConfig config, CardPresence card);
 
-    protected abstract void onOfflinePinVerification(TransactionConfig config, CardPresence card);
+    /** Asked (ask): returns the kernel's answer. */
+    protected abstract int onOfflinePinVerification(TransactionConfig config, CardPresence card);
 
     protected abstract void onTerminalRiskManagement(TransactionConfig config, CardPresence card);
 
@@ -378,11 +395,10 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 onApplicationSelection(activeConfig, activeCard);
                 break;
             case WAIT_APPLICATION_SELECTION:
-                onWaitApplicationSelection(activeConfig, activeCard);
-                break;
             case FINAL_APPLICATION_SELECTION:
-                onFinalApplicationSelection(activeConfig, activeCard);
-                break;
+            case CARDHOLDER_VERIFICATION:
+            case OFFLINE_PIN_VERIFICATION:
+                break;      // asked: ask runs their hooks and returns the answer
             case READ_APPLICATION_DATA:
                 onReadApplicationData(activeConfig, activeCard);
                 break;
@@ -394,12 +410,6 @@ public abstract class AbstractEmvBehavior implements EmvBehavior {
                 break;
             case PROCESS_RESTRICTIONS:
                 onProcessRestrictions(activeConfig, activeCard);
-                break;
-            case CARDHOLDER_VERIFICATION:
-                onCardholderVerification(activeConfig, activeCard);
-                break;
-            case OFFLINE_PIN_VERIFICATION:
-                onOfflinePinVerification(activeConfig, activeCard);
                 break;
             case TERMINAL_RISK_MANAGEMENT:
                 onTerminalRiskManagement(activeConfig, activeCard);

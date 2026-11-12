@@ -111,11 +111,13 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public void onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
+    public int onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
+        return -1;      // never asked: no kernel yet (fail closed if it ever is)
     }
 
     @Override
-    public void onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
+    public int onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
+        return -1;      // never asked: no kernel yet (fail closed if it ever is)
     }
 
     @Override
@@ -131,11 +133,13 @@ public class IngenicoEmvBehavior extends AbstractEmvBehavior {
     }
 
     @Override
-    public void onCardholderVerification(TransactionConfig config, CardPresence card) {
+    public int onCardholderVerification(TransactionConfig config, CardPresence card) {
+        return -1;      // never asked: no kernel yet (fail closed if it ever is)
     }
 
     @Override
-    public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
+    public int onOfflinePinVerification(TransactionConfig config, CardPresence card) {
+        return -1;      // never asked: no kernel yet (fail closed if it ever is)
     }
 
     @Override

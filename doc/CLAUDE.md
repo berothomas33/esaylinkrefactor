@@ -85,9 +85,11 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 2. **The kernel's order wins.** Steps follow what the kernel really does, even when numbers
    come out of order (contactless 2 → 6 → 5; Visa … → PR → ODA). Never reorder native calls.
 3. **Kernel callbacks are thin adapters.** A callback that needs the cardholder (app
-   selection, PIN) calls `ask(step, detail, question, failClosed)`: the step is shown, the
-   question (the dialog, the PIN pad) returns its result, and that is the answer (since
-   2026-11-12; the hooks of steps 3 / 4 / 9 / 10 are empty). Data callbacks
+   selection, PIN) calls `ask(step, detail, failClosed)`: the step is shown, then its hook
+   asks (the dialog, the PIN pad) and **returns** the result, which is the kernel's answer.
+   The hooks of steps 3 / 4 / 9 / 10 return `int` and are run by `ask` only (the dispatch
+   switch skips them); the callback leaves their data in the vendor's session first
+   (PAX: `tx.pinRequest`, `tx.candidates`). Since 2026-11-12. Data callbacks
    (`emvInputAmount`, `emvUnknowTLVData`, `emvSetParam`) stay in `ContactProcess`. The adapter
    always calls `setCallBackResult`.
 4. **Fail closed.** No answer → `USER_CANCEL` / online failed; never a hang, never approved.
@@ -343,7 +345,7 @@ after**. Each carries docs that match its own code.
   `PosTerminal.behavior` is an `AbstractEmvBehavior`. `AbstractEmvBehavior`: 16 `protected
   abstract onXxx` (`onSearchCard` included; `TRANSACTION_COMPLETION` removed 05/11, `ffd9277`), `readIccTag`,
   `cardSearchListener()`, `goToStep` (the one cancel check), `ask(step, detail,
-  question, failClosed)`, `publish`, `finish*`. `initEmvObserver()` runs at the start of
+  failClosed)` (steps 3 / 4 / 9 / 10, whose hooks return `int`), `publish`, `finish*`. `initEmvObserver()` runs at the start of
   each attempt (`prepare`; it keeps the dispatch observer the last subscriber). The kernel's
   listener (PAX) is registered once per flow and released once, in `finishContactStage` /
   `finishContactlessStage` (`ca1b16a`). `TransactionStep.isEnd()` = COMPLETED,
@@ -386,8 +388,9 @@ the host: `case APPROVED` / `case DECLINED` close the last request, `ENDING` the
 ACKNOWLEDGING / REVERSING / CLOSING_COMPLETED are reports. A step is published only where the
 kernel works: SCRIPT_PROCESSING only for PayWave's second tap (`cf04104`); an offline PIN asks
 step 10 directly, step 9 is the online PIN (`93a798a`). The PIN circle (kernel → `emvGetHolderPwd`
-→ `onCardHolderPwd` → `ask` → the PIN pad returns → `setCallBackResult`, an offline-PIN retry
-loops back) is drawn in Flows §4 / REFERENCE §4 (askStep / answerStep replaced by `ask`, 12/11).
+→ `onCardHolderPwd` → `ask` → the PIN hook returns its result → `setCallBackResult`, an
+offline-PIN retry loops back) is drawn in Flows §4 / REFERENCE §4 (askStep / answerStep
+replaced by `ask` + `int` hooks, 12/11).
 
 **Contactless**: `ClssKernelProcess#supportsGranularSteps()` — granular: EFT, PayPass, PayWave
 [rxSet]; atomic: the other 7 (one call, steps announced from callbacks).

@@ -14,6 +14,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class FakeEmvBehavior extends AbstractEmvBehavior {
 
+    /** The fake kernel's answers: the first application, a PIN accepted; -1 = no answer. */
+    private static final int FIRST_APPLICATION = 0;
+    private static final int PIN_OK = 0;
+    private static final int NO_ANSWER = -1;
+
     private static final long SEARCH_DELAY_MS = 200L;
     private final AtomicBoolean stopSearch = new AtomicBoolean(false);
 
@@ -92,18 +97,20 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
             goToStep(EmvStep.READ_APPLICATION_DATA, "contactless");
             return;
         }
-        goToStep(EmvStep.WAIT_APPLICATION_SELECTION);
-    }
-
-    @Override
-    public void onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
-        goToStep(EmvStep.FINAL_APPLICATION_SELECTION);
-    }
-
-    @Override
-    public void onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
+        ask(EmvStep.WAIT_APPLICATION_SELECTION, null, NO_ANSWER);
+        ask(EmvStep.FINAL_APPLICATION_SELECTION, null, NO_ANSWER);
         publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED));
         goToStep(EmvStep.READ_APPLICATION_DATA);
+    }
+
+    @Override
+    public int onWaitApplicationSelection(TransactionConfig config, CardPresence card) {
+        return FIRST_APPLICATION;
+    }
+
+    @Override
+    public int onFinalApplicationSelection(TransactionConfig config, CardPresence card) {
+        return FIRST_APPLICATION;
     }
 
     @Override
@@ -165,22 +172,24 @@ public class FakeEmvBehavior extends AbstractEmvBehavior {
 
     @Override
     public void onProcessRestrictions(TransactionConfig config, CardPresence card) {
-        goToStep(EmvStep.CARDHOLDER_VERIFICATION);
+        ask(EmvStep.CARDHOLDER_VERIFICATION, null, NO_ANSWER);
+        ask(EmvStep.OFFLINE_PIN_VERIFICATION, null, NO_ANSWER);
+        goToStep(EmvStep.TERMINAL_RISK_MANAGEMENT);
     }
 
     @Override
-    public void onCardholderVerification(TransactionConfig config, CardPresence card) {
-        goToStep(EmvStep.OFFLINE_PIN_VERIFICATION);
+    public int onCardholderVerification(TransactionConfig config, CardPresence card) {
+        return PIN_OK;
     }
 
     @Override
-    public void onOfflinePinVerification(TransactionConfig config, CardPresence card) {
+    public int onOfflinePinVerification(TransactionConfig config, CardPresence card) {
         publish(TransactionStepEvent.builder(TransactionStep.CARDHOLDER_VERIFIED)
                 .put(TransactionStepEvent.KEY_ONLINE_PIN, true)
                 .put(TransactionStepEvent.KEY_PIN_BYPASS, true)
                 .put(TransactionStepEvent.KEY_PIN_TRIES_LEFT, 3)
                 .build());
-        goToStep(EmvStep.TERMINAL_RISK_MANAGEMENT);
+        return PIN_OK;
     }
 
     @Override
