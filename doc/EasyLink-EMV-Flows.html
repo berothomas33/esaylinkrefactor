@@ -125,7 +125,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <div dir="ltr">
 <main>
 <header>
-  <div class="eyebrow">transactionStepObserver · from the code, 2026-11-11 (213762c)</div>
+  <div class="eyebrow">transactionStepObserver · from the code, 2026-11-12 (441c662)</div>
   <h1>EMV flows in EasyLink</h1>
   <p class="lead">A sale from the Sale button to its end: the card, the kernel, the bank, then the acknowledgement or reversal at the bank. Every name on this page exists in the code, and every arrow is a real call. Everything here describes the branch <code>transactionStepObserver</code>.</p>
 </header>
@@ -429,54 +429,52 @@ sequenceDiagram
 
 <section id="ask" dir="ltr" class="en">
   <h2>4. When the kernel waits for a person: <code>askStep</code></h2>
-  <p>During a native call (for example <code>EMVStartTrans</code>) the kernel stops and asks through a callback: choose the application, enter the PIN. It must always get an answer (<code>setCallBackResult</code>), or it waits forever. The callback does not open a screen itself; it asks the responsible step through <code>askStep</code>.</p>
+  <p>During one native call the kernel can stop and ask a question through a callback: choose the application, enter the PIN. It waits until it gets an answer (<code>setCallBackResult</code>). The callback does not open a screen itself: it asks the step that owns the question, with <code>askStep</code>. That step runs <b>inside</b> the step that called the kernel, and its answer goes back to the kernel, which carries on from where it stopped. This is the circle:</p>
+  <h3>The PIN circle (contact)</h3>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 34}}}%%
+%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 36}}}%%
 flowchart TD
-  K["① kernel: onCardHolderPwd(...) waits for a value"]
-  K --> A["② askStep(OFFLINE_PIN_VERIFICATION, …, USER_CANCEL)"]
-  A --> G["③ goToStep → onOfflinePinVerification opens the PIN pad"]
-  G --> ANS["④ answerStep(CONTACT_OK)"]
-  ANS --> CHK{"⑤ answered and still running?"}
-  CHK -- "yes" --> OK["the answer"]
-  CHK -- "cancel / none / exception" --> UC["USER_CANCEL"]
-  OK & UC --> R["⑥ setCallBackResult → the kernel goes on"]
+  S8["① PROCESS_RESTRICTIONS (8)<br/>runContactStartTransaction → native EMVStartTrans<br/>the thread now waits inside the kernel"]
+  CB["② the CVM needs a PIN → callback<br/>ContactProcess · emvGetHolderPwd(tryFlag, remainCnt, pinData)"]
+  GU{"③ ContactProcess guards"}
+  BH["④ PaxEmvBehavior.onCardHolderPwd<br/>tx.pinRequest · askStep(9 online / 10 offline)"]
+  HK["⑤ goToStep → the hook<br/>onCardholderVerification / onOfflinePinVerification<br/>enterPin → PIN pad → answerStep(value)"]
+  RT["⑥ askStep returns the value<br/>(USER_CANCEL: no answer / cancelled / threw)"]
+  SR["⑦ setCallBackResult(result)<br/>the kernel carries on with the CVM"]
+  PF{"⑧ offline PIN<br/>right?"}
+  END["⑨ TRM → TAA → 1st GAC · EMVStartTrans returns<br/>step 8 hands over to 13 (ARQC) or ends"]
+  S8 --> CB --> GU
+  GU -- "normal" --> BH --> HK --> RT --> SR --> PF
+  GU -- "online and offline mixed → EMV_DATA_ERR<br/>pinData[0] ≠ 0 → the kernel's status (1 = timeout)" --> SR
+  PF -- "wrong: emvVerifyPINfailed → EMV_OK<br/>the kernel asks again, one try less" --> CB
+  PF -- "right, or online PIN" --> END
 </pre></div>
   <ul class="facts">
-    <li><b>Fail closed.</b> On cancel, no answer or an exception, <code>askStep</code> answers <code>USER_CANCEL</code> at once. The kernel never waits, and never approves without an answer.</li>
-    <li>Callbacks that ask a person: <code>onWaitAppSelect</code> (application selection) and <code>onCardHolderPwd</code> (PIN). Data callbacks (<code>emvSetParam</code>, <code>emvInputAmount</code>) answer inside <code>ContactProcess</code>, with no step.</li>
+    <li><b>The circle is synchronous.</b> Steps ①–⑨ run on the transaction thread, nested inside each other, and close from the inside out. <code>askStep</code> gets its answer before <code>goToStep</code> returns (§3). That is why the dispatch must never use <code>observeOn</code>.</li>
+    <li><b>Fail closed.</b> No answer, a cancel or an exception → <code>askStep</code> answers <code>USER_CANCEL</code> at once. The kernel never waits forever and never approves without an answer.</li>
+    <li><b>Online PIN</b> asks step 9 (<code>CARDHOLDER_VERIFICATION</code>): PIN pad + PIN key; the bank checks the PIN. <b>Offline PIN</b> asks step 10 (<code>OFFLINE_PIN_VERIFICATION</code>) directly (<code>93a798a</code>): PIN pad only; the kernel checks the PIN with the card.</li>
+    <li><b>Application selection</b> is the same circle: <code>EMVAppSelect</code> → <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>askStep(3 WAIT_ / 4 FINAL_APPLICATION_SELECTION)</code> → a dialog, or the only application → the index back to the kernel.</li>
+    <li><b>Contactless</b> has no PIN callback: the kernel returns first, then our code calls <code>onCardHolderPwd(true, …)</code> itself when the CVM is online PIN (and again for Single Tap, §8). Same <code>askStep</code>, same hook.</li>
   </ul>
-  <h3>In detail: online PIN</h3>
-  <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}}}%%
-sequenceDiagram
-  participant NK as native EMVStartTrans
-  participant L as ContactProcess listener
-  participant PB as PaxEmvBehavior
-  participant AB as askStep
-  participant S as onCardholderVerification
-  NK->>L: emvGetHolderPwd(tryFlag, remainCnt, null)
-  L->>PB: onCardHolderPwd(true, bypass, remain, null)
-  PB->>PB: tx.pinRequest = new PinRequest(...)
-  PB->>AB: askStep(CARDHOLDER_VERIFICATION, USER_CANCEL)
-  AB->>S: goToStep → onCardholderVerification
-  S->>S: enterPin: PIN key, PinService (blocking)
-  S->>AB: answerStep(CONTACT_OK / NO_PASSWORD / USER_CANCEL)
-  alt answered and running
-    AB-->>PB: the answer
-  else no answer / cancelled / threw
-    AB-->>PB: USER_CANCEL + trace
-  end
-  PB-->>L: result (pinRequest cleared in finally)
-  L->>NK: setCallBackResult(result)
-  Note over NK: CVM → TRM → TAA → 1st GAC
-</pre></div>
-  <ul class="facts">
-    <li><code>askStep</code> works only because the hook finishes before <code>goToStep</code> returns (§3). <code>answerStep</code> without <code>askStep</code> does nothing.</li>
-    <li><b>Offline PIN.</b> <code>CARDHOLDER_VERIFICATION</code> is published as an announcement, then <code>askStep(OFFLINE_PIN_VERIFICATION)</code>. Ours is the screen only; the kernel checks the PIN with the card.</li>
-    <li><b>Application selection.</b> <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>askStep(WAIT_ / FINAL_APPLICATION_SELECTION)</code> → <code>answerApplicationSelection</code> (a dialog, or the only application when there is one).</li>
-    <li>Data callbacks stay in <code>ContactProcess</code> and ask no step: <code>emvInputAmount</code>, <code>emvSetParam</code> (→ <code>resetParam(AID)</code>), <code>emvUnknowTLVData</code>. <code>certVerify</code> and <code>emvVerifyPINfailed</code> answer with <code>setCallBackResult</code>.</li>
-  </ul>
+  <h3>The kernel's callbacks: which are used</h3>
+  <p><code>ContactProcess.EmvCallBackListener</code> is made new at each attempt (<code>preTransProcess</code>), so its counters (<code>isFirstCall</code>, <code>tmpRemainCount</code>) start fresh every time. Every callback ends with an answer.</p>
+  <div class="table-wrap"><table>
+    <colgroup><col style="width:22%"><col style="width:30%"><col style="width:48%"></colgroup>
+    <thead><tr><th>Callback</th><th>The kernel calls it</th><th>What we do</th></tr></thead>
+    <tbody>
+      <tr><td><code>emvWaitAppSel</code></td><td>In <code>EMVAppSelect</code>, to choose / confirm the application</td><td><b>Asks a person:</b> <code>onWaitAppSelect</code> → <code>askStep(3 / 4)</code></td></tr>
+      <tr><td><code>emvGetHolderPwd</code></td><td>In <code>EMVStartTrans</code>, when the CVM needs a PIN</td><td><b>Asks a person:</b> the circle above</td></tr>
+      <tr><td><code>emvVerifyPINfailed</code></td><td>The offline PIN was wrong</td><td><code>EMV_OK</code>; the kernel decides: it asks again (②) or goes on</td></tr>
+      <tr><td><code>emvVerifyPINOK</code></td><td>The offline PIN was right</td><td>Log only</td></tr>
+      <tr><td><code>emvSetParam</code></td><td>After application selection, before GPO (inside <code>EMVReadAppData</code>)</td><td>Data: <code>resetParam(AID)</code> sets 9F33 / 9F40 / 9F35 and the PIN bypass rules</td></tr>
+      <tr><td><code>emvInputAmount</code></td><td>The kernel needs the amount</td><td>Data: amount and other amount</td></tr>
+      <tr><td><code>emvUnknowTLVData</code></td><td>The kernel needs a tag it does not have</td><td>Data: 9A, 9F1E, 9F21, 9F37, FF01; any other tag → −1</td></tr>
+      <tr><td><code>certVerify</code></td><td>PBOC cardholder ID check</td><td><code>EMV_DATA_ERR</code>: not supported, fail closed</td></tr>
+      <tr><td><code>emvAdviceProc</code></td><td>Advice</td><td>Log only</td></tr>
+      <tr><td><code>cRFU2</code></td><td>Reserved</td><td>Returns 0</td></tr>
+    </tbody>
+  </table></div>
+  <p>Only the two "asks a person" callbacks reach <code>PaxEmvBehavior</code>. The data callbacks answer inside <code>ContactProcess</code>, with no step.</p>
 </section>
 
 <section id="bank" dir="ltr" class="en">
@@ -630,6 +628,7 @@ classDiagram
       <tr><td>6</td><td><code>SET_TRANSACTION_DATA</code></td><td><code>runContactSetTransactionData</code></td><td>9C, <code>CARD_READ</code></td><td>—</td></tr>
       <tr><td>7</td><td><code>OFFLINE_DATA_AUTHENTICATION</code></td><td><code>runContactCardAuth</code></td><td><code>EMVAddCAPK</code>, <code>EMVCardAuth</code></td><td>—</td></tr>
       <tr><td>8</td><td><code>PROCESS_RESTRICTIONS</code></td><td><code>runContactStartTransaction</code>; then 13 if the card goes online, else the stage ends</td><td><code>EMVStartTrans</code> = PR + CVM + TRM + TAA + 1st GAC</td><td>PIN</td></tr>
+      <tr><td>9 / 10</td><td><code>CARDHOLDER_VERIFICATION</code> / <code>OFFLINE_PIN_VERIFICATION</code></td><td>Asked from inside step 8 (<code>askStep</code>, §4)</td><td>— (the kernel waits in <code>EMVStartTrans</code>)</td><td>PIN</td></tr>
       <tr><td>13</td><td><code>ONLINE_AUTHORIZATION</code></td><td><code>onOnlineAuthorization</code> → <code>askTheBank</code> → <code>runContactOnline</code>; then 14</td><td>— (the bank)</td><td>—</td></tr>
       <tr><td>14</td><td><code>ISSUER_AUTHENTICATION</code></td><td><code>runContactIssuerAuthentication</code>; then the stage ends</td><td><code>EMVCompleteTrans</code> = ARPC + scripts + 2nd GAC</td><td>—</td></tr>
     </tbody>
@@ -672,7 +671,7 @@ sequenceDiagram
     <li><b>When the sale goes to the bank.</b> When the card answers with an ARQC; a refund asks for an ARQC like a sale. The exception: a TC (<code>RESULT_OFFLINE_APPROVED</code>) on this online-only terminal is sent without an ARQC, and the bank's answer is the result. An AAC is a decline.</li>
     <li><b>Each step does its own work, then hands over.</b> <code>PROCESS_RESTRICTIONS</code> → <code>ONLINE_AUTHORIZATION</code> → <code>ISSUER_AUTHENTICATION</code>, each in its own hook. <code>finishContactStage</code> runs in the last step that works, or where the path stops.</li>
     <li><b>The 2nd GENERATE AC always follows the bank</b> (AET-146), even when the bank declined or did not answer. Only a cancel while waiting for the bank skips it: <code>goToStep(ISSUER_AUTHENTICATION)</code> returns <code>false</code> and the stage ends.</li>
-    <li><b>Scripts</b> run inside <code>EMVCompleteTrans</code>, so in contact <code>SCRIPT_PROCESSING</code> is a label, not a stage.</li>
+    <li><b>Scripts</b> run inside <code>EMVCompleteTrans</code> (step 14), so contact never publishes <code>SCRIPT_PROCESSING</code> (<code>cf04104</code>). Step 15 appears only for PayWave's second tap, where the scripts are a call of their own.</li>
     <li><code>TERMINAL_RISK_MANAGEMENT</code> and <code>TERMINAL_ACTION_ANALYSIS</code> are not published: they have no native call of their own (they run inside <code>EMVStartTrans</code>).</li>
     <li><b>The outcome</b> is reported once: <code>completeApproved</code> / <code>completeDeclined</code> → <code>finishApproved</code> / <code>finishDeclined</code> (no completion step).</li>
   </ul>
@@ -848,7 +847,7 @@ flowchart TD
       <tr><td><code>PROCESS_RESTRICTIONS</code></td><td>No call</td><td><code>Clss_ProcRestric_Wave</code></td><td><code>Clss_ProcRestrict_EFT</code></td></tr>
       <tr><td>The bundle</td><td><code>Clss_TransProc_MC_MChip</code> / <code>_Mag</code> = ODA+PR+CVM+TRM+TAA+GAC, then See Phone</td><td><code>genTransResult</code>: <code>Clss_GetCvmType_Wave</code> + AC type</td><td><code>Clss_CVMProc_EFT</code> + <code>Clss_PostTAAProc_EFT</code></td></tr>
       <tr><td>2nd tap / completion</td><td><code>completeTransProcess</code></td><td>FinalSelect + <code>Clss_IssuerAuth_Wave</code></td><td><code>Clss_CompleteOnlineTrans_EFT</code> ⚠ not called</td></tr>
-      <tr><td><code>SCRIPT_PROCESSING</code></td><td>default</td><td><code>Clss_IssScriptProc_Wave</code></td><td>default</td></tr>
+      <tr><td><code>SCRIPT_PROCESSING</code></td><td>Not published</td><td><code>Clss_IssScriptProc_Wave</code> (second tap)</td><td>Not published</td></tr>
     </tbody>
   </table></div>
   <h3>The result: <code>checkContactlessResult</code></h3>

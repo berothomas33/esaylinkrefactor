@@ -380,7 +380,11 @@ ISSUER_AUTH (`EMVCompleteTrans`) → the outcome reported once (`finish*`, no co
 to the next (`5d27307`): the host and the issuer no longer run inside the PR hook. Contactless
 the same; the card-read work (9F1C, `CARD_READ`) is in `onReadCardOk` (`1d9bbeb`). Closings at
 the host: `case APPROVED` / `case DECLINED` close the last request, `ENDING` the rest (`9fe7f0a`);
-ACKNOWLEDGING / REVERSING / CLOSING_COMPLETED are reports.
+ACKNOWLEDGING / REVERSING / CLOSING_COMPLETED are reports. A step is published only where the
+kernel works: SCRIPT_PROCESSING only for PayWave's second tap (`cf04104`); an offline PIN asks
+step 10 directly, step 9 is the online PIN (`93a798a`). The PIN circle (kernel → `emvGetHolderPwd`
+→ `onCardHolderPwd` → `askStep` → hook → `setCallBackResult`, an offline-PIN retry loops back) is
+drawn in Flows §4 / REFERENCE §4; `askStep` / `goToStep` simplified in `441c662`.
 
 **Contactless**: `ClssKernelProcess#supportsGranularSteps()` — granular: EFT, PayPass, PayWave
 [rxSet]; atomic: the other 7 (one call, steps announced from callbacks).

@@ -1,120 +1,159 @@
-# EasyLink — مرجع الكود
+# EasyLink — code reference
 
-> مكتوب من كود فرع **`transactionStepObserver`** (2026-11-11، `213762c`). كل اسم هنا موجود في الكود.
-> الرسوم في `doc/EasyLink-EMV-Flows.html` / `.pdf` (و https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh). هذا الملف هو المرجع المختصر: أين كل شيء، ومن يملكه، والقواعد.
-> ⚠ = لم يُصلَح بعد، والرقم بين القوسين رقمه في `doc/BACKLOG.md`. آخر تجربة كاملة على الجهاز عند `19cc019` (chip، tap again)؛ ما بعدها لم يُجرَّب على الجهاز إلا ما يُذكر.
-> إذا تغيّر الكود ولم يتغيّر المرجع، فالكود هو الصحيح.
+> Written from the code of branch **`transactionStepObserver`** (2026-11-12, `441c662`). Every name here exists in the code.
+> The drawings: `doc/EasyLink-EMV-Flows.html` / `.pdf` (and https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh). This file is the short reference: where things are, who owns them, the rules.
+> ⚠ = not fixed yet; the number in brackets is its `doc/BACKLOG.md` item. Last full device test at `19cc019` (chip, tap again); later work is device-tested only where it says so.
+> If the code changed and this file did not, the code is right.
 
-## الفهرس
+## Contents
 
-1. [أين كل شيء](#1-أين-كل-شيء)
-2. [من يملك ماذا](#2-من-يملك-ماذا)
-3. [العملية وخطواتها](#3-العملية-وخطواتها)
-4. [خطوات الـ EMV](#4-خطوات-الـ-emv)
-5. [الطريق إلى البنك](#5-الطريق-إلى-البنك)
-6. [الـ EMV params](#6-الـ-emv-params)
-7. [الـ Threads](#7-الـ-threads)
-8. [عند التعديل](#8-عند-التعديل)
-9. [الفرق مع paxEmvBehaviorSplit](#9-الفرق-مع-paxemvbehaviorsplit)
+1. [Where everything is](#1-where-everything-is)
+2. [Who owns what](#2-who-owns-what)
+3. [The sale and its steps](#3-the-sale-and-its-steps)
+4. [EMV steps](#4-emv-steps)
+5. [The way to the bank](#5-the-way-to-the-bank)
+6. [EMV params](#6-emv-params)
+7. [Threads](#7-threads)
+8. [When you change something](#8-when-you-change-something)
+9. [The difference with paxEmvBehaviorSplit](#9-the-difference-with-paxemvbehaviorsplit)
 
 ---
 
-## 1. أين كل شيء
+## 1. Where everything is
 
-| ماذا | أين |
+| What | Where |
 |---|---|
-| الجهاز، العملية، خطواتها، الإلغاء، النهاية الآمنة | `core/.../terminal/PosTerminal.java` (+ `Transaction`) |
-| الـ EMV المشترك: المحاولات، `goToStep`، `askStep`، `askTheBank`، الـ 16 `onXxx` | `core/.../terminal/AbstractEmvBehavior.java` |
-| طريق الـ EMV إلى البنك | `core/.../terminal/BankRequest.java` |
-| شريط خطوات الـ EMV والـ APDU trace | `core/.../emv/EmvEngine.java`، `ApduTrace.java` |
-| field 55 | `core/.../emv/Field55.java` (+ `field55()` في كل vendor) |
-| البطاقة | `core/.../card/CardPresence.java` (`isEmv()` / `isNonEmv()`) |
-| PAX: الخطوات، ردود الـ kernel، الطريق إلى البنك | `vendor-pax/.../PaxEmvBehavior.java` |
-| PAX: البحث، الـ PIN، رد البنك بشكل PAX، القارئات، بيانات البطاقة، الإعدادات، المحاولة | `PaxCardSearch`، `PaxPinEntry`، `PaxHostAnswer`، `PaxReaders`، `PaxCardData`، `PaxSetup`، `PaxKernelSession` |
-| الـ contact kernel | `vendor-pax/libs/sdk/emvlib/dpas/.../ContactProcess.java` |
-| الـ contactless kernels | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` + `Clss*Process` |
-| الاتصال بالبنك | `network/.../SaleCommunicationBehavior.java`، `HostApiClient.java` |
-| الـ params (cache، XML، التنزيل) | `vendor-pax/libs/ours/bizentity/.../EmvParamService.java`، `EmvParamUpdater.java` |
+| The terminal, the sale, its steps, cancel, the safe end | `core/.../terminal/PosTerminal.java` (+ `Transaction`) |
+| The shared EMV: attempts, `goToStep`, `askStep`, `askTheBank`, the 16 `onXxx` hooks | `core/.../terminal/AbstractEmvBehavior.java` |
+| The EMV's way to the bank | `core/.../terminal/BankRequest.java` |
+| The EMV step stream (banner, dispatch) and the APDU trace | `core/.../emv/EmvEngine.java`, `ApduTrace.java` |
+| Field 55 | `core/.../emv/Field55.java` (+ `field55()` in each vendor) |
+| The card | `core/.../card/CardPresence.java` (`isEmv()` / `isNonEmv()`) |
+| PAX: the steps, the kernel callbacks, the way to the bank | `vendor-pax/.../PaxEmvBehavior.java` |
+| PAX: search, PIN, the bank's answer in PAX shape, readers, card data, setup, one attempt's notes | `PaxCardSearch`, `PaxPinEntry`, `PaxHostAnswer`, `PaxReaders`, `PaxCardData`, `PaxSetup`, `PaxKernelSession` |
+| The contact kernel and its callbacks | `vendor-pax/libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` (`EmvCallBackListener`) |
+| The contactless kernels | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` + `Clss*Process` (DPAS: `emvlib/dpas`) |
+| The bank | `network/.../SaleCommunicationBehavior.java`, `HostApiClient.java` |
+| Params (cache, XML, download) | `vendor-pax/libs/ours/bizentity/.../EmvParamService.java`, `EmvParamUpdater.java` |
 
-## 2. من يملك ماذا
+## 2. Who owns what
 
-كل حالة لها مالك واحد ونسخة واحدة:
+Each piece of state has one owner and one copy:
 
-| الحالة | المالك |
+| State | Owner |
 |---|---|
-| الجهاز مشغول | `PosTerminal.current` |
-| حالة العملية (قيد التنفيذ / انتهت / أُلغيت) | خطواتها: `Transaction.decision()` (لا field) |
-| خطوات العملية | `Transaction.steps` (`ReplaySubject`، وهو الـ lock أيضًا؛ يكتمل بعد النهاية) |
-| خطوات الـ EMV | `EmvEngine.emvSteps` (واحد للجهاز كله، لا يكتمل أبدًا) |
-| إعادة المحاولة | `AbstractEmvBehavior` (`requestRetry` / `retryCount()`) |
-| رد البنك عند الـ EMV | `AbstractEmvBehavior.bankAnswer()` (يُمسح مع كل محاولة، وفي نهاية `run`) |
-| رد البنك للنهاية الآمنة | `Transaction` → `OnlineRequest.answer` |
-| ما عُرف في المحاولة الحالية (PAX) | `PaxKernelSession` (جديد مع كل محاولة) |
+| The terminal is busy | `PosTerminal.current` |
+| The sale's state (running / ended / cancelled) | Its steps: `Transaction.decision()` (no field) |
+| The sale's steps | `Transaction.steps` (`ReplaySubject`, also the lock; completes after the end) |
+| The EMV steps | `EmvEngine.emvSteps` (one for the terminal, never completes) |
+| Retry | `AbstractEmvBehavior` (`requestRetry` / `retryCount()`) |
+| The answer of the step being asked | `AbstractEmvBehavior.stepAnswer` (`askStep` / `answerStep`) |
+| The bank's answer, for the EMV | `AbstractEmvBehavior.bankAnswer()` (cleared at each attempt and at the end of `run`) |
+| The bank's answer, for the safe end | `Transaction` → `OnlineRequest.answer` |
+| What one attempt knows (PAX) | `PaxKernelSession` (new at each attempt) |
 
-- الـ EMV (`AbstractEmvBehavior` والـ vendor) لا يعرف الـ threads ولا الانشغال ولا البنك مباشرة؛ معه `BankRequest` فقط.
-- `PosTerminal` لا يعرف أي منطق EMV.
-- الشاشة لا تحتفظ بحالة العملية، ولا تعرف أي vendor.
+- The EMV (`AbstractEmvBehavior` + vendor) knows nothing of threads, the busy state or the bank; it has a `BankRequest` only.
+- `PosTerminal` holds no EMV logic.
+- The screen holds no sale state and knows no vendor.
 
-## 3. العملية وخطواتها
+## 3. The sale and its steps
 
-كل خطوة تدخل من باب واحد، `publish` (يُسقط ما يأتي بعد القرار، قبل الـ lock وتحته)، ثم يشغّل `TransactionStepObserver` الـ case الخاص بها في `dispatchTransactionStep`:
+Every step enters through one method, `publish` (it drops what comes after the decision, checked before the lock and again under it). `TransactionStepObserver` then runs the step's case in `dispatchTransactionStep`:
 
-| الخطوة | الدالة | ماذا تفعل |
+| Step | Method | Does |
 |---|---|---|
-| `TRANSACTION_STARTED` | `onTransactionStarted` | تنقل العملية إلى الـ transaction thread (`runTransaction`) |
-| `CANCELLING` | `onCancelling` | توقف البحث عن البطاقة |
-| `APPROVED` | `closeLast(ACKNOWLEDGING)` | إن وافق البنك على آخر طلب: تأكيد عنده (`closeAtHost`) |
-| `DECLINED` | `closeLast(REVERSING)` | إن وافق البنك على آخر طلب ورفض الكارت: إلغاء عنده |
-| `ENDING` | `onEnding` | كل طلب بلا `ACKNOWLEDGING` / `REVERSING` بالـ id نفسه يُلغى إن كان البنك ربما وافق (بعد cancel، أو FAILED، أو محاولة سابقة). ثم يتحرر الجهاز، وتُسلَّم النهاية، ثم `steps.onComplete()` |
-| الباقي | — | تقرير للشاشة: `ONLINE_*`، `CARD_*`، `SINGLE_TAP_PIN_REQUIRED`، `FAILED`، `ACKNOWLEDGING` / `REVERSING` / `CLOSING_COMPLETED`، `COMPLETED` / `ERROR` / `CANCELLED` |
+| `TRANSACTION_STARTED` | `onTransactionStarted` | Moves the sale to the transaction thread (`runTransaction`) |
+| `CANCELLING` | `onCancelling` | Stops the card search |
+| `APPROVED` | `closeLast(ACKNOWLEDGING)` | If the bank approved the last request: acknowledge it (`closeAtHost`) |
+| `DECLINED` | `closeLast(REVERSING)` | If the bank approved the last request and the card declined: reverse it |
+| `ENDING` | `onEnding` | Reverse every request with no `ACKNOWLEDGING` / `REVERSING` for its id, if the bank may have approved it (after a cancel, `FAILED`, or an earlier attempt). Then free the terminal, deliver the end, complete the steps |
+| Any other | — | A report for the screen: `ONLINE_*`, `CARD_*`, `SINGLE_TAP_PIN_REQUIRED`, `FAILED`, `ACKNOWLEDGING` / `REVERSING` / `CLOSING_COMPLETED`, `COMPLETED` / `ERROR` / `CANCELLED` |
 
-**الترتيب:** `TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → … → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED|DECLINED → (ACKNOWLEDGING|REVERSING → CLOSING_COMPLETED) → ENDING → (REVERSING → CLOSING_COMPLETED)… → COMPLETED`، أو `FAILED → ENDING → … → ERROR`، أو `CANCELLING → ENDING → … → CANCELLED`.
+**Order:** `TRANSACTION_STARTED → WAITING_FOR_CARD → CARD_DETECTED → … → ONLINE_REQUIRED → ONLINE_PROCESSING → ONLINE_COMPLETED → APPROVED | DECLINED → (ACKNOWLEDGING | REVERSING → CLOSING_COMPLETED) → ENDING → (REVERSING → CLOSING_COMPLETED)… → COMPLETED`, or `FAILED → ENDING → … → ERROR`, or `CANCELLING → ENDING → … → CANCELLED`.
 
-- **حالة العملية هي خطواتها (لا field):** أول خطوة "قرار" تُسلَّم هي الحالة: `decision()` تبحث في الخطوات المحفوظة (`ReplaySubject`، يحفظ كل شيء) عن أول `CANCELLING` أو `APPROVED` أو `DECLINED` أو `FAILED` (`TransactionStep.isDecision()`). `isRunning()` = لا قرار؛ `isCancelled()` = القرار `CANCELLING`. أول قرار يكسب (في `publish`)، وما بعده يُتجاهل.
+**The state is the steps.** The first decision step delivered is the state. `decision()` looks through the stored steps for the first `CANCELLING`, `APPROVED`, `DECLINED` or `FAILED` (`TransactionStep.isDecision()`). `isRunning()` = no decision; `isCancelled()` = the decision is `CANCELLING`. The first decision wins; later ones are dropped.
 
-| القرار | من أين | النهاية التي تُسلَّم أخيرًا (`endOfDecision`) |
+| Decision | From | The end delivered last (`endOfDecision`) |
 |---|---|---|
 | `CANCELLING` | `cancel()` | `CANCELLED` |
-| `APPROVED` / `DECLINED` | `finishApproved` / `finishDeclined` → `publish` (الخطوة تُضبط هناك دائمًا) | `COMPLETED` |
-| `FAILED` + الرسالة | `finishError` / `fail(message)`، أو الـ `finally` ("Transaction ended without an outcome") | `ERROR` بالرسالة نفسها |
+| `APPROVED` / `DECLINED` | `finishApproved` / `finishDeclined` → `publish` (the step is forced there) | `COMPLETED` |
+| `FAILED` + message | `finishError` / `fail(message)`, or the `finally` ("Transaction ended without an outcome") | `ERROR` with the same message |
 
-- **لماذا `FAILED`:** `ERROR` هي النهاية التي تعرضها الشاشة، والجهاز مشغول حتى تنتهي الإغلاقات. فالفشل يحتاج خطوة تظهر لحظة حدوثه، والنهاية تأتي بعدها.
-- **النهاية:** الـ `finally` في `runTransaction` يتأكد أن هناك قرارًا ويسلّم `ENDING`. الجهاز يبقى مشغولًا حتى تنتهي كل الإغلاقات، ثم `current = null`، ثم تُسلَّم النهاية.
-- **بعد النهاية لا يبقى شيء معلّقًا** (`213762c`):
-  - `onEnding` تنشر النهاية ثم `steps.onComplete()`: كل من اشترك يُترك دون dispose. الخطوات تبقى (`decision()`، ومن يشترك متأخرًا يصله كل شيء ثم الـ complete)، و `steps().blockingLast()` ترجع.
-  - `AbstractEmvBehavior.run` في الـ `finally`: `forgetTransaction()` توقف الـ dispatcher الخاص بخطوات الـ EMV، وتمسح `transaction` و `activeConfig` (فيه field 55) و `activeCard` و `cardSearch` و `bankAnswer`. الـ vendors تقرأ هذه الحقول داخل `run` فقط.
-  - `emvSteps` لا يكتمل (لو اكتمل لابتلع كل `goToStep` في العملية التالية). الشاشة تشترك فيه لكل عملية: `takeUntil` نهايتها (`MainViewModel.emvStepsOfTrx`).
-- **الإلغاء:** `cancel()` ينشر `CANCELLING` (قرار). يتوقف الـ EMV عند أول `goToStep`. لا يُقاطَع الـ thread أبدًا.
-- **الـ vendor لا يقرر بالنشر:** `AbstractEmvBehavior.publish` يُسقط كل خطوة قرار أو نهاية.
-- **إعادة المحاولة:** يطلبها الـ EMV (`requestRetry`)، ثم يبدأ `run` محاولة جديدة من `TERMINAL_INITIALIZATION` في العملية نفسها.
-- ⚠ الـ cases تعمل والـ lock مأخوذ، ومعها نداءات البنك (التأكيد / الإلغاء)؛ لذلك `publish` تنظر في القرار قبل أخذ الـ lock، فلا ينتظر `cancel` الإغلاقات. لذلك الخطوات التي قد تنتظر البنك أو شخصًا قبل تحديد النهاية تبقى تقارير.
+- **Why `FAILED`:** `ERROR` is the end the screen shows, and the terminal stays busy until the closings finish. A failure needs a step at the moment it happens; the end comes later.
+- **The end:** the `finally` of `runTransaction` makes sure there is a decision and publishes `ENDING`. The terminal stays busy until every closing is done; then `current = null`, then the end is delivered.
+- **Nothing stays attached after the end** (`213762c`):
+  - `onEnding` delivers the end, then `steps.onComplete()`: every subscriber is released without disposing. The steps stay readable (`decision()`, and a late subscriber gets them all, then the completion).
+  - `AbstractEmvBehavior.run` ends with `forgetTransaction()` in a `finally`: the EMV dispatcher is disposed and `transaction`, `activeConfig` (it carries field 55), `activeCard`, `cardSearch`, `bankAnswer` are cleared. Vendors read these fields inside `run` only.
+  - `emvSteps` never completes: it belongs to the terminal, and completing it would swallow the next sale's `goToStep`. The screen listens to it per sale, until the sale ends (`MainViewModel.emvStepsOfTrx`, `takeUntil`).
+- **Cancel:** `cancel()` publishes `CANCELLING`. The EMV stops at its next `goToStep`. The thread is never interrupted.
+- **A vendor only reports:** `AbstractEmvBehavior.publish` drops any decision or end step.
+- **Retry:** the EMV asks for it (`requestRetry`); `run` then starts a new attempt from `TERMINAL_INITIALIZATION`, in the same sale.
+- ⚠ The cases run while the lock is held, including the bank calls of the closings. So `publish` checks the decision before taking the lock, and `cancel()` never waits for a closing. Steps that may wait for the bank or a person stay reports, with no case.
 
-## 4. خطوات الـ EMV
+## 4. EMV steps
 
-**القواعد:** لا يستدعي أحد `onXxx` مباشرة، بل `goToStep` (التي تُسقط الخطوة بعد النهاية وتعيد `false`). التشغيل متزامن على الـ transaction thread (بلا `observeOn` ولا serialize). الـ callback الذي ينتظر شخصًا يسأل الخطوة عبر `askStep`، ويرد دائمًا (`USER_CANCEL` عند الشك).
+**Rules.** Nobody calls an `onXxx` hook directly; `goToStep` does. `goToStep` drops the step and returns `false` when the sale has ended or was cancelled (with a "step dropped" trace line). The dispatch is synchronous on the transaction thread (no `observeOn`, no serialize). A callback that waits for a person asks the step that owns the question with `askStep`, and always answers (`USER_CANCEL` when in doubt).
 
 | # | EmvStep | Contact (PAX) | Contactless granular | Contactless atomic | Swipe / Manual |
 |---|---|---|---|---|---|
-| 0 | TERMINAL_INITIALIZATION | `PaxKernelSession` جديد + `prepareKernel`، ثم `searchCard()` | = | = | = |
+| 0 | TERMINAL_INITIALIZATION | New `PaxKernelSession` + `prepareKernel`, then `searchCard()` | = | = | = |
 | 1 | SEARCH_CARD | `PaxCardSearch.search` | = | = | = |
 | 2 | APPLICATION_SELECTION | `runContactAppSelect` (`EMVAppSelect`) | `runContactlessAppSelect` | = | — |
-| 3 / 4 | WAIT / FINAL_APPLICATION_SELECTION | `askStep` ← `onWaitAppSelect` | = | = | — |
-| 5 | READ_APPLICATION_DATA | `runContactReadAppData` (`EMVReadAppData`) | `runContactlessReadAppData` | من `onReadCardOk`، بعد 6 (بلا عمل) | `CARD_READ` ← 13 |
-| 6 | SET_TRANSACTION_DATA | `runContactSetTransactionData` (9C) | `runContactlessSetTransactionData` | من `onReadCardOk`، قبل 5 (بلا عمل) | — |
+| 3 / 4 | WAIT / FINAL_APPLICATION_SELECTION | Asked from inside 2: `emvWaitAppSel` → `onWaitAppSelect` → `askStep` | = | = | — |
+| 5 | READ_APPLICATION_DATA | `runContactReadAppData` (`EMVReadAppData`) | `runContactlessReadAppData` | From `onReadCardOk`, after 6 (no work) | `CARD_READ` → 13 |
+| 6 | SET_TRANSACTION_DATA | `runContactSetTransactionData` (9C) | `runContactlessSetTransactionData` | From `onReadCardOk`, before 5 (no work) | — |
 | 7 | OFFLINE_DATA_AUTHENTICATION | `runContactCardAuth` (`EMVCardAuth`) | `runContactlessCardAuth` | — | — |
-| 8 | PROCESS_RESTRICTIONS | `runContactStartTransaction` (`EMVStartTrans` = PR+CVM+TRM+TAA+1st GAC)، ثم 13 إن ذهب الكارت إلى البنك، وإلا تنتهي المرحلة | `runContactlessProcessRestrictions` ← `runContactlessStartTransaction` (مثله) | الاستدعاء الواحد كله، ثم مثله | — |
-| 9 / 10 | CARDHOLDER / OFFLINE_PIN_VERIFICATION | `askStep` ← `onCardHolderPwd` | online PIN بعد الاستدعاء | = | — |
-| 11 / 12 | TERMINAL_RISK_MANAGEMENT / ACTION_ANALYSIS | لا تُنشر (داخل `EMVStartTrans`) | = | = | — |
-| 13 | ONLINE_AUTHORIZATION | `askTheBank()` (أول سطر في الـ hook، لكل البطاقات)، ثم `runContactOnline`: 14 دائمًا (الـ 2nd GAC) | `runContactlessOnline`: 14 إن وافق البنك، وإلا النهاية؛ `pinRequired` ← `runSingleTap` ← 13 مرة ثانية (§5) | = | `askTheBank()` ثم `finishNonEmv`: النتيجة من `bankAnswer()` |
-| 14 | ISSUER_AUTHENTICATION | `runContactIssuerAuthentication`: `EMVCompleteTrans` (ARPC + scripts + 2nd GAC)، ثم نهاية المرحلة | `runContactlessIssuerAuthentication`: Visa: الـ tap الثاني + `Clss_IssuerAuth_Wave`، ثم النهاية | = | — |
-| 15 | SCRIPT_PROCESSING | عنوان فقط (داخل `EMVCompleteTrans`) | Visa: `Clss_IssScriptProc_Wave` | = | — |
+| 8 | PROCESS_RESTRICTIONS | `runContactStartTransaction` (`EMVStartTrans` = PR + CVM + TRM + TAA + 1st GAC); then 13 if the card goes online, else the stage ends | `runContactlessProcessRestrictions` → `runContactlessStartTransaction` (the same) | The one call does it all, then the same | — |
+| 9 | CARDHOLDER_VERIFICATION | Online PIN, asked from inside 8 (the PIN circle below) | Online PIN, called after the kernel returns | = | — |
+| 10 | OFFLINE_PIN_VERIFICATION | Offline PIN, asked from inside 8 | — | — | — |
+| 11 / 12 | TERMINAL_RISK_MANAGEMENT / ACTION_ANALYSIS | Not published (inside `EMVStartTrans`) | = | = | — |
+| 13 | ONLINE_AUTHORIZATION | `askTheBank()` (first line of the hook, every card), then `runContactOnline`: always 14 (the 2nd GAC) | `runContactlessOnline`: 14 if the bank approved, else the end; `pinRequired` → `runSingleTap` → 13 again (§5) | = | `askTheBank()`, then `finishNonEmv`: the result is `bankAnswer()` |
+| 14 | ISSUER_AUTHENTICATION | `runContactIssuerAuthentication`: `EMVCompleteTrans` (ARPC + scripts + 2nd GAC), then the stage ends | `runContactlessIssuerAuthentication`: Visa: the second tap + `Clss_IssuerAuth_Wave`, then the end | = | — |
+| 15 | SCRIPT_PROCESSING | Not published (the scripts run inside 14) | Visa second tap only: `Clss_IssScriptProc_Wave` | — | — |
 
-- **لا `TRANSACTION_COMPLETION`:** لم يكن فيها عمل kernel في أي vendor، فحُذفت (16 hook الآن). بعد نهاية المرحلة (`finishXStage` → `checkXResult`) تُبلَّغ النتيجة مباشرة (`completeApproved` / `completeDeclined` → `finishApproved` / `finishDeclined`، أو `finishError`).
-- **كل خطوة تعمل عملها ثم تسلّم التالية** (`advanceContactStage` / `advanceContactlessStage`). لا تعمل خطوة داخل أخرى: البنك والـ issuer لم يعودا داخل الـ hook الخاص بـ `PROCESS_RESTRICTIONS`. نهاية المرحلة (`finishContactStage` / `finishContactlessStage`: إغلاق الـ reader ثم قراءة النتيجة) في آخر خطوة تعمل، أو حيث يتوقف المسار. إن كانت العملية قد انتهت (إلغاء، أو خطأ قبلها) لا تُقرأ النتيجة مرة ثانية: العملية تنتهي مرة واحدة.
-- الكود يتبع ترتيب الـ kernel لا الأرقام (PayWave: PR ثم ODA؛ atomic: تُعلَن 5 و 6 حين يقول الـ kernel إنهما حدثتا).
-- الكل `protected abstract`: vendor ينسى خطوة يحصل على خطأ ترجمة. و `onTerminalInitialization` يجب أن تنتهي بـ `searchCard()`.
+- **Each step does its own work, then hands over** (`advanceContactStage` / `advanceContactlessStage`). The end of the stage (`finishContactStage` / `finishContactlessStage`: close the reader, read the result) runs in the last step that works, or where the path stops. If the sale has already ended, the result is not read twice.
+- **A step is published only where the kernel does its work** (rules 1 and 11). Two labels were removed: `SCRIPT_PROCESSING` at every approval (`cf04104`, it ran no script) and `CARDHOLDER_VERIFICATION` before an offline PIN (`93a798a`, its hook did nothing).
+- **No `TRANSACTION_COMPLETION`:** no vendor did kernel work there, so it is gone (16 hooks). The outcome is reported once: `completeApproved` / `completeDeclined` → `finishApproved` / `finishDeclined`, or `finishError`.
+- **The kernel's order wins, not the numbers** (PayWave: PR, then ODA; atomic kernels announce 5 and 6 when the kernel says they happened).
+- Every hook is `protected abstract`: a vendor that forgets one does not compile. `onTerminalInitialization` must end with `searchCard()`.
 
-## 5. الطريق إلى البنك
+### The PIN circle (`askStep`)
+
+During a native call the kernel can stop and ask a question through a callback. The callback asks the step that owns the question; that step runs **inside** the step that called the kernel; its answer goes back and the kernel carries on from where it stopped:
+
+```
+① step 8 (PROCESS_RESTRICTIONS) calls the kernel: EMVStartTrans — the thread waits inside it
+② the CVM needs a PIN → ContactProcess.emvGetHolderPwd(tryFlag, remainCnt, pinData)
+③ ContactProcess guards: online and offline mixed → EMV_DATA_ERR; pinData[0] ≠ 0 → the kernel's status (1 = timeout)
+④ → PaxEmvBehavior.onCardHolderPwd: tx.pinRequest, then askStep(9 online | 10 offline)
+⑤ → goToStep → the hook → enterPin → PIN pad → answerStep(value)
+⑥ ← askStep returns the value (USER_CANCEL: no answer / cancelled / threw)
+⑦ ← setCallBackResult(result): the kernel carries on with the CVM
+⑧ offline PIN wrong → emvVerifyPINfailed → EMV_OK → the kernel asks again: back to ② (one try less)
+⑨ EMVStartTrans returns (TRM → TAA → 1st GAC) → step 8 hands over to 13 (ARQC) or ends
+```
+
+- `askStep` works only because the hook finishes before `goToStep` returns. That is why the dispatch must stay synchronous.
+- `askStep` keeps an outer answer when an ask happens inside another (`aNestedAskKeepsEachAnswerApart`), and answers `failClosed` when the hook answered after the sale ended (`anAnswerGivenAfterACancelGetsTheFailClosedValue`).
+- Application selection is the same circle: `EMVAppSelect` → `emvWaitAppSel` → `onWaitAppSelect` → `askStep(3 / 4)` → a dialog, or the only application.
+- Contactless has no PIN callback: the kernel returns first, then our code calls `onCardHolderPwd(true, …)` itself (CVM = online PIN, and Single Tap).
+
+**The kernel's callbacks** (`ContactProcess.EmvCallBackListener`, new at each attempt in `preTransProcess`, so its counters start fresh):
+
+| Callback | The kernel calls it | What we do |
+|---|---|---|
+| `emvWaitAppSel` | In `EMVAppSelect`, to choose / confirm the application | Asks a person: `onWaitAppSelect` → `askStep(3 / 4)` |
+| `emvGetHolderPwd` | In `EMVStartTrans`, when the CVM needs a PIN | Asks a person: the circle above |
+| `emvVerifyPINfailed` | The offline PIN was wrong | `EMV_OK`; the kernel asks again or goes on |
+| `emvVerifyPINOK` | The offline PIN was right | Log only |
+| `emvSetParam` | After application selection, before GPO | Data: `resetParam(AID)` (9F33 / 9F40 / 9F35, PIN bypass) |
+| `emvInputAmount` | The kernel needs the amount | Data: amount and other amount |
+| `emvUnknowTLVData` | The kernel needs a tag it does not have | Data: 9A, 9F1E, 9F21, 9F37, FF01; any other → −1 |
+| `certVerify` | PBOC cardholder ID check | `EMV_DATA_ERR` (not supported, fail closed) |
+| `emvAdviceProc` | Advice | Log only |
+| `cRFU2` | Reserved | Returns 0 |
+
+## 5. The way to the bank
 
 ```java
 // AbstractEmvBehavior — the EMV asks the bank
@@ -125,32 +164,32 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 // SaleCommunicationBehavior — connectToHost: token → exchange → sale / refund (plain steps)
 ```
 
-- **لماذا `attach`:** `PosTerminal` يحتاج الـ behavior في الـ constructor الخاص به، والـ behavior يحتاج `sendToBank`، فيُوصَل بعد الإنشاء مرة واحدة (setter injection).
-- **`startOnlineProcess()` و `confirmCard()`** في واجهات PAX فقط: لا يناديهما الـ kernel ولا كودنا. الذهاب إلى البنك هو خطوة `ONLINE_AUTHORIZATION` نفسها، و `startOnlineProcess` ترجع `bankAnswer()` بشكل PAX لو سألها أحد. عمل البطاقة المقروءة (9F1C، `CARD_READ`) في `onReadCardOk`، التي يناديها الـ kernel بعد القراءة وقبل أن يقرر.
-- `bankAnswer` يُحفظ فقط حين يُرسل الطلب. إن رجعت `askTheBank` مبكرًا (لا field 55، أو إلغاء) يبقى `null`، ويُعامل كـ online failed.
-- **ARQC وحده يذهب إلى البنك** (الاسترداد كالبيع). الاستثناء: TC (`RESULT_OFFLINE_APPROVED`) يُرسل دون ARQC ويكون رد البنك هو النتيجة. AAC = رفض.
+- **Why `attach`:** `PosTerminal` needs the behavior in its constructor, and the behavior needs `sendToBank`, which exists only after. So it is wired once, right after (setter injection).
+- **`askTheBank` always keeps its answer**, even when it returns early (no field 55 → `failed`; cancelled → declined "17"), so the vendor reads the real reason.
+- **`startOnlineProcess()` and `confirmCard()`** are only in PAX's interfaces: neither the kernel nor our code calls them. Going online is the `ONLINE_AUTHORIZATION` step. The card-read work (9F1C, `CARD_READ`) is in `onReadCardOk`, which the kernel calls after the read and before it decides.
+- **Only an ARQC goes to the bank** (a refund like a sale). The exception: a TC (`RESULT_OFFLINE_APPROVED`) on this online-only terminal is sent without an ARQC, and the bank's answer is the result. An AAC is a decline.
 
-**النهاية الآمنة** (`case APPROVED` / `case DECLINED` لآخر طلب، و `ENDING` للباقي):
+**The safe end** (`case APPROVED` / `case DECLINED` for the last request, `ENDING` for the rest):
 
-| الرد | النهاية | يُرسل |
-|---|---|---|
-| موافقة، والقرار APPROVED، وآخر طلب | — | تأكيد (`orchestration/acknowledgement`) |
-| موافقة مع نهاية أخرى، أو طلب قديم | — | إلغاء (`orchestration/reverse`) |
-| `failed` (أُرسل ولا رد صالح) | — | إلغاء |
-| `notSent` أو رفض | — | لا شيء |
-
-**`notSent`** يقرره الـ network وحده (`answerOf`): كل فشل قبل الإرسال، و `Token refresh: …`، و `Exchange: …`، و `Sale:` لا اتصال أو HTTP 401 / 403. أي شيء آخر بعد إرسال البيع = `failed`.
-
-| المهلة | القيمة |
+| Answer | Sent |
 |---|---|
-| كل نداء دفع: `callTimeout` (`HostApiClient.createForPayments`)، adapter متزامن | 25 ث |
-| `PosTerminal.sendToBank` (شبكة أمان) | 90 ث |
-| `closeAtHost` (شبكة أمان) | 60 ث |
+| Approved, the decision is APPROVED, the last request | Acknowledgement (`orchestration/acknowledgement`) |
+| Approved with any other end, or an earlier request | Reversal (`orchestration/reverse`) |
+| `failed` (sent, no usable answer) | Reversal |
+| `notSent`, declined or `pinRequired` | Nothing |
 
-- ⚠ **الـ 90 ث والـ 60 ث لا تقطعان الانتظار:** `connectToHost` / `acknowledge` / `reverse` مبنية بـ `fromCallable` بلا `subscribeOn`، فتعمل على الـ transaction thread نفسه، و `timeout` لا تعود قبل أن ينتهي النداء (مهلة 500 ms انتظرت 3124 ms). الحد الفعلي `callTimeout`. رد يأتي بعد المهلة يُرمى ويُعامل كـ `failed` ← إلغاء (آمن ماليًا). الإصلاح (`subscribeOn(io)`) يحتاج نقاشًا.
-- ⚠ التأكيد / الإلغاء يُرسل مرة واحدة، بلا سجل محفوظ (0.15). ⚠ لم يُجرَّب مع البنك؛ احتياجهما لـ `mToken` افتراض.
+**`notSent`** is decided by the network only (`answerOf`): any failure before sending, `Token refresh: …`, `Exchange: …`, and `Sale:` with no connection or HTTP 401 / 403. Anything else after the sale was sent is `failed`.
 
-**Mastercard Single Tap** (`35ce685`، contactless فقط): بيع Mastercard تحت حد الـ CVM يذهب بلا PIN، وقد يرد البنك بـ RC 90. لا tap ثانٍ:
+| Timeout | Value |
+|---|---|
+| Each payment call: `callTimeout` (`HostApiClient.createForPayments`), synchronous adapter | 25 s |
+| `PosTerminal.sendToBank` (safety net) | 90 s |
+| `closeAtHost` (safety net) | 60 s |
+
+- ⚠ **The 90 s and 60 s nets do not cut the wait:** `connectToHost` / `acknowledge` / `reverse` are `fromCallable` with no `subscribeOn`, so they run on the transaction thread and `timeout` returns only when the call does (a 500 ms timeout waited 3124 ms). The real bound is `callTimeout`. An answer after the timeout is thrown away as `failed` → reversal (safe for the money). The fix (`subscribeOn(io)`) needs a decision.
+- ⚠ An acknowledgement / reversal is sent once, with no stored journal (0.15). ⚠ Not tried with the bank; that they need the `mToken` is an assumption.
+
+**Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:
 
 ```
 ONLINE_AUTHORIZATION → askTheBank() (no PIN) → network: RC 90 + contactless + Mastercard AID + sale + no PIN block
@@ -163,60 +202,60 @@ runContactlessOnline → runSingleTap → SINGLE_TAP_PIN_REQUIRED (report)
   → the answer as any other: approved → ISSUER_AUTHENTICATION → APPROVED → ACK; declined → DECLINED
 ```
 
-- `pinRequired` ليس موافقة ولا فشلًا: لا يُلغى أبدًا. الإعادة هي الطلب نفسه، فتُغلق مرة واحدة.
-- **لا حلقة، بثلاثة حراس:** الـ network: RC 90 مع PIN رفض عادي. الـ core: طلب واحد، إغلاق واحد. PAX: الـ PIN مرة واحدة في المحاولة (`tx.singleTapPinEntered`)، وطلب ثانٍ ← DECLINED.
-- مفتاح الـ PIN يُرسل مع كل exchange (`pinKeyToSend`)، ومفتاح واحد لكل محاولة (`ensureOnlinePinKey`).
-- ⚠ مفتوح (4.11): وصول RC 90 كـ HTTP 4xx يجعله `failed` + إلغاء ولا يبدأ Single Tap؛ posEntryMode في الإعادة 071 (افتراض). ⚠ لم يُجرَّب على الجهاز ولا مع البنك.
+- `pinRequired` is neither approved nor failed: never reversed. The resend is the same request, so it is closed once.
+- **No loop, three guards:** network: RC 90 with a PIN is a plain decline. Core: one request, one closing. PAX: the PIN once per attempt (`tx.singleTapPinEntered`); a second request → DECLINED.
+- The PIN key goes with every exchange (`pinKeyToSend`), one key per attempt (`ensureOnlinePinKey`).
+- ⚠ Open (4.11): RC 90 as HTTP 4xx becomes `failed` + a reversal and Single Tap never starts; the resend's posEntryMode is 071 (an assumption). ⚠ Not tried on a device or with the bank.
 
-## 6. الـ EMV params
+## 6. EMV params
 
-- **قاعدة البيانات (GreenDAO) هي المصدر:** من JSON مرة واحدة (`ConfigInit`)، ثم من ملف الـ host عند Download (`EmvParamUpdater.applyFromZip`).
-- **الـ cache** (`EmvParamService`) نسخة في الذاكرة: أي كتابة تفرغه (`invalidate()`)، وأول عملية تملؤه (`getCachedEmvParam` → `loadFromDatabase`، 13 param).
-- **الـ kernel لا يحتفظ بشيء:** تُحمَّل الـ params إليه في كل محاولة (`preTransProcess`).
-- الـ contact: ما لا يأتي في ملف الـ host يبقى. الـ contactless: ملف الـ host هو المرجع، وأي kernel غير موجود فيه يُحذف.
-- TID / MID / MCC / اسم التاجر لا تأتي من ملف الـ host (`OTHERCONFIGURATION` لا يُقرأ عمدًا).
-- ⚠ لا فحص لصلاحية الـ CAPKs.
-- تغيير الـ schema: الـ DAO يُعدَّل يدويًا + uninstall على الجهاز.
+- **The database (GreenDAO) is the source:** filled from JSON once (`ConfigInit`), then from the host file on Download (`EmvParamUpdater.applyFromZip`).
+- **The cache** (`EmvParamService`) is a copy in memory: any write empties it (`invalidate()`), the first sale fills it (`getCachedEmvParam` → `loadFromDatabase`, 13 params).
+- **The kernel keeps nothing:** the params are loaded into it at every attempt (`preTransProcess`).
+- Contact: what the host file does not bring keeps its value. Contactless: the host file is the whole truth; a kernel it does not bring is deleted.
+- TID / MID / MCC / merchant name do not come from the host file (`OTHERCONFIGURATION` is skipped on purpose).
+- ⚠ CAPKs are not checked (expiry, checksum).
+- A schema change: the DAO is edited by hand + uninstall on the device.
 
-## 7. الـ Threads
+## 7. Threads
 
-| الـ Thread | ما يشغّله | الممنوع |
+| Thread | Runs | Never |
 |---|---|---|
-| main | الشاشة، `acceptCard` (فحص الانشغال)، `cancel()`، النوافذ (اختيار التطبيق، الـ PIN)، الشريط (`emvSteps` بـ `observeOn(main)`، لكل عملية حتى نهايتها) | أي عمل blocking |
-| transaction (`transactionScheduler`) | العملية كلها: التهيئة، البحث، الـ EMV، البنك (`blockingGet`)، الإغلاقات | المقاطعة؛ أكثر من عملية |
-| print | `printReceipt` بالترتيب | — |
-| `Schedulers.io()` | تنزيل الـ params، التسجيل | — |
+| main | The screen, `acceptCard` (the busy check), `cancel()`, the dialogs (app choice, PIN), the banner (`emvSteps` with `observeOn(main)`, per sale until its end) | Any blocking work |
+| transaction (`transactionScheduler`) | The whole sale: init, search, EMV, the bank (`blockingGet`), the closings | Interrupted; more than one sale |
+| print | `printReceipt`, in order | — |
+| `Schedulers.io()` | Params download, onboarding | — |
 
-الـ executors الاثنان لا يُغلقان في `dispose()`؛ لا مشكلة اليوم لأن `PosTerminal` واحد طوال عمر التطبيق.
+The two executors are not shut down in `dispose()`; fine today, as there is one `PosTerminal` for the app's whole life.
 
-الـ kernel وكل الـ callbacks على الـ transaction thread فقط، وهو ينتظر الـ main في نوافذ الاختيار والـ PIN، فيجب أن تُغلق النافذة في كل نهاية. ⚠ الإلغاء لا يقطع إدخال الـ online PIN (1.2).
+The kernel and every callback run on the transaction thread only. It waits for main during the app-choice and PIN dialogs, so a dialog must close at every end. ⚠ A cancel does not interrupt the online PIN entry (1.2).
 
-## 8. عند التعديل
+## 8. When you change something
 
-1. **ترتيب الـ kernel أولًا**، لا ترتيب الـ enum. الخطوة تظهر حيث يعمل الـ kernel فعلًا.
-2. **العمل داخل `onXxx`**، والـ callback يرد فقط (`askStep`).
-3. **fail closed:** لا رد = `USER_CANCEL` / online failed / رفض؛ لا موافقة offline.
-4. **contact ≠ contactless:** runner لكل منهما.
-5. **`goToStep`، لا استدعاء مباشر**، ولا `observeOn` داخل الـ behavior.
-6. **مالك واحد لكل حالة** (§2)؛ لا flag ثانٍ.
-7. **خطوة عملية جديدة لها دالة:** حالة في `dispatchTransactionStep`؛ وإن كانت قد تنتظر البنك أو شخصًا قبل تحديد النهاية فاجعلها تقريرًا.
-8. **الـ PAX SDK** (`emvbase`، `emvlib*`، `poslib`…) لا يُلمس إلا لسبب EMV واضح.
-9. **الاختبار:** هذا الفرع بلا tests؛ تُشغَّل tests `paxEmvBehaviorSplit-tests` عليه محليًا. ثم الجهاز بصفوف `report_easylink.xlsx`.
+1. **The kernel's order first**, not the enum's. A step shows where the kernel really works.
+2. **The work goes in `onXxx`**; the callback only answers (`askStep`).
+3. **Fail closed:** no answer = `USER_CANCEL` / online failed / decline; never an offline approval.
+4. **Contact ≠ contactless:** one runner each.
+5. **`goToStep`, never a direct call**, and no `observeOn` inside the behavior.
+6. **One owner per piece of state** (§2); no second flag.
+7. **A new sale step with work:** a case in `dispatchTransactionStep`. If it may wait for the bank or a person before the end is decided, make it a report.
+8. **The PAX SDK** (`emvbase`, `emvlib*`, `poslib` …) is touched only for a clear EMV reason.
+9. **Tests:** this branch carries code only. The tests live outside it (`transactionStepObserver-tests.zip`, sent with these docs) and run with javac + JUnit; then the device with the `report_easylink.xlsx` rows.
 
-## 9. الفرق مع paxEmvBehaviorSplit
+## 9. The difference with paxEmvBehaviorSplit
 
-الفرع الأقدم (`paxEmvBehaviorSplit` / `-tests`) يعمل بالطريقة نفسها، مع:
+The older branch (`paxEmvBehaviorSplit` / `-tests`) works the same way, with:
 
-| هنا (`transactionStepObserver`) | هناك |
+| Here (`transactionStepObserver`) | There |
 |---|---|
-| `askTheBank()` / `bankAnswer()` | `authorizeOnline()` / `tx.lastAuth` في كل vendor |
-| البنك والـ issuer خطوتان بعد `PROCESS_RESTRICTIONS`؛ عمل البطاقة المقروءة في `onReadCardOk` | يعملان داخل الـ hook الخاص بـ `PROCESS_RESTRICTIONS`؛ `confirmCard` بعد الـ 1st GAC |
-| `BankRequest.send` (ملف مستقل)، `PosTerminal.sendToBank` | `AbstractEmvBehavior.Authorizer.authorize`، `PosTerminal.authorize` |
+| `askTheBank()` / `bankAnswer()` | `authorizeOnline()` / `tx.lastAuth` in each vendor |
+| The bank and the issuer are two steps after `PROCESS_RESTRICTIONS`; the card-read work in `onReadCardOk` | Both inside the `PROCESS_RESTRICTIONS` hook; `confirmCard` after the 1st GAC |
+| `BankRequest.send` (its own file), `PosTerminal.sendToBank` | `AbstractEmvBehavior.Authorizer.authorize`, `PosTerminal.authorize` |
 | `CommunicationBehavior.connectToHost` | `CommunicationBehavior.authorize` |
 | `ONLINE_AUTHORIZATION` / `onOnlineAuthorization` | `START_ONLINE_PROCESS` / `onStartOnlineProcess` |
-| `TransactionStepObserver` مدخل وحيد، `ENDING` بـ loop للإغلاقات، الحالة من الخطوات (`decision()`، `FAILED`)، لا `TRANSACTION_COMPLETION` | الـ switch تستدعيه عدة جهات، `onEnd` بحلقة، `CLOSED`، field `end` |
-| `TERMINAL_INITIALIZATION` تبدأ البحث | `run` يبدأ البحث بـ `if` |
-| `field55()` abstract، `Field55.TagReader` | `readIccTag` abstract، `IntFunction` |
+| `TransactionStepObserver` as the one way in, `ENDING` with a closings loop, the state from the steps (`decision()`, `FAILED`), no `TRANSACTION_COMPLETION` | The switch called from several places, `onEnd` with a loop, `CLOSED`, an `end` field |
+| `TERMINAL_INITIALIZATION` starts the search | `run` starts the search with an `if` |
+| `field55()` abstract, `Field55.TagReader` | `readIccTag` abstract, `IntFunction` |
 | `CardPresence.isEmv()` / `isNonEmv()` | `AbstractEmvBehavior.isNonEmv(card)` |
-| issuer step تبني رد PAX من `bankAnswer()`؛ لا إعلان ثانٍ | `tx.issuerResponse`؛ إعلان ثانٍ في `onlineDenied` / `onlineCardDenied` |
-| network بخطوات متتالية، `callTimeout` 25 ث، adapter متزامن، `closeAtHost` 60 ث | سلسلة Rx (`flatMap`)، بلا `callTimeout`، `closeAtHost` 15 ث |
+| The issuer step builds the PAX answer from `bankAnswer()`; no second announcement | `tx.issuerResponse`; a second announcement in `onlineDenied` / `onlineCardDenied` |
+| The network as plain steps, `callTimeout` 25 s, synchronous adapter, `closeAtHost` 60 s | An Rx chain (`flatMap`), no `callTimeout`, `closeAtHost` 15 s |
