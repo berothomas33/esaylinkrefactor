@@ -1,6 +1,6 @@
 # EasyLink — code reference
 
-> Written from the code of branch **`transactionStepObserver`** (2026-11-12, `441c662`). Every name here exists in the code.
+> Written from the code of branch **`transactionStepObserver`** (2026-11-12, `abfff24`). Every name here exists in the code.
 > The drawings: `doc/EasyLink-EMV-Flows.html` / `.pdf` (and https://claude.ai/artifact/S69zGozrJmfoGCVe3VkAnh). This file is the short reference: where things are, who owns them, the rules.
 > ⚠ = not fixed yet; the number in brackets is its `doc/BACKLOG.md` item. Last full device test at `19cc019` (chip, tap again); later work is device-tested only where it says so.
 > If the code changed and this file did not, the code is right.
@@ -24,7 +24,7 @@
 | What | Where |
 |---|---|
 | The terminal, the sale, its steps, cancel, the safe end | `core/.../terminal/PosTerminal.java` (+ `Transaction`) |
-| The shared EMV: attempts, `goToStep`, `askStep`, `askTheBank`, the 16 `onXxx` hooks | `core/.../terminal/AbstractEmvBehavior.java` |
+| The shared EMV: attempts, `goToStep`, `ask`, `askTheBank`, the 16 `onXxx` hooks | `core/.../terminal/AbstractEmvBehavior.java` |
 | The EMV's way to the bank | `core/.../terminal/BankRequest.java` |
 | The EMV step stream (banner, dispatch) and the APDU trace | `core/.../emv/EmvEngine.java`, `ApduTrace.java` |
 | Field 55 | `core/.../emv/Field55.java` (+ `field55()` in each vendor) |
@@ -47,7 +47,7 @@ Each piece of state has one owner and one copy:
 | The sale's steps | `Transaction.steps` (`ReplaySubject`, also the lock; completes after the end) |
 | The EMV steps | `EmvEngine.emvSteps` (one for the terminal, never completes) |
 | Retry | `AbstractEmvBehavior` (`requestRetry` / `retryCount()`) |
-| The answer of the step being asked | `AbstractEmvBehavior.stepAnswer` (`askStep` / `answerStep`) |
+| What an asked hook needs from the kernel callback (PAX) | `PaxKernelSession`: `tx.pinRequest`, `tx.candidates` (written by the callback right before `ask`) |
 | The bank's answer, for the EMV | `AbstractEmvBehavior.bankAnswer()` (cleared at each attempt and at the end of `run`) |
 | The bank's answer, for the safe end | `Transaction` → `OnlineRequest.answer` |
 | What one attempt knows (PAX) | `PaxKernelSession` (new at each attempt) |
@@ -92,20 +92,20 @@ Every step enters through one method, `publish` (it drops what comes after the d
 
 ## 4. EMV steps
 
-**Rules.** Nobody calls an `onXxx` hook directly; `goToStep` does. `goToStep` drops the step and returns `false` when the sale has ended or was cancelled (with a "step dropped" trace line). The dispatch is synchronous on the transaction thread (no `observeOn`, no serialize). A callback that waits for a person asks the step that owns the question with `askStep`, and always answers (`USER_CANCEL` when in doubt).
+**Rules.** Nobody calls an `onXxx` hook directly; `goToStep` does. `goToStep` drops the step and returns `false` when the sale has ended or was cancelled (with a "step dropped" trace line). The dispatch is synchronous on the transaction thread (no `observeOn`, no serialize). A callback that waits for a person calls `ask(step, detail, failClosed)`: the step is shown, then its hook asks the person and **returns** the result, which is the kernel's answer (`failClosed` when the sale ended before or meanwhile).
 
 | # | EmvStep | Contact (PAX) | Contactless granular | Contactless atomic | Swipe / Manual |
 |---|---|---|---|---|---|
 | 0 | TERMINAL_INITIALIZATION | New `PaxKernelSession` + `prepareKernel`, then `searchCard()` | = | = | = |
 | 1 | SEARCH_CARD | `PaxCardSearch.search` | = | = | = |
 | 2 | APPLICATION_SELECTION | `runContactAppSelect` (`EMVAppSelect`) | `runContactlessAppSelect` | = | — |
-| 3 / 4 | WAIT / FINAL_APPLICATION_SELECTION | Asked from inside 2: `emvWaitAppSel` → `onWaitAppSelect` → `askStep` | = | = | — |
+| 3 / 4 | WAIT / FINAL_APPLICATION_SELECTION | Asked from inside 2: `emvWaitAppSel` → `onWaitAppSelect` → `ask`; the hook returns `chooseApplication(tx.candidates)` | = | = | — |
 | 5 | READ_APPLICATION_DATA | `runContactReadAppData` (`EMVReadAppData`) | `runContactlessReadAppData` | From `onReadCardOk`, after 6 (no work) | `CARD_READ` → 13 |
 | 6 | SET_TRANSACTION_DATA | `runContactSetTransactionData` (9C) | `runContactlessSetTransactionData` | From `onReadCardOk`, before 5 (no work) | — |
 | 7 | OFFLINE_DATA_AUTHENTICATION | `runContactCardAuth` (`EMVCardAuth`) | `runContactlessCardAuth` | — | — |
 | 8 | PROCESS_RESTRICTIONS | `runContactStartTransaction` (`EMVStartTrans` = PR + CVM + TRM + TAA + 1st GAC); then 13 if the card goes online, else the stage ends | `runContactlessProcessRestrictions` → `runContactlessStartTransaction` (the same) | The one call does it all, then the same | — |
-| 9 | CARDHOLDER_VERIFICATION | Online PIN, asked from inside 8 (the PIN circle below) | Online PIN, called after the kernel returns | = | — |
-| 10 | OFFLINE_PIN_VERIFICATION | Offline PIN, asked from inside 8 | — | — | — |
+| 9 | CARDHOLDER_VERIFICATION | Online PIN, asked from inside 8 (the PIN circle below); the hook returns `enterPin(tx.pinRequest)` | Online PIN, called after the kernel returns | = | — |
+| 10 | OFFLINE_PIN_VERIFICATION | Offline PIN, asked from inside 8; the hook returns `enterPin(tx.pinRequest)` | — | — | — |
 | 11 / 12 | TERMINAL_RISK_MANAGEMENT / ACTION_ANALYSIS | Not published (inside `EMVStartTrans`) | = | = | — |
 | 13 | ONLINE_AUTHORIZATION | `askTheBank()` (first line of the hook, every card), then `runContactOnline`: always 14 (the 2nd GAC) | `runContactlessOnline`: 14 if the bank approved, else the end; `pinRequired` → `runSingleTap` → 13 again (§5) | = | `askTheBank()`, then `finishNonEmv`: the result is `bankAnswer()` |
 | 14 | ISSUER_AUTHENTICATION | `runContactIssuerAuthentication`: `EMVCompleteTrans` (ARPC + scripts + 2nd GAC), then the stage ends | `runContactlessIssuerAuthentication`: Visa: the second tap + `Clss_IssuerAuth_Wave`, then the end | = | — |
@@ -117,32 +117,34 @@ Every step enters through one method, `publish` (it drops what comes after the d
 - **The kernel's order wins, not the numbers** (PayWave: PR, then ODA; atomic kernels announce 5 and 6 when the kernel says they happened).
 - Every hook is `protected abstract`: a vendor that forgets one does not compile. `onTerminalInitialization` must end with `searchCard()`.
 
-### The PIN circle (`askStep`)
+### The PIN circle (`ask`)
 
-During a native call the kernel can stop and ask a question through a callback. The callback asks the step that owns the question; that step runs **inside** the step that called the kernel; its answer goes back and the kernel carries on from where it stopped:
+During a native call the kernel can stop and ask a question through a callback. The callback asks the step that owns the question with `ask`; that step's hook runs **inside** the step that called the kernel and returns the answer; the kernel carries on from where it stopped:
 
 ```
 ① step 8 (PROCESS_RESTRICTIONS) calls the kernel: EMVStartTrans — the thread waits inside it
 ② the CVM needs a PIN → ContactProcess.emvGetHolderPwd(tryFlag, remainCnt, pinData)
 ③ ContactProcess guards: online and offline mixed → EMV_DATA_ERR; pinData[0] ≠ 0 → the kernel's status (1 = timeout)
-④ → PaxEmvBehavior.onCardHolderPwd: tx.pinRequest, then askStep(9 online | 10 offline)
-⑤ → goToStep → the hook → enterPin → PIN pad → answerStep(value)
-⑥ ← askStep returns the value (USER_CANCEL: no answer / cancelled / threw)
+④ → PaxEmvBehavior.onCardHolderPwd: tx.pinRequest = …, then ask(9 online | 10 offline)
+⑤ → ask: goToStep shows the step (false → USER_CANCEL, no PIN pad), then runs its hook:
+     onCardholderVerification / onOfflinePinVerification → enterPin(tx.pinRequest) → PIN pad → returns the result
+⑥ ← ask returns it (USER_CANCEL if the sale was cancelled while the pad was open)
 ⑦ ← setCallBackResult(result): the kernel carries on with the CVM
 ⑧ offline PIN wrong → emvVerifyPINfailed → EMV_OK → the kernel asks again: back to ② (one try less)
 ⑨ EMVStartTrans returns (TRM → TAA → 1st GAC) → step 8 hands over to 13 (ARQC) or ends
 ```
 
-- `askStep` works only because the hook finishes before `goToStep` returns. That is why the dispatch must stay synchronous.
-- `askStep` keeps an outer answer when an ask happens inside another (`aNestedAskKeepsEachAnswerApart`), and answers `failClosed` when the hook answered after the sale ended (`anAnswerGivenAfterACancelGetsTheFailClosedValue`).
-- Application selection is the same circle: `EMVAppSelect` → `emvWaitAppSel` → `onWaitAppSelect` → `askStep(3 / 4)` → a dialog, or the only application.
+- `ask` is three checks: the step shown? → the hook's result → the sale still running? The hooks of steps 3 / 4 / 9 / 10 return `int` and are run by `ask` only (the dispatch switch skips them, so a hook never runs twice). Tests: `AskStepTest` (cancel before → no question; cancel while open → `failClosed`; the step shown before the hook).
+- A hook only gets `(config, card)`, so the callback leaves the question's data in the session first (`tx.pinRequest`, `tx.candidates`).
+- A hook that throws goes out through `ask`: `ContactProcess` catches it and answers `USER_CANCEL`.
+- Application selection is the same circle: `EMVAppSelect` → `emvWaitAppSel` → `onWaitAppSelect` → `ask(3 / 4)` → the hook returns the dialog's index, or the only application.
 - Contactless has no PIN callback: the kernel returns first, then our code calls `onCardHolderPwd(true, …)` itself (CVM = online PIN, and Single Tap).
 
 **The kernel's callbacks** (`ContactProcess.EmvCallBackListener`, new at each attempt in `preTransProcess`, so its counters start fresh):
 
 | Callback | The kernel calls it | What we do |
 |---|---|---|
-| `emvWaitAppSel` | In `EMVAppSelect`, to choose / confirm the application | Asks a person: `onWaitAppSelect` → `askStep(3 / 4)` |
+| `emvWaitAppSel` | In `EMVAppSelect`, to choose / confirm the application | Asks a person: `onWaitAppSelect` → `ask(3 / 4)` |
 | `emvGetHolderPwd` | In `EMVStartTrans`, when the CVM needs a PIN | Asks a person: the circle above |
 | `emvVerifyPINfailed` | The offline PIN was wrong | `EMV_OK`; the kernel asks again or goes on |
 | `emvVerifyPINOK` | The offline PIN was right | Log only |
@@ -233,7 +235,7 @@ The kernel and every callback run on the transaction thread only. It waits for m
 ## 8. When you change something
 
 1. **The kernel's order first**, not the enum's. A step shows where the kernel really works.
-2. **The work goes in `onXxx`**; the callback only answers (`askStep`).
+2. **The work goes in `onXxx`**; a callback that needs a person calls `ask`, and the asked hook returns the answer.
 3. **Fail closed:** no answer = `USER_CANCEL` / online failed / decline; never an offline approval.
 4. **Contact ≠ contactless:** one runner each.
 5. **`goToStep`, never a direct call**, and no `observeOn` inside the behavior.

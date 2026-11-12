@@ -125,7 +125,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <div dir="ltr">
 <main>
 <header>
-  <div class="eyebrow">transactionStepObserver · from the code, 2026-11-12 (441c662)</div>
+  <div class="eyebrow">transactionStepObserver · from the code, 2026-11-12 (abfff24)</div>
   <h1>EMV flows in EasyLink</h1>
   <p class="lead">A sale from the Sale button to its end: the card, the kernel, the bank, then the acknowledgement or reversal at the bank. Every name on this page exists in the code, and every arrow is a real call. Everything here describes the branch <code>transactionStepObserver</code>.</p>
 </header>
@@ -135,7 +135,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <li><a href="#owners">Components: who owns what</a></li>
     <li><a href="#life">A sale from start to end</a></li>
     <li><a href="#steps">EMV steps: goToStep and onXxx</a></li>
-    <li><a href="#ask">When the kernel waits: askStep</a></li>
+    <li><a href="#ask">When the kernel waits: ask</a></li>
     <li><a href="#bank">The way to the bank</a></li>
     <li><a href="#contact">The contact path</a></li>
     <li><a href="#end">The outcome and the safe end</a></li>
@@ -181,7 +181,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
           <li><b>Facade:</b> <code>PosTerminal</code> is the UI's only interface: the thread, the busy state, the host, the printer, the safe end</li>
           <li><code>PosTerminal.Transaction</code>: the sale's state (its steps, <code>decision()</code>), cancel</li>
           <li><code>EmvEngine</code>: the EMV steps and the APDU trace</li>
-          <li><code>AbstractEmvBehavior</code>: the whole EMV (<code>run</code>: card search and retries), the 16 <code>onXxx</code> hooks a vendor writes, <code>goToStep</code>, <code>askStep</code>, field 55, the way to the bank (<code>askTheBank</code> / <code>bankAnswer</code>)</li>
+          <li><code>AbstractEmvBehavior</code>: the whole EMV (<code>run</code>: card search and retries), the 16 <code>onXxx</code> hooks a vendor writes, <code>goToStep</code>, <code>ask</code>, field 55, the way to the bank (<code>askTheBank</code> / <code>bankAnswer</code>)</li>
           <li>Vendor choice: the <code>TerminalFactory</code> of the flavor that was built (<code>pax</code> / <code>ingenico</code> / <code>fake</code>)</li>
         </ul></div>
       <div class="box core plug"><b>NETWORK</b><span class="mod">:network</span>
@@ -234,7 +234,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </div>
   <div class="comp core">
     <div class="head"><b>CORE — the conductor</b><span class="mod">:core</span><span class="job">The sale from start to end, with the same code for any vendor: the UI talks to it alone, and it talks to the vendor through interfaces and abstract classes.</span></div>
-    <div class="grid"><div class="grp"><h4><code>terminal</code> — the machine</h4><dl><dt>PosTerminal</dt><dd>The Facade, the UI's only entry: one thread, the busy state, the call to the bank (<code>sendToBank</code>), the printer</dd><dt>PosTerminal.Transaction</dt><dd>One sale: its state (from its steps, <code>decision()</code>), its steps (run by <code>TransactionStepObserver</code>), cancel, the requests sent to the bank and their safe end</dd><dt>EmvBehavior</dt><dd>The interface: <code>run</code> · <code>cancelCardSearch</code> · <code>dispose</code></dd><dt>BankRequest</dt><dd>The EMV's way to the bank: <code>send(config)</code>; <code>PosTerminal</code> hands it over with <code>attach(this::sendToBank)</code></dd><dt>AbstractEmvBehavior</dt><dd>The shared EMV: <code>run</code> (attempts, search, retry: <code>requestRetry</code> / <code>retryCount()</code>), <code>goToStep</code>, <code>askStep</code>, field 55, the 16 <code>onXxx</code> hooks. It lives here because it calls package-private <code>Transaction</code> methods</dd><dt>TerminalBusyException</dt><dd>A sale started while another is running</dd></dl></div><div class="grp"><h4><code>transaction</code> — the sale</h4><dl><dt>TransactionConfig</dt><dd>Type, amount, entry method, field 55, PIN block, <code>asyncRequestId</code></dd><dt>TransactionType</dt><dd>sale / refund / cash in</dd><dt>TransactionStep / Event</dt><dd>The sale's steps: start, waiting for the card, the bank, the decision, acknowledge / reverse, the end. The steps that drive the sale each have a case</dd></dl></div><div class="grp"><h4><code>emv</code> — the EMV</h4><dl><dt>EmvEngine</dt><dd>Sends each EMV step to its runner and the banner, and keeps the APDU trace. No sale state, no retry, no bank</dd><dt>EmvStep / Event</dt><dd>The kernel's 17 steps (EMV Book 3)</dd><dt>EmvTransactionResult</dt><dd>What was read from the card and the host needs</dd><dt>Field55</dt><dd>Builds field 55 from the tags, the same for every vendor</dd><dt>ApduTrace</dt><dd>The APDU and step log (debug builds)</dd></dl></div><div class="grp"><h4><code>card</code> — the card</h4><dl><dt>CardPresence / CardSearchListener</dt><dd>The card found (<code>isEmv()</code> / <code>isNonEmv()</code>) and the search events</dd><dt>EntryMethod</dt><dd>chip / tap / swipe / manual</dd></dl></div><div class="grp"><h4><code>host</code> — outside interfaces</h4><dl><dt>CommunicationBehavior</dt><dd>The host: <code>connectToHost</code> · <code>acknowledge</code> · <code>reverse</code></dd><dt>AuthResult</dt><dd>The host's answer: approved / declined / failed / notSent / pinRequired</dd><dt>PrinterBehavior</dt><dd>The printer</dd><dt>HostDefaults</dt><dd>A demo host and printer</dd></dl></div><div class="grp"><h4><code>cardholder</code> — waiting for the cardholder</h4><dl><dt>AbstractAppSelectDialog</dt><dd>Application choice: the wait and the timeout; never picks the first one by itself</dd><dt>PinPadBehavior / AbstractPinPadBehavior / PinKey</dt><dd>The PIN screen: dots and buttons only; encryption is the SDK's job</dd></dl></div><div class="grp"><h4><code>param</code> · <code>util</code></h4><dl><dt>EmvParams</dt><dd>The EMV params screen's interface</dd><dt>EmvLog</dt><dd>Logging</dd></dl></div></div>
+    <div class="grid"><div class="grp"><h4><code>terminal</code> — the machine</h4><dl><dt>PosTerminal</dt><dd>The Facade, the UI's only entry: one thread, the busy state, the call to the bank (<code>sendToBank</code>), the printer</dd><dt>PosTerminal.Transaction</dt><dd>One sale: its state (from its steps, <code>decision()</code>), its steps (run by <code>TransactionStepObserver</code>), cancel, the requests sent to the bank and their safe end</dd><dt>EmvBehavior</dt><dd>The interface: <code>run</code> · <code>cancelCardSearch</code> · <code>dispose</code></dd><dt>BankRequest</dt><dd>The EMV's way to the bank: <code>send(config)</code>; <code>PosTerminal</code> hands it over with <code>attach(this::sendToBank)</code></dd><dt>AbstractEmvBehavior</dt><dd>The shared EMV: <code>run</code> (attempts, search, retry: <code>requestRetry</code> / <code>retryCount()</code>), <code>goToStep</code>, <code>ask</code>, field 55, the 16 <code>onXxx</code> hooks. It lives here because it calls package-private <code>Transaction</code> methods</dd><dt>TerminalBusyException</dt><dd>A sale started while another is running</dd></dl></div><div class="grp"><h4><code>transaction</code> — the sale</h4><dl><dt>TransactionConfig</dt><dd>Type, amount, entry method, field 55, PIN block, <code>asyncRequestId</code></dd><dt>TransactionType</dt><dd>sale / refund / cash in</dd><dt>TransactionStep / Event</dt><dd>The sale's steps: start, waiting for the card, the bank, the decision, acknowledge / reverse, the end. The steps that drive the sale each have a case</dd></dl></div><div class="grp"><h4><code>emv</code> — the EMV</h4><dl><dt>EmvEngine</dt><dd>Sends each EMV step to its runner and the banner, and keeps the APDU trace. No sale state, no retry, no bank</dd><dt>EmvStep / Event</dt><dd>The kernel's 17 steps (EMV Book 3)</dd><dt>EmvTransactionResult</dt><dd>What was read from the card and the host needs</dd><dt>Field55</dt><dd>Builds field 55 from the tags, the same for every vendor</dd><dt>ApduTrace</dt><dd>The APDU and step log (debug builds)</dd></dl></div><div class="grp"><h4><code>card</code> — the card</h4><dl><dt>CardPresence / CardSearchListener</dt><dd>The card found (<code>isEmv()</code> / <code>isNonEmv()</code>) and the search events</dd><dt>EntryMethod</dt><dd>chip / tap / swipe / manual</dd></dl></div><div class="grp"><h4><code>host</code> — outside interfaces</h4><dl><dt>CommunicationBehavior</dt><dd>The host: <code>connectToHost</code> · <code>acknowledge</code> · <code>reverse</code></dd><dt>AuthResult</dt><dd>The host's answer: approved / declined / failed / notSent / pinRequired</dd><dt>PrinterBehavior</dt><dd>The printer</dd><dt>HostDefaults</dt><dd>A demo host and printer</dd></dl></div><div class="grp"><h4><code>cardholder</code> — waiting for the cardholder</h4><dl><dt>AbstractAppSelectDialog</dt><dd>Application choice: the wait and the timeout; never picks the first one by itself</dd><dt>PinPadBehavior / AbstractPinPadBehavior / PinKey</dt><dd>The PIN screen: dots and buttons only; encryption is the SDK's job</dd></dl></div><div class="grp"><h4><code>param</code> · <code>util</code></h4><dl><dt>EmvParams</dt><dd>The EMV params screen's interface</dd><dt>EmvLog</dt><dd>Logging</dd></dl></div></div>
   </div>
   <div class="comp core net">
     <div class="head"><b>NETWORK</b><span class="mod">:network</span><span class="job">Talks to our host. Implements <code>CommunicationBehavior</code> and knows no vendor.</span></div>
@@ -266,7 +266,7 @@ Scheduler             transactionScheduler;
     <tbody>
       <tr><td><code>PosTerminal</code></td><td>One sale at a time (<code>current</code> = busy), the call to the bank (<code>sendToBank</code>), the printer.</td><td>Hold any EMV logic.</td></tr>
       <tr><td><code>PosTerminal.Transaction</code></td><td>The sale's state, read from its steps (<code>decision()</code>); the steps themselves; cancel; the requests sent to the bank and their safe closing.</td><td>Publish anything after its end.</td></tr>
-      <tr><td><code>AbstractEmvBehavior</code></td><td>The shared EMV: attempts, <code>goToStep</code>, <code>askStep</code>, <code>askTheBank</code> / <code>bankAnswer</code>, and the 16 <code>onXxx</code> hooks a vendor writes.</td><td>Know about threads, the busy state, or call the bank directly.</td></tr>
+      <tr><td><code>AbstractEmvBehavior</code></td><td>The shared EMV: attempts, <code>goToStep</code>, <code>ask</code>, <code>askTheBank</code> / <code>bankAnswer</code>, and the 16 <code>onXxx</code> hooks a vendor writes.</td><td>Know about threads, the busy state, or call the bank directly.</td></tr>
       <tr><td><code>PaxEmvBehavior</code></td><td>The <code>onXxx</code> hooks on PAX: one native call per step, and the kernel callbacks.</td><td>Be called directly (only through <code>goToStep</code>).</td></tr>
       <tr><td><code>EmvEngine</code></td><td>The EMV step stream (<code>emvSteps</code>: one for the terminal, never completes) and the APDU trace.</td><td>Hold any transaction state.</td></tr>
       <tr><td><code>SaleCommunicationBehavior</code></td><td>The bank: <code>connectToHost</code> (token → exchange → sale / refund), acknowledge, reverse. Decides whether a request reached the bank.</td><td>Decide to acknowledge or reverse.</td></tr>
@@ -281,7 +281,7 @@ flowchart TB
   subgraph core["core"]
     PT["PosTerminal<br/>current = busy · sendToBank · printReceipt"]
     TX["Transaction<br/>steps = state + lock<br/>publish · cancel · fail"]
-    AB["AbstractEmvBehavior<br/>run · goToStep · askStep · finish*"]
+    AB["AbstractEmvBehavior<br/>run · goToStep · ask · finish*"]
     EN["EmvEngine<br/>emvSteps · ApduTrace"]
     CB["CommunicationBehavior<br/>connectToHost · acknowledge · reverse"]
   end
@@ -398,38 +398,20 @@ sequenceDiagram
     <li><b>The screen is the exception.</b> It may use <code>observeOn(main)</code> on <code>emvSteps</code>, because it only shows the banner and nothing waits for it. It subscribes per sale, so it can miss the first EMV step; the dispatch is not affected.</li>
   </ul>
   <h3>Why the dispatch must stay synchronous</h3>
-  <p><code>observeOn(X)</code> queues <code>onNext</code> and runs it later on another thread, so <code>goToStep</code> returns at once. On <code>EmvStepObserver</code> that breaks the flow:</p>
-  <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}}}%%
-sequenceDiagram
-  autonumber
-  participant NK as native EMVStartTrans
-  participant TX as tx thread: askStep
-  participant BUS as emvSteps + observeOn
-  participant IO as other thread: hook
-  NK->>TX: emvGetHolderPwd → onCardHolderPwd
-  TX->>BUS: askStep → goToStep → onNext
-  BUS-->>TX: only queued, goToStep returns
-  TX->>TX: nobody answered → USER_CANCEL
-  TX->>NK: setCallBackResult(USER_CANCEL)
-  BUS->>IO: later: onCardholderVerification
-  IO->>IO: PIN pad for a call that has ended ✗
-  Note over TX,IO: two threads on one native kernel
-</pre></div>
+  <p><code>observeOn(X)</code> queues <code>onNext</code> and runs it later on another thread, so <code>goToStep</code> returns at once and the hook runs elsewhere. On <code>EmvStepObserver</code> that breaks the flow:</p>
   <div class="table-wrap"><table>
     <thead><tr><th>If we use</th><th>What happens</th><th>Why</th></tr></thead>
     <tbody>
-      <tr><td><code>observeOn</code> on the observer</td><td><code>askStep</code> answers <code>USER_CANCEL</code> before the PIN pad or the app-selection dialog opens.</td><td>The hook runs after <code>goToStep</code> has returned, when nobody has answered yet.</td></tr>
       <tr><td><code>observeOn</code> on the observer</td><td>Two threads call one kernel: a hook calls a native function (<code>EMVReadAppData</code>, <code>EMVCardAuth</code>) while the transaction thread is still inside another, or <code>finishContactStage</code> closes the readers under it.</td><td>The PAX kernel and readers are not thread-safe. Everything must run on one thread, in order.</td></tr>
       <tr><td><code>observeOn</code> on the observer</td><td>The order breaks: <code>runContactAppSelect</code> continues as if the read stage had finished and stored its result in <code>tx.transResult</code>.</td><td>Each stage reads the previous stage's result after <code>goToStep</code> returns.</td></tr>
-      <tr><td><code>emvSteps.toSerialized()</code></td><td>A nested <code>goToStep(NEXT)</code> is queued until the current <code>onNext</code> returns.</td><td>Every hook calls <code>goToStep</code> from inside <code>onNext</code>. <code>askStep</code> then returns its fail-closed value, and the stage finds its result missing.</td></tr>
+      <tr><td><code>emvSteps.toSerialized()</code></td><td>A nested <code>goToStep(NEXT)</code> is queued until the current <code>onNext</code> returns.</td><td>Every hook calls <code>goToStep</code> from inside <code>onNext</code>, so the stage would find the next stage's result missing.</td></tr>
     </tbody>
   </table></div>
 </section>
 
 <section id="ask" dir="ltr" class="en">
-  <h2>4. When the kernel waits for a person: <code>askStep</code></h2>
-  <p>During one native call the kernel can stop and ask a question through a callback: choose the application, enter the PIN. It waits until it gets an answer (<code>setCallBackResult</code>). The callback does not open a screen itself: it asks the step that owns the question, with <code>askStep</code>. That step runs <b>inside</b> the step that called the kernel, and its answer goes back to the kernel, which carries on from where it stopped. This is the circle:</p>
+  <h2>4. When the kernel waits for a person: <code>ask</code></h2>
+  <p>During one native call the kernel can stop and ask a question through a callback: choose the application, enter the PIN. It waits until it gets an answer (<code>setCallBackResult</code>). The callback calls <code>ask(step, detail, failClosed)</code>: the step is shown, then its hook asks the person and <b>returns</b> the result. That hook runs <b>inside</b> the step that called the kernel; the result goes back to the kernel, which carries on from where it stopped. This is the circle:</p>
   <h3>The PIN circle (contact)</h3>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 36}}}%%
@@ -437,9 +419,9 @@ flowchart TD
   S8["① PROCESS_RESTRICTIONS (8)<br/>runContactStartTransaction → native EMVStartTrans<br/>the thread now waits inside the kernel"]
   CB["② the CVM needs a PIN → callback<br/>ContactProcess · emvGetHolderPwd(tryFlag, remainCnt, pinData)"]
   GU{"③ ContactProcess guards"}
-  BH["④ PaxEmvBehavior.onCardHolderPwd<br/>tx.pinRequest · askStep(9 online / 10 offline)"]
-  HK["⑤ goToStep → the hook<br/>onCardholderVerification / onOfflinePinVerification<br/>enterPin → PIN pad → answerStep(value)"]
-  RT["⑥ askStep returns the value<br/>(USER_CANCEL: no answer / cancelled / threw)"]
+  BH["④ PaxEmvBehavior.onCardHolderPwd<br/>tx.pinRequest = … · ask(9 online / 10 offline)"]
+  HK["⑤ ask: goToStep shows the step, then runs its hook<br/>onCardholderVerification / onOfflinePinVerification<br/>return enterPin(tx.pinRequest) — the PIN pad"]
+  RT["⑥ ask returns the result<br/>(USER_CANCEL: cancelled before or while open)"]
   SR["⑦ setCallBackResult(result)<br/>the kernel carries on with the CVM"]
   PF{"⑧ offline PIN<br/>right?"}
   END["⑨ TRM → TAA → 1st GAC · EMVStartTrans returns<br/>step 8 hands over to 13 (ARQC) or ends"]
@@ -450,11 +432,13 @@ flowchart TD
   PF -- "right, or online PIN" --> END
 </pre></div>
   <ul class="facts">
-    <li><b>The circle is synchronous.</b> Steps ①–⑨ run on the transaction thread, nested inside each other, and close from the inside out. <code>askStep</code> gets its answer before <code>goToStep</code> returns (§3). That is why the dispatch must never use <code>observeOn</code>.</li>
-    <li><b>Fail closed.</b> No answer, a cancel or an exception → <code>askStep</code> answers <code>USER_CANCEL</code> at once. The kernel never waits forever and never approves without an answer.</li>
+    <li><b>The circle is synchronous.</b> Steps ①–⑨ run on the transaction thread, nested inside each other, and close from the inside out.</li>
+    <li><b><code>ask</code> is three checks:</b> the step shown? (else <code>USER_CANCEL</code>, no PIN pad) → the hook's result → the sale still running? (else <code>USER_CANCEL</code>). The hooks of steps 3 / 4 / 9 / 10 return <code>int</code> and are run by <code>ask</code> only; the dispatch skips them, so a hook never runs twice.</li>
+    <li><b>The hook's data.</b> A hook only gets <code>(config, card)</code>, so the callback leaves the PIN request (<code>tx.pinRequest</code>) or the candidate list (<code>tx.candidates</code>) in the session right before <code>ask</code>.</li>
+    <li><b>Fail closed.</b> A cancel → <code>USER_CANCEL</code>. A hook that throws → <code>ContactProcess</code> catches it and answers <code>USER_CANCEL</code>. The kernel never waits forever and never approves without an answer.</li>
     <li><b>Online PIN</b> asks step 9 (<code>CARDHOLDER_VERIFICATION</code>): PIN pad + PIN key; the bank checks the PIN. <b>Offline PIN</b> asks step 10 (<code>OFFLINE_PIN_VERIFICATION</code>) directly (<code>93a798a</code>): PIN pad only; the kernel checks the PIN with the card.</li>
-    <li><b>Application selection</b> is the same circle: <code>EMVAppSelect</code> → <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>askStep(3 WAIT_ / 4 FINAL_APPLICATION_SELECTION)</code> → a dialog, or the only application → the index back to the kernel.</li>
-    <li><b>Contactless</b> has no PIN callback: the kernel returns first, then our code calls <code>onCardHolderPwd(true, …)</code> itself when the CVM is online PIN (and again for Single Tap, §8). Same <code>askStep</code>, same hook.</li>
+    <li><b>Application selection</b> is the same circle: <code>EMVAppSelect</code> → <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>ask(3 WAIT_ / 4 FINAL_APPLICATION_SELECTION)</code> → the hook returns <code>chooseApplication(tx.candidates)</code>: the dialog's index, or the only application.</li>
+    <li><b>Contactless</b> has no PIN callback: the kernel returns first, then our code calls <code>onCardHolderPwd(true, …)</code> itself when the CVM is online PIN (and again for Single Tap, §8). Same <code>ask</code>, same hook.</li>
   </ul>
   <h3>The kernel's callbacks: which are used</h3>
   <p><code>ContactProcess.EmvCallBackListener</code> is made new at each attempt (<code>preTransProcess</code>), so its counters (<code>isFirstCall</code>, <code>tmpRemainCount</code>) start fresh every time. Every callback ends with an answer.</p>
@@ -462,7 +446,7 @@ flowchart TD
     <colgroup><col style="width:22%"><col style="width:30%"><col style="width:48%"></colgroup>
     <thead><tr><th>Callback</th><th>The kernel calls it</th><th>What we do</th></tr></thead>
     <tbody>
-      <tr><td><code>emvWaitAppSel</code></td><td>In <code>EMVAppSelect</code>, to choose / confirm the application</td><td><b>Asks a person:</b> <code>onWaitAppSelect</code> → <code>askStep(3 / 4)</code></td></tr>
+      <tr><td><code>emvWaitAppSel</code></td><td>In <code>EMVAppSelect</code>, to choose / confirm the application</td><td><b>Asks a person:</b> <code>onWaitAppSelect</code> → <code>ask(3 / 4)</code></td></tr>
       <tr><td><code>emvGetHolderPwd</code></td><td>In <code>EMVStartTrans</code>, when the CVM needs a PIN</td><td><b>Asks a person:</b> the circle above</td></tr>
       <tr><td><code>emvVerifyPINfailed</code></td><td>The offline PIN was wrong</td><td><code>EMV_OK</code>; the kernel decides: it asks again (②) or goes on</td></tr>
       <tr><td><code>emvVerifyPINOK</code></td><td>The offline PIN was right</td><td>Log only</td></tr>
@@ -628,7 +612,7 @@ classDiagram
       <tr><td>6</td><td><code>SET_TRANSACTION_DATA</code></td><td><code>runContactSetTransactionData</code></td><td>9C, <code>CARD_READ</code></td><td>—</td></tr>
       <tr><td>7</td><td><code>OFFLINE_DATA_AUTHENTICATION</code></td><td><code>runContactCardAuth</code></td><td><code>EMVAddCAPK</code>, <code>EMVCardAuth</code></td><td>—</td></tr>
       <tr><td>8</td><td><code>PROCESS_RESTRICTIONS</code></td><td><code>runContactStartTransaction</code>; then 13 if the card goes online, else the stage ends</td><td><code>EMVStartTrans</code> = PR + CVM + TRM + TAA + 1st GAC</td><td>PIN</td></tr>
-      <tr><td>9 / 10</td><td><code>CARDHOLDER_VERIFICATION</code> / <code>OFFLINE_PIN_VERIFICATION</code></td><td>Asked from inside step 8 (<code>askStep</code>, §4)</td><td>— (the kernel waits in <code>EMVStartTrans</code>)</td><td>PIN</td></tr>
+      <tr><td>9 / 10</td><td><code>CARDHOLDER_VERIFICATION</code> / <code>OFFLINE_PIN_VERIFICATION</code></td><td>Asked from inside step 8 (<code>ask</code>, §4)</td><td>— (the kernel waits in <code>EMVStartTrans</code>)</td><td>PIN</td></tr>
       <tr><td>13</td><td><code>ONLINE_AUTHORIZATION</code></td><td><code>onOnlineAuthorization</code> → <code>askTheBank</code> → <code>runContactOnline</code>; then 14</td><td>— (the bank)</td><td>—</td></tr>
       <tr><td>14</td><td><code>ISSUER_AUTHENTICATION</code></td><td><code>runContactIssuerAuthentication</code>; then the stage ends</td><td><code>EMVCompleteTrans</code> = ARPC + scripts + 2nd GAC</td><td>—</td></tr>
     </tbody>
@@ -645,7 +629,7 @@ sequenceDiagram
   C->>K: EMVCoreInit · EMVAddApp ×n
   B->>C: 2 · runContactAppSelect (≤ 3 tries)
   C->>K: EMVAppSelect
-  K-->>B: emvWaitAppSel → askStep (app choice)
+  K-->>B: emvWaitAppSel → ask (app choice)
   B->>C: 5 · readApplicationData
   C->>K: EMVReadAppData (GPO + records)
   B->>C: 6 · setTransactionData
@@ -654,7 +638,7 @@ sequenceDiagram
   C->>K: addCapk · EMVCardAuth
   B->>C: 8 · startTransProcess
   C->>K: EMVStartTrans: PR → CVM → TRM → TAA → 1st GAC
-  K-->>B: emvGetHolderPwd → askStep (PIN)
+  K-->>B: emvGetHolderPwd → ask (PIN)
   alt ARQC
     B->>H: 13 · askTheBank → field 55 → the bank
     H-->>B: AuthResult
@@ -752,7 +736,7 @@ flowchart TD
 
 <section id="contactless" dir="ltr" class="en">
   <h2>8. The contactless path</h2>
-  <p>The same dispatch and the same <code>askStep</code> as contact, but the kernel is chosen after application selection (<code>ClssKernelProcessFactory</code>). There are two kinds: <b>granular</b> kernels (PayPass, PayWave, EFT) have one native call per stage; <b>atomic</b> kernels (Amex, JCB, Mir, PBOC, Pure, RuPay, DPAS) do everything in one call.</p>
+  <p>The same dispatch and the same <code>ask</code> as contact, but the kernel is chosen after application selection (<code>ClssKernelProcessFactory</code>). There are two kinds: <b>granular</b> kernels (PayPass, PayWave, EFT) have one native call per stage; <b>atomic</b> kernels (Amex, JCB, Mir, PBOC, Pure, RuPay, DPAS) do everything in one call.</p>
 <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
 flowchart TD
@@ -793,7 +777,7 @@ sequenceDiagram
     B->>B: retry (requestRetry) → a new attempt
   else card done
     opt CVM = online PIN
-      B->>B: onCardHolderPwd → askStep → PIN pad
+      B->>B: onCardHolderPwd → ask → PIN hook
     end
     B->>H: ARQC → goToStep(ONLINE_AUTHORIZATION) → runContactlessOnline → askTheBank
     H-->>B: bankAnswer()
@@ -871,7 +855,7 @@ flowchart TD
     <tbody>
       <tr><td><code>onReadCardOk</code></td><td>The kernel, after the read</td><td>Atomic: <code>goToStep(SET_TRANSACTION_DATA)</code>, then <code>goToStep(READ_APPLICATION_DATA)</code>; <code>APPLICATION_SELECTED</code>; 9F1C; <code>CARD_READ</code>. It comes before the card decides, so <code>CARD_READ</code> also shows before See Phone or a decline.</td></tr>
       <tr><td><code>confirmCard</code></td><td>Nobody (the kernel never calls it)</td><td>Returns <code>CONTACT_OK</code>; kept because the interface requires it</td></tr>
-      <tr><td><code>onWaitAppSelect</code> / <code>onCardHolderPwd</code></td><td>Shared with contact</td><td><code>askStep</code></td></tr>
+      <tr><td><code>onWaitAppSelect</code> / <code>onCardHolderPwd</code></td><td>Shared with contact</td><td><code>ask</code></td></tr>
       <tr><td><code>startOnlineProcess</code></td><td>Nobody</td><td>Returns <code>bankAnswer()</code> in PAX shape; going online is <code>ONLINE_AUTHORIZATION</code></td></tr>
       <tr><td><code>onDetect2ndTap</code></td><td>The completion stage</td><td>A prompt + <code>SEARCH_CARD</code> (shown only, no second search)</td></tr>
       <tr><td><code>needSeePhone</code></td><td>The kernel on the next tap (Amex / Mir / Pure)</td><td>Returns <code>clsLastNeedSeePhone</code>, then clears it</td></tr>
@@ -1000,7 +984,7 @@ flowchart TD
       <tr><td><b>Open / Closed</b></td><td>Add, don't edit.</td><td>A new vendor = a new flavor with its <code>TerminalFactory</code> and classes; the core does not change.</td></tr>
       <tr><td><b>Template Method</b></td><td>The parent fixes the order; the child fills in the steps.</td><td><code>AbstractEmvBehavior</code>: <code>run</code>, <code>goToStep</code>, the dispatch; the vendor fills the 16 <code>onXxx</code> hooks.</td></tr>
       <tr><td><b>Observer</b></td><td>Whoever cares subscribes and gets every update.</td><td><code>Transaction.steps()</code> and the screen; <code>emvSteps</code> and <code>EmvStepObserver</code>; <code>TransactionStepObserver</code></td></tr>
-      <tr><td><b>Callback</b></td><td>Give someone a number to call you back on.</td><td><code>BankRequest</code> (§5), <code>CardSearchListener</code>, <code>IContactCallback</code> and <code>askStep</code> (§4)</td></tr>
+      <tr><td><b>Callback</b></td><td>Give someone a number to call you back on.</td><td><code>BankRequest</code> (§5), <code>CardSearchListener</code>, <code>IContactCallback</code> and <code>ask</code> (§4)</td></tr>
       <tr><td><b>Adapter</b></td><td>A converter between two shapes that do not know each other.</td><td><code>PaxHostAnswer</code> (<code>AuthResult</code> → PAX shape); <code>ContactProcess.EmvCallBackListener</code> (native → listener)</td></tr>
       <tr><td><b>Factory / Builder</b></td><td>One place decides how a thing is made.</td><td><code>TerminalFactory</code> (per flavor), <code>ClssKernelProcessFactory</code> (a kernel per scheme), <code>AuthResult.approved / declined / …</code>, <code>TransactionStepEvent.builder(...)</code></td></tr>
       <tr><td><b>Dependency Injection</b> (by hand)</td><td>A class takes what it needs from outside instead of making it.</td><td><code>PaxTerminal</code> → <code>super(behavior, communication, printer)</code>; <code>attach(this::sendToBank)</code> for the one cycle</td></tr>
