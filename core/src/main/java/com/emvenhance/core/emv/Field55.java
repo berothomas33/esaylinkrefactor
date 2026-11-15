@@ -48,11 +48,6 @@ public final class Field55 {
             new Tag(0x9F1E, "Interface Device Serial Number"),
             new Tag(0x9F63, "Scheme-proprietary 9F63"),
             new Tag(0x9F66, "Terminal Transaction Qualifiers"),
-            new Tag(0x9F09, "Application Version Number"),
-            new Tag(0x9F33, "Terminal Capabilities"),
-            new Tag(0x9F34, "CVM Results"),
-            new Tag(0x9F35, "Terminal Type"),
-            new Tag(0x9F41, "Transaction Sequence Counter"),
     };
 
     private final String hex;
