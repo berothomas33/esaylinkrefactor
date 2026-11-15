@@ -14,7 +14,7 @@ import retrofit2.converter.gson.GsonConverterFactory;
 public final class HostApiClient {
 
     private static final long TIMEOUT_SECONDS = 75;
-    private static final long PAYMENT_CALL_TIMEOUT_SECONDS = 25;
+    private static final long PAYMENT_CALL_TIMEOUT_SECONDS = 45;
     private static final long NO_CALL_TIMEOUT = 0;
 
     private HostApiClient() {
