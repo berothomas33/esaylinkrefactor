@@ -25,6 +25,7 @@ import com.emvenhance.network.model.SaleRequest;
 import com.emvenhance.network.model.SaleResponse;
 import com.emvenhance.network.onboarding.OnboardingClient;
 import com.emvenhance.network.onboarding.OnboardingState;
+import com.emvenhance.network.tlv.BerTlv;
 import com.emvenhance.network.tlv.IssuerResponseFields;
 import com.google.gson.Gson;
 
@@ -289,6 +290,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                     ? connection.refund(withToken, saleRequest).blockingGet()
                     : connection.sale(withToken, saleRequest).blockingGet();
             saleResponse = decrypted(generalResponse, tek, step, SaleResponse.class);
+            logSaleAnswer(step, saleResponse);
         } catch (RuntimeException e) {
             return answerOf(classify(step, unwrapped(e)));
         }
@@ -399,6 +401,37 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         } catch (GeneralSecurityException e) {
             throw new SaleException("Failed to decrypt the " + step + " response", e);
         }
+    }
+
+    private static void logSaleAnswer(String step, SaleResponse response) {
+        if (!BuildConfig.DEBUG) {
+            return;
+        }
+        Log.i(TAG, saleAnswerLine(step, response));
+    }
+
+    static String saleAnswerLine(String step, SaleResponse response) {
+        String chip = response.getChipData();
+        return step.toUpperCase(Locale.US) + "_RESPONSE decoded:"
+                + " RC=" + response.getResponseCode()
+                + " message=" + response.getResponseMessage()
+                + " authCode=" + response.getAuthCode()
+                + " rrn=" + response.getReferenceNumber()
+                + " | chipData 91(ARPC)=" + hexOf(BerTlv.findTag(chip, "91"))
+                + " 8A(ARC)=" + hexOf(BerTlv.findTag(chip, "8A"))
+                + " 71=" + hexOf(BerTlv.findTag(chip, "71"))
+                + " 72=" + hexOf(BerTlv.findTag(chip, "72"));
+    }
+
+    private static String hexOf(@Nullable byte[] value) {
+        if (value == null) {
+            return "none";
+        }
+        StringBuilder hex = new StringBuilder();
+        for (byte b : value) {
+            hex.append(String.format(Locale.US, "%02X", b));
+        }
+        return hex.toString();
     }
 
     private static void logSerialized(String label, String json) {
