@@ -441,34 +441,41 @@ flowchart TD
     <li><b>Contactless</b> has no PIN callback: the kernel returns first, then our code calls <code>onCardHolderPwd(true, …)</code> itself when the CVM is online PIN (and again for Single Tap, §8). Same <code>ask</code>, same hook.</li>
   </ul>
   <h3>The online PIN key (RSA)</h3>
-  <p>An online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key. The bank gets that key wrapped with its own RSA public key, so only the bank can unwrap it and read the PIN block.</p>
+  <p>An online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key (the PEK). The bank gets that key wrapped with its own RSA public key, so only the bank can unwrap it and read the PIN block. Two PED slots are involved: the <b>TLK at index 0</b> (must already be on the terminal) and the <b>PEK (<code>AES_TPK</code>) at index 1</b> (<code>INDEX_AES_PEK = 0x01</code>, written per attempt).</p>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 36}}}%%
-flowchart TD
-  A["① ONLINE_AUTHORIZATION → askTheBank → addOnlineRequestData<br/>PaxPinEntry.ensureOnlinePinKey(tx) — one key per attempt"]
-  K["② provisionOnlinePinKey<br/>pinKey = 16 random bytes (SecureRandom, AES-128)"]
-  PED["③ the PED: erase the old AES_TPK / TPK at INDEX_AES_PEK<br/>writeAesKey(TLK index 0 → AES_TPK at INDEX_AES_PEK, pinKey)"]
-  RSA["④ RSA/ECB/PKCS1Padding(host public key, pinKey) → hex<br/>tx.lastOnlinePinKeyEncrypted"]
-  PIN["⑤ step 9 (online PIN): PinService.getEncryptedPinData(PAN)<br/>the PED builds the PIN block under AES_TPK (ISO 9564 format 4)<br/>tx.lastOnlinePinBlock"]
-  REQ["⑥ the request: withOnlinePinKeyEncrypted · withOnlinePinBlock"]
-  EX["exchange: GeneralRequest.forExchange(…, pinKeyToSend)<br/>the RSA-wrapped key, with every exchange"]
-  SALE["sale: GeneralRequest.forSale(…, pinBlockToSend)<br/>the PIN block, only when there is one"]
-  HOST["⑦ the bank: RSA private key → pinKey → decrypts the PIN block"]
-  NOTLK["no TLK at index 0 → the write fails<br/>log: 'no TLK at index 0?' · online PIN fails: Key does not exist"]
-  NOKEY["no host public key (onboarding not done)<br/>the key is in the PED, but never sent: the bank cannot read the PIN"]
-  A --> K --> PED --> RSA --> PIN --> REQ
-  REQ --> EX --> HOST
-  REQ --> SALE --> HOST
-  PED -. "PedDevException" .-> NOTLK
-  RSA -. "public key missing" .-> NOKEY
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"mirrorActors": false, "messageMargin": 30, "actorMargin": 60}}}%%
+sequenceDiagram
+  autonumber
+  participant B as PaxPinEntry
+  participant P as PED
+  participant N as Network
+  participant H as Bank
+  Note over P: TLK at index 0<br/>(must be injected first)
+  B->>B: ensureOnlinePinKey<br/>(once per attempt)
+  B->>B: pinKey = 16 random bytes
+  B->>P: erase AES_TPK / TPK at 1
+  B->>P: writeAesKey<br/>TLK 0 → AES_TPK 1
+  alt no TLK at 0
+    P-->>B: PedDevException<br/>online PIN fails
+  end
+  B->>B: RSA(bank public key, pinKey)<br/>→ lastOnlinePinKeyEncrypted
+  B->>P: step 9: getEncryptedPinData(PAN)
+  Note over P: PIN typed on the PED pad
+  P-->>B: PIN block under PEK<br/>(ISO 9564 format 4)
+  B->>N: wrapped key + PIN block
+  N->>H: exchange: pinKeyToSend<br/>(every exchange)
+  N->>H: sale: pinBlockToSend<br/>(when there is a PIN)
+  H->>H: RSA private key → pinKey<br/>→ decrypt PIN block
+  H-->>N: sale answer
 </pre></div>
   <ul class="facts">
     <li><b>One key per attempt, made before the first online request.</b> It goes with <b>every</b> exchange, PIN or not (<code>pinKeyToSend</code>): a Single Tap PIN comes later in a resend that has no exchange of its own, so the bank must already hold the key (§8).</li>
-    <li><b>The clear key never leaves the terminal unwrapped.</b> It is written into the PED under the TLK (index 0), and sent only RSA-wrapped (<code>RsaPublicKeyEncryptor</code>, PKCS#1 v1.5, the host key in PKCS#1 DER).</li>
-    <li><b>The PIN block is built by the PED</b>, never by our code; we only carry the bytes (<code>tx.lastOnlinePinBlock</code>, hex in the request).</li>
-    <li>⚠ <b>The TLK must be injected</b> at index 0 for the key write to work. Without it, every online PIN fails (<code>Key does not exist</code>). How the TLK gets there (key injection / TMK provisioning) is not wired yet.</li>
+    <li><b>The PIN block is built by the PED</b>, never by our code; we only carry the bytes (<code>tx.lastOnlinePinBlock</code>, hex in the request). The PIN itself never reaches the app.</li>
+    <li><b>The key is in the app's memory, in the clear, for a moment:</b> <code>pinKey</code> is made by <code>SecureRandom</code> in Java and handed to <code>writeAesKey</code> as plain bytes, with the TLK at index 0 as the source. PAX's own demo writes a TMK the same way (<code>Device.writeTMK</code>: TLK, index 0, the plain value), which suggests that index 0 means "written in the clear". ⚠ Not confirmed in PAX's documentation or on a device: if the PED decrypts the value with the TLK first, the key in the PED is not the key sent to the bank, and the bank cannot read the PIN.</li>
+    <li>⚠ <b>The TLK must be injected</b> at index 0 for the write to work. Without it, every online PIN fails (<code>Key does not exist</code>). How the TLK gets there (key injection / TMK provisioning) is not wired yet. A production PED may also refuse a key written in the clear.</li>
+    <li>⚠ <b>No KCV</b> (<code>KCV_NONE</code>): nothing checks that the key in the PED is the key sent to the bank.</li>
     <li>⚠ <b>No host public key</b> (onboarding not completed): the key is written but not sent, and the bank cannot decrypt the PIN block.</li>
-    <li>Code: <code>PaxPinEntry.provisionOnlinePinKey</code> / <code>enter</code>, <code>RsaPublicKeyEncryptor.encryptToHex</code>, <code>SaleCommunicationBehavior.pinKeyToSend</code> / <code>pinBlockToSend</code> / <code>prepareExchangeRequest</code>. Not device-tested on this branch (form rows 4, 5, 7, 9).</li>
+    <li>Code: <code>PaxPinEntry.ensureOnlinePinKey</code> / <code>provisionOnlinePinKey</code> / <code>enter</code>, <code>RsaPublicKeyEncryptor.encryptToHex</code> (PKCS#1 v1.5, the host key in PKCS#1 DER), <code>SaleCommunicationBehavior.pinKeyToSend</code> / <code>pinBlockToSend</code> / <code>prepareExchangeRequest</code>. Not device-tested on this branch (form rows 4, 5, 7, 9).</li>
   </ul>
   <h3>How the kernel waits: <code>EMVCallback</code> (PAX's jar)</h3>
   <p>The native kernel does not call our listener directly. It calls a Java method of <code>EMVCallback</code> (<code>EMV_v105.jar</code>, read with <code>javap</code>), and that method is what waits for <code>setCallBackResult</code>:</p>
@@ -769,7 +776,7 @@ flowchart TD
   <div class="table-wrap"><table>
     <thead><tr><th>Timeout</th><th>Value</th><th>Note</th></tr></thead>
     <tbody>
-      <tr><td>Each payment call (OkHttp <code>callTimeout</code>)</td><td>25 s</td><td>token + exchange + sale ≤ 75 s. Payments only, not the params download.</td></tr>
+      <tr><td>Each payment call (OkHttp <code>callTimeout</code>)</td><td>45 s</td><td>Each call on its own (token, exchange, sale, acknowledgement, reverse); exchange + sale ≤ 90 s, like <code>sendToBank</code>. Payments only, not the params download (<code>8a5b4b5</code>).</td></tr>
       <tr><td><code>PosTerminal.sendToBank</code></td><td>90 s</td><td>Safety net (see ⚠).</td></tr>
       <tr><td><code>closeAtHost</code> (acknowledge / reverse)</td><td>60 s</td><td>Safety net (see ⚠).</td></tr>
     </tbody>
@@ -785,6 +792,8 @@ flowchart TD
     <li>⚠ A cancel while waiting for the bank ends the sale CANCELLED, even if the bank approved; that request is then reversed.</li>
     <li>⚠ Not tried on a device or with the bank. That the closings need the <code>mToken</code> is an assumption.</li>
     <li>Trace lines (tag <code>HOST</code>): <code>Acknowledgement &lt;id&gt; sent</code> or <code>… failed — not retried: &lt;why&gt;</code>; <code>REVERSAL for request &lt;id&gt;: approved, not completed</code>; <code>no reversal …: the host could not have approved it — &lt;why&gt;</code>.</li>
+    <li><b>Field 55</b> (<code>Field55.TAGS</code>): each tag once since <code>eb934bb</code> (the old app's repeated 9F09 / 9F33 / 9F34 / 9F35 / 9F41 removed); 9F41 is still 00000000. ⚠ Not tried with the bank yet.</li>
+    <li>Logs (tag <code>SaleComm</code>, debug builds): <code>CHIP_DATA (field 55 sent)</code>; <code>SALE_RESPONSE:Serialized: {…}</code> (the decrypted JSON); <code>SALE_RESPONSE decoded: RC=… message=… authCode=… rrn=… | chipData 91(ARPC)=… 8A(ARC)=… 71=… 72=…</code> (<code>5756a70</code>; <code>REFUND_</code> for a refund). No answer from the bank (<code>HTTP FAILED: Canceled</code> at the <code>callTimeout</code>) → neither response line.</li>
   </ul>
 </section>
 

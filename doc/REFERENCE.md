@@ -206,30 +206,40 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 
 | Timeout | Value |
 |---|---|
-| Each payment call: `callTimeout` (`HostApiClient.createForPayments`), synchronous adapter | 25 s |
+| Each payment call: `callTimeout` (`HostApiClient.createForPayments`), synchronous adapter; each call on its own, exchange + sale ≤ 90 s (`8a5b4b5`) | 45 s |
 | `PosTerminal.sendToBank` (safety net) | 90 s |
 | `closeAtHost` (safety net) | 60 s |
 
 - ⚠ **The 90 s and 60 s nets do not cut the wait:** `connectToHost` / `acknowledge` / `reverse` are `fromCallable` with no `subscribeOn`, so they run on the transaction thread and `timeout` returns only when the call does (a 500 ms timeout waited 3124 ms). The real bound is `callTimeout`. An answer after the timeout is thrown away as `failed` → reversal (safe for the money). The fix (`subscribeOn(io)`) needs a decision.
 - ⚠ An acknowledgement / reversal is sent once, with no stored journal (0.15). ⚠ Not tried with the bank; that they need the `mToken` is an assumption.
+- **Field 55** (`Field55.TAGS`): each tag once since `eb934bb` (the repeated 9F09 / 9F33 / 9F34 / 9F35 / 9F41 of the old app removed); 9F41 is still 00000000. ⚠ Not tried with the bank yet.
+- **Logs (tag `SaleComm`, debug builds):** `CHIP_DATA (field 55 sent)`; `SALE_RESPONSE:Serialized: {…}` (the decrypted JSON); `SALE_RESPONSE decoded: RC=… message=… authCode=… rrn=… | chipData 91(ARPC)=… 8A(ARC)=… 71=… 72=…` (`5756a70`; `REFUND_` for a refund; `none` when a tag is missing). No answer (e.g. `HTTP FAILED: Canceled` at the `callTimeout`) → neither response line.
 
-**The online PIN key (RSA):** an online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key; the bank gets that key wrapped with its own RSA public key.
+**The online PIN key (RSA):** an online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key (the PEK); the bank gets that key wrapped with its own RSA public key. PED slots: **TLK at index 0** (must already be there), **PEK = `AES_TPK` at index 1** (`INDEX_AES_PEK = 0x01`, written per attempt).
 
 ```
-① ONLINE_AUTHORIZATION → askTheBank → addOnlineRequestData → PaxPinEntry.ensureOnlinePinKey(tx)  (one key per attempt)
-② provisionOnlinePinKey: pinKey = 16 random bytes (SecureRandom, AES-128)
-③ PED: erase the old AES_TPK / TPK at INDEX_AES_PEK; writeAesKey(TLK index 0 → AES_TPK at INDEX_AES_PEK, pinKey)
-④ RSA/ECB/PKCS1Padding(host public key, pinKey) → hex → tx.lastOnlinePinKeyEncrypted
-⑤ step 9: PinService.getEncryptedPinData(PAN) → the PED builds the PIN block under AES_TPK (ISO 9564 format 4) → tx.lastOnlinePinBlock
-⑥ request: withOnlinePinKeyEncrypted · withOnlinePinBlock
-     exchange → GeneralRequest.forExchange(…, pinKeyToSend)   the wrapped key, with every exchange
-     sale     → GeneralRequest.forSale(…, pinBlockToSend)     the PIN block, only when there is one
-⑦ the bank: RSA private key → pinKey → decrypts the PIN block
+ App (PaxPinEntry)                    PED                         Network → Bank
+ ─────────────────                    ───                         ──────────────
+① ONLINE_AUTHORIZATION → askTheBank → ensureOnlinePinKey(tx)   (only if tx.lastOnlinePinKeyEncrypted == null: one key per attempt)
+② pinKey = 16 random bytes (SecureRandom, AES-128)
+③ eraseKey(AES_TPK, 1), eraseKey(TPK, 1) ──────▶ old PEK gone
+   writeAesKey(TLK 0 → AES_TPK 1, pinKey, KCV_NONE) ──▶ PEK at index 1
+     └ PedDevException ("no TLK at index 0?") → stop: nothing sent, online PIN fails
+④ RSA/ECB/PKCS1(host public key, pinKey) → hex → tx.lastOnlinePinKeyEncrypted
+     └ no host public key → key in the PED, never sent
+⑤ step 9: getEncryptedPinData(PAN) ───────────▶ PIN typed on the PED's pad
+   tx.lastOnlinePinBlock ◀──────────────────── PIN block under the PEK (ISO 9564 format 4)
+⑥ withOnlinePinKeyEncrypted · withOnlinePinBlock
+     exchange → forExchange(…, pinKeyToSend) ────────────────────▶ the wrapped key, every exchange
+     sale     → forSale(…, pinBlockToSend)  ─────────────────────▶ the PIN block, when there is one
+⑦                                                   bank: RSA private key → pinKey → decrypts the PIN block
 ```
 
 - The key goes with every exchange, PIN or not: a Single Tap PIN comes later, in a resend with no exchange of its own.
-- The clear key never leaves the terminal unwrapped; the PIN block is built by the PED, not by our code.
-- ⚠ The TLK must be injected at index 0, or the key write fails and every online PIN fails (`Key does not exist`); TLK injection is not wired yet.
+- The PIN block is built by the PED, not by our code; the PIN never reaches the app.
+- The key is in the app's memory in the clear for a moment (`SecureRandom` → `writeAesKey`, source TLK index 0). PAX's demo writes a TMK the same way (`Device.writeTMK`), which suggests index 0 = "written in the clear". ⚠ Not confirmed in PAX's docs or on a device: if the PED decrypts the value with the TLK first, the PED's key ≠ the key sent, and the bank cannot read the PIN.
+- ⚠ The TLK must be injected at index 0, or the write fails and every online PIN fails (`Key does not exist`); TLK injection is not wired yet. A production PED may refuse a clear key.
+- ⚠ No KCV (`KCV_NONE`): nothing checks the PED's key against the key sent.
 - ⚠ No host public key (onboarding not completed): the key is written but not sent; the bank cannot read the PIN.
 - Not device-tested on this branch (form rows 4, 5, 7, 9).
 
@@ -302,4 +312,4 @@ The older branch (`paxEmvBehaviorSplit` / `-tests`) works the same way, with:
 | `field55()` abstract, `Field55.TagReader` | `readIccTag` abstract, `IntFunction` |
 | `CardPresence.isEmv()` / `isNonEmv()` | `AbstractEmvBehavior.isNonEmv(card)` |
 | The issuer step builds the PAX answer from `bankAnswer()`; no second announcement | `tx.issuerResponse`; a second announcement in `onlineDenied` / `onlineCardDenied` |
-| The network as plain steps, `callTimeout` 25 s, synchronous adapter, `closeAtHost` 60 s | An Rx chain (`flatMap`), no `callTimeout`, `closeAtHost` 15 s |
+| The network as plain steps, `callTimeout` 45 s, synchronous adapter, `closeAtHost` 60 s | An Rx chain (`flatMap`), no `callTimeout`, `closeAtHost` 15 s |
