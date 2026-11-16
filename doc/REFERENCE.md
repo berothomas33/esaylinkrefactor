@@ -130,7 +130,9 @@ During a native call the kernel can stop and ask a question through a callback. 
      onCardholderVerification / onOfflinePinVerification → enterPin(tx.pinRequest) → PIN pad → returns the result
 ⑥ ← ask returns it (USER_CANCEL if the sale was cancelled while the pad was open)
 ⑦ ← setCallBackResult(result): result = …, cv.open() → cEMVGetHolderPwd's cv.block() returns → the kernel carries on with the CVM
-⑧ offline PIN wrong → emvVerifyPINfailed → EMV_OK → the kernel asks again: back to ② (one try less)
+⑦b offline only: the kernel → EmvDeviceImpl.setPinInputParam → pedVerifyPlainPin / pedVerifyCipherPin
+     → the PED's keypad → VERIFY APDU → the card's SW1 SW2 (below)
+⑧ offline PIN wrong (63Cx) → emvVerifyPINfailed → EMV_OK → the kernel asks again: back to ② (one try less)
 ⑨ EMVStartTrans returns (TRM → TAA → 1st GAC) → step 8 hands over to 13 (ARQC) or ends
 ```
 
@@ -139,6 +141,26 @@ During a native call the kernel can stop and ask a question through a callback. 
 - A hook that throws goes out through `ask`: `ContactProcess` catches it and answers `USER_CANCEL`.
 - Application selection is the same circle: `EMVAppSelect` → `emvWaitAppSel` → `onWaitAppSelect` → `ask(3 / 4)` → the hook returns the dialog's index, or the only application.
 - Contactless has no PIN callback: the kernel returns first, then our code calls `onCardHolderPwd(true, …)` itself (CVM = online PIN, and Single Tap).
+
+**The offline PIN: who checks it (PCI mode).** `setPciMode((byte) 1)` makes the kernel drive the PED. Step 10's hook only opens the screen (`PaxPinPad("Enter Offline PIN (n left)")`, `EmvDeviceImpl.setPinCallback(pad)`) and returns `CONTACT_OK`. Then, inside `EMVStartTrans`:
+
+```
+kernel → EmvDeviceImpl (IDevice, set once in EmvFlowRuntime: DeviceManager.setIDevice)
+  setPinInputParam(lengths, 60 s)            ← setPinLenSet(offlinePinLengths()) "4,…,12" ("0,…" with bypass) · setPciTimeout
+  pedVerifyPlainPin   (CVM 01, plaintext by ICC)
+  pedVerifyCipherPin  (CVM 04, enciphered by ICC; RsaPinKeyL2 = the card's PIN key modulus / exponent + ICC random)
+    → PED: its own keypad → VERIFY APDU to the card → SW1 SW2 → iccRespOut (2 bytes) → DEVICE_PROC_OK
+  kernel reads the SW:
+    9000        PIN right → 9F34 …02 → TRM → TAA → 1st GAC
+    63Cx        wrong, x tries left → emvGetHolderPwd again (form row 3, Pass)
+    6983 / 6984 blocked → the kernel goes on by the CVM list (TVR byte 3)
+  cancel / timeout / PED error → pinCallback.onCancel / onTimeout / onError (closes the pad) → DEVICE_PEDERR_*
+```
+
+- Our code touches the screen only. The PIN, its encryption, the VERIFY and the decision stay in the PED, the kernel and the card; the PIN never passes through the app.
+- Example: 9F34 = `04 03 02` = enciphered PIN verified by the card, successful.
+- `emvGetHolderPwd` with `pinData[0] ≠ 0`: `ContactProcess` answers that status, no pad (`1` = timeout); other values are not named in the jar, not assumed.
+- Read from the code, not traced on a device.
 
 **How the kernel waits** (`EMVCallback` in PAX's `EMV_v105.jar`, read with `javap`): the native kernel does not call our listener directly; it calls a Java method of `EMVCallback`, and that method waits for `setCallBackResult`:
 
