@@ -421,7 +421,36 @@ public class EmvAid implements Serializable {
 
     @Override
     public String toString() {
-        return appName;
+        return "EmvAid{"
+                + "id=" + id
+                + ", appName='" + appName + '\''
+                + ", aid='" + aid + '\''
+                + ", selFlag=" + selFlag
+                + ", priority=" + priority
+                + ", onlinePin=" + onlinePin
+                + ", targetPer=" + targetPer
+                + ", maxTargetPer=" + maxTargetPer
+                + ", floorLimitCheckFlg=" + floorLimitCheckFlg
+                + ", randTransSel=" + randTransSel
+                + ", velocityCheck=" + velocityCheck
+                + ", floorLimit=" + floorLimit
+                + ", threshold=" + threshold
+                + ", tacDenial='" + tacDenial + '\''
+                + ", tacOnline='" + tacOnline + '\''
+                + ", tacDefault='" + tacDefault + '\''
+                + ", acquirerId='" + acquirerId + '\''
+                + ", dDOL='" + dDOL + '\''
+                + ", tDOL='" + tDOL + '\''
+                + ", version='" + version + '\''
+                + ", riskManageData='" + riskManageData + '\''
+                + ", terminalCapability='" + terminalCapability + '\''
+                + ", terminalAdditionalCapability='" + terminalAdditionalCapability + '\''
+                + ", terminalType='" + terminalType + '\''
+                + ", getDataPIN=" + getDataPIN
+                + ", bypassPin=" + bypassPin
+                + ", bypassAllFlg=" + bypassAllFlg
+                + ", forceOnline=" + forceOnline
+                + '}';
     }
 
     public boolean getOnlinePin() {

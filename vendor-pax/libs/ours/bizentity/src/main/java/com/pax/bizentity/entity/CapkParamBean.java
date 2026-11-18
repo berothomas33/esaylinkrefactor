@@ -21,4 +21,12 @@ public class CapkParamBean {
     public void setCapkRevokeList(List<CapkRevokeBean> capkRevokeList) {
         this.capkRevokeList = capkRevokeList;
     }
+
+    @Override
+    public String toString() {
+        return "CapkParamBean{"
+                + "capkList=" + capkList
+                + ", capkRevokeList=" + capkRevokeList
+                + '}';
+    }
 }

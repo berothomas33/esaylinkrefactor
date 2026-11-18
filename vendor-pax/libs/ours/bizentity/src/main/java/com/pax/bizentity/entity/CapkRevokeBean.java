@@ -80,4 +80,14 @@ public class CapkRevokeBean implements Serializable {
     public void setRID(String rID) {
         this.rID = rID;
     }
+
+    @Override
+    public String toString() {
+        return "CapkRevokeBean{"
+                + "id=" + id
+                + ", rID='" + rID + '\''
+                + ", keyID='" + keyID + '\''
+                + ", certificateSN='" + certificateSN + '\''
+                + '}';
+    }
 }
