@@ -12,4 +12,11 @@ public class PayPassParamBean {
     public void setAid(List<PayPassAidBean> aid) {
         this.aid = aid;
     }
+
+    @Override
+    public String toString() {
+        return "PayPassParamBean{"
+                + "aid=" + aid
+                + '}';
+    }
 }

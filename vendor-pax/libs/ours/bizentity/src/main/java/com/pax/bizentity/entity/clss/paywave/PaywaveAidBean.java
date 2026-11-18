@@ -214,4 +214,25 @@ public class PaywaveAidBean implements Serializable {
     public List<PayWaveInterFloorLimitBean> getInterWareFloorLimit() {
         return interWareFloorLimit;
     }
+
+    @Override
+    public String toString() {
+        return "PaywaveAidBean{"
+                + "id=" + id
+                + ", appName='" + appName + '\''
+                + ", aid='" + aid + '\''
+                + ", selFlag=" + selFlag
+                + ", version='" + version + '\''
+                + ", terminalType='" + terminalType + '\''
+                + ", ttq='" + ttq + '\''
+                + ", crypto17Flag=" + crypto17Flag
+                + ", statusCheckFlag=" + statusCheckFlag
+                + ", amountZeroNoAllowed=" + amountZeroNoAllowed
+                + ", securityCapability='" + securityCapability + '\''
+                + ", domesticOnly=" + domesticOnly
+                + ", enDDAVerNo=" + enDDAVerNo
+                + ", terminalCapability='" + terminalCapability + '\''
+                + ", interWareFloorLimit=" + interWareFloorLimit
+                + '}';
+    }
 }

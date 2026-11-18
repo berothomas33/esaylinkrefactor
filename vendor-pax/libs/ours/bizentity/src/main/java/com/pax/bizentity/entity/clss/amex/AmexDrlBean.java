@@ -169,4 +169,20 @@ public class AmexDrlBean {
     public void setDynamicLimitSet(byte dynamicLimitSet) {
         this.dynamicLimitSet = dynamicLimitSet;
     }
+
+    @Override
+    public String toString() {
+        return "AmexDrlBean{"
+                + "programId='" + programId + '\''
+                + ", transLimit=" + transLimit
+                + ", transLimitFlag=" + transLimitFlag
+                + ", cvmLimit=" + cvmLimit
+                + ", cvmLimitFlag=" + cvmLimitFlag
+                + ", floorLimit=" + floorLimit
+                + ", floorLimitFlag=" + floorLimitFlag
+                + ", statusCheckFlag=" + statusCheckFlag
+                + ", amountZeroNoAllowed=" + amountZeroNoAllowed
+                + ", dynamicLimitSet=" + dynamicLimitSet
+                + '}';
+    }
 }

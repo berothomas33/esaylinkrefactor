@@ -3,6 +3,7 @@ package com.pax.bizentity.entity.clss.paypass;
 import android.text.TextUtils;
 import com.pax.commonlib.utils.ConvertUtils;
 import java.io.Serializable;
+import java.util.Arrays;
 import org.greenrobot.greendao.annotation.Entity;
 import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
@@ -606,5 +607,52 @@ public class PayPassAidBean implements Serializable {
 
     public byte[] getAccountTypeBytes() {
         return ConvertUtils.strToBcdPaddingLeft(accountType);
+    }
+
+    @Override
+    public String toString() {
+        return "PayPassAidBean{"
+                + "id=" + id
+                + ", appName='" + appName + '\''
+                + ", aid='" + aid + '\''
+                + ", selFlag=" + selFlag
+                + ", transLimit=" + transLimit
+                + ", transLimitFlag=" + transLimitFlag
+                + ", cvmTransLimit=" + cvmTransLimit
+                + ", floorLimit=" + floorLimit
+                + ", floorLimitFlag=" + floorLimitFlag
+                + ", cvmLimit=" + cvmLimit
+                + ", cvmLimitFlag=" + cvmLimitFlag
+                + ", tacDenial='" + tacDenial + '\''
+                + ", tacOnline='" + tacOnline + '\''
+                + ", tacDefault='" + tacDefault + '\''
+                + ", acquirerId='" + acquirerId + '\''
+                + ", version='" + version + '\''
+                + ", riskManageData='" + riskManageData + '\''
+                + ", terminalType='" + terminalType + '\''
+                + ", terminalAdditionalCapability='" + terminalAdditionalCapability + '\''
+                + ", kernelConfig='" + kernelConfig + '\''
+                + ", cardDataInput='" + cardDataInput + '\''
+                + ", cvmRequired='" + cvmRequired + '\''
+                + ", noCvmRequired='" + noCvmRequired + '\''
+                + ", securityCapability='" + securityCapability + '\''
+                + ", magVersion='" + magVersion + '\''
+                + ", magCvm='" + magCvm + '\''
+                + ", magNoCvm='" + magNoCvm + '\''
+                + ", kernelId='" + kernelId + '\''
+                + ", kernelIdBytes=" + Arrays.toString(kernelIdBytes)
+                + ", dataExchangeSupportFlag=" + dataExchangeSupportFlag
+                + ", tlvParam='" + tlvParam + '\''
+                + ", defaultUDOL='" + defaultUDOL + '\''
+                + ", refundVoidFloorLimit=" + refundVoidFloorLimit
+                + ", refundVoidTacDenial='" + refundVoidTacDenial + '\''
+                + ", supportDefaultMcTermParam=" + supportDefaultMcTermParam
+                + ", maxTornNum='" + maxTornNum + '\''
+                + ", maxTornLifetime='" + maxTornLifetime + '\''
+                + ", deviceSN='" + deviceSN + '\''
+                + ", dsOperatorId='" + dsOperatorId + '\''
+                + ", mobileSupport='" + mobileSupport + '\''
+                + ", accountType='" + accountType + '\''
+                + '}';
     }
 }
