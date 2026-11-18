@@ -17,11 +17,13 @@ public class ConfigParamService {
     }
 
     public void putString(String key, String value) {
-        defaultSp.putString(key,value);
+        defaultSp.putString(key, value);
+        EmvParamService.onDataChanged();
     }
 
     public void putInt(String key, int value) {
         defaultSp.putString(key, String.valueOf(value));
+        EmvParamService.onDataChanged();
     }
 
     public int getInt(String key) {
@@ -38,6 +40,7 @@ public class ConfigParamService {
 
     public void putBoolean(String key, boolean value) {
         defaultSp.putString(key, String.valueOf(value));
+        EmvParamService.onDataChanged();
     }
 
     public boolean getBoolean(String key) {

@@ -1,7 +1,9 @@
 package com.pax.bizentity.db.helper;
 
 import com.pax.bizentity.db.dao.DaoSession;
+import com.pax.bizentity.entity.TransData;
 import com.pax.commonlib.utils.LogUtils;
+import com.pax.configservice.impl.EmvParamService;
 import java.util.List;
 import org.greenrobot.greendao.AbstractDao;
 import org.greenrobot.greendao.database.Database;
@@ -34,11 +36,20 @@ public class BaseDaoHelper<T> {
         return getDao().getDatabase();
     }
 
+    protected void notifyChanged() {
+        if (entityClass != TransData.class) {
+            EmvParamService.onDataChanged();
+        }
+    }
+
     public final boolean insert(T entity) {
         boolean success;
         try {
             long insert = this.getDao().insertOrReplace(entity);
             success = (int) insert != -1;
+            if (success) {
+                notifyChanged();
+            }
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;
@@ -51,6 +62,7 @@ public class BaseDaoHelper<T> {
         try {
             this.getDao().insertOrReplaceInTx(entityList);
             success = true;
+            notifyChanged();
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;
@@ -64,6 +76,7 @@ public class BaseDaoHelper<T> {
         try {
             this.getDao().update(entity);
             success = true;
+            notifyChanged();
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;
@@ -77,6 +90,7 @@ public class BaseDaoHelper<T> {
         try {
             this.getDao().updateInTx(entityList);
             success = true;
+            notifyChanged();
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;
@@ -90,6 +104,7 @@ public class BaseDaoHelper<T> {
         try {
             this.getDao().delete(entity);
             success = true;
+            notifyChanged();
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;
@@ -103,6 +118,7 @@ public class BaseDaoHelper<T> {
         try {
             this.getDao().deleteAll();
             success = true;
+            notifyChanged();
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;
@@ -115,6 +131,7 @@ public class BaseDaoHelper<T> {
         try {
             this.getDao().deleteByKey(key);
             success = true;
+            notifyChanged();
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;
@@ -128,6 +145,7 @@ public class BaseDaoHelper<T> {
         try {
             this.getDao().deleteInTx(entityList);
             success = true;
+            notifyChanged();
         } catch (Exception e) {
             LogUtils.e(TAG, e);
             success = false;

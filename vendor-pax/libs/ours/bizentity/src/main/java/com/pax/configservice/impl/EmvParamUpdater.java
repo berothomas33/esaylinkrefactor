@@ -73,21 +73,23 @@ public final class EmvParamUpdater {
             result.failed("the download has neither " + CONTACT_FILE + " nor " + CONTACTLESS_FILE);
             return result;
         }
-        List<EmvAid> contactAids = null;
-        if (emvXml != null) {
-            contactAids = applyEmvXml(emvXml, result);
-        } else {
-            LogUtils.w(TAG, "EMV param package had no *.emv entry — contact AID/CAPK unchanged");
-        }
-        if (clssXml != null && contactAids == null) {
-            result.failed(CONTACTLESS_FILE + " not applied: it needs this package's " + CONTACT_FILE);
-        } else if (clssXml != null) {
-            applyClssXml(clssXml, new TerminalWideValues(contactAids), result);
-        } else {
-            LogUtils.w(TAG, "EMV param package had no *.clss entry — CLSS params unchanged");
-        }
-        if (result.changedDatabase()) {
-            EmvParamService.invalidate();
+        EmvParamService.beginBatch();
+        try {
+            List<EmvAid> contactAids = null;
+            if (emvXml != null) {
+                contactAids = applyEmvXml(emvXml, result);
+            } else {
+                LogUtils.w(TAG, "EMV param package had no *.emv entry — contact AID/CAPK unchanged");
+            }
+            if (clssXml != null && contactAids == null) {
+                result.failed(CONTACTLESS_FILE + " not applied: it needs this package's " + CONTACT_FILE);
+            } else if (clssXml != null) {
+                applyClssXml(clssXml, new TerminalWideValues(contactAids), result);
+            } else {
+                LogUtils.w(TAG, "EMV param package had no *.clss entry — CLSS params unchanged");
+            }
+        } finally {
+            EmvParamService.endBatch();
         }
         return result;
     }

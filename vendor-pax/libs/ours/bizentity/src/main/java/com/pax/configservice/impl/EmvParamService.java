@@ -46,7 +46,6 @@ import com.pax.bizentity.entity.clss.rupay.RupayParamBean;
 import com.pax.commonlib.currency.CountryCode;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.utils.ConvertUtils;
-import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.ConfigKeyConstant;
 import com.pax.emvbase.param.EmvProcessParam;
 import com.pax.emvbase.param.clss.AmexAid;
@@ -86,9 +85,41 @@ public class EmvParamService {
 
     @Nullable
     private static EmvProcessParam cache;
+    private static int batchDepth = 0;
+    private static boolean batchDirty = false;
 
     public static synchronized void invalidate() {
         cache = null;
+    }
+
+    @Nullable
+    public static synchronized EmvProcessParam reload() {
+        try {
+            cache = new EmvParamService().loadFromDatabase();
+        } catch (Exception e) {
+            cache = null;
+        }
+        return cache;
+    }
+
+    public static synchronized void beginBatch() {
+        batchDepth++;
+    }
+
+    public static synchronized void endBatch() {
+        if (batchDepth > 0 && --batchDepth == 0 && batchDirty) {
+            batchDirty = false;
+            reload();
+        }
+    }
+
+    public static synchronized void onDataChanged() {
+        if (batchDepth > 0) {
+            cache = null;
+            batchDirty = true;
+        } else {
+            reload();
+        }
     }
 
     public static synchronized boolean isLoaded() {
@@ -702,10 +733,7 @@ public class EmvParamService {
     public EmvProcessParam getCachedEmvParam() {
         synchronized (EmvParamService.class) {
             if (cache == null) {
-                LogUtils.d(TAG, "Load EMV param data from database");
                 cache = loadFromDatabase();
-            } else {
-                LogUtils.d(TAG, "Use cached EMV param");
             }
             return cache;
         }
@@ -794,8 +822,6 @@ public class EmvParamService {
         String configuredCurrency = configParamService.getString(ConfigKeyConstant.EDC_CURRENCY_LIST);
         Locale resolvedCurrency = CurrencyConverter.setDefCurrency(configuredCurrency);
         if (!resolvedCurrency.getDisplayName(Locale.US).equals(configuredCurrency)) {
-            LogUtils.w(TAG, "Unknown EDC_CURRENCY_LIST '" + configuredCurrency
-                    + "' — falling back to Egypt (EGP)");
             CurrencyConverter.setDefCurrency(new Locale("ar", "EG").getDisplayName(Locale.US));
         }
         Currency current = Currency.getInstance(CurrencyConverter.getDefCurrency());
@@ -810,10 +836,15 @@ public class EmvParamService {
 
         Config termConfig = new Config();
         if (curAcq == null) {
-            curAcq = acquirerIssuerService.findAllAcquirers().get(0);
+            List<Acquirer> allAcquirers = acquirerIssuerService.findAllAcquirers();
+            if (allAcquirers != null && !allAcquirers.isEmpty()) {
+                curAcq = allAcquirers.get(0);
+            }
         }
-        termConfig.setMerchantId(curAcq.getMerchantId().getBytes());
-        termConfig.setTerminalId(curAcq.getTerminalId().getBytes(StandardCharsets.US_ASCII));
+        if (curAcq != null) {
+            termConfig.setMerchantId(curAcq.getMerchantId().getBytes());
+            termConfig.setTerminalId(curAcq.getTerminalId().getBytes(StandardCharsets.US_ASCII));
+        }
         String nameLocation = String.format(Locale.US, "%s,%s",
                 configParamService.getString(ConfigKeyConstant.EDC_MERCHANT_NAME_EN),
                 configParamService.getString(ConfigKeyConstant.EDC_MERCHANT_ADDRESS));
