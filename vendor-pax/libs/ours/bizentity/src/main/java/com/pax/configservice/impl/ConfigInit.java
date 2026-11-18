@@ -28,19 +28,23 @@ public class ConfigInit {
     private static final String TAG = "ConfigInit";
 
     public void init() {
+        EmvParamService.beginBatch();
         try {
-            loadConfigParams();
-            loadAcquirerData();
-        } catch (Exception e) {
-            LogUtils.e(TAG, "Config/acquirer/terminal config init failed", e);
-        }
+            try {
+                loadConfigParams();
+                loadAcquirerData();
+            } catch (Exception e) {
+                LogUtils.e(TAG, "Config/acquirer/terminal config init failed", e);
+            }
 
-        try {
-            loadEmvParams();
-        } catch (Exception e) {
-            LogUtils.e(TAG, "EMV param init failed", e);
+            try {
+                loadEmvParams();
+            } catch (Exception e) {
+                LogUtils.e(TAG, "EMV param init failed", e);
+            }
+        } finally {
+            EmvParamService.endBatch();
         }
-        EmvParamService.invalidate();
     }
 
     private void loadConfigParams() {

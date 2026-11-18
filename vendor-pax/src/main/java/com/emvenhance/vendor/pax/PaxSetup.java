@@ -3,10 +3,10 @@ package com.emvenhance.vendor.pax;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.currency.CurrencyConverter;
 import com.pax.commonlib.sp.SharedPrefUtil;
-import com.pax.commonlib.utils.LogUtils;
 import com.pax.configservice.export.ConfigKeyConstant;
 import com.pax.configservice.impl.ConfigInit;
 import com.pax.configservice.impl.ConfigParamService;
+import com.pax.configservice.impl.EmvParamService;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
@@ -26,8 +26,8 @@ final class PaxSetup {
     }
 
     static String setCountry(String country) {
-        new ConfigParamService().putString(ConfigKeyConstant.EDC_CURRENCY_LIST, country);
         CurrencyConverter.setDefCurrency(country);
+        new ConfigParamService().putString(ConfigKeyConstant.EDC_CURRENCY_LIST, country);
         for (Locale locale : CurrencyConverter.getSupportedLocale()) {
             if (locale.getDisplayName(Locale.US).equals(country)) {
                 try {
@@ -43,7 +43,7 @@ final class PaxSetup {
     static void ensureEmvConfigInitialized() {
         SharedPrefUtil prefs = new SharedPrefUtil(BaseApplication.getAppContext());
         if (prefs.getBoolean(KEY_EMV_CONFIG_INITIALIZED)) {
-            LogUtils.i(TAG, "EMV config already initialized, skipping");
+            new Thread(() -> new EmvParamService().getCachedEmvParam(), "EmvParamWarmup").start();
             return;
         }
         new Thread(() -> {
