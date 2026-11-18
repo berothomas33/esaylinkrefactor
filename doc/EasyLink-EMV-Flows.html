@@ -113,6 +113,26 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .comp .grp dd { margin: 0 0 4px; }
 .codebox { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; direction: ltr; text-align: left; overflow-x: auto; font-family: var(--font-code); font-size: 13px; line-height: 1.7; }
 .codebox .c { color: var(--muted); }
+.lanes { border-collapse: separate; border-spacing: 8px 0; width: 100%; min-width: 780px; font-size: 13.5px; table-layout: fixed; }
+.lanes th, .lanes td { border: 0; padding: 0; vertical-align: top; text-align: left; }
+.lanes th.phase, .lanes td.phase { width: 150px; color: var(--muted); font-size: 12.5px; padding: 10px 4px 0 0; }
+.lanes td.phase b { display: block; color: var(--fg); font-size: 13px; }
+.lanes td.phase code { font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
+.lanes thead th.k { background: var(--accent); color: var(--bg); border-radius: 8px 8px 0 0; padding: 10px 12px; font-weight: 700; font-size: 15px; }
+.lanes thead th.k small { display: block; font-weight: 400; font-size: 12px; opacity: .9; }
+.lanes td.c { background: var(--surface); border-left: 1px solid var(--line); border-right: 1px solid var(--line); padding: 4px 8px; }
+.lanes tr.last td.c { border-bottom: 1px solid var(--line); border-radius: 0 0 8px 8px; padding-bottom: 10px; }
+.lanes .box { border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; background: var(--bg); position: relative; margin-top: 18px; }
+.lanes tr.first .box { margin-top: 8px; }
+.lanes .box::before { content: "↓"; position: absolute; top: -19px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 14px; line-height: 1; }
+.lanes tr.first .box::before { content: none; }
+.lanes .box b { display: block; font-size: 12.5px; }
+.lanes .box code { font-size: 11.5px; overflow-wrap: anywhere; white-space: normal; }
+.lanes .box.none { border-style: dashed; color: var(--muted); background: transparent; }
+.lanes .box.kern { border-color: var(--accent); background: var(--accent-soft); }
+.lanes .box.warn { border-color: var(--warn); background: var(--warn-soft); }
+.lanes .shared { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; padding: 9px 12px; }
+
 .machine { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .machine div { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: 14.5px; }
 .machine b { display: block; font-size: 15.5px; }
@@ -843,33 +863,94 @@ flowchart TD
 
 <section id="contactless" dir="ltr" class="en">
   <h2>8. The contactless path</h2>
-  <p>The same dispatch and the same <code>ask</code> as contact, but the kernel is chosen after application selection (<code>ClssKernelProcessFactory</code>). There are two kinds: <b>granular</b> kernels (PayPass, PayWave, EFT) have one native call per stage; <b>atomic</b> kernels (Amex, JCB, Mir, PBOC, Pure, RuPay, DPAS) do everything in one call.</p>
-<div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15, "boxTextMargin": 6}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 50}}}%%
-flowchart TD
-  INIT["TERMINAL_INITIALIZATION<br/>ClssProcess.preTransProcess<br/>Clss_CoreInit_Entry · DelAllAidList · addApp · SetMCVersion(3) · Clss_PreTransProc_Entry"]
-  SEL["APPLICATION_SELECTION · runContactlessAppSelect<br/>Clss_AppSlt_Entry → Clss_FinalSelect_Entry loop<br/>→ GetFinalSelectData → ClssKernelProcessFactory.build"]
-  Q{"supportsGranularSteps()?"}
-  SET["SET_TRANSACTION_DATA<br/>runContactlessSetTransactionData<br/>coreInit + kernel params"]
-  READ["READ_APPLICATION_DATA<br/>runContactlessReadAppData<br/>GPO + records"]
-  Q2{"restrictionsBeforeOfflineDataAuth()?<br/>(PayWave)"}
-  ODA1["OFFLINE_DATA_AUTHENTICATION<br/>runContactlessCardAuth"]
-  PR1["PROCESS_RESTRICTIONS<br/>runContactlessProcessRestrictions"]
-  PR2["PROCESS_RESTRICTIONS<br/>runContactlessProcessRestrictions"]
-  ODA2["OFFLINE_DATA_AUTHENTICATION<br/>runContactlessCardAuth"]
-  APR["PROCESS_RESTRICTIONS (atomic)<br/>no call of its own"]
-  ST["runContactlessStartTransaction<br/>startContactlessTransProcess<br/>kernel bundle: CVM … 1st GAC<br/>→ ONLINE_AUTHORIZATION or the end"]
-  RES["CLSS_RESELECT_APP from any granular stage<br/>→ reselectApplication → start again at SET"]
-  INIT --> SEL --> Q
-  Q -- "granular: EFT / PayPass / PayWave" --> SET --> READ --> Q2
-  Q2 -- "no: PayPass / EFT" --> ODA1 --> PR1 --> ST
-  Q2 -- "yes: PayWave" --> PR2 --> ODA2 --> ST
-  Q -- "atomic: the other 7" --> APR --> ST
-  SET -.-> RES
-  READ -.-> RES
-  ODA1 -.-> RES
-  PR2 -.-> RES
-</pre></div>
+  <p>The same dispatch and the same <code>ask</code> as contact. Every contactless sale starts with the same <b>Entry Point</b> (EMV Contactless Book B); the AID the card picks chooses <b>one kernel</b>, and each kernel has its own book (Book C-2 Mastercard, C-3 Visa, C-4 American Express …). So each kernel is drawn as its own column below, top to bottom in the order our code calls the kernel.</p>
+  <div class="shared"><b>Entry Point (Book B), the same for every kernel</b> — <code>TERMINAL_INITIALIZATION</code>: pre-processing (<code>ClssProcess.preTransProcess</code> → <code>Clss_PreTransProc_Entry</code>: limits per AID, TTQ) · <code>SEARCH_CARD</code>: the card is tapped · <code>APPLICATION_SELECTION</code>: PPSE and the AID (<code>Clss_AppSlt_Entry</code> → <code>Clss_FinalSelect_Entry</code>) → the kernel ID → <code>ClssKernelProcessFactory.build</code> picks the column.</div>
+  <h3>Live kernels: the three the host's parameter file brings</h3>
+  <div class="table-wrap" style="border:0;background:transparent"><table class="lanes">
+    <thead><tr>
+      <th class="phase"></th>
+      <th class="k">Mastercard<small>Book C-2 · Kernel 2 · <code style="background:transparent;color:inherit">ClssPayPassProcess</code> · granular</small></th>
+      <th class="k">Visa<small>Book C-3 · Kernel 3 · <code style="background:transparent;color:inherit">ClssPayWaveProcess</code> · granular</small></th>
+      <th class="k">American Express<small>Book C-4 · Kernel 4 · <code style="background:transparent;color:inherit">ClssAEProcess</code> · atomic</small></th>
+    </tr></thead>
+    <tbody>
+      <tr class="first">
+        <td class="phase"><b>6 SET_TRANSACTION_DATA</b>kernel init + parameters</td>
+        <td class="c"><div class="box"><b>6 · set data</b><code>Clss_CoreInit_MC</code> · <code>SetParam_MC</code> · <code>SetFinalSelectData_MC</code> · DF8117 / 18 / 19 / 1F, limits</div></td>
+        <td class="c"><div class="box"><b>6 · set data</b><code>Clss_CoreInit_Wave</code> · <code>SetReaderParam_Wave</code> (9F33) · <code>SetVisaAidParam_Wave</code> · <code>SetTransData_Wave</code></div></td>
+        <td class="c"><div class="box kern"><b>one call: <code>startTransProcess</code></b>announces 6 then 5 from <code>onReadCardOk</code>; inside, in this order:<br><code>Clss_CoreInit_AE</code> · <code>SetReaderParam_AE</code> · <code>SetAEAidParam_AE</code> · <code>SetFinalSelectData_AE</code> · <code>SetTransData_AE</code></div></td>
+      </tr>
+      <tr>
+        <td class="phase"><b>5 READ_APPLICATION_DATA</b>GPO + READ RECORD</td>
+        <td class="c"><div class="box"><b>5 · read</b><code>Clss_InitiateApp_MC</code> (GPO) · <code>Clss_ReadData_MC</code> (records)</div></td>
+        <td class="c"><div class="box"><b>5 · read</b><code>Clss_Proctrans_Wave</code>: GPO + records; the card already gives its AC type here</div></td>
+        <td class="c"><div class="box kern"><code>Clss_Proctrans_AE</code> (GPO) · <code>addDRL</code> · <code>Clss_ReadRecord_AE</code></div></td>
+      </tr>
+      <tr>
+        <td class="phase"><b>next stage</b>(the kernel's order)</td>
+        <td class="c"><div class="box"><b>7 · ODA</b>loads the CAPK and revocation list only; the ODA itself runs inside <code>TransProc</code></div></td>
+        <td class="c"><div class="box"><b>8 · processing restrictions</b><code>Clss_ProcRestric_Wave</code> — Visa: <strong>before</strong> ODA</div></td>
+        <td class="c"><div class="box kern"><code>Clss_CardAuth_AE</code> (ODA)</div></td>
+      </tr>
+      <tr>
+        <td class="phase"><b>next stage</b></td>
+        <td class="c"><div class="box none"><b>8 · processing restrictions</b>no call of its own (inside <code>TransProc</code>)</div></td>
+        <td class="c"><div class="box"><b>7 · ODA</b><code>Clss_CardAuth_Wave</code> (on a TC that is not a refund, or by TTQ)</div></td>
+        <td class="c"><div class="box kern"><code>Clss_StartTrans_AE</code>: restrictions · CVM · risk · action analysis · GENERATE AC</div></td>
+      </tr>
+      <tr>
+        <td class="phase"><b>the kernel decides</b><code>startContactlessTransProcess</code></td>
+        <td class="c"><div class="box"><b>bundle</b><code>Clss_TransProc_MC_MChip</code> (or <code>_Mag</code>) = ODA + restrictions + CVM + risk + action analysis + GENERATE AC → See Phone?</div></td>
+        <td class="c"><div class="box"><b>bundle</b><code>Clss_GetCvmType_Wave</code> + the AC type from 5</div></td>
+        <td class="c"><div class="box kern"><code>Clss_GetCvmType_AE</code> → See Phone (<code>CLSS_REFER_CONSUMER_DEVICE</code>)?</div></td>
+      </tr>
+      <tr>
+        <td class="phase"><b>9 CVM</b>if online PIN</td>
+        <td class="c"><div class="box">our code: <code>onCardHolderPwd(true…)</code> → <code>ask(9)</code> → PIN pad · Single Tap: PIN after RC 90</div></td>
+        <td class="c"><div class="box">our code: <code>onCardHolderPwd(true…)</code> → <code>ask(9)</code> → PIN pad</div></td>
+        <td class="c"><div class="box">our code: <code>onCardHolderPwd(true…)</code> → <code>ask(9)</code> → PIN pad</div></td>
+      </tr>
+      <tr>
+        <td class="phase"><b>13 ONLINE_AUTHORIZATION</b>ARQC → the bank</td>
+        <td class="c"><div class="box"><code>runContactlessOnline</code> → <code>askTheBank</code></div></td>
+        <td class="c"><div class="box"><code>runContactlessOnline</code> → <code>askTheBank</code></div></td>
+        <td class="c"><div class="box"><code>runContactlessOnline</code> → <code>askTheBank</code></div></td>
+      </tr>
+      <tr>
+        <td class="phase"><b>14 ISSUER_AUTHENTICATION</b>only if the bank approved</td>
+        <td class="c"><div class="box"><code>completeTransProcess</code> when the kernel asks for a 2nd tap</div></td>
+        <td class="c"><div class="box"><b>2nd tap</b> "Tap the same card again" → <code>Clss_FinalSelect_Entry</code> → <code>Clss_IssuerAuth_Wave</code></div></td>
+        <td class="c"><div class="box"><code>Clss_CompleteTrans_AE</code> when the kernel asks for a 2nd tap</div></td>
+      </tr>
+      <tr class="last">
+        <td class="phase"><b>15 SCRIPT_PROCESSING</b></td>
+        <td class="c"><div class="box none">not published</div></td>
+        <td class="c"><div class="box"><code>Clss_IssScriptProc_Wave</code> (2nd tap)</div></td>
+        <td class="c"><div class="box none">not published (inside <code>CompleteTrans_AE</code>)</div></td>
+      </tr>
+    </tbody>
+  </table></div>
+  <ul class="facts">
+    <li><b>Granular</b> (Mastercard, Visa; EFT below): one native call per step, each in its own <code>EmvStep</code> hook. <b>Atomic</b> (Amex and the rest): the whole read and decision is one call (<code>startTransProcess</code>, green boxes); steps 6 and 5 are announced from <code>onReadCardOk</code> when the kernel says they happened.</li>
+    <li><b>The kernel's order wins</b> (rule 2): Visa runs restrictions before ODA, so its numbers come out 6 → 5 → 8 → 7 (Mastercard: 6 → 5 → 7 → 8).</li>
+    <li><code>CLSS_RESELECT_APP</code> from any granular stage → <code>reselectApplication()</code> → back to step 6 with the next AID.</li>
+    <li>After the bank, an outcome other than approval ends the sale: no issuer authentication, the card has left the field.</li>
+  </ul>
+  <h3>The other kernels: in the SDK, removed by the parameter download</h3>
+  <p>The host's contactless file brings Mastercard, Visa and Amex only, and a kernel it does not bring is deleted (§9). These seven are still in PAX's SDK, so their order is listed for completeness, one line each, read from our code.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Kernel</th><th>Spec</th><th>Kind</th><th>Calls in order (<code>startTransProcess</code>)</th><th>After the bank</th></tr></thead>
+    <tbody>
+      <tr><td>JCB</td><td>Book C-5</td><td>atomic</td><td><code>CoreInit_JCB</code> → <code>SetFinalSelectData</code> → <code>InitiateApp</code> (path: EMV / legacy / mag) → <code>ReadData</code> → <code>TransProc</code> → EMV path: <code>CardAuth</code></td><td>nothing (returns approved)</td></tr>
+      <tr><td>Discover (D-PAS)</td><td>Book C-6</td><td>atomic</td><td><code>CoreInit_DPAS</code> → <code>SetFinalSelectData</code> → <code>InitiateApp</code> → <code>ReadData</code> → <code>TransProc</code></td><td><code>IssuerUpdateProc_DPAS</code></td></tr>
+      <tr><td>UnionPay (QuickPass)</td><td>Book C-7</td><td>atomic</td><td><code>CoreInit_Pboc</code> → QUICS flag, torn config, reader + AID params, <code>SetFinalSelectData</code> → <code>TornProcessing</code> → <code>SetTransData</code> → <code>Proctrans_Pboc</code> (GPO + records + AC) → <code>CardAuth</code> → <code>GetCvmType</code></td><td>nothing</td></tr>
+      <tr><td>eftpos (EFT)</td><td>eftpos's own spec</td><td>granular</td><td>6 <code>CoreInit_EFT</code> + params → 5 <code>InitApp</code> + <code>ReadAppData</code> → 7 <code>PreTAAProc</code> + <code>CardAuth</code> → 8 <code>ProcRestrict</code> → <code>CVMProc</code> + <code>PostTAAProc</code></td><td><code>CompleteOnlineTrans_EFT</code> ⚠ not called</td></tr>
+      <tr><td>Mir</td><td>NSPK's spec</td><td>atomic</td><td><code>CoreInit_MIR</code> → <code>SetFinalSelectData</code> → <code>DataExchange</code> → protocol 1 or 2: <code>InitiateApp</code> → <code>ReadData</code> → <code>TransProc</code> → <code>CardAuth</code></td><td>nothing</td></tr>
+      <tr><td>RuPay</td><td>NPCI's spec</td><td>atomic</td><td><code>CoreInit_RuPay</code> → <code>SetFinalSelectData</code> → <code>InitiateApp</code> → <code>ReadData</code> → <code>CardAuth</code> → <code>TransProc</code> → <code>StartTrans</code></td><td><code>CompleteTrans_RuPay</code></td></tr>
+      <tr><td>PURE</td><td>the PURE kernel spec</td><td>atomic</td><td><code>CoreInit_PURE</code> → <code>SetFinalSelectData</code> → <code>InitiateApp</code> → <code>ReadData</code> → <code>StartTrans</code> → <code>CardAuth</code></td><td><code>CompleteTrans_PURE</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><b>The source of truth is EMVCo's books, and they are not checked yet.</b> The columns above are read from our code (PAX's wrappers, <code>Clss*Process</code>). Matching each box against the official flow is still to do: Book A (architecture, the outcomes), Book B (Entry Point), Book C-2 / C-3 / C-4 for the three live kernels. The books are not in the repo, and emvco.com could not be reached from this environment. Their figures are EMVCo's copyright under its licence, so they are not copied into this page: each team member downloads them from EMVCo (<span style="direction:ltr;unicode-bidi:isolate">www.emvco.com → Specifications → Contactless</span>). With the PDFs, each box gets a ✓ and the book's section number, or a ⚠ where our order differs.</div>
   <h3>After the stages: <code>startContactlessTransProcess</code></h3>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"messageFontSize": 16, "actorFontSize": 16, "noteFontSize": 15}}}%%
@@ -928,19 +1009,7 @@ flowchart TD
     <li>The PIN pad and the resend do not hold the steps lock, so <code>cancel()</code> does not wait for them.</li>
     <li>⚠ <b>Open:</b> how does RC 90 arrive, HTTP 200 or 4xx? As 4xx it becomes <code>failed</code> + a reversal, and Single Tap never starts (BACKLOG 4.11). The resend's posEntryMode is 071 (an assumption). Not tried on a device or with the bank.</li>
   </ul>
-<div class="table-wrap"><table>
-    <thead><tr><th>EmvStep</th><th>PayPass (<code>ClssPayPassProcess</code>)</th><th>PayWave (<code>ClssPayWaveProcess</code>)</th><th>EFT (<code>ClssEFTProcess</code>)</th></tr></thead>
-    <tbody>
-      <tr><td><code>SET_TRANSACTION_DATA</code></td><td><code>Clss_CoreInit_MC</code>, <code>SetParam_MC</code>, FinalSelectData + <code>setPayPassParam</code> (DF8117/18/19/1F, limits)</td><td><code>CoreInit_Wave</code>, ReaderParam (<code>aucTmCap</code> = 9F33) + <code>SetVisaAidParam_Wave</code>, <code>SetTransData_Wave</code></td><td><code>CoreInit_EFT</code> + ReaderParam + AidParam + <code>SetTransData_EFT</code></td></tr>
-      <tr><td><code>READ_APPLICATION_DATA</code></td><td><code>Clss_InitiateApp_MC</code> + <code>Clss_ReadData_MC</code></td><td><code>Clss_Proctrans_Wave</code> (GPO + records + AC type)</td><td><code>Clss_InitApp_EFT</code> + <code>Clss_ReadAppData_EFT</code></td></tr>
-      <tr><td>Order after it</td><td>ODA, then PR</td><td><b>PR, then ODA</b></td><td>ODA, then PR</td></tr>
-      <tr><td><code>OFFLINE_DATA_AUTHENTICATION</code></td><td>Loads the CAPK and revocations only (the ODA runs inside <code>TransProc</code>)</td><td><code>Clss_CardAuth_Wave</code> (on a TC that is not a refund, or by TTQ)</td><td><code>PreTAAProc</code> + CAPK + <code>Clss_CardAuth_EFT</code></td></tr>
-      <tr><td><code>PROCESS_RESTRICTIONS</code></td><td>No call</td><td><code>Clss_ProcRestric_Wave</code></td><td><code>Clss_ProcRestrict_EFT</code></td></tr>
-      <tr><td>The bundle</td><td><code>Clss_TransProc_MC_MChip</code> / <code>_Mag</code> = ODA+PR+CVM+TRM+TAA+GAC, then See Phone</td><td><code>genTransResult</code>: <code>Clss_GetCvmType_Wave</code> + AC type</td><td><code>Clss_CVMProc_EFT</code> + <code>Clss_PostTAAProc_EFT</code></td></tr>
-      <tr><td>2nd tap / completion</td><td><code>completeTransProcess</code></td><td>FinalSelect + <code>Clss_IssuerAuth_Wave</code></td><td><code>Clss_CompleteOnlineTrans_EFT</code> ⚠ not called</td></tr>
-      <tr><td><code>SCRIPT_PROCESSING</code></td><td>Not published</td><td><code>Clss_IssScriptProc_Wave</code> (second tap)</td><td>Not published</td></tr>
-    </tbody>
-  </table></div>
+
   <h3>The result: <code>checkContactlessResult</code></h3>
   <div class="table-wrap"><table>
     <thead><tr><th>Case</th><th>Method</th><th>End</th></tr></thead>

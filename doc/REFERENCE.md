@@ -111,6 +111,23 @@ Every step enters through one method, `publish` (it drops what comes after the d
 | 14 | ISSUER_AUTHENTICATION | `runContactIssuerAuthentication`: `EMVCompleteTrans` (ARPC + scripts + 2nd GAC), then the stage ends | `runContactlessIssuerAuthentication`: Visa: the second tap + `Clss_IssuerAuth_Wave`, then the end | = | — |
 | 15 | SCRIPT_PROCESSING | Not published (the scripts run inside 14) | Visa second tap only: `Clss_IssScriptProc_Wave` | — | — |
 
+**Contactless, one column per kernel** (drawn side by side in Flows §8; read from our code, not yet checked against EMVCo's books):
+
+| | Mastercard (Book C-2, granular) | Visa (Book C-3, granular) | Amex (Book C-4, atomic: one `startTransProcess`) |
+|---|---|---|---|
+| Entry Point (Book B) | `preTransProcess` → `Clss_AppSlt_Entry` → `Clss_FinalSelect_Entry` → `ClssKernelProcessFactory` | = | = |
+| 6 SET | `CoreInit_MC` · `SetParam_MC` · `SetFinalSelectData_MC` | `CoreInit_Wave` · `SetReaderParam_Wave` · `SetVisaAidParam_Wave` · `SetTransData_Wave` | `CoreInit_AE` … `SetTransData_AE` |
+| 5 READ | `InitiateApp_MC` (GPO) · `ReadData_MC` | `Proctrans_Wave` (GPO + records + AC type) | `Proctrans_AE` · `addDRL` · `ReadRecord_AE` |
+| next | 7 ODA: CAPK only | **8 PR** `ProcRestric_Wave` | `CardAuth_AE` |
+| next | 8 PR: no call | **7 ODA** `CardAuth_Wave` | `StartTrans_AE` (PR · CVM · TRM · TAA · GAC) |
+| decides | `TransProc_MC_MChip` / `_Mag` → See Phone? | `GetCvmType_Wave` | `GetCvmType_AE` → See Phone? |
+| 9 online PIN | `ask(9)` (+ Single Tap) | `ask(9)` | `ask(9)` |
+| 13 | `askTheBank` | `askTheBank` | `askTheBank` |
+| 14 | `completeTransProcess` (2nd tap) | 2nd tap: `FinalSelect_Entry` · `IssuerAuth_Wave` | `CompleteTrans_AE` (2nd tap) |
+| 15 | — | `IssScriptProc_Wave` | — |
+
+The other seven (JCB C-5, D-PAS C-6, UnionPay C-7, eftpos, Mir, RuPay, PURE) are in PAX's SDK but deleted by the parameter download; their call order is listed in Flows §8. ⚠ The source of truth is EMVCo Books A, B and C-2 / C-3 / C-4; matching each cell against them is still to do (the books are not in the repo).
+
 - **Each step does its own work, then hands over** (`advanceContactStage` / `advanceContactlessStage`). The end of the stage (`finishContactStage` / `finishContactlessStage`: close the reader, read the result) runs in the last step that works, or where the path stops. If the sale has already ended, the result is not read twice.
 - **A step is published only where the kernel does its work** (rules 1 and 11). Two labels were removed: `SCRIPT_PROCESSING` at every approval (`cf04104`, it ran no script) and `CARDHOLDER_VERIFICATION` before an offline PIN (`93a798a`, its hook did nothing).
 - **No `TRANSACTION_COMPLETION`:** no vendor did kernel work there, so it is gone (16 hooks). The outcome is reported once: `completeApproved` / `completeDeclined` → `finishApproved` / `finishDeclined`, or `finishError`.
