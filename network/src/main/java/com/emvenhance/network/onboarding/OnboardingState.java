@@ -3,6 +3,13 @@ package com.emvenhance.network.onboarding;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+
 import androidx.annotation.Nullable;
 
 public final class OnboardingState {
@@ -17,8 +24,7 @@ public final class OnboardingState {
     private static final String KEY_ACCESS_TOKEN = "access_token";
     private static final String KEY_TOKEN_EXPIRATION = "token_expiration";
 
-    /** The host sends expirations without an offset; they are UTC+3 wall-clock time. */
-    private static final int TOKEN_EXPIRATION_OFFSET_SECONDS = 3 * 60 * 60;
+    private static final ZoneOffset TOKEN_EXPIRATION_ZONE = ZoneOffset.ofHours(3);
     private static final long TOKEN_REFRESH_BUFFER_SECONDS = 30;
 
     private final SharedPreferences prefs;
@@ -115,13 +121,24 @@ public final class OnboardingState {
             return false;
         }
         try {
-            // No java.time here: it needs API 26 and this app's minSdk is 24 (see TokenExpiry).
-            long expiryMillis = TokenExpiry.parseEpochMillis(
-                    expiration.trim(), TOKEN_EXPIRATION_OFFSET_SECONDS);
-            long refreshAtMillis = expiryMillis - TOKEN_REFRESH_BUFFER_SECONDS * 1000L;
-            return System.currentTimeMillis() < refreshAtMillis;
-        } catch (IllegalArgumentException e) {
+            Instant expiryInstant = parseTokenExpiration(expiration.trim());
+            Instant refreshAt = expiryInstant.minusSeconds(TOKEN_REFRESH_BUFFER_SECONDS);
+            return Instant.now().isBefore(refreshAt);
+        } catch (DateTimeParseException e) {
             return false;
+        }
+    }
+
+    private static Instant parseTokenExpiration(String expiration) {
+        String normalized = expiration;
+        if (normalized.endsWith("Z")) {
+            normalized = normalized.substring(0, normalized.length() - 1) + "+00:00";
+        }
+        try {
+            return OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant();
+        } catch (DateTimeParseException ignored) {
+            LocalDateTime localDateTime = LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            return localDateTime.toInstant(TOKEN_EXPIRATION_ZONE);
         }
     }
 }
