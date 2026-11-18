@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EasyLink — Interactive Flow to SET_TRANSACTION_DATA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #0f1412;
+  --surface: #171f1c;
+  --surface-2: #1f2925;
+  --fg: #e5ece9;
+  --muted: #95a59e;
+  --line: #2b3833;
+  --accent: #3dd6b5;
+  --accent-dim: rgba(61, 214, 181, 0.14);
+  --ui-col: #6ba3ff;
+  --core-col: #3dd6b5;
+  --pax-col: #f2b255;
+  --sdk-col: #c792ea;
+  --warn: #f2b255;
+  --font-body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+[data-theme="light"] {
+  --bg: #f5f7f6;
+  --surface: #ffffff;
+  --surface-2: #eef3f0;
+  --fg: #1b2420;
+  --muted: #5a6b63;
+  --line: #d4ded9;
+  --accent: #0d6e5b;
+  --accent-dim: rgba(13, 110, 91, 0.10);
+  --ui-col: #2563eb;
+  --core-col: #0d6e5b;
+  --pax-col: #b4690e;
+  --sdk-col: #7c3aed;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  padding: 20px;
+}
+.container {
+  max-width: 1380px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.title-wrap h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+.title-wrap .subtitle {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 4px;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+button, .btn {
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+button:hover {
+  border-color: var(--accent);
+}
+button.primary {
+  background: var(--accent);
+  color: #091310;
+  border-color: var(--accent);
+}
+button.active-branch {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Progress bar */
+.progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.25s ease;
+}
+
+/* Main Interactive Grid */
+.workspace {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .workspace { grid-template-columns: 1fr; }
+}
+
+/* Left Rail: Step Timeline */
+.timeline {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  max-height: 760px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.phase-header {
+  font-size: 11px;
+  font-family: var(--font-code);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 8px 8px 2px;
+}
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.step-item:hover {
+  background: var(--surface-2);
+}
+.step-item.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+.step-num {
+  min-width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.step-item.active .step-num {
+  background: var(--accent);
+  color: #091310;
+}
+.step-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.step-file {
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.step-method {
+  font-family: var(--font-code);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge {
+  display: inline-block;
+  font-family: var(--font-code);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  width: fit-content;
+}
+.badge.ui { background: rgba(107, 163, 255, 0.15); color: var(--ui-col); }
+.badge.core { background: rgba(61, 214, 181, 0.15); color: var(--core-col); }
+.badge.pax { background: rgba(242, 178, 85, 0.15); color: var(--pax-col); }
+.badge.sdk { background: rgba(199, 146, 234, 0.15); color: var(--sdk-col); }
+
+/* Right Panel: Inspector */
+.inspector {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.inspector-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
+}
+.inspector-title {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-family: var(--font-code);
+}
+.file-path {
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.file-path:hover { text-decoration: underline; }
+
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.info-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+.info-card h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-family: var(--font-code);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.info-card ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+code {
+  font-family: var(--font-code);
+  font-size: 0.88em;
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+pre.code-block {
+  margin: 0;
+  background: #0b0f0d;
+  color: #d7e2dd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+[data-theme="light"] pre.code-block {
+  background: #1b2420;
+  color: #e5ece9;
+}
+.next-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+}
+.next-banner b { color: var(--accent); font-family: var(--font-code); }
+
+/* Mermaid Diagram Section */
+.diagram-section {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  overflow-x: auto;
+}
+.diagram-section h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+.mermaid {
+  min-width: 900px;
+}
+.kbd {
+  font-family: var(--font-code);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--muted);
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="title-wrap">
+      <h1>EasyLink — Exact Call Flow to <code>SET_TRANSACTION_DATA</code></h1>
+      <div class="subtitle">Step-by-step interactive trace: File → Method → Objects Used → Events Emitted → Next Target (<span class="kbd">←</span> / <span class="kbd">→</span> keys supported)</div>
+    </div>
+    <div class="toolbar">
+      <span style="font-size:12px;color:var(--muted);margin-right:4px;">Card Branch:</span>
+      <button id="btnBranchContact" class="active-branch" onclick="setBranch('contact')">1. Contact (Chip)</button>
+      <button id="btnBranchClssGranular" onclick="setBranch('clss_granular')">2. Contactless Granular (PayWave/PayPass)</button>
+      <button id="btnBranchClssAtomic" onclick="setBranch('clss_atomic')">3. Contactless Atomic (Other Kernels)</button>
+      <button onclick="toggleTheme()" title="Toggle Light/Dark Theme">Theme</button>
+    </div>
+  </header>
+
+  <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+
+  <div class="workspace">
+    <!-- Left Step List -->
+    <div id="timeline" class="timeline"></div>
+
+    <!-- Right Step Inspector -->
+    <div class="inspector">
+      <div class="inspector-top">
+        <div>
+          <span id="inspBadge" class="badge core">CORE</span>
+          <span id="inspPhase" style="font-size:12px;color:var(--muted);margin-left:8px;">Phase 1</span>
+          <h2 id="inspTitle" class="inspector-title">1. EmvEnhanceApp.onCreate()</h2>
+          <a id="inspFileLink" class="file-path" href="#" target="_blank">app/src/main/java/com/emvenhance/EmvEnhanceApp.java</a>
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button id="btnPrev" onclick="prevStep()">← Prev</button>
+          <button id="btnNext" class="primary" onclick="nextStep()">Next →</button>
+        </div>
+      </div>
+
+      <div id="inspSummary" style="font-size:15px;"></div>
+
+      <div class="grid-cards">
+        <div class="info-card">
+          <h4>Objects &amp; Parameters Used</h4>
+          <ul id="inspObjects"></ul>
+        </div>
+        <div class="info-card">
+          <h4>State Changes &amp; Step Events</h4>
+          <ul id="inspEvents"></ul>
+        </div>
+      </div>
+
+      <div>
+        <h4 style="margin:0 0 8px;font-size:12px;font-family:var(--font-code);text-transform:uppercase;color:var(--muted);">Exact Code Executed</h4>
+        <pre id="inspCode" class="code-block"></pre>
+      </div>
+
+      <div class="next-banner">
+        <div>
+          <span style="color:var(--muted);font-size:12px;text-transform:uppercase;font-family:var(--font-code);">On Success → Next Call:</span><br>
+          <b id="inspNextText">TerminalFactory.create(this)</b>
+        </div>
+        <button id="btnBannerNext" class="primary" onclick="nextStep()">Go to Next Step →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full Mermaid Architecture Flowchart -->
+  <div class="diagram-section">
+    <h2>End-to-End Visual Call Graph (Boot → UI → PosTerminal → EmvEngine → SET_TRANSACTION_DATA)</h2>
+    <pre class="mermaid">
+flowchart TD
+  subgraph P1["Phase 1: App Startup & Terminal Creation"]
+    S1["1. EmvEnhanceApp.onCreate()"] --> S2["2. TerminalFactory.create(app)"]
+    S2 --> S3["3. EmvFlowRuntime.init(app)<br/>Neptune DAL + JNI Libs + EmvDeviceImpl"]
+    S3 --> S4["4. new PaxTerminal()<br/>PaxKernel + PaxPinEntry + PaxEmvBehavior + SaleCommunicationBehavior"]
+    S4 --> S5["5. super PosTerminal(...)<br/>behavior.attach(this::sendToBank)<br/>initializeVendor() -> PaxSetup.ensureEmvConfigInitialized()"]
+  end
+
+  subgraph P2["Phase 2: UI Navigation & Amount Entry"]
+    S5 --> S6["6. MainActivity.onCreate()<br/>btnStartTransaction -> AmountActivity"]
+    S6 --> S7["7. AmountActivity.onCreate()<br/>loads AmountFragment"]
+    S7 --> S8["8. AmountFragment.onViewCreated()<br/>btnConfirmAmount -> SearchCardFragment.newInstance(type, amountMinor, ref)"]
+    S8 --> S9["9. SearchCardFragment.onViewCreated()<br/>observes transaction.steps() & viewModel.getEmvStep()<br/>calls viewModel.acceptCard(...)"]
+    S9 --> S10["10. MainViewModel.acceptCard(...)<br/>calls terminal.acceptCard(...) & listenToEmvStepsOf(trx)"]
+  end
+
+  subgraph P3["Phase 3: PosTerminal & TransactionStep Dispatch"]
+    S10 --> S11["11. PosTerminal.acceptCard() -> startTransaction(config)<br/>current.compareAndSet(null, transaction)<br/>transaction.begin()"]
+    S11 --> S12["12. Transaction.begin() -> publish(TRANSACTION_STARTED)<br/>steps.onNext(event) -> TransactionStepObserver.onNext()"]
+    S12 --> S13["13. Transaction.dispatchTransactionStep(TRANSACTION_STARTED)<br/>onTransactionStarted() -> transactionScheduler.scheduleDirect(runTransaction)"]
+    S13 --> S14["14. Transaction.runTransaction()<br/>behavior.engine().begin()<br/>behavior.run(config, this)"]
+  end
+
+  subgraph P4["Phase 4: EMV Step 0 (Init) & Step 1 (Search Card)"]
+    S14 --> S15["15. AbstractEmvBehavior.run() -> prepare(attempt, transaction)<br/>initEmvObserver() -> goToStep(EmvStep.TERMINAL_INITIALIZATION)"]
+    S15 --> S16["16. PaxEmvBehavior.onTerminalInitialization(config)<br/>prepareKernel(config) -> runPreTransProcess()<br/>ContactProcess.preTransProcess() + ClssProcess.preTransProcess()"]
+    S16 --> S17["17. AbstractEmvBehavior.searchCard()<br/>new CardSearchReporter(...)<br/>goToStep(EmvStep.SEARCH_CARD)"]
+    S17 --> S18["18. PaxEmvBehavior.onSearchCard() -> PaxCardSearch.search()<br/>publish(WAITING_FOR_CARD)<br/>cardReaderHelper.polling(...)"]
+    S18 --> S19["19. CardSearchReporter.cardFound(card)<br/>publish(CARD_DETECTED)<br/>AbstractEmvBehavior.start(card) -> goToStep(APPLICATION_SELECTION)"]
+  end
+
+  subgraph P5["Phase 5: Application Selection -> SET_TRANSACTION_DATA"]
+    S19 -->|Chip Card| C20["20A. PaxEmvBehavior.onApplicationSelection()<br/>runContactAppSelect() -> ContactProcess.selectApplication()<br/>EMVCallback.EMVAppSelect + onWaitAppSelect + emvSetParam"]
+    C20 --> C21["21A. advanceContactStage(READ_APPLICATION_DATA)<br/>PaxEmvBehavior.onReadApplicationData()<br/>runContactReadAppData() -> ContactProcess.readApplicationData()"]
+    C21 --> C22["22A. advanceContactStage(SET_TRANSACTION_DATA)<br/>PaxEmvBehavior.onSetTransactionData()<br/>runContactSetTransactionData() -> ContactProcess.setTransactionData()<br/>showConfirmCard() [publish(CARD_READ)] + changeTAG9CValue()"]
+
+    S19 -->|Contactless Granular<br/>PayWave / PayPass| G20["20B. PaxEmvBehavior.onApplicationSelection()<br/>runContactlessAppSelect() -> ClssProcess.selectApplication()<br/>Clss_AppSlt_Entry + Clss_FinalSelect_Entry + ClssKernelProcessFactory"]
+    G20 --> G21["21B. firstStageAfterAppSelect() -> EmvStep.SET_TRANSACTION_DATA<br/>PaxEmvBehavior.onSetTransactionData() -> runContactlessSetTransactionData()<br/>ClssProcess.setTransactionData() -> ClssPayWave/PayPassProcess.setTransactionData()"]
+
+    S19 -->|Contactless Atomic<br/>Other Kernels| A20["20C. PaxEmvBehavior.onApplicationSelection()<br/>runContactlessAppSelect() -> ClssProcess.selectApplication()"]
+    A20 --> A21["21C. firstStageAfterAppSelect() -> PROCESS_RESTRICTIONS<br/>runContactlessStartTransaction() -> kernel callback onReadCardOk()<br/>goToStep(EmvStep.SET_TRANSACTION_DATA) + goToStep(READ_APPLICATION_DATA)"]
+  end
+    </pre>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>
+mermaid.initialize({ startOnLoad: true, securityLevel: "loose", theme: "dark" });
+
+const COMMON_STEPS = [
+  {
+    phase: "Phase 1: Startup & Terminal Init",
+    layer: "ui",
+    layerLabel: "APP",
+    title: "EmvEnhanceApp.onCreate()",
+    file: "app/src/main/java/com/emvenhance/EmvEnhanceApp.java#L16-L22",
+    summary: "Android OS starts the application process (`EmvEnhanceApp` extends `VendorApplication` -> PAX `BaseApplication`). Sets the host base URL and creates the single `PosTerminal` instance via `TerminalFactory`.",
+    objects: [
+      "<code>BuildConfig.VENDOR</code> &amp; <code>BuildConfig.baseUrl</code>",
+      "<code>this</code> (<code>EmvEnhanceApp</code> application instance)",
+      "<code>PosTerminal terminal</code> (stored as singleton field on the Application)"
+    ],
+    events: [
+      "Sets static base URL in <code>EnvironmentProvider.setBaseUrl(...)</code>",
+      "Calls <code>TerminalFactory.create(this)</code>"
+    ],
+    code: `@Override
+public void onCreate() {
+    super.onCreate();
+    Log.i(TAG, "vendor=" + BuildConfig.VENDOR + " baseUrl=" + BuildConfig.baseUrl);
+    EnvironmentProvider.setBaseUrl(BuildConfig.baseUrl);
+    terminal = TerminalFactory.create(this);
+}`,
+    next: "TerminalFactory.create(Application application)"
+  },
+  {
+    phase: "Phase 1: Startup & Terminal Init",
+    layer: "pax",
+    layerLabel: "VENDOR-PAX",
+    title: "TerminalFactory.create(application)",
+    file: "vendor-pax/src/main/java/com/emvenhance/vendor/TerminalFactory.java#L15-L18",
+    summary: "Vendor flavor factory (`vendor-pax`). Bootstraps the PAX Neptune DAL and native EMV JNI libraries via `EmvFlowRuntime.init(application)`, then instantiates `PaxTerminal`.",
+    objects: [
+      "<code>Application application</code>",
+      "<code>EmvFlowRuntime</code>",
+      "<code>new PaxTerminal()</code>"
+    ],
+    events: [
+      "Calls <code>EmvFlowRuntime.init(application)</code>",
+      "Instantiates and returns <code>new PaxTerminal()</code>"
+    ],
+    code: `@NonNull
+public static PosTerminal create(Application application) {
+    EmvFlowRuntime.init(application);
+    return new PaxTerminal();
+}`,
+    next: "EmvFlowRuntime.init(Application application)"
+  },
+  {
+    phase: "Phase 1: Startup & Terminal Init",
+    layer: "pax",
+    layerLabel: "EMVFLOW",
+    title: "EmvFlowRuntime.init(application)",
+    file: "vendor-pax/libs/ours/emvflow/src/main/java/com/emvenhance/emvflow/runtime/EmvFlowRuntime.java#L56-L82",
+    summary: "Initializes PAX converter utilities, activity lifecycle tracking (needed by dialogs), Neptune Lite `IDAL`, hardware model cache (`ModelInfo`), native JNI EMV libraries (`F_DEVICE`, `F_EMV`), and binds `EmvDeviceImpl` to `DeviceManager`.",
+    objects: [
+      "<code>ConvertHelper</code>, <code>AppActivityLifecycleCallbacks</code>",
+      "<code>IDAL dal</code> (via <code>NeptuneLiteUser.getInstance().getDal(app)</code> &amp; <code>Sdk.getInstance().getDal(app)</code>)",
+      "<code>ModelInfo.getInstance()</code>",
+      "<code>EmvUtils.loadLibrary()</code>",
+      "<code>DeviceManager.getInstance()</code> &amp; <code>EmvDeviceImpl.getInstance()</code>"
+    ],
+    events: [
+      "Neptune <code>IDAL</code> acquired and cached in <code>EmvFlowRuntime.dal</code>",
+      "Native EMV libraries loaded into memory",
+      "<code>DeviceManager</code> bound to <code>EmvDeviceImpl</code>"
+    ],
+    code: `ConvertHelper.init(true);
+application.registerActivityLifecycleCallbacks(new AppActivityLifecycleCallbacks());
+acquireDal();
+ModelInfo.getInstance().buildCache();
+loadEmvNativeLibraries();
+bindEmvDevice();`,
+    next: "PaxTerminal() constructor"
+  },
+  {
+    phase: "Phase 1: Startup & Terminal Init",
+    layer: "pax",
+    layerLabel: "VENDOR-PAX",
+    title: "PaxTerminal() Constructor",
+    file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxTerminal.java#L22-L37",
+    summary: "Constructs PAX-specific collaborators (`PaxKernel`, `PaxPinEntry`, `PaxEmvBehavior`, `SaleCommunicationBehavior`, `PaxPrinter`) and passes them to the `PosTerminal` superclass constructor.",
+    objects: [
+      "<code>new PaxKernel()</code> (creates <code>ContactProcess</code>, <code>ClssProcess.getInstance()</code>, <code>MagCardService</code>, <code>EmvParamService</code>)",
+      "<code>PaxPinEntry</code> (with <code>PinBypassSettings</code> + <code>OnboardingState::getPublicKey</code>)",
+      "<code>new PaxEmvBehavior(kernel, pinEntry)</code> (also creates <code>PaxCardSearch</code> &amp; <code>EmvEngine</code>)",
+      "<code>new SaleCommunicationBehavior(appContext, serialNumber)</code>",
+      "<code>new PaxPrinter()</code>"
+    ],
+    events: [
+      "Calls <code>super(new PaxEmvBehavior(kernel, pinEntry), communication, printer)</code>"
+    ],
+    code: `public PaxTerminal() {
+    this(new PaxKernel(),
+            new SaleCommunicationBehavior(BaseApplication.getAppContext(), ModelInfo.getInstance().getSN()),
+            new PaxPrinter());
+}
+
+private PaxTerminal(PaxKernel kernel, CommunicationBehavior communication, PrinterBehavior printer) {
+    super(new PaxEmvBehavior(kernel, pinEntry()), communication, printer);
+}`,
+    next: "PosTerminal(behavior, communication, printer) constructor"
+  },
+  {
+    phase: "Phase 1: Startup & Terminal Init",
+    layer: "core",
+    layerLabel: "CORE",
+    title: "PosTerminal(...) & initializeVendor()",
+    file: "core/src/main/java/com/emvenhance/core/terminal/PosTerminal.java#L47-L55",
+    summary: "Wires the core `PosTerminal` state: attaches `this::sendToBank` as the `BankRequest` callback on `AbstractEmvBehavior`, and runs `initializeVendor()` in `PaxTerminal` which seeds GreenDAO from JSON assets on first install (`ConfigInit`).",
+    objects: [
+      "<code>AbstractEmvBehavior behavior</code> (<code>PaxEmvBehavior</code>)",
+      "<code>BankRequest</code> lambda: <code>this::sendToBank</code>",
+      "<code>PaxSetup.ensureEmvConfigInitialized()</code> -> <code>new ConfigInit().init()</code>"
+    ],
+    events: [
+      "<code>behavior.attach(this::sendToBank)</code>",
+      "First boot only: background thread <code>ConfigInit</code> seeds default AIDs/CAPKs/config into GreenDAO"
+    ],
+    code: `protected PosTerminal(AbstractEmvBehavior behavior,
+        CommunicationBehavior communication,
+        PrinterBehavior printer) {
+    this.behavior = behavior;
+    this.communication = communication;
+    this.printer = printer;
+    behavior.attach(this::sendToBank);
+    initializeVendor();
+}`,
+    next: "MainActivity.onCreate(Bundle savedInstanceState)"
+  },
+  {
+    phase: "Phase 2: UI & Amount Input",
+    layer: "ui",
+    layerLabel: "APP UI",
+    title: "MainActivity.onCreate()",
+    file: "app/src/main/java/com/emvenhance/ui/MainActivity.java#L21-L35",
+    summary: "Displays the home screen, requests PAX hardware permissions (`terminal.requiredPermissions()`), and binds `btnStartTransaction` to launch `AmountActivity`.",
+    objects: [
+      "<code>ActivityMainBinding binding</code>",
+      "<code>PosTerminal terminal</code> (from <code>EmvEnhanceApp.getTerminal()</code>)",
+      "<code>Intent(this, AmountActivity.class)</code>"
+    ],
+    events: [
+      "Requests runtime hardware permissions if needed",
+      "User clicks <b>Start Transaction</b> -> <code>startActivity(new Intent(this, AmountActivity.class))</code>"
+    ],
+    code: `PosTerminal terminal = ((EmvEnhanceApp) getApplication()).getTerminal();
+String[] permissions = terminal.requiredPermissions();
+if (permissions.length > 0) {
+    requestPermissions(permissions, PERMISSIONS_REQUEST);
+}
+binding.btnStartTransaction.setOnClickListener(
+        v -> startActivity(new Intent(this, AmountActivity.class)));`,
+    next: "AmountActivity.onCreate() -> AmountFragment.onViewCreated()"
+  },
+  {
+    phase: "Phase 2: UI & Amount Input",
+    layer: "ui",
+    layerLabel: "APP UI",
+    title: "AmountActivity & AmountFragment.onViewCreated()",
+    file: "app/src/main/java/com/emvenhance/ui/AmountFragment.java#L59-L81",
+    summary: "`AmountActivity` hosts `AmountFragment`. When the user enters the amount, selects the tab (`SALE`, `CASH_IN`, or `REFUND`), and taps Confirm, it parses `amountMinor` and replaces the fragment with `SearchCardFragment`.",
+    objects: [
+      "<code>Long amountMinor</code> (parsed from <code>amountInput</code> × 100)",
+      "<code>TransactionType type</code> (<code>SALE</code> / <code>CASH_IN</code> / <code>REFUND</code>)",
+      "<code>String referenceNumber</code> (required if <code>REFUND</code>)",
+      "<code>SearchCardFragment.newInstance(type, amountMinor, referenceNumber)</code>"
+    ],
+    events: [
+      "Fragment transaction replaces <code>R.id.fragmentContainer</code> with <code>SearchCardFragment</code>"
+    ],
+    code: `Long amountMinor = parseAmountMinor(amountInput.getText().toString());
+TransactionType type = selectedTransactionType();
+requireActivity().getSupportFragmentManager().beginTransaction()
+        .replace(R.id.fragmentContainer,
+                SearchCardFragment.newInstance(type, amountMinor, referenceNumber))
+        .addToBackStack(null)
+        .commit();`,
+    next: "SearchCardFragment.onViewCreated(View view, Bundle savedInstanceState)"
+  },
+  {
+    phase: "Phase 2: UI & Amount Input",
+    layer: "ui",
+    layerLabel: "APP UI",
+    title: "SearchCardFragment.onViewCreated()",
+    file: "app/src/main/java/com/emvenhance/ui/SearchCardFragment.java#L70-L223",
+    summary: "Extracts arguments (`type`, `amountMinor`, `referenceNumber`), obtains `MainViewModel`, subscribes UI observers to `viewModel.getEmvStep()` and `viewModel.getTransaction()`, and triggers `viewModel.acceptCard(type, amountMinor, referenceNumber)`.",
+    objects: [
+      "<code>MainViewModel viewModel</code> (via <code>MainViewModelFactory(terminal)</code>)",
+      "<code>Consumer&lt;TransactionStepEvent&gt; render</code> (updates UI on each <code>TransactionStep</code>)",
+      "<code>Disposable steps</code> (subscription to <code>transaction.steps()</code>)"
+    ],
+    events: [
+      "Observes <code>viewModel.getEmvStep()</code> -> updates <code>emvStepBanner</code>",
+      "Observes <code>viewModel.getTransaction()</code> -> subscribes <code>render::accept</code> to <code>transaction.steps()</code>",
+      "Calls <code>viewModel.acceptCard(type, amountMinor, referenceNumber)</code>"
+    ],
+    code: `viewModel.getTransaction().observe(getViewLifecycleOwner(), transaction -> {
+    steps.dispose();
+    if (transaction == null) {
+        render.accept(TransactionStepEvent.idle());
+        return;
+    }
+    steps = transaction.steps()
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe(render::accept);
+});
+
+if (savedInstanceState == null) {
+    viewModel.acceptCard(type, amountMinor, referenceNumber);
+}`,
+    next: "MainViewModel.acceptCard(type, amountMinor, referenceNumber)"
+  },
+  {
+    phase: "Phase 2: UI & Amount Input",
+    layer: "ui",
+    layerLabel: "VIEWMODEL",
+    title: "MainViewModel.acceptCard(...)",
+    file: "app/src/main/java/com/emvenhance/ui/MainViewModel.java#L63-L80",
+    summary: "Delegates card acceptance to `PosTerminal.acceptCard(...)`, stores the returned `PosTerminal.Transaction` in `MutableLiveData`, and subscribes to `terminal.emvSteps()` for the lifetime of this transaction.",
+    objects: [
+      "<code>PosTerminal terminal</code>",
+      "<code>PosTerminal.Transaction trx</code>",
+      "<code>MutableLiveData&lt;PosTerminal.Transaction&gt; transaction</code>",
+      "<code>MutableLiveData&lt;Event&lt;EmvStepEvent&gt;&gt; emvStep</code>"
+    ],
+    events: [
+      "Calls <code>terminal.acceptCard(type, amountMinor, referenceNumber)</code>",
+      "Emits <code>trx</code> to <code>transaction.setValue(trx)</code>",
+      "Subscribes <code>listenToEmvStepsOf(trx)</code> to <code>terminal.emvSteps()</code>"
+    ],
+    code: `public void acceptCard(TransactionType type, long amountMinor, @Nullable String referenceNumber) {
+    try {
+        PosTerminal.Transaction trx = terminal.acceptCard(type, amountMinor, referenceNumber);
+        transaction.setValue(trx);
+        listenToEmvStepsOf(trx);
+    } catch (TerminalBusyException busy) {
+        terminalBusy.setValue(new Event<>(true));
+    }
+}`,
+    next: "PosTerminal.acceptCard(...) -> PosTerminal.startTransaction(config)"
+  },
+  {
+    phase: "Phase 3: Transaction & TransactionStep Dispatch",
+    layer: "core",
+    layerLabel: "CORE",
+    title: "PosTerminal.acceptCard() -> startTransaction(config)",
+    file: "core/src/main/java/com/emvenhance/core/terminal/PosTerminal.java#L122-L136",
+    summary: "Builds an immutable `TransactionConfig` (`EntryMethod.ANY`), creates a `new Transaction(config)` (which internally wires a `ReplaySubject<TransactionStepEvent>` to `TransactionStepObserver`), atomically claims `current`, and calls `transaction.begin()`.",
+    objects: [
+      "<code>new TransactionConfig(type, amountMinor, EntryMethod.ANY).withReferenceNumber(referenceNumber)</code>",
+      "<code>new Transaction(config)</code>",
+      "<code>AtomicReference&lt;Transaction&gt; current</code>",
+      "<code>ReplaySubject&lt;TransactionStepEvent&gt; steps</code> + <code>new TransactionStepObserver()</code>"
+    ],
+    events: [
+      "<code>current.compareAndSet(null, transaction)</code> marks terminal busy",
+      "<code>steps.subscribe(new TransactionStepObserver())</code> inside <code>Transaction</code> constructor",
+      "Calls <code>transaction.begin()</code>"
+    ],
+    code: `public final Transaction acceptCard(TransactionType type, long amountMinor,
+        @Nullable String referenceNumber) {
+    return startTransaction(new TransactionConfig(type, amountMinor, EntryMethod.ANY)
+            .withReferenceNumber(referenceNumber));
+}
+
+public Transaction startTransaction(TransactionConfig config) {
+    Transaction transaction = new Transaction(config);
+    if (!current.compareAndSet(null, transaction)) {
+        throw new TerminalBusyException();
+    }
+    transaction.begin();
+    return transaction;
+}`,
+    next: "Transaction.begin() -> Transaction.publish(TRANSACTION_STARTED)"
+  },
+  {
+    phase: "Phase 3: Transaction & TransactionStep Dispatch",
+    layer: "core",
+    layerLabel: "CORE",
+    title: "Transaction.begin() -> publish() -> dispatchTransactionStep()",
+    file: "core/src/main/java/com/emvenhance/core/terminal/PosTerminal.java#L259-L354",
+    summary: "`begin()` publishes `TransactionStep.TRANSACTION_STARTED` into the `steps` `ReplaySubject`. `TransactionStepObserver.onNext()` immediately calls `dispatchTransactionStep(event)`, which schedules `runTransaction(started)` on the single background `transactionScheduler` thread.",
+    objects: [
+      "<code>TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED)</code>",
+      "<code>ReplaySubject&lt;TransactionStepEvent&gt; steps</code>",
+      "<code>TransactionStepObserver</code>",
+      "<code>Scheduler transactionScheduler</code>"
+    ],
+    events: [
+      "<b>TransactionStep published:</b> <code>TRANSACTION_STARTED</code>",
+      "<code>dispatchTransactionStep</code> -> <code>onTransactionStarted(event)</code>",
+      "Schedules <code>runTransaction(started)</code> on <code>transactionScheduler</code>",
+      "Calls <code>behavior.engine().begin()</code> and <code>behavior.run(config, this)</code>"
+    ],
+    code: `private void begin() {
+    publish(TransactionStepEvent.of(TransactionStep.TRANSACTION_STARTED));
+}
+
+private void dispatchTransactionStep(TransactionStepEvent event) {
+    switch (event.getStep()) {
+        case TRANSACTION_STARTED:
+            onTransactionStarted(event);
+            break;
+        // ...
+    }
+}
+
+private void onTransactionStarted(TransactionStepEvent started) {
+    transactionScheduler.scheduleDirect(() -> runTransaction(started));
+}
+
+private void runTransaction(TransactionStepEvent started) {
+    behavior.engine().begin();
+    traceTransactionStep(started);
+    if (isRunning()) {
+        behavior.run(config, this);
+    }
+}`,
+    next: "AbstractEmvBehavior.run(config, transaction) -> prepare(attempt, transaction)"
+  },
+  {
+    phase: "Phase 4: EMV Step 0 (Init) & Step 1 (Search Card)",
+    layer: "core",
+    layerLabel: "CORE",
+    title: "AbstractEmvBehavior.run() -> prepare() -> goToStep(TERMINAL_INITIALIZATION)",
+    file: "core/src/main/java/com/emvenhance/core/terminal/AbstractEmvBehavior.java#L53-L90",
+    summary: "Starts the EMV attempt loop. `prepare()` binds `this.transaction` and `this.activeConfig`, subscribes `EmvStepObserver` to `engine.emvSteps()`, and fires Step 0: `goToStep(EmvStep.TERMINAL_INITIALIZATION)`.",
+    objects: [
+      "<code>TransactionConfig config</code> (stored in <code>activeConfig</code>)",
+      "<code>PosTerminal.Transaction transaction</code>",
+      "<code>EmvEngine engine</code> &amp; <code>new EmvStepObserver()</code>",
+      "<code>EmvStep.TERMINAL_INITIALIZATION</code>"
+    ],
+    events: [
+      "Subscribes <code>EmvStepObserver</code> to <code>engine.emvSteps()</code>",
+      "<b>EmvStep #0 published:</b> <code>0. Terminal initialization (preTransProcess)</code> via <code>engine.notifyEmvStep(...)</code>",
+      "<code>EmvStepObserver.onNext</code> synchronously calls <code>dispatchStepMethod(TERMINAL_INITIALIZATION)</code>"
+    ],
+    code: `void prepare(TransactionConfig config, PosTerminal.Transaction transaction) {
+    this.transaction = transaction;
+    initEmvObserver();
+    this.activeConfig = config;
+    this.activeCard = null;
+    this.bankAnswer = null;
+    goToStep(EmvStep.TERMINAL_INITIALIZATION);
+}`,
+    next: "PaxEmvBehavior.onTerminalInitialization(TransactionConfig config)"
+  },
+  {
+    phase: "Phase 4: EMV Step 0 (Init) & Step 1 (Search Card)",
+    layer: "pax",
+    layerLabel: "VENDOR-PAX",
+    title: "PaxEmvBehavior.onTerminalInitialization() -> prepareKernel()",
+    file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxEmvBehavior.java#L81-L89",
+    summary: "Creates a fresh `PaxKernelSession`, loads cached EMV parameters from GreenDAO (`EmvParamService.getCachedEmvParam()`), builds `EmvTransParam` & `EmvProcessParam`, and runs `kernel.contact.preTransProcess(...)` (`EMVCoreInit`, `setEmvAndMCKParam`, `addAID`) and `kernel.contactless.preTransProcess(...)` (`Clss_CoreInit_Entry`, `addApp`, `Clss_PreTransProc_Entry`). On success, calls `searchCard()`.",
+    objects: [
+      "<code>tx = new PaxKernelSession()</code>",
+      "<code>EmvProcessParam cachedEmvParam</code> (from <code>kernel.params.getCachedEmvParam()</code>)",
+      "<code>EmvTransParam transParam</code> (amount, procCode, terminalID, currency, date/time, PCI mode)",
+      "<code>kernel.contact = new ContactProcess()</code> &amp; <code>kernel.contactless</code> (<code>ClssProcess</code>)"
+    ],
+    events: [
+      "First transaction only: loads AIDs/CAPKs/Terminal Config from DB into memory cache",
+      "Runs native <code>ContactProcess.preTransProcess(...)</code> and <code>ClssProcess.preTransProcess(...)</code>",
+      "Calls <code>searchCard()</code> in <code>AbstractEmvBehavior</code>"
+    ],
+    code: `@Override
+public void onTerminalInitialization(TransactionConfig config) {
+    tx = new PaxKernelSession();
+    EmvDeviceImpl.getInstance().setApduTrace(engine().apduTrace());
+    if (!prepareKernel(config)) {
+        finishError("Terminal initialization failed");
+        return;
+    }
+    searchCard();
+}`,
+    next: "AbstractEmvBehavior.searchCard() -> PaxEmvBehavior.onSearchCard() -> PaxCardSearch.search()"
+  },
+  {
+    phase: "Phase 4: EMV Step 0 (Init) & Step 1 (Search Card)",
+    layer: "pax",
+    layerLabel: "VENDOR-PAX",
+    title: "searchCard() -> PaxCardSearch.search() -> cardFound(card)",
+    file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxCardSearch.java#L44-L99",
+    summary: "`AbstractEmvBehavior.searchCard()` creates `CardSearchReporter` and calls `goToStep(EmvStep.SEARCH_CARD)`. `PaxEmvBehavior.onSearchCard()` delegates to `PaxCardSearch.search()`, which publishes `WAITING_FOR_CARD` and blocks on `cardReaderHelper.polling(...)`. When a card is inserted/tapped, `CardSearchReporter.cardFound(card)` publishes `CARD_DETECTED` and calls `start(card)`.",
+    objects: [
+      "<code>CardSearchReporter</code> (implements <code>CardSearchListener</code>)",
+      "<code>ICardReaderHelper cardReaderHelper</code> &amp; <code>EReaderType readerType</code>",
+      "<code>PollingResult result</code> -> <code>CardPresence card</code> (<code>chip()</code> or <code>contactless(serialInfo)</code>)"
+    ],
+    events: [
+      "<b>EmvStep #1 published:</b> <code>1. Search card</code>",
+      "<b>TransactionStep published:</b> <code>WAITING_FOR_CARD</code> (<i>\"Insert, tap, or swipe\"</i>)",
+      "<b>TransactionStep published:</b> <code>CARD_DETECTED</code> (with mode &amp; entryMethod)",
+      "Calls <code>start(card)</code> -> <code>goToStep(EmvStep.APPLICATION_SELECTION)</code>"
+    ],
+    code: `private void cardFound(CardPresence card) {
+    if (isStale("card detected")) {
+        return;
+    }
+    owner.publish(TransactionStepEvent.builder(TransactionStep.CARD_DETECTED)
+            .put(TransactionStepEvent.KEY_MODE, card.getModeLabel())
+            .put("entryMethod", card.getEntryMethod().name())
+            .build());
+    start(card); // sets activeCard = card; calls goToStep(EmvStep.APPLICATION_SELECTION);
+}`,
+    next: "PaxEmvBehavior.onApplicationSelection(config, card)"
+  }
+];
+
+const BRANCH_STEPS = {
+  contact: [
+    {
+      phase: "Phase 5: Contact (Chip) Flow to SET_TRANSACTION_DATA",
+      layer: "pax",
+      layerLabel: "VENDOR-PAX + EMVLIB",
+      title: "PaxEmvBehavior.onApplicationSelection() -> runContactAppSelect()",
+      file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxEmvBehavior.java#L773-L796",
+      summary: "Step 2 (`APPLICATION_SELECTION`): Registers `PaxEmvBehavior` as `IContactCallback` listener on `ContactProcess` and calls `kernel.contact.selectApplication()` (`EMVCallback.EMVAppSelect`). During this native call, `emvWaitAppSel` asks the cardholder/auto-selects the AID (Steps 3/4) and `emvSetParam` applies the selected AID's capabilities via `resetParam(aid)`. On `EMV_OK`, advances to `EmvStep.READ_APPLICATION_DATA`.",
+      objects: [
+        "<code>CardPresence card</code> (<code>card.isChip() == true</code>)",
+        "<code>ContactProcess kernel.contact</code>",
+        "<code>List&lt;CandidateAID&gt; tx.candidates</code>",
+        "<code>TransResult tx.transResult</code>"
+      ],
+      events: [
+        "<b>EmvStep #2 published:</b> <code>2. Application selection</code>",
+        "<b>EmvStep #3/#4 asked (via callback):</b> <code>WAIT_APPLICATION_SELECTION</code> / <code>FINAL_APPLICATION_SELECTION</code>",
+        "<b>TransactionStep published:</b> <code>APPLICATION_SELECTED</code>",
+        "Calls <code>advanceContactStage(EmvStep.READ_APPLICATION_DATA)</code>"
+      ],
+      code: `private void runContactAppSelect() {
+    DeviceManager.getInstance().setIDevice(EmvDeviceImpl.getInstance());
+    tx.cachedTrack2Data = null;
+    resetTransactionSummary();
+    kernel.contact.registerEmvProcessListener(this);
+    tx.transResult = selectApplicationWithRetry(); // calls EMVCallback.EMVAppSelect(...)
+    int ret = tx.transResult.getResultCode();
+    proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
+    if (proceed) {
+        advanceContactStage(EmvStep.READ_APPLICATION_DATA);
+    }
+}`,
+      next: "PaxEmvBehavior.onReadApplicationData() -> runContactReadAppData()"
+    },
+    {
+      phase: "Phase 5: Contact (Chip) Flow to SET_TRANSACTION_DATA",
+      layer: "pax",
+      layerLabel: "VENDOR-PAX + EMVLIB",
+      title: "PaxEmvBehavior.onReadApplicationData() -> runContactReadAppData()",
+      file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxEmvBehavior.java#L820-L839",
+      summary: "Step 5 (`READ_APPLICATION_DATA`): Calls `kernel.contact.readApplicationData()` in `ContactProcess`, which executes native `EMVCallback.EMVReadAppData()` (runs GPO + READ RECORDs on the contact chip). On `RetCode.EMV_OK`, calls `advanceContactStage(EmvStep.SET_TRANSACTION_DATA)`.",
+      objects: [
+        "<code>ContactProcess kernel.contact</code>",
+        "<code>EMVCallback.EMVReadAppData()</code>",
+        "<code>TransResult tx.transResult</code>"
+      ],
+      events: [
+        "<b>EmvStep #5 published:</b> <code>5. Read application data</code>",
+        "Native <code>EMVCallback.EMVReadAppData()</code> reads chip application records",
+        "Calls <code>advanceContactStage(EmvStep.SET_TRANSACTION_DATA)</code> -> <code>goToStep(EmvStep.SET_TRANSACTION_DATA)</code>"
+      ],
+      code: `private void runContactReadAppData() {
+    tx.transResult = kernel.contact.readApplicationData(); // EMVCallback.EMVReadAppData()
+    int ret = tx.transResult.getResultCode();
+    proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
+    if (proceed) {
+        advanceContactStage(EmvStep.SET_TRANSACTION_DATA);
+    }
+}`,
+      next: "PaxEmvBehavior.onSetTransactionData() -> ContactProcess.setTransactionData()"
+    },
+    {
+      phase: "Phase 5: Contact (Chip) Flow to SET_TRANSACTION_DATA",
+      layer: "sdk",
+      layerLabel: "TARGET REACHED: SET_TRANSACTION_DATA",
+      title: "onSetTransactionData() -> ContactProcess.setTransactionData()",
+      file: "vendor-pax/libs/sdk/emvlib/dpas/src/main/java/com/pax/emvlib/dpas/contact/ContactProcess.java#L211-L222",
+      summary: "Step 6 (`SET_TRANSACTION_DATA`): `goToStep(EmvStep.SET_TRANSACTION_DATA)` invokes `PaxEmvBehavior.onSetTransactionData()`, which calls `runContactSetTransactionData()` -> `kernel.contact.setTransactionData()`. Inside `ContactProcess.setTransactionData()`, it calls `emvProcessListener.showConfirmCard()` (which reads the PAN & cardholder name and publishes `TransactionStep.CARD_READ`) and `changeTAG9CValue()` (`setTlv(0x9C, new byte[]{emvParam.transType})`).",
+      objects: [
+        "<code>EmvStep.SET_TRANSACTION_DATA</code>",
+        "<code>ContactProcess.setTransactionData()</code>",
+        "<code>PaxEmvBehavior.showConfirmCard()</code> (reads PAN from Track 2 / Tag 5A &amp; Cardholder Name from Tag 5F20)",
+        "<code>Tag 0x9C</code> (Transaction Type TLV set via <code>EMVCallback.EMVSetTLVData</code>)"
+      ],
+      events: [
+        "<b>EmvStep #6 published:</b> <code>6. Set transaction TLVs</code>",
+        "<b>TransactionStep published:</b> <code>CARD_READ</code> (with <code>pan</code>, <code>issuerName</code>, <code>cardholderName</code>, <code>mode=\"Contact\"</code>)",
+        "Sets Tag <code>0x9C</code> in the contact EMV kernel",
+        "On success: calls <code>advanceContactStage(EmvStep.OFFLINE_DATA_AUTHENTICATION)</code>"
+      ],
+      code: `// PaxEmvBehavior.java:
+private void runContactSetTransactionData() {
+    tx.transResult = kernel.contact.setTransactionData();
+    int ret = tx.transResult.getResultCode();
+    proceed = ret == RetCode.EMV_OK && !isContactTransactionFinished();
+    if (proceed) {
+        advanceContactStage(EmvStep.OFFLINE_DATA_AUTHENTICATION);
+    }
+}
+
+// ContactProcess.java:
+@Override
+public TransResult setTransactionData() {
+    if (emvProcessListener != null) {
+        int ret = emvProcessListener.showConfirmCard(); // publishes TransactionStep.CARD_READ
+        if (ret != RetCode.EMV_OK) {
+            return new TransResult(ret, TransResultEnum.RESULT_OFFLINE_DENIED, CvmResultEnum.CVM_NO_CVM);
+        }
+    }
+    changeTAG9CValue(); // setTlv(0x9C, new byte[]{emvParam.transType})
+    return new TransResult(RetCode.EMV_OK);
+}`,
+      next: "Reached SET_TRANSACTION_DATA! (Next step in flow: EmvStep.OFFLINE_DATA_AUTHENTICATION)"
+    }
+  ],
+  clss_granular: [
+    {
+      phase: "Phase 5: Contactless Granular (PayWave / PayPass) to SET_TRANSACTION_DATA",
+      layer: "pax",
+      layerLabel: "VENDOR-PAX + EMVLIB",
+      title: "PaxEmvBehavior.onApplicationSelection() -> runContactlessAppSelect()",
+      file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxEmvBehavior.java#L269-L307",
+      summary: "Step 2 (`APPLICATION_SELECTION`): Registers `PaxEmvBehavior` as `IContactlessCallback` and calls `kernel.contactless.selectApplication()` in `ClssProcess`. Runs `Clss_AppSlt_Entry`, `Clss_FinalSelect_Entry`, fetches pre-proc flags and final select data, and builds the kernel (`ClssPayWaveProcess` or `ClssPayPassProcess`) via `ClssKernelProcessFactory`. Since `supportsGranularSteps()` is `true`, `firstStageAfterAppSelect()` returns `EmvStep.SET_TRANSACTION_DATA` immediately!",
+      objects: [
+        "<code>ClssProcess kernel.contactless</code>",
+        "<code>KernType kernType</code>, <code>Clss_PreProcInterInfo</code>, <code>ByteArray finalSelectData</code>",
+        "<code>ClssKernelProcess clssKernelProcess</code> (<code>ClssPayWaveProcess</code> or <code>ClssPayPassProcess</code>)"
+      ],
+      events: [
+        "<b>EmvStep #2 published:</b> <code>2. Application selection</code>",
+        "Selects contactless AID via PPSE (<code>Clss_AppSlt_Entry</code> &amp; <code>Clss_FinalSelect_Entry</code>)",
+        "<code>firstStageAfterAppSelect()</code> returns <code>EmvStep.SET_TRANSACTION_DATA</code>",
+        "Calls <code>advanceContactlessStage(EmvStep.SET_TRANSACTION_DATA)</code>"
+      ],
+      code: `private void runContactlessAppSelect() {
+    kernel.contactless.registerClssProcessListener(this);
+    tx.clsTransResult = kernel.contactless.selectApplication();
+    int ret = tx.clsTransResult.getResultCode();
+    proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
+    if (proceed) {
+        advanceContactlessStage(firstStageAfterAppSelect()); // -> EmvStep.SET_TRANSACTION_DATA
+    }
+}`,
+      next: "PaxEmvBehavior.onSetTransactionData() -> runContactlessSetTransactionData()"
+    },
+    {
+      phase: "Phase 5: Contactless Granular (PayWave / PayPass) to SET_TRANSACTION_DATA",
+      layer: "sdk",
+      layerLabel: "TARGET REACHED: SET_TRANSACTION_DATA",
+      title: "onSetTransactionData() -> ClssPayWave/PayPassProcess.setTransactionData()",
+      file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxEmvBehavior.java#L318-L347",
+      summary: "Step 6 (`SET_TRANSACTION_DATA`): `PaxEmvBehavior.onSetTransactionData()` calls `runContactlessSetTransactionData()` -> `kernel.contactless.setTransactionData()` -> `clssKernelProcess.setTransactionData()`. Initializes the Visa/Mastercard contactless kernel, loads final select data, floor/CVM limits, and transaction TLVs before GPO (`READ_APPLICATION_DATA`).",
+      objects: [
+        "<code>EmvStep.SET_TRANSACTION_DATA</code>",
+        "<b>PayWave:</b> <code>Clss_ReaderParam</code>, <code>Clss_VisaAidParam</code>, <code>Clss_TransParam</code>, <code>Clss_PreProcInterInfo</code>",
+        "<b>PayPass:</b> <code>PayPassParam</code> TLV parameters, <code>finalSelectData</code>"
+      ],
+      events: [
+        "<b>EmvStep #6 published:</b> <code>6. Set transaction TLVs</code>",
+        "<b>PayWave native calls:</b> <code>Clss_CoreInit_Wave</code> -> <code>Clss_SetReaderParam_Wave</code> -> <code>Clss_SetFinalSelectData_Wave</code> -> <code>Clss_SetVisaAidParam_Wave</code> -> <code>Clss_SetTransData_Wave</code>",
+        "<b>PayPass native calls:</b> <code>Clss_CoreInit_MC</code> -> <code>Clss_SetParam_MC</code> -> <code>Clss_SetFinalSelectData_MC</code> -> <code>setPayPassParam()</code>",
+        "On success: calls <code>advanceContactlessStage(EmvStep.READ_APPLICATION_DATA)</code>"
+      ],
+      code: `// PaxEmvBehavior.java:
+private void runContactlessSetTransactionData() {
+    tx.clsTransResult = kernel.contactless.setTransactionData();
+    int ret = tx.clsTransResult.getResultCode();
+    if (ret == RetCode.CLSS_RESELECT_APP) {
+        reselected = true;
+        ret = reselectApplication();
+    }
+    proceed = ret == RetCode.EMV_OK && !isContactlessTransactionFinished();
+    if (proceed) {
+        advanceContactlessStage(reselected ? firstStageAfterAppSelect() : EmvStep.READ_APPLICATION_DATA);
+    }
+}
+
+// ClssPayWaveProcess.java:
+@Override
+public TransResult setTransactionData() {
+    int ret = coreInit(); // Clss_CoreInit_Wave + Clss_SetReaderParam_Wave + Clss_SetFinalSelectData_Wave
+    if (ret != RetCode.EMV_OK) return new TransResult(ret, RESULT_OFFLINE_DENIED, CVM_NO_CVM);
+    ret = setTransParam(); // Clss_SetVisaAidParam_Wave + Clss_SetTransData_Wave
+    return new TransResult(ret == RetCode.EMV_OK ? RetCode.EMV_OK : ret);
+}`,
+      next: "Reached SET_TRANSACTION_DATA! (Next step in flow: EmvStep.READ_APPLICATION_DATA)"
+    }
+  ],
+  clss_atomic: [
+    {
+      phase: "Phase 5: Contactless Atomic Kernel Flow to SET_TRANSACTION_DATA",
+      layer: "pax",
+      layerLabel: "VENDOR-PAX + EMVLIB",
+      title: "onApplicationSelection() -> PROCESS_RESTRICTIONS -> startTransProcess()",
+      file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxEmvBehavior.java#L269-L307",
+      summary: "For contactless kernels where `supportsGranularSteps()` is `false` (e.g., EFTSec, JCB, Amex, PBOC, Pure, Mir, Dpas, RuPay), `firstStageAfterAppSelect()` returns `EmvStep.PROCESS_RESTRICTIONS`, which invokes `runContactlessStartTransaction()` -> `kernel.contactless.startTransProcess()`.",
+      objects: [
+        "<code>ClssProcess kernel.contactless</code>",
+        "<code>ClssKernelProcess clssKernelProcess</code> (<code>supportsGranularSteps() == false</code>)"
+      ],
+      events: [
+        "<b>EmvStep #2 published:</b> <code>2. Application selection</code>",
+        "<code>firstStageAfterAppSelect()</code> returns <code>EmvStep.PROCESS_RESTRICTIONS</code>",
+        "Calls <code>runContactlessStartTransaction()</code> -> <code>kernel.contactless.startTransProcess()</code>"
+      ],
+      code: `private EmvStep firstStageAfterAppSelect() {
+    return kernel.contactless.supportsGranularSteps()
+            ? EmvStep.SET_TRANSACTION_DATA
+            : EmvStep.PROCESS_RESTRICTIONS;
+}`,
+      next: "PaxEmvBehavior.onReadCardOk() callback -> goToStep(EmvStep.SET_TRANSACTION_DATA)"
+    },
+    {
+      phase: "Phase 5: Contactless Atomic Kernel Flow to SET_TRANSACTION_DATA",
+      layer: "sdk",
+      layerLabel: "TARGET REACHED: SET_TRANSACTION_DATA",
+      title: "Kernel Callback: PaxEmvBehavior.onReadCardOk()",
+      file: "vendor-pax/src/main/java/com/emvenhance/vendor/pax/PaxEmvBehavior.java#L1222-L1236",
+      summary: "Because an atomic contactless kernel runs set-data and read-data inside one native call (`startTransProcess()`), it invokes `PaxEmvBehavior.onReadCardOk()` as soon as GPO + records are read. `onReadCardOk()` announces `goToStep(EmvStep.SET_TRANSACTION_DATA, null)` and `goToStep(EmvStep.READ_APPLICATION_DATA, null)`, sets `TagsTable.TERMINAL_ID`, and publishes `APPLICATION_SELECTED` and `CARD_READ`.",
+      objects: [
+        "<code>EmvStep.SET_TRANSACTION_DATA</code> &amp; <code>EmvStep.READ_APPLICATION_DATA</code>",
+        "<code>TagsTable.TERMINAL_ID</code>",
+        "<code>TransactionStep.APPLICATION_SELECTED</code> &amp; <code>TransactionStep.CARD_READ</code>"
+      ],
+      events: [
+        "<b>EmvStep #6 published:</b> <code>6. Set transaction TLVs</code>",
+        "<b>EmvStep #5 published:</b> <code>5. Read application data</code>",
+        "<b>TransactionStep published:</b> <code>APPLICATION_SELECTED</code> &amp; <code>CARD_READ</code>"
+      ],
+      code: `@Override
+public void onReadCardOk() {
+    if (!kernel.contactless.supportsGranularSteps()) {
+        goToStep(EmvStep.SET_TRANSACTION_DATA, null);
+        goToStep(EmvStep.READ_APPLICATION_DATA, null);
+    }
+    publish(TransactionStepEvent.of(TransactionStep.APPLICATION_SELECTED, "contactless"));
+    kernel.contactless.setTlv(TagsTable.TERMINAL_ID,
+            kernel.params.getCachedEmvParam().getTermConfig().getTerminalId());
+    publish(TransactionStepEvent.builder(TransactionStep.CARD_READ)
+            .put(TransactionStepEvent.KEY_PAN, safe(getContactlessPan()))
+            .put(TransactionStepEvent.KEY_ISSUER_NAME, "PAX Issuer")
+            .put(TransactionStepEvent.KEY_CARDHOLDER_NAME, safe(getContactlessCardholderName()))
+            .put(TransactionStepEvent.KEY_MODE, "Contactless")
+            .build());
+}`,
+      next: "Reached SET_TRANSACTION_DATA! (Next step in flow: EmvStep.ONLINE_AUTHORIZATION)"
+    }
+  ]
+};
+
+let currentBranch = "contact";
+let currentIndex = 0;
+
+function getSteps() {
+  return COMMON_STEPS.concat(BRANCH_STEPS[currentBranch]);
+}
+
+function setBranch(branch) {
+  currentBranch = branch;
+  document.getElementById("btnBranchContact").classList.toggle("active-branch", branch === "contact");
+  document.getElementById("btnBranchClssGranular").classList.toggle("active-branch", branch === "clss_granular");
+  document.getElementById("btnBranchClssAtomic").classList.toggle("active-branch", branch === "clss_atomic");
+  const steps = getSteps();
+  if (currentIndex >= steps.length) {
+    currentIndex = steps.length - 1;
+  }
+  renderAll();
+}
+
+function selectStep(idx) {
+  const steps = getSteps();
+  if (idx < 0 || idx >= steps.length) return;
+  currentIndex = idx;
+  renderAll();
+}
+
+function prevStep() {
+  if (currentIndex > 0) selectStep(currentIndex - 1);
+}
+
+function nextStep() {
+  const steps = getSteps();
+  if (currentIndex < steps.length - 1) selectStep(currentIndex + 1);
+}
+
+function renderAll() {
+  const steps = getSteps();
+  const timeline = document.getElementById("timeline");
+  timeline.innerHTML = "";
+  let lastPhase = "";
+
+  steps.forEach((s, i) => {
+    if (s.phase !== lastPhase) {
+      lastPhase = s.phase;
+      const ph = document.createElement("div");
+      ph.className = "phase-header";
+      ph.textContent = s.phase;
+      timeline.appendChild(ph);
+    }
+    const item = document.createElement("div");
+    item.className = "step-item" + (i === currentIndex ? " active" : "");
+    item.onclick = () => selectStep(i);
+    item.innerHTML = `
+      <div class="step-num">${i + 1}</div>
+      <div class="step-meta">
+        <span class="badge ${s.layer}">${s.layerLabel}</span>
+        <div class="step-file">${s.title}</div>
+        <div class="step-method">${s.file.split('#')[0].split('/').slice(-2).join('/')}</div>
+      </div>
+    `;
+    timeline.appendChild(item);
+    if (i === currentIndex) {
+      item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
+
+  const active = steps[currentIndex];
+  const badge = document.getElementById("inspBadge");
+  badge.className = "badge " + active.layer;
+  badge.textContent = active.layerLabel;
+
+  document.getElementById("inspPhase").textContent = `${active.phase} • Step ${currentIndex + 1} of ${steps.length}`;
+  document.getElementById("inspTitle").textContent = `${currentIndex + 1}. ${active.title}`;
+
+  const link = document.getElementById("inspFileLink");
+  link.textContent = active.file;
+  link.href = "../" + active.file.split("#")[0];
+
+  document.getElementById("inspSummary").innerHTML = active.summary.replace(/`([^`]+)`/g, "<code>$1</code>");
+  document.getElementById("inspObjects").innerHTML = active.objects.map(o => `<li>${o}</li>`).join("");
+  document.getElementById("inspEvents").innerHTML = active.events.map(e => `<li>${e}</li>`).join("");
+  document.getElementById("inspCode").textContent = active.code;
+  document.getElementById("inspNextText").textContent = active.next;
+
+  document.getElementById("btnPrev").disabled = currentIndex === 0;
+  document.getElementById("btnNext").disabled = currentIndex === steps.length - 1;
+  document.getElementById("btnBannerNext").disabled = currentIndex === steps.length - 1;
+
+  const pct = ((currentIndex + 1) / steps.length) * 100;
+  document.getElementById("progressFill").style.width = pct + "%";
+}
+
+function toggleTheme() {
+  const root = document.documentElement;
+  const current = root.getAttribute("data-theme");
+  root.setAttribute("data-theme", current === "light" ? "dark" : "light");
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") nextStep();
+  if (e.key === "ArrowLeft") prevStep();
+});
+
+renderAll();
+</script>
+</body>
+</html>
