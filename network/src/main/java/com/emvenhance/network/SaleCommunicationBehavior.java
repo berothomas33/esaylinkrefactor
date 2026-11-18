@@ -590,7 +590,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                 return "CHIP";
             case CONTACTLESS:
                 return "CLSS";
-            case MAGSTRIPE:
+            case MAGNETIC:
                 return "SWIPE";
             case MANUAL:
                 return "MANUAL";

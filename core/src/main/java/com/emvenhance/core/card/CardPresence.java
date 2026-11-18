@@ -37,7 +37,7 @@ public final class CardPresence {
 
     public static CardPresence magstripe(@Nullable String track1, @Nullable String track2,
             @Nullable String track3) {
-        return new CardPresence(EntryMethod.MAGSTRIPE, track1, track2, track3, null, null);
+        return new CardPresence(EntryMethod.MAGNETIC, track1, track2, track3, null, null);
     }
 
     public static CardPresence manual(@Nullable String pan) {
@@ -57,7 +57,7 @@ public final class CardPresence {
     }
 
     public boolean isMagstripe() {
-        return entryMethod == EntryMethod.MAGSTRIPE;
+        return entryMethod == EntryMethod.MAGNETIC;
     }
 
     public boolean isManual() {
@@ -103,7 +103,7 @@ public final class CardPresence {
                 return "Chip";
             case CONTACTLESS:
                 return "Contactless";
-            case MAGSTRIPE:
+            case MAGNETIC:
                 return "Magstripe";
             case MANUAL:
                 return "Manual";

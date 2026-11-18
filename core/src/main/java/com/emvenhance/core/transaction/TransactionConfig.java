@@ -113,7 +113,7 @@ public final class TransactionConfig {
     }
 
     public boolean isMagstripe() {
-        return mode == EntryMethod.MAGSTRIPE;
+        return mode == EntryMethod.MAGNETIC;
     }
 
     public boolean isManual() {
@@ -129,7 +129,7 @@ public final class TransactionConfig {
     }
 
     public boolean allowsMagstripe() {
-        return mode == EntryMethod.MAGSTRIPE || mode == EntryMethod.ANY;
+        return mode == EntryMethod.MAGNETIC || mode == EntryMethod.ANY;
     }
 
     public boolean allowsManual() {

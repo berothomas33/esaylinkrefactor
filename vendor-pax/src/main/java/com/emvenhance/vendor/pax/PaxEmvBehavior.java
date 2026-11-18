@@ -1470,7 +1470,7 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
     }
 
     private void fallback() {
-        retryWithMode(EntryMethod.MAGSTRIPE, "Fallback: retrying with magstripe",
+        retryWithMode(EntryMethod.MAGNETIC, "Fallback: retrying with magstripe",
                 "Chip not readable — swipe the card");
     }
 

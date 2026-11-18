@@ -19,7 +19,7 @@ public final class PosEntryModeCodes {
                 return "05";
             case CONTACTLESS:
                 return "07";
-            case MAGSTRIPE:
+            case MAGNETIC:
                 return "90";
             case MANUAL:
                 return "01";

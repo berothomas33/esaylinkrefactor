@@ -3,7 +3,7 @@ package com.emvenhance.core.card;
 public enum EntryMethod {
     CHIP,
     CONTACTLESS,
-    MAGSTRIPE,
+    MAGNETIC,
     MANUAL,
     ANY
 }
