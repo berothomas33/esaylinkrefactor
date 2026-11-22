@@ -12,6 +12,9 @@ import java.time.format.DateTimeParseException;
 
 import androidx.annotation.Nullable;
 
+import com.emvenhance.core.host.MasterKey;
+import com.emvenhance.core.host.MasterKey.EncryptorMessage;
+
 public final class OnboardingState {
 
     private static final String PREFS_NAME = "onboarding_state";
@@ -24,10 +27,20 @@ public final class OnboardingState {
     private static final String KEY_ACCESS_TOKEN = "access_token";
     private static final String KEY_TOKEN_EXPIRATION = "token_expiration";
 
+    private static final String PADDING_SUFFIX = "_padding";
+
+    /** Set once at start-up by the vendor (PAX: the POS master key at 0x20); null = kept plain. */
+    @Nullable
+    private static MasterKey masterKey;
+
     private static final ZoneOffset TOKEN_EXPIRATION_ZONE = ZoneOffset.ofHours(3);
     private static final long TOKEN_REFRESH_BUFFER_SECONDS = 30;
 
     private final SharedPreferences prefs;
+
+    public static void useMasterKey(@Nullable MasterKey key) {
+        masterKey = key;
+    }
 
     public OnboardingState(Context context) {
         this.prefs = context.getApplicationContext()
@@ -62,39 +75,61 @@ public final class OnboardingState {
     }
 
     public void saveSacs(String sacs) {
-        prefs.edit().putString(KEY_SACS, sacs).apply();
+        save(KEY_SACS, sacs);
     }
 
     @Nullable
     public String getSacs() {
-        return prefs.getString(KEY_SACS, null);
+        return read(KEY_SACS);
     }
 
     public void saveChallenge(String challenge) {
-        prefs.edit().putString(KEY_CHALLENGE, challenge).apply();
+        save(KEY_CHALLENGE, challenge);
     }
 
     @Nullable
     public String getChallenge() {
-        return prefs.getString(KEY_CHALLENGE, null);
+        return read(KEY_CHALLENGE);
     }
 
     public void savePublicKey(String publicKey) {
-        prefs.edit().putString(KEY_PUBLIC_KEY, publicKey).apply();
+        save(KEY_PUBLIC_KEY, publicKey);
     }
 
     @Nullable
     public String getPublicKey() {
-        return prefs.getString(KEY_PUBLIC_KEY, null);
+        return read(KEY_PUBLIC_KEY);
     }
 
     public void saveServiceAccount(String serviceAccount) {
-        prefs.edit().putString(KEY_SERVICE_ACCOUNT, serviceAccount).apply();
+        save(KEY_SERVICE_ACCOUNT, serviceAccount);
     }
 
     @Nullable
     public String getServiceAccount() {
-        return prefs.getString(KEY_SERVICE_ACCOUNT, null);
+        return read(KEY_SERVICE_ACCOUNT);
+    }
+
+    private void save(String key, String plain) {
+        if (masterKey == null) {
+            prefs.edit().putString(key, plain).apply();
+            return;
+        }
+        EncryptorMessage message = masterKey.encryptDataByMasterKey(plain);
+        prefs.edit()
+                .putString(key, message.encrypted)
+                .putInt(key + PADDING_SUFFIX, message.addedPadding)
+                .apply();
+    }
+
+    @Nullable
+    private String read(String key) {
+        String stored = prefs.getString(key, null);
+        if (stored == null || masterKey == null) {
+            return stored;
+        }
+        return masterKey.decryptDataByMasterKey(
+                new EncryptorMessage(stored, prefs.getInt(key + PADDING_SUFFIX, 0)));
     }
 
     public void saveAccessToken(String accessToken) {
