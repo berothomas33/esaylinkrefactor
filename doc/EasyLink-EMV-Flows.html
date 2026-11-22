@@ -113,6 +113,21 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .comp .grp dd { margin: 0 0 4px; }
 .codebox { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; direction: ltr; text-align: left; overflow-x: auto; font-family: var(--font-code); font-size: 13px; line-height: 1.7; }
 .codebox .c { color: var(--muted); }
+:root { --tek: #1f5fae; --tek-soft: #e3edf9; --pek: #b5530f; --pek-soft: #fbeadc; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --tek: #7fb0ec; --tek-soft: #1a2a3d; --pek: #f0a46a; --pek-soft: #3a2616; } }
+:root[data-theme="dark"] { --tek: #7fb0ec; --tek-soft: #1a2a3d; --pek: #f0a46a; --pek-soft: #3a2616; }
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.keycard { border-radius: 8px; padding: 12px 14px; border: 2px solid; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.keycard.tek { border-color: var(--tek); background: var(--tek-soft); }
+.keycard.pek { border-color: var(--pek); background: var(--pek-soft); }
+.keycard h4 { margin: 0; font-size: 17px; }
+.keycard.tek h4 { color: var(--tek); }
+.keycard.pek h4 { color: var(--pek); }
+.keycard dl { margin: 0; display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 14px; }
+.keycard dt { color: var(--muted); }
+.keycard dd { margin: 0; min-width: 0; }
+.keycard code { overflow-wrap: anywhere; }
+
 .lanes { border-collapse: separate; border-spacing: 8px 0; width: 100%; min-width: 780px; font-size: 13.5px; table-layout: fixed; }
 .lanes th, .lanes td { border: 0; padding: 0; vertical-align: top; text-align: left; }
 .lanes th.phase, .lanes td.phase { width: 150px; color: var(--muted); font-size: 12.5px; padding: 10px 4px 0 0; }
@@ -432,6 +447,7 @@ sequenceDiagram
 <section id="ask" dir="ltr" class="en">
   <h2>4. When the kernel waits for a person: <code>ask</code></h2>
   <p>During one native call the kernel can stop and ask a question through a callback: choose the application, enter the PIN. It waits until it gets an answer (<code>setCallBackResult</code>). The callback calls <code>ask(step, detail, failClosed)</code>: the step is shown, then its hook asks the person and <b>returns</b> the result. That hook runs <b>inside</b> the step that called the kernel; the result goes back to the kernel, which carries on from where it stopped. This is the circle:</p>
+  <div class="note" style="border-color:var(--accent);background:var(--accent-soft)"><b style="color:var(--accent)">The idea in two lines.</b> The whole circle runs on <b>one thread</b>, the transaction thread. Each step runs <b>inside</b> the one before it, and the circle closes from the inside out: the kernel calls us, we ask the person, we hand the answer back, and the kernel carries on from where it stopped.</div>
   <h3>The PIN circle (contact)</h3>
   <div class="diagram"><pre class="mermaid">
 %%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 30, "rankSpacing": 36}}}%%
@@ -464,6 +480,30 @@ flowchart TD
     <li><b>Application selection</b> is the same circle: <code>EMVAppSelect</code> → <code>emvWaitAppSel</code> → <code>onWaitAppSelect</code> → <code>ask(3 WAIT_ / 4 FINAL_APPLICATION_SELECTION)</code> → the hook returns <code>chooseApplication(tx.candidates)</code>: the dialog's index, or the only application.</li>
     <li><b>Contactless</b> has no PIN callback: the kernel returns first, then our code calls <code>onCardHolderPwd(true, …)</code> itself when the CVM is online PIN (and again for Single Tap, §8). Same <code>ask</code>, same hook.</li>
   </ul>
+  <h3>The same circle in time: who calls whom</h3>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"mirrorActors": false, "messageMargin": 30, "actorMargin": 50}}}%%
+sequenceDiagram
+  autonumber
+  participant K as Kernel
+  participant CB as EMVCallback
+  participant CP as ContactProcess
+  participant B as PaxEmvBehavior
+  participant S as Screen
+  K->>CB: cEMVGetHolderPwd
+  CB->>CP: emvGetHolderPwd
+  Note over CB: then cv.block() waits
+  CP->>B: onCardHolderPwd
+  B->>B: tx.pinRequest = …
+  B->>S: ask(9 / 10) → step shown
+  B->>S: hook: enterPin → PIN pad
+  S-->>B: result
+  B-->>CP: result (or USER_CANCEL)
+  CP->>CB: setCallBackResult(result)
+  Note over CB: cv.open()
+  CB-->>K: returns result
+  K->>K: goes on with the CVM
+</pre></div>
   <h3>The offline PIN: who checks it (PCI mode)</h3>
   <p><code>setPciMode((byte) 1)</code> (<code>PaxEmvBehavior</code>, the contact trans params) makes the kernel drive the PED itself. The app shows the screen; the PIN, its encryption, the VERIFY and the decision stay inside the PED, the kernel and the card. The PIN never passes through the app.</p>
   <div class="diagram"><pre class="mermaid">
@@ -504,42 +544,113 @@ sequenceDiagram
     <li>When the kernel calls <code>emvGetHolderPwd</code> with <code>pinData[0] ≠ 0</code>, <code>ContactProcess</code> answers with that status and opens no pad (<code>1</code> = timeout). The meaning of the other values is not in the jar; it is not assumed here.</li>
     <li>Read from the code, not traced on a device.</li>
   </ul>
-  <h3>The online PIN key (RSA)</h3>
-  <p>An online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key (the PEK). The bank gets that key wrapped with its own RSA public key, so only the bank can unwrap it and read the PIN block. Two PED slots are involved: the <b>TLK at index 0</b> (must already be on the terminal) and the <b>PEK (<code>AES_TPK</code>) at index 1</b> (<code>INDEX_AES_PEK = 0x01</code>, written per attempt).</p>
+  <h3>The two keys: TEK and PEK</h3>
+  <p>Every online sale uses <b>two fresh AES keys</b>, and both reach the bank the same way: wrapped with the bank's <b>RSA public key</b> (from onboarding), so only the bank can open them. They protect different things and live in different places.</p>
+  <div class="keys">
+    <div class="keycard tek">
+      <h4>TEK — Transaction Encryption Key</h4>
+      <dl>
+        <dt>Protects</dt><dd>The whole request and answer: the exchange and sale bodies, the bank's answer</dd>
+        <dt>Made by</dt><dd><code>SaleCommunicationBehavior.newTek()</code>: 16 random bytes (<code>SecureRandom</code>, AES-128)</dd>
+        <dt>Lives in</dt><dd>The app's memory only (the network module). Never in the PED</dd>
+        <dt>Lifetime</dt><dd>One sale request: a new TEK for every exchange. A Single Tap resend reuses the same TEK (no new exchange)</dd>
+        <dt>To the bank</dt><dd>RSA-wrapped → <code>transactionKey</code> in the <b>exchange</b></dd>
+        <dt>Used as</dt><dd><code>AesEnvelopeCrypto</code>: AES/CBC/PKCS5, a random IV in front → <code>encSerializedRequest</code>; the answer's <code>encSerializedResponse</code> is decrypted with it</dd>
+      </dl>
+    </div>
+    <div class="keycard pek">
+      <h4>PEK — PIN Encryption Key</h4>
+      <dl>
+        <dt>Protects</dt><dd>The online PIN only: the PIN block</dd>
+        <dt>Made by</dt><dd><code>PaxPinEntry.provisionOnlinePinKey</code>: 16 random bytes (<code>SecureRandom</code>, AES-128)</dd>
+        <dt>Lives in</dt><dd>The <b>PED</b>: written as <code>AES_TPK</code> at index 1 (<code>INDEX_AES_PEK</code>), source the TLK at index 0. Clear in the app's memory for a moment</dd>
+        <dt>Lifetime</dt><dd>One attempt (<code>ensureOnlinePinKey</code>: made once, before the first online request)</dd>
+        <dt>To the bank</dt><dd>RSA-wrapped → <code>pinKey</code> in <b>every exchange</b>, PIN or not</dd>
+        <dt>Used as</dt><dd>The PED makes the PIN block under it (ISO 9564 format 4) → <code>encPinBlock</code> in the <b>sale</b> (and inside the sale body)</dd>
+      </dl>
+    </div>
+  </div>
+  <h3>Where each key lives</h3>
   <div class="diagram"><pre class="mermaid">
-%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"mirrorActors": false, "messageMargin": 30, "actorMargin": 60}}}%%
+%%{init: {"themeVariables": {"fontSize": "17px"}, "flowchart": {"nodeSpacing": 34, "rankSpacing": 56}}}%%
+flowchart LR
+  subgraph APP["App memory"]
+    T["TEK<br/>16 random bytes"]
+    P0["PEK<br/>16 random bytes<br/>(a moment)"]
+    RSA["RSA wrap<br/>bank public key"]
+  end
+  subgraph PED["PED (secure chip)"]
+    TLK["TLK · index 0<br/>(must be injected)"]
+    PEK["PEK = AES_TPK · index 1"]
+    PB["PIN block<br/>ISO 9564 fmt 4"]
+  end
+  subgraph REQ["To the bank"]
+    EX["exchange<br/>transactionKey · pinKey<br/>encSerializedRequest"]
+    SA["sale<br/>encSerializedRequest<br/>encPinBlock"]
+  end
+  BANK["Bank<br/>RSA private key<br/>→ TEK, PEK"]
+  T --> RSA
+  P0 --> RSA
+  RSA -- "wrapped TEK + PEK" --> EX
+  T -- "AES/CBC: bodies" --> EX
+  T -- "AES/CBC: body" --> SA
+  P0 -- "writeAesKey(TLK 0 → 1)" --> PEK
+  TLK -.-> PEK
+  PEK --> PB
+  PB --> SA
+  EX --> BANK
+  SA --> BANK
+  classDef tek fill:#e3edf9,stroke:#1f5fae,stroke-width:2px,color:#1d2421
+  classDef pek fill:#fbeadc,stroke:#b5530f,stroke-width:2px,color:#1d2421
+  class T tek
+  class P0,PEK,PB pek
+</pre></div>
+  <h3>The two keys in one sale, step by step</h3>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"mirrorActors": false, "messageMargin": 28, "actorMargin": 50}}}%%
 sequenceDiagram
   autonumber
-  participant B as PaxPinEntry
+  participant E as App (PIN)
   participant P as PED
   participant N as Network
   participant H as Bank
-  Note over P: TLK at index 0<br/>(must be injected first)
-  B->>B: ensureOnlinePinKey<br/>(once per attempt)
-  B->>B: pinKey = 16 random bytes
-  B->>P: erase AES_TPK / TPK at 1
-  B->>P: writeAesKey<br/>TLK 0 → AES_TPK 1
-  alt no TLK at 0
-    P-->>B: PedDevException<br/>online PIN fails
+  rect rgba(181, 83, 15, 0.12)
+  Note over E,P: PEK (once per attempt)
+  E->>E: PEK = random 16 B
+  E->>P: write PEK<br/>(TLK 0 → index 1)
+  E->>E: RSA(PEK) → pinKey
+  E->>P: step 9: PIN pad
+  Note over P: PIN typed
+  P-->>E: PIN block (PEK)
   end
-  B->>B: RSA(bank public key, pinKey)<br/>→ lastOnlinePinKeyEncrypted
-  B->>P: step 9: getEncryptedPinData(PAN)
-  Note over P: PIN typed on the PED pad
-  P-->>B: PIN block under PEK<br/>(ISO 9564 format 4)
-  B->>N: wrapped key + PIN block
-  N->>H: exchange: pinKeyToSend<br/>(every exchange)
-  N->>H: sale: pinBlockToSend<br/>(when there is a PIN)
-  H->>H: RSA private key → pinKey<br/>→ decrypt PIN block
-  H-->>N: sale answer
+  rect rgba(31, 95, 174, 0.12)
+  Note over N,H: TEK (once per request)
+  N->>N: TEK = random 16 B<br/>RSA(TEK) → transactionKey
+  N->>H: exchange:<br/>transactionKey + pinKey<br/>+ body (TEK)
+  H-->>N: answer (TEK)
+  N->>H: sale: body (TEK)<br/>+ PIN block (PEK)
+  H->>H: RSA → TEK, PEK<br/>check the PIN
+  H-->>N: answer (TEK)
+  end
 </pre></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Request field</th><th>Exchange</th><th>Sale / refund</th><th>Key</th></tr></thead>
+    <tbody>
+      <tr><td><code>transactionKey</code></td><td>✓ RSA-wrapped TEK</td><td>—</td><td style="color:var(--tek)"><b>TEK</b></td></tr>
+      <tr><td><code>pinKey</code></td><td>✓ RSA-wrapped PEK (every exchange)</td><td>—</td><td style="color:var(--pek)"><b>PEK</b></td></tr>
+      <tr><td><code>encSerializedRequest</code></td><td>✓ exchange body under the TEK</td><td>✓ sale body under the TEK (the PIN block is inside too)</td><td style="color:var(--tek)"><b>TEK</b></td></tr>
+      <tr><td><code>encPinBlock</code></td><td>—</td><td>✓ when there is an online PIN</td><td style="color:var(--pek)"><b>PEK</b></td></tr>
+      <tr><td><code>asyncRequestId</code></td><td>✓</td><td>✓ the same id</td><td>—</td></tr>
+      <tr><td>Answer <code>encSerializedResponse</code></td><td>✓ under the TEK</td><td>✓ under the TEK</td><td style="color:var(--tek)"><b>TEK</b></td></tr>
+    </tbody>
+  </table></div>
   <ul class="facts">
-    <li><b>One key per attempt, made before the first online request.</b> It goes with <b>every</b> exchange, PIN or not (<code>pinKeyToSend</code>): a Single Tap PIN comes later in a resend that has no exchange of its own, so the bank must already hold the key (§8).</li>
-    <li><b>The PIN block is built by the PED</b>, never by our code; we only carry the bytes (<code>tx.lastOnlinePinBlock</code>, hex in the request). The PIN itself never reaches the app.</li>
-    <li><b>The key is in the app's memory, in the clear, for a moment:</b> <code>pinKey</code> is made by <code>SecureRandom</code> in Java and handed to <code>writeAesKey</code> as plain bytes, with the TLK at index 0 as the source. PAX's own demo writes a TMK the same way (<code>Device.writeTMK</code>: TLK, index 0, the plain value), which suggests that index 0 means "written in the clear". ⚠ Not confirmed in PAX's documentation or on a device: if the PED decrypts the value with the TLK first, the key in the PED is not the key sent to the bank, and the bank cannot read the PIN.</li>
-    <li>⚠ <b>The TLK must be injected</b> at index 0 for the write to work. Without it, every online PIN fails (<code>Key does not exist</code>). How the TLK gets there (key injection / TMK provisioning) is not wired yet. A production PED may also refuse a key written in the clear.</li>
-    <li>⚠ <b>No KCV</b> (<code>KCV_NONE</code>): nothing checks that the key in the PED is the key sent to the bank.</li>
-    <li>⚠ <b>No host public key</b> (onboarding not completed): the key is written but not sent, and the bank cannot decrypt the PIN block.</li>
-    <li>Code: <code>PaxPinEntry.ensureOnlinePinKey</code> / <code>provisionOnlinePinKey</code> / <code>enter</code>, <code>RsaPublicKeyEncryptor.encryptToHex</code> (PKCS#1 v1.5, the host key in PKCS#1 DER), <code>SaleCommunicationBehavior.pinKeyToSend</code> / <code>pinBlockToSend</code> / <code>prepareExchangeRequest</code>. Not device-tested on this branch (form rows 4, 5, 7, 9).</li>
+    <li><b>Two keys, two jobs.</b> The TEK hides the whole message on the wire. The PEK hides only the PIN, and it is the only one the PED knows: the PIN block is made inside the PED, the PIN never reaches the app.</li>
+    <li><b>Both are wrapped by the same RSA key</b> (<code>RsaPublicKeyEncryptor</code>, PKCS#1 v1.5, the bank's key in PKCS#1 DER, from onboarding). No bank key → no TEK can be sent: the sale is <code>notSent</code>; the PEK is written but not sent.</li>
+    <li><b>Why the PEK goes with every exchange:</b> a Mastercard Single Tap PIN comes later, in a resend that has no exchange of its own (same id, same TEK). The bank must already hold the PEK (§8).</li>
+    <li>⚠ <b>The TLK must be injected</b> at index 0, or the PEK write fails and every online PIN fails (<code>Key does not exist</code>). Not wired yet.</li>
+    <li>⚠ <b>The PEK is written in the clear</b> (source TLK index 0). PAX's demo writes a TMK the same way, which suggests index 0 = clear; not confirmed in PAX's docs or on a device. If the PED decrypts it with the TLK first, the PED's PEK ≠ the PEK sent, and the bank cannot read the PIN. A production PED may refuse a clear key. No KCV (<code>KCV_NONE</code>) checks it.</li>
+    <li>Not device-tested on this branch (form rows 4, 5, 7, 9).</li>
   </ul>
   <h3>How the kernel waits: <code>EMVCallback</code> (PAX's jar)</h3>
   <p>The native kernel does not call our listener directly. It calls a Java method of <code>EMVCallback</code> (<code>EMV_v105.jar</code>, read with <code>javap</code>), and that method is what waits for <code>setCallBackResult</code>:</p>
@@ -584,6 +695,29 @@ public void setCallBackResult(int value) {
     </tbody>
   </table></div>
   <p>Only the two "asks a person" callbacks reach <code>PaxEmvBehavior</code>. The data callbacks answer inside <code>ContactProcess</code>, with no step.</p>
+  <h3>Online vs offline PIN</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Online (step 9)</th><th>Offline (step 10)</th></tr></thead>
+    <tbody>
+      <tr><td>Who checks the PIN</td><td>The bank</td><td>The card</td></tr>
+      <tr><td>What the hook does</td><td>PEK + PIN pad + PIN block</td><td>Opens the pad only</td></tr>
+      <tr><td>Where the PIN goes</td><td>PIN block under the PEK, in the sale</td><td>VERIFY from the PED to the card</td></tr>
+      <tr><td>Wrong PIN</td><td>The bank declines the sale</td><td>The kernel asks again (n left)</td></tr>
+      <tr><td>The banner</td><td><code>9. Cardholder verification (CVM) (online PIN)</code></td><td><code>10. Offline PIN verification</code></td></tr>
+    </tbody>
+  </table></div>
+  <h3>Fail closed: the kernel always gets an answer, never an approval by mistake</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>What happened</th><th>The kernel gets</th><th>Who answers</th></tr></thead>
+    <tbody>
+      <tr><td>Cancelled before the pad</td><td><code>USER_CANCEL</code></td><td><code>ask</code> (<code>goToStep</code> returned false)</td></tr>
+      <tr><td>Cancelled while the pad is open</td><td><code>USER_CANCEL</code></td><td><code>ask</code> (<code>!isRunning()</code>)</td></tr>
+      <tr><td>The hook threw</td><td><code>USER_CANCEL</code></td><td><code>ContactProcess</code> catches it</td></tr>
+      <tr><td>No listener</td><td><code>EMV_DATA_ERR</code></td><td><code>ContactProcess</code></td></tr>
+      <tr><td>Online and offline mixed</td><td><code>EMV_DATA_ERR</code></td><td><code>ContactProcess</code></td></tr>
+      <tr><td>Cancel / timeout on the PED (offline)</td><td><code>DEVICE_PEDERR_*</code></td><td><code>EmvDeviceImpl</code></td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <section id="bank" dir="ltr" class="en">

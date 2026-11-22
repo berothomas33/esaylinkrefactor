@@ -254,32 +254,35 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 - **Field 55** (`Field55.TAGS`): each tag once since `eb934bb` (the repeated 9F09 / 9F33 / 9F34 / 9F35 / 9F41 of the old app removed); 9F41 is still 00000000. ⚠ Not tried with the bank yet.
 - **Logs (tag `SaleComm`, debug builds):** `CHIP_DATA (field 55 sent)`; `SALE_RESPONSE:Serialized: {…}` (the decrypted JSON); `SALE_RESPONSE decoded: RC=… message=… authCode=… rrn=… | chipData 91(ARPC)=… 8A(ARC)=… 71=… 72=…` (`5756a70`; `REFUND_` for a refund; `none` when a tag is missing). No answer (e.g. `HTTP FAILED: Canceled` at the `callTimeout`) → neither response line.
 
-**The online PIN key (RSA):** an online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key (the PEK); the bank gets that key wrapped with its own RSA public key. PED slots: **TLK at index 0** (must already be there), **PEK = `AES_TPK` at index 1** (`INDEX_AES_PEK = 0x01`, written per attempt).
+**The two keys: TEK and PEK.** Every online sale uses two fresh AES-128 keys (16 random bytes, `SecureRandom`), both RSA-wrapped with the bank's public key from onboarding (`RsaPublicKeyEncryptor`, PKCS#1 v1.5):
+
+| | TEK (transaction key) | PEK (PIN key) |
+|---|---|---|
+| Protects | the request and answer bodies | the online PIN block only |
+| Made by | `SaleCommunicationBehavior.newTek()` | `PaxPinEntry.provisionOnlinePinKey` (`ensureOnlinePinKey`) |
+| Lives in | app memory only (network) | the PED: `AES_TPK` at index 1 (`INDEX_AES_PEK`), source TLK index 0; clear in app memory for a moment |
+| Lifetime | one sale request (new per exchange; a Single Tap resend reuses it) | one attempt (before the first online request) |
+| To the bank | `transactionKey` in the exchange | `pinKey` in every exchange, PIN or not |
+| Used as | `AesEnvelopeCrypto` AES/CBC/PKCS5, IV in front → `encSerializedRequest`; decrypts `encSerializedResponse` | the PED's PIN block (ISO 9564 fmt 4) → `encPinBlock` in the sale (and inside the sale body) |
 
 ```
- App (PaxPinEntry)                    PED                         Network → Bank
- ─────────────────                    ───                         ──────────────
-① ONLINE_AUTHORIZATION → askTheBank → ensureOnlinePinKey(tx)   (only if tx.lastOnlinePinKeyEncrypted == null: one key per attempt)
-② pinKey = 16 random bytes (SecureRandom, AES-128)
-③ eraseKey(AES_TPK, 1), eraseKey(TPK, 1) ──────▶ old PEK gone
-   writeAesKey(TLK 0 → AES_TPK 1, pinKey, KCV_NONE) ──▶ PEK at index 1
-     └ PedDevException ("no TLK at index 0?") → stop: nothing sent, online PIN fails
-④ RSA/ECB/PKCS1(host public key, pinKey) → hex → tx.lastOnlinePinKeyEncrypted
-     └ no host public key → key in the PED, never sent
-⑤ step 9: getEncryptedPinData(PAN) ───────────▶ PIN typed on the PED's pad
-   tx.lastOnlinePinBlock ◀──────────────────── PIN block under the PEK (ISO 9564 format 4)
-⑥ withOnlinePinKeyEncrypted · withOnlinePinBlock
-     exchange → forExchange(…, pinKeyToSend) ────────────────────▶ the wrapped key, every exchange
-     sale     → forSale(…, pinBlockToSend)  ─────────────────────▶ the PIN block, when there is one
-⑦                                                   bank: RSA private key → pinKey → decrypts the PIN block
+ PaxPinEntry / PED (PEK, once per attempt)            SaleComm (TEK, once per request)            Bank
+ ① PEK = 16 random bytes
+ ② erase index 1 · writeAesKey(TLK 0 → AES_TPK 1, PEK)   ✗ no TLK → PedDevException → online PIN fails
+ ③ RSA(bank key, PEK) → pinKey
+ ④ step 9: getEncryptedPinData(PAN) → PIN typed on the PED → PIN block under the PEK
+                                                      ⑤ TEK = 16 random bytes · RSA → transactionKey
+                                                      ⑥ exchange: transactionKey + pinKey + AES_TEK(body) ──▶
+                                                      ⑦ sale: AES_TEK(body) + encPinBlock ───────────────▶  RSA → TEK, PEK
+                                                                                                          PEK → PIN block → check
+                                                      ⑧ answer AES_TEK(…) ◀── decrypted with the TEK ◀───
 ```
 
-- The key goes with every exchange, PIN or not: a Single Tap PIN comes later, in a resend with no exchange of its own.
-- The PIN block is built by the PED, not by our code; the PIN never reaches the app.
-- The key is in the app's memory in the clear for a moment (`SecureRandom` → `writeAesKey`, source TLK index 0). PAX's demo writes a TMK the same way (`Device.writeTMK`), which suggests index 0 = "written in the clear". ⚠ Not confirmed in PAX's docs or on a device: if the PED decrypts the value with the TLK first, the PED's key ≠ the key sent, and the bank cannot read the PIN.
-- ⚠ The TLK must be injected at index 0, or the write fails and every online PIN fails (`Key does not exist`); TLK injection is not wired yet. A production PED may refuse a clear key.
-- ⚠ No KCV (`KCV_NONE`): nothing checks the PED's key against the key sent.
-- ⚠ No host public key (onboarding not completed): the key is written but not sent; the bank cannot read the PIN.
+- Two keys, two jobs: the TEK hides the message on the wire; the PEK hides only the PIN, and only the PED holds it. The PIN never reaches the app.
+- No bank public key: no TEK can be sent (the sale is `notSent`); the PEK is written but not sent.
+- The PEK goes with every exchange because a Single Tap PIN comes in a resend with no exchange (same id, same TEK).
+- ⚠ The TLK must be injected at index 0 (not wired yet), or every online PIN fails (`Key does not exist`).
+- ⚠ The PEK is written in the clear (source TLK index 0); PAX's demo writes a TMK the same way (`Device.writeTMK`), which suggests index 0 = clear. Not confirmed in PAX's docs or on a device: if the PED decrypts it with the TLK first, the PED's PEK ≠ the PEK sent. A production PED may refuse a clear key; no KCV (`KCV_NONE`).
 - Not device-tested on this branch (form rows 4, 5, 7, 9).
 
 **Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:
