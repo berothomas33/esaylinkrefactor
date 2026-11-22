@@ -5,7 +5,9 @@ file in the same commit. Never put credentials, tokens, keys, PANs, track data o
 numbers in it. Kotlin: `catchup-coroutine.md`. Full flow reference (architecture,
 EmvEngine/EmvStep/onXxx, contact, contactless, EMV params, UI → kernel callback):
 `doc/REFERENCE.md`; the same flows drawn: `doc/EasyLink-EMV-Flows.html` / `.pdf` (keep them in step with
-the artifact page). Everything missing / broken / risky, ranked: `doc/BACKLOG.md`.
+the artifact page; §4 = the PIN book: the circle, the offline PIN, the TEK / PEK keys with their code;
+§8 = contactless, one column per kernel). Ebram's own interactive tutorial up to SET_TRANSACTION_DATA:
+`doc/Flow-To-SetTransactionData.html`. Everything missing / broken / risky, ranked: `doc/BACKLOG.md`.
 
 ---
 
@@ -72,6 +74,10 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 - He asks "is this safe / does this break anything?" — answer with the concrete call path.
 - "Logs still wrong" → suspect a stale build first: logcat tag, `git log -1`, Clean + Rebuild.
 - Test environment: don't lecture about tokens in logs.
+- **Git:** push only to `transactionStepObserver`; no force push, no amend. Ebram also pushes
+  there (and syncs it with the internal GitLab, `git.momkn-internal.com`). When a push is
+  rejected because origin moved: `git pull --no-rebase` (a merge commit, like his), check the
+  merge, then push — not a rebase (his wish, 22/11).
 - His Excel test form: fill only the cells he asks for; never change his own edits.
 - **Docs once a day, not per commit.** Don't touch `doc/CLAUDE.md` / `doc/REFERENCE.md` with
   every code commit (tokens). A scheduled task reminds him daily at ~5 PM Cairo; then, if he
@@ -173,7 +179,8 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 | Step hooks, `goToStep`, `ask`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../emv/Field55.java` |
 | Core packages (by owner, `7f59e35`) | `terminal` (PosTerminal + Transaction, EmvBehavior / AbstractEmvBehavior), `transaction` (config, type, its steps), `emv` (engine, EmvStep, result, Field55, ApduTrace), `card`, `host`, `cardholder` (app select, PIN pad), `param`, `util` (EmvLog) |
 | PAX flow (contact / contactless runners, callbacks, online) | `vendor-pax/.../vendor/pax/PaxEmvBehavior.java` |
-| PIN (pad, AES PIN key + RSA wrap, bypass) · host answer → PAX · readers · card data · country / seed | `vendor-pax/.../vendor/pax/{PaxPinEntry,PaxHostAnswer,PaxReaders,PaxCardData,PaxSetup}.java` |
+| PIN (pad, AES PIN key + RSA wrap, bypass) · host answer → PAX · readers · card data · country / seed · POS master key (0x20) | `vendor-pax/.../vendor/pax/{PaxPinEntry,PaxHostAnswer,PaxReaders,PaxCardData,PaxSetup,PaxMasterKey}.java` |
+| Onboarding values at rest | `network/.../onboarding/OnboardingState.java` (+ `core/.../host/MasterKey.java`) |
 | Card search (polling, ICC retry) — the SEARCH_CARD step | `vendor-pax/.../vendor/pax/PaxCardSearch.java` (run by `PaxEmvBehavior.onSearchCard`) |
 | Contact kernel wrapper + callback adapter | `vendor-pax/libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` |
 | Contactless dispatcher, reselect | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` |
@@ -247,14 +254,15 @@ after**. Each carries docs that match its own code.
 - He builds in Android Studio (Windows), runs on a PAX A920 (Vysor).
 - **Unit tests** (`src/test/java`, JUnit 4, run on the PC JVM, not in the APK):
   `./gradlew :core:testDebugUnitTest`, `:network:…`, `:vendor-pax:libs:ours:bizentity:…`, or the green arrow in
-  Android Studio. Core: 101 — `AskStepTest`, `EmvStepObserverTest`,
+  Android Studio. Core: 118 — `AskStepTest`, `EmvStepObserverTest`,
   `EmvBehaviorContractTest`, `TransactionStepTest`, `TransactionEmvFinishedTest`, `Field55Test`,
   `PosTerminal*Test` (incl. `PosTerminalCloseAtHostTest`: ack / reverse, the safe end) (EMV
   tests drive a behavior as its run loop does: `TestSession.attempt` = `prepare` + the card's
   `start`; terminal tests use `StubBehavior`: the real run loop, the search a test lambda).
-  Network: 24 — `SaleRefundGuardTest`, `OldAppSaleRequestTest`, `SalePinBlockTest`,
+  Network: 39 — `OnboardingStateMasterKeyTest`, `SaleAnswerLogTest`, `SingleTapTest`, `BlockingErrorsTest`, `SaleRefundGuardTest`, `OldAppSaleRequestTest`, `SalePinBlockTest`,
   `ReverseAcknowledgementTest`, `OnlineFailureClassifyTest`.
-  Vendor-pax: 11 — `PaxCardDataTest`, `PaxHostAnswerTest`.
+  Vendor-pax: 11 — `PaxCardDataTest`, `PaxHostAnswerTest` (on `-tests`); on this branch the harness runs
+  `PaxMasterKeyTest` (4).
   Bizentity: 25 — XML parser tests on the host's real sections (`clss_param_paypass.xml`,
   `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`, `EmvParamServiceCacheTest`.
 - **Cloud container: no Android SDK → no Gradle.** Tests run with javac + JUnit + stub jars;
@@ -390,10 +398,17 @@ kernel works: SCRIPT_PROCESSING only for PayWave's second tap (`cf04104`); an of
 step 10 directly, step 9 is the online PIN (`93a798a`). The PIN circle (kernel → `emvGetHolderPwd`
 → `onCardHolderPwd` → `ask` → the PIN hook returns its result → `setCallBackResult`, an
 offline-PIN retry loops back) is drawn in Flows §4 / REFERENCE §4 (askStep / answerStep
-replaced by `ask` + `int` hooks, 12/11).
+replaced by `ask` + `int` hooks, 12/11). **Offline PIN** (PCI mode, `setPciMode(1)`): step 10's
+hook only opens the pad and returns `CONTACT_OK`; the kernel then calls `EmvDeviceImpl`
+(`setPinInputParam`, `pedVerifyPlainPin` 01 / `pedVerifyCipherPin` 04), the PED takes the PIN
+and sends VERIFY to the card, and the card's SW decides (9000 / 63Cx asks again / 6983-84
+blocked). The PIN never reaches the app.
 
 **Contactless**: `ClssKernelProcess#supportsGranularSteps()` — granular: EFT, PayPass, PayWave
-[rxSet]; atomic: the other 7 (one call, steps announced from callbacks).
+[rxSet]; atomic: the other 7 (one call, steps announced from callbacks). Live: Mastercard
+(Book C-2), Visa (C-3), Amex (C-4) — the host file brings only these; drawn one column per
+kernel in Flows §8 (`2a56453`). ⚠ Read from our code; not yet checked against EMVCo's Books A /
+B / C-x (not in the repo, emvco.com blocked here) — Ebram parked it 22/11.
 - Granular: APP_SEL → SET → READ → ODA/PR (PayWave: PR then ODA,
   `restrictionsBeforeOfflineDataAuth()`) → remaining call → online → ISSUER_AUTH (2nd tap) →
   SCRIPT (PayWave `Clss_IssScriptProc_Wave`) → the outcome.
@@ -418,8 +433,8 @@ replaced by `ask` + `int` hooks, 12/11).
 - Amount limits reach the kernel as **n12 BCD** (`getPaddedNumber(x, 12)`) or as native
   `long` fields (`Clss_PreProcInfo`, `Clss_VisaAidParam`, `EMV_APPLIST`). Exception: RuPay
   floor limit padded to 8 (unused).
-- PIN: `getPinBlock` timeout in **ms**, no UI of its own; online PIN = AES TPK under TLK 0,
-  ISO 9564 format 4. Close each reader in its own try/catch (ICC#97 otherwise).
+- PIN: `getPinBlock` timeout in **ms**, no UI of its own; online PIN = AES TPK at index 1, written
+  in the clear (source index 0 = no key, not a TLK slot), ISO 9564 format 4. Close each reader in its own try/catch (ICC#97 otherwise).
 
 ## 8. Parameters
 
@@ -429,9 +444,11 @@ replaced by `ask` + `int` hooks, 12/11).
   on every attempt. The kernel stores nothing.
 - **Cache**: `getCachedEmvParam()` — `null` → `loadFromDatabase()` reads every table and
   `toEmvProcessParam` sets all 13 parameters (an empty table = an empty list, never `null`;
-  `EmvParamServiceCacheTest`). Any DB write (download, seed) calls `invalidate()`; the next
-  transaction reloads (`initializeTerminalIfNeeded` → `isLoaded()`). Don't read the DB per
-  transaction.
+  `EmvParamServiceCacheTest`). Since `c5641de` (18/11, Hassan) the cache is reloaded right
+  after a change: every `BaseDaoHelper` write (not `TransData`) and every `ConfigParamService`
+  write → `EmvParamService.onDataChanged()` → `reload()`; bulk writes (`ConfigInit`,
+  `applyFromZip`) sit in `beginBatch()` / `endBatch()` and reload once. A failed reload leaves
+  it empty and the first sale loads it. Don't read the DB per transaction. Not device-tested.
 - **Download** (`EmvParamUpdater.applyFromZip`): contact XML → contact AIDs (ICS profile via
   `CARDSCHEMECONFIGRATION`) + CAPKs; contactless XML → PayPass (`PAYPASSCONFIGURATION` shared
   by all AIDs), PayWave (`TERMINALCAPABILITIES` shared; `INTERWARELIST` per transaction type;
@@ -452,10 +469,29 @@ replaced by `ask` + `int` hooks, 12/11).
 
 ## 9. Host
 
-`orchestration/exchange` → `orchestration/sale|refund`, fresh AES TEK RSA-wrapped (key is
-PKCS#1). `transactionType` "PURCHASE". Encrypted fields uppercase hex, HMAC base64, amounts
+`orchestration/exchange` → `orchestration/sale|refund`. **Two keys** (Flows §4 "The two keys",
+REFERENCE §5): the **TEK** (16 random bytes per request, app memory only) encrypts the bodies
+(`AesEnvelopeCrypto` AES/CBC/PKCS5, IV in front) and goes RSA-wrapped as `transactionKey` in the
+exchange; the **PEK** (16 random bytes per attempt, made at the first need: the online PIN pad
+or the first online request) is written into the PED in the clear (`AES_TPK` index 1, source index 0 = clear),
+goes RSA-wrapped as `pinKey` in every exchange, and the PED's PIN block under it goes as
+`encPinBlock` in the sale. RSA = the bank's public key from onboarding (PKCS#1). ⚠ A production PED
+may refuse the clear write (then every online PIN fails); no KCV. Nothing has to be injected.
+**Secrets at rest** (`39792d3`, the old app's way — Ebram: "the old code is your reference"):
+`OnboardingState` keeps the public key, sacs, challenge and service account encrypted by the POS
+master key in the PED (`PaxMasterKey`: index 0x20, AES-192 written once in the clear at start-up,
+`calcAes` CBC with the old fixed IV, `'@'` padding + its count in `<key>_padding`); the access token
+stays plain; no rotation, no reset (a failed decrypt reads `null` → `notSent`). Seam: core
+`MasterKey`, installed by `TerminalFactory` through static `OnboardingState.useMasterKey`. No
+migration: an already onboarded terminal must be onboarded once after the update.
+`transactionType` "PURCHASE". Encrypted fields uppercase hex, HMAC base64, amounts
 major-unit doubles, `accountId` header. mToken expires ~3 days (`403 Token has expired`,
-editable on onboarding). 90 s timeout in `PosTerminal.authorize`. Sale request matches the old
+editable on onboarding). Each payment call: OkHttp `callTimeout` 45 s (`8a5b4b5`, was 25 s;
+exchange + sale ≤ 90 s, the same as `PosTerminal.authorize`'s 90 s, which does not cut the wait).
+Field 55: each tag once (`eb934bb`; the old app's repeated 9F09 / 9F33 / 9F34 / 9F35 / 9F41
+removed; 9F41 = 0) — not tried with the bank yet. Logs (`SaleComm`, debug): `CHIP_DATA`,
+`SALE_RESPONSE:Serialized`, `SALE_RESPONSE decoded: RC … | chipData 91 / 8A / 71 / 72`
+(`5756a70`). Sale request matches the old
 app (`OldAppSaleRequestTest`): posEntryMode chip 051 / contactless 071 / swipe 901 / manual
 011, cvm 3 offline PIN / 2 online PIN.
 **Acknowledgement / reversal** (`3d5fea1`, `30cd5aa`; REFERENCE §5): `PosTerminal.authorize`
@@ -517,6 +553,14 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 ## 11. Open
 
 - Device form on `transactionOwnsSteps` (§10): everything but the chip sale and #11.
+- Online PIN keys (Flows §4): source index 0 = a clear write (PAX demo: "write plainTex TDK"),
+  no TLK needed — confirm on the device (form rows 4, 5) or with PAX, and whether a production
+  PED accepts a clear key; add a KCV. Form rows 4, 5, 7, 9 not run.
+- POS master key (`39792d3`): device-test the write at 0x20, `calcAes`, a fresh onboarding and a
+  sale after it; terminals onboarded before it must onboard again.
+- EMV books: check the contactless columns (Flows §8) against Books A / B / C-2 / C-3 / C-4, and
+  get PAX's EMVCo Letters of Approval for the kernel versions we ship. Brand testing (Mastercard /
+  Visa) needs test tools; Ebram asked the business for UL tools (17/11).
 - Next work, in order (handoff §6): Gradle build + device form → the SDK (handoff §5, after
   §5.4 is answered) → release guards (risks 4–7) → payment safety around the host (risks 1–3).
 - Payment safety: ack / reversal are sent now but never stored or retried (BACKLOG 0.15); Retry

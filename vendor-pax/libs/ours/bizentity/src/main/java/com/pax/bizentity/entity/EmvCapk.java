@@ -144,6 +144,16 @@ public class EmvCapk implements Serializable {
 
     @Override
     public String toString() {
-        return rID;
+        return "EmvCapk{"
+                + "id=" + id
+                + ", rID='" + rID + '\''
+                + ", keyID=" + keyID
+                + ", hashInd=" + hashInd
+                + ", arithInd=" + arithInd
+                + ", module='" + module + '\''
+                + ", exponent='" + exponent + '\''
+                + ", expDate='" + expDate + '\''
+                + ", checkSum='" + checkSum + '\''
+                + '}';
     }
 }

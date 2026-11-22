@@ -45,6 +45,16 @@ public final class ClssXmlParamParser {
             this.amex = amex;
             this.sections = sections;
         }
+
+        @Override
+        public String toString() {
+            return "Result{"
+                    + "payPass=" + payPass
+                    + ", payWave=" + payWave
+                    + ", amex=" + amex
+                    + ", sections=" + sections
+                    + '}';
+        }
     }
 
     public static Result parse(InputStream in)

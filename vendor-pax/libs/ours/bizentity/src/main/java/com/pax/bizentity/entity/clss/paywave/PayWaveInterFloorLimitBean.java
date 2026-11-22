@@ -81,4 +81,17 @@ public class PayWaveInterFloorLimitBean implements Serializable {
     public void setFloorLimitFlag(byte floorLimitFlag) {
         this.floorLimitFlag = floorLimitFlag;
     }
+
+    @Override
+    public String toString() {
+        return "PayWaveInterFloorLimitBean{"
+                + "transType=" + transType
+                + ", floorLimit=" + floorLimit
+                + ", transLimit=" + transLimit
+                + ", cvmLimit=" + cvmLimit
+                + ", transLimitFlag=" + transLimitFlag
+                + ", cvmLimitFlag=" + cvmLimitFlag
+                + ", floorLimitFlag=" + floorLimitFlag
+                + '}';
+    }
 }

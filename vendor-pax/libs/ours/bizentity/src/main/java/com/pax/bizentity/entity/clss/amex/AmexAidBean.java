@@ -412,4 +412,38 @@ public class AmexAidBean implements Serializable {
     public void setTDOL(String tDOL) {
         this.tDOL = tDOL;
     }
+
+    @Override
+    public String toString() {
+        return "AmexAidBean{"
+                + "id=" + id
+                + ", appName='" + appName + '\''
+                + ", aid='" + aid + '\''
+                + ", selFlag=" + selFlag
+                + ", transLimit=" + transLimit
+                + ", transLimitFlag=" + transLimitFlag
+                + ", floorLimit=" + floorLimit
+                + ", floorLimitFlag=" + floorLimitFlag
+                + ", cvmLimit=" + cvmLimit
+                + ", cvmLimitFlag=" + cvmLimitFlag
+                + ", tacDenial='" + tacDenial + '\''
+                + ", tacOnline='" + tacOnline + '\''
+                + ", tacDefault='" + tacDefault + '\''
+                + ", acquirerId='" + acquirerId + '\''
+                + ", dDOL='" + dDOL + '\''
+                + ", tDOL='" + tDOL + '\''
+                + ", version='" + version + '\''
+                + ", terminalType='" + terminalType + '\''
+                + ", terminalCapability='" + terminalCapability + '\''
+                + ", terminalAdditionalCapability='" + terminalAdditionalCapability + '\''
+                + ", termTransCap='" + termTransCap + '\''
+                + ", unRange='" + unRange + '\''
+                + ", supportOptTrans=" + supportOptTrans
+                + ", delayAuthSupport=" + delayAuthSupport
+                + ", exPayRdCap='" + exPayRdCap + '\''
+                + ", exFunction='" + exFunction + '\''
+                + ", supportFullOnline=" + supportFullOnline
+                + ", aucRFU='" + aucRFU + '\''
+                + '}';
+    }
 }

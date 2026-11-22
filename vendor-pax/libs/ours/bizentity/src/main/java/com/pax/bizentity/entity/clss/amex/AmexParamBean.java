@@ -21,4 +21,12 @@ public class AmexParamBean {
     public void setProgramID(List<AmexDrlBean> programID) {
         this.programID = programID;
     }
+
+    @Override
+    public String toString() {
+        return "AmexParamBean{"
+                + "aid=" + aid
+                + ", programID=" + programID
+                + '}';
+    }
 }

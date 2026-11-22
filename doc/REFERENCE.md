@@ -30,7 +30,8 @@
 | Field 55 | `core/.../emv/Field55.java` (+ `field55()` in each vendor) |
 | The card | `core/.../card/CardPresence.java` (`isEmv()` / `isNonEmv()`) |
 | PAX: the steps, the kernel callbacks, the way to the bank | `vendor-pax/.../PaxEmvBehavior.java` |
-| PAX: search, PIN, the bank's answer in PAX shape, readers, card data, setup, one attempt's notes | `PaxCardSearch`, `PaxPinEntry`, `PaxHostAnswer`, `PaxReaders`, `PaxCardData`, `PaxSetup`, `PaxKernelSession` |
+| PAX: search, PIN, the bank's answer in PAX shape, readers, card data, setup, one attempt's notes, the POS master key | `PaxCardSearch`, `PaxPinEntry`, `PaxHostAnswer`, `PaxReaders`, `PaxCardData`, `PaxSetup`, `PaxKernelSession`, `PaxMasterKey` |
+| Onboarding values at rest (public key, sacs, challenge, service account, token) | `network/.../onboarding/OnboardingState.java` + `core/.../host/MasterKey.java` |
 | The contact kernel and its callbacks | `vendor-pax/libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` (`EmvCallBackListener`) |
 | The contactless kernels | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` + `Clss*Process` (DPAS: `emvlib/dpas`) |
 | The bank | `network/.../SaleCommunicationBehavior.java`, `HostApiClient.java` |
@@ -254,33 +255,83 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 - **Field 55** (`Field55.TAGS`): each tag once since `eb934bb` (the repeated 9F09 / 9F33 / 9F34 / 9F35 / 9F41 of the old app removed); 9F41 is still 00000000. ⚠ Not tried with the bank yet.
 - **Logs (tag `SaleComm`, debug builds):** `CHIP_DATA (field 55 sent)`; `SALE_RESPONSE:Serialized: {…}` (the decrypted JSON); `SALE_RESPONSE decoded: RC=… message=… authCode=… rrn=… | chipData 91(ARPC)=… 8A(ARC)=… 71=… 72=…` (`5756a70`; `REFUND_` for a refund; `none` when a tag is missing). No answer (e.g. `HTTP FAILED: Canceled` at the `callTimeout`) → neither response line.
 
-**The online PIN key (RSA):** an online PIN goes to the bank as a PIN block made inside the PED under a fresh AES key (the PEK); the bank gets that key wrapped with its own RSA public key. PED slots: **TLK at index 0** (must already be there), **PEK = `AES_TPK` at index 1** (`INDEX_AES_PEK = 0x01`, written per attempt).
+**The two keys: TEK and PEK.** Every online sale uses two fresh AES-128 keys (16 random bytes, `SecureRandom`), both RSA-wrapped with the bank's public key from onboarding (`RsaPublicKeyEncryptor`, PKCS#1 v1.5):
+
+| | TEK (transaction key) | PEK (PIN key) |
+|---|---|---|
+| Protects | the request and answer bodies | the online PIN block only |
+| Made by | `SaleCommunicationBehavior.newTek()` | `PaxPinEntry.provisionOnlinePinKey` (`ensureOnlinePinKey`) |
+| Lives in | app memory only (network) | the PED: `AES_TPK` at index 1 (`INDEX_AES_PEK`), written in the clear (source index 0); clear in app memory for a moment |
+| Lifetime | one sale request (new per exchange; a Single Tap resend reuses it) | one attempt, made at the first need: the online PIN pad (step 9) or the first online request (step 13) |
+| To the bank | `transactionKey` in the exchange | `pinKey` in every exchange, PIN or not |
+| Used as | `AesEnvelopeCrypto` AES/CBC/PKCS5, IV in front → `encSerializedRequest`; decrypts `encSerializedResponse` | the PED's PIN block (ISO 9564 fmt 4) → `encPinBlock` in the sale (and inside the sale body) |
 
 ```
- App (PaxPinEntry)                    PED                         Network → Bank
- ─────────────────                    ───                         ──────────────
-① ONLINE_AUTHORIZATION → askTheBank → ensureOnlinePinKey(tx)   (only if tx.lastOnlinePinKeyEncrypted == null: one key per attempt)
-② pinKey = 16 random bytes (SecureRandom, AES-128)
-③ eraseKey(AES_TPK, 1), eraseKey(TPK, 1) ──────▶ old PEK gone
-   writeAesKey(TLK 0 → AES_TPK 1, pinKey, KCV_NONE) ──▶ PEK at index 1
-     └ PedDevException ("no TLK at index 0?") → stop: nothing sent, online PIN fails
-④ RSA/ECB/PKCS1(host public key, pinKey) → hex → tx.lastOnlinePinKeyEncrypted
-     └ no host public key → key in the PED, never sent
-⑤ step 9: getEncryptedPinData(PAN) ───────────▶ PIN typed on the PED's pad
-   tx.lastOnlinePinBlock ◀──────────────────── PIN block under the PEK (ISO 9564 format 4)
-⑥ withOnlinePinKeyEncrypted · withOnlinePinBlock
-     exchange → forExchange(…, pinKeyToSend) ────────────────────▶ the wrapped key, every exchange
-     sale     → forSale(…, pinBlockToSend)  ─────────────────────▶ the PIN block, when there is one
-⑦                                                   bank: RSA private key → pinKey → decrypts the PIN block
+ PaxPinEntry / PED (PEK, once per attempt)            SaleComm (TEK, once per request)            Bank
+ ① PEK = 16 random bytes
+ ② erase index 1 · writeAesKey(src 0 = clear → AES_TPK 1, PEK)   ✗ refused → PedDevException → online PIN fails
+ ③ RSA(bank key, PEK) → pinKey
+ ④ step 9: getEncryptedPinData(PAN) → PIN typed on the PED → PIN block under the PEK
+                                                      ⑤ TEK = 16 random bytes · RSA → transactionKey
+                                                      ⑥ exchange: transactionKey + pinKey + AES_TEK(body) ──▶
+                                                      ⑦ sale: AES_TEK(body) + encPinBlock ───────────────▶  RSA → TEK, PEK
+                                                                                                          PEK → PIN block → check
+                                                      ⑧ answer AES_TEK(…) ◀── decrypted with the TEK ◀───
 ```
 
-- The key goes with every exchange, PIN or not: a Single Tap PIN comes later, in a resend with no exchange of its own.
-- The PIN block is built by the PED, not by our code; the PIN never reaches the app.
-- The key is in the app's memory in the clear for a moment (`SecureRandom` → `writeAesKey`, source TLK index 0). PAX's demo writes a TMK the same way (`Device.writeTMK`), which suggests index 0 = "written in the clear". ⚠ Not confirmed in PAX's docs or on a device: if the PED decrypts the value with the TLK first, the PED's key ≠ the key sent, and the bank cannot read the PIN.
-- ⚠ The TLK must be injected at index 0, or the write fails and every online PIN fails (`Key does not exist`); TLK injection is not wired yet. A production PED may refuse a clear key.
-- ⚠ No KCV (`KCV_NONE`): nothing checks the PED's key against the key sent.
-- ⚠ No host public key (onboarding not completed): the key is written but not sent; the bank cannot read the PIN.
+**The code at every stage** (where to look; Flows §4 shows the lines):
+
+| # | Stage | Key | Code |
+|---|---|---|---|
+| 1 | PEK made — once per attempt, at the first need | PEK | `PaxPinEntry.enter (online branch, step 9) · PaxEmvBehavior.addOnlineRequestData (step 13)` |
+| 2 | PEK written into the PED, then RSA-wrapped | PEK | `PaxPinEntry.provisionOnlinePinKey` |
+| 3 | The PIN block, made by the PED under the PEK | PEK | `PaxPinEntry.enter (online branch)` |
+| 4 | The PEK and the PIN block handed to the network | TEK + PEK | `AbstractEmvBehavior.askTheBank → PaxEmvBehavior.addOnlineRequestData → PosTerminal.sendToBank` |
+| 5 | TEK made and RSA-wrapped — once per sale request | TEK | `SaleCommunicationBehavior.send / newTek / encryptTek` |
+| 6 | The exchange: wrapped TEK + wrapped PEK + body under the TEK | TEK + PEK | `SaleCommunicationBehavior.prepareExchangeRequest · GeneralRequest.forExchange` |
+| 7 | The sale: body under the TEK + the PIN block | TEK + PEK | `SaleCommunicationBehavior.callSale / prepareSaleRequest · GeneralRequest.forSale` |
+| 8 | AES with the TEK, both ways | TEK | `AesEnvelopeCrypto.encrypt / decrypt · SaleCommunicationBehavior.decrypted` |
+| 9 | Single Tap resend: the same TEK, no new exchange | TEK | `SaleCommunicationBehavior.callSale / send` |
+
+- Two keys, two jobs: the TEK hides the message on the wire; the PEK hides only the PIN, and only the PED holds it. The PIN never reaches the app.
+- No bank public key: no TEK can be sent (the sale is `notSent`); the PEK is written but not sent.
+- The PEK goes with every exchange because a Single Tap PIN comes in a resend with no exchange (same id, same TEK).
+- Source index 0 = "in the clear", not "a TLK in slot 0": nothing has to be injected. PAX's demo does the same (`PedHelper.writeTDKForDecrypt` "write plainTex TDK" with source 0; `Device.writeTMK` = `writeKey(TLK, 0, …)`), and so does the old app (`PaxUtils.writePekAES` = our PEK write; `writeAESPedKey` writes a fresh master key with `writeAesKey(TMK, 0, …)`; `write3DesPedKey` writes even a TLK with `writeKey(TMK, 0, TLK, …)`). The PEK in the PED is the PEK sent.
+- ⚠ A production PED may refuse a clear key write (security policy / PCI): the write throws, the log says "the PED refused the clear write of the PIN key?", every online PIN fails. No KCV (`KCV_NONE`).
+- ⚠ From PAX's demo and the old app's code, not PAX's documentation; proven by an online PIN on the device (form rows 4, 5).
 - Not device-tested on this branch (form rows 4, 5, 7, 9).
+
+**The PED's slots** (what each index holds):
+
+| Index | Key | Written by | When |
+|---|---|---|---|
+| source **0** | none — "the value comes in the clear" | (every write below uses it) | — |
+| **0x01** | PEK, `AES_TPK` (`INDEX_AES_PEK`) | `PaxPinEntry.provisionOnlinePinKey` | once per attempt, at the first need |
+| **0x20** | POS master key, AES-192 (written as `TMK`) | `PaxMasterKey.generatePOSMasterKey` | once, at start-up, when no generation date is stored |
+
+**Secrets at rest: the POS master key** (`39792d3`, as the old app: `PaxUtils`, `MomknKeysUtils`, `KeyConstants`). `OnboardingState` keeps the bank's **public key**, **sacs**, **challenge** and **service account** encrypted; the **access token**, its expiry and the flags stay plain.
+
+```
+start-up   TerminalFactory.create → PaxMasterKey.generatePOSMasterKey(app)
+             no "generation_date" in prefs "pos_master_key" →
+             eraseKey(TMK, 0x20) · aesKey = 24 random bytes (AES-192)
+             writeAesKey(TMK, 0, 0x20, aesKey, KCV_NONE) · store the date (dd-MM-yyyy)
+           → OnboardingState.useMasterKey(new PaxMasterKey())
+save       savePublicKey(v) → save(): encryptDataByMasterKey(v)
+             '@' up to a multiple of 16 → calcAes(0x20, fixed IV, ENCRYPT, CBC) inside the PED
+             prefs: "public_key" = hex, "public_key_padding" = the '@' count
+read       getPublicKey() → read(): calcAes(0x20, fixed IV, DECRYPT, CBC) → drop the counted '@'
+             failure → null + one log line, no data
+fixed IV   {0,1,2,3,4,5,6,7,8,9,0,0x0A,0x0B,1,2,3}   (the old app's getIv)
+```
+
+- **`MasterKey`** (core) is the seam: the network never imports PAX. Fake / ingenico install none, so the values stay plain there.
+- **`useMasterKey` is static**, set once in `Application.onCreate` (through `TerminalFactory.create`), so the six places that do `new OnboardingState(context)` did not change.
+- **The TEK / PEK are unchanged:** `getPublicKey()` returns the same string. If it cannot be decrypted it is `null` → the sale is `notSent` ("No host public key on file"), the PEK is written but not sent — fail closed.
+- Not ported on purpose (Ebram's choice): the 9-day rotation, the automatic reset on failure, encrypting the access token. Not ported: the old app's logging of the key and the plain data.
+- ⚠ **No migration:** a terminal that held these values in the clear reads `null` after the update and must be onboarded once.
+- ⚠ A PED that refuses the write at 0x20 is only logged; the first save (onboarding) then fails — fail closed.
+- Tests (outside the repo): `OnboardingStateMasterKeyTest` (network, 4), `PaxMasterKeyTest` (vendor-pax harness, 4). Not device-tested: `writeAesKey` at 0x20, `calcAes`, the first onboarding after the update.
 
 **Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:
 
@@ -303,7 +354,7 @@ runContactlessOnline → runSingleTap → SINGLE_TAP_PIN_REQUIRED (report)
 ## 6. EMV params
 
 - **The database (GreenDAO) is the source:** filled from JSON once (`ConfigInit`), then from the host file on Download (`EmvParamUpdater.applyFromZip`).
-- **The cache** (`EmvParamService`) is a copy in memory: any write empties it (`invalidate()`), the first sale fills it (`getCachedEmvParam` → `loadFromDatabase`, 13 params).
+- **The cache** (`EmvParamService`) is a copy in memory, reloaded right after a change (`c5641de`): every DAO write (`BaseDaoHelper` insert / update / delete, except `TransData`) and every config write (`ConfigParamService`) calls `EmvParamService.onDataChanged()` → `reload()` (`loadFromDatabase`, 13 params). Many writes in one go (`ConfigInit`, `EmvParamUpdater.applyFromZip`) sit between `beginBatch()` / `endBatch()`: the cache is emptied during the batch and reloaded once at its end. A reload that throws leaves the cache empty; the first sale loads it (`getCachedEmvParam`). Not device-tested.
 - **The kernel keeps nothing:** the params are loaded into it at every attempt (`preTransProcess`).
 - Contact: what the host file does not bring keeps its value. Contactless: the host file is the whole truth; a kernel it does not bring is deleted.
 - TID / MID / MCC / merchant name do not come from the host file (`OTHERCONFIGURATION` is skipped on purpose).

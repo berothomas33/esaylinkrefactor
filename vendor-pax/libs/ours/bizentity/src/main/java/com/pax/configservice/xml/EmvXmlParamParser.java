@@ -43,6 +43,15 @@ public final class EmvXmlParamParser {
             this.capk = capk;
             this.sections = sections;
         }
+
+        @Override
+        public String toString() {
+            return "Result{"
+                    + "aids=" + aids
+                    + ", capk=" + capk
+                    + ", sections=" + sections
+                    + '}';
+        }
     }
 
     public static Result parse(InputStream in)

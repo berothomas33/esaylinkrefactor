@@ -12,4 +12,11 @@ public class PayWaveParamBean {
     public void setAid(List<PaywaveAidBean> aid) {
         this.aid = aid;
     }
+
+    @Override
+    public String toString() {
+        return "PayWaveParamBean{"
+                + "aid=" + aid
+                + '}';
+    }
 }
