@@ -261,7 +261,7 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 | Protects | the request and answer bodies | the online PIN block only |
 | Made by | `SaleCommunicationBehavior.newTek()` | `PaxPinEntry.provisionOnlinePinKey` (`ensureOnlinePinKey`) |
 | Lives in | app memory only (network) | the PED: `AES_TPK` at index 1 (`INDEX_AES_PEK`), source TLK index 0; clear in app memory for a moment |
-| Lifetime | one sale request (new per exchange; a Single Tap resend reuses it) | one attempt (before the first online request) |
+| Lifetime | one sale request (new per exchange; a Single Tap resend reuses it) | one attempt, made at the first need: the online PIN pad (step 9) or the first online request (step 13) |
 | To the bank | `transactionKey` in the exchange | `pinKey` in every exchange, PIN or not |
 | Used as | `AesEnvelopeCrypto` AES/CBC/PKCS5, IV in front → `encSerializedRequest`; decrypts `encSerializedResponse` | the PED's PIN block (ISO 9564 fmt 4) → `encPinBlock` in the sale (and inside the sale body) |
 
@@ -277,6 +277,20 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
                                                                                                           PEK → PIN block → check
                                                       ⑧ answer AES_TEK(…) ◀── decrypted with the TEK ◀───
 ```
+
+**The code at every stage** (where to look; Flows §4 shows the lines):
+
+| # | Stage | Key | Code |
+|---|---|---|---|
+| 1 | PEK made — once per attempt, at the first need | PEK | `PaxPinEntry.enter (online branch, step 9) · PaxEmvBehavior.addOnlineRequestData (step 13)` |
+| 2 | PEK written into the PED, then RSA-wrapped | PEK | `PaxPinEntry.provisionOnlinePinKey` |
+| 3 | The PIN block, made by the PED under the PEK | PEK | `PaxPinEntry.enter (online branch)` |
+| 4 | The PEK and the PIN block handed to the network | TEK + PEK | `AbstractEmvBehavior.askTheBank → PaxEmvBehavior.addOnlineRequestData → PosTerminal.sendToBank` |
+| 5 | TEK made and RSA-wrapped — once per sale request | TEK | `SaleCommunicationBehavior.send / newTek / encryptTek` |
+| 6 | The exchange: wrapped TEK + wrapped PEK + body under the TEK | TEK + PEK | `SaleCommunicationBehavior.prepareExchangeRequest · GeneralRequest.forExchange` |
+| 7 | The sale: body under the TEK + the PIN block | TEK + PEK | `SaleCommunicationBehavior.callSale / prepareSaleRequest · GeneralRequest.forSale` |
+| 8 | AES with the TEK, both ways | TEK | `AesEnvelopeCrypto.encrypt / decrypt · SaleCommunicationBehavior.decrypted` |
+| 9 | Single Tap resend: the same TEK, no new exchange | TEK | `SaleCommunicationBehavior.callSale / send` |
 
 - Two keys, two jobs: the TEK hides the message on the wire; the PEK hides only the PIN, and only the PED holds it. The PIN never reaches the app.
 - No bank public key: no TEK can be sent (the sale is `notSent`); the PEK is written but not sent.

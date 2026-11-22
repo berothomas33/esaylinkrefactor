@@ -127,6 +127,11 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .keycard dt { color: var(--muted); }
 .keycard dd { margin: 0; min-width: 0; }
 .keycard code { overflow-wrap: anywhere; }
+.keystage { display: flex; flex-direction: column; gap: 6px; padding-inline-start: 12px; }
+.keystage .ksh { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.keystage .kst { font-family: var(--font-code); font-size: 12px; font-weight: 600; }
+.keystage .ksw code { font-size: 12px; overflow-wrap: anywhere; }
+@media print { .keystage { break-inside: avoid; } .keystage .codebox { font-size: 11px; line-height: 1.5; } }
 
 .lanes { border-collapse: separate; border-spacing: 8px 0; width: 100%; min-width: 780px; font-size: 13.5px; table-layout: fixed; }
 .lanes th, .lanes td { border: 0; padding: 0; vertical-align: top; text-align: left; }
@@ -564,7 +569,7 @@ sequenceDiagram
         <dt>Protects</dt><dd>The online PIN only: the PIN block</dd>
         <dt>Made by</dt><dd><code>PaxPinEntry.provisionOnlinePinKey</code>: 16 random bytes (<code>SecureRandom</code>, AES-128)</dd>
         <dt>Lives in</dt><dd>The <b>PED</b>: written as <code>AES_TPK</code> at index 1 (<code>INDEX_AES_PEK</code>), source the TLK at index 0. Clear in the app's memory for a moment</dd>
-        <dt>Lifetime</dt><dd>One attempt (<code>ensureOnlinePinKey</code>: made once, before the first online request)</dd>
+        <dt>Lifetime</dt><dd>One attempt (<code>ensureOnlinePinKey</code>: made once, at the first need: the online PIN pad (step 9) or the first online request (step 13))</dd>
         <dt>To the bank</dt><dd>RSA-wrapped → <code>pinKey</code> in <b>every exchange</b>, PIN or not</dd>
         <dt>Used as</dt><dd>The PED makes the PIN block under it (ISO 9564 format 4) → <code>encPinBlock</code> in the <b>sale</b> (and inside the sale body)</dd>
       </dl>
@@ -615,7 +620,7 @@ sequenceDiagram
   participant N as Network
   participant H as Bank
   rect rgba(181, 83, 15, 0.12)
-  Note over E,P: PEK (once per attempt)
+  Note over E,P: PEK (once per attempt, first need)
   E->>E: PEK = random 16 B
   E->>P: write PEK<br/>(TLK 0 → index 1)
   E->>E: RSA(PEK) → pinKey
@@ -644,6 +649,141 @@ sequenceDiagram
       <tr><td>Answer <code>encSerializedResponse</code></td><td>✓ under the TEK</td><td>✓ under the TEK</td><td style="color:var(--tek)"><b>TEK</b></td></tr>
     </tbody>
   </table></div>
+  <h3>The code at every stage</h3>
+  <p>The same nine stages, each with the code that does it (trimmed to the lines that matter; the files are the source).</p>
+  <div class="keystage" style="border-inline-start:4px solid var(--pek)">
+    <div class="ksh"><b>① PEK made — once per attempt, at the first need</b><span class="kst" style="color:var(--pek)">PEK</span></div>
+    <div class="ksw"><code>PaxPinEntry.enter (online branch, step 9) · PaxEmvBehavior.addOnlineRequestData (step 13)</code></div>
+<pre class="codebox">// PaxPinEntry.enter — online PIN, before the pad opens (step 9)
+tx.lastOnlinePinBlock = null;
+ensureOnlinePinKey(tx);
+
+// PaxEmvBehavior.addOnlineRequestData — every online request (step 13)
+pinEntry.ensureOnlinePinKey(tx);          // no-op if step 9 already made it
+
+// PaxPinEntry
+void ensureOnlinePinKey(PaxKernelSession tx) {
+    if (tx.lastOnlinePinKeyEncrypted == null) {
+        provisionOnlinePinKey(tx);
+    }
+}</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--pek)">
+    <div class="ksh"><b>② PEK written into the PED, then RSA-wrapped</b><span class="kst" style="color:var(--pek)">PEK</span></div>
+    <div class="ksw"><code>PaxPinEntry.provisionOnlinePinKey</code></div>
+<pre class="codebox">byte[] pinKey = new byte[ONLINE_PIN_KEY_LENGTH_BYTES];      // 16
+new SecureRandom().nextBytes(pinKey);
+
+IPed ped = PedHelper.getPed();
+eraseKeyQuietly(ped, EPedKeyType.AES_TPK, PosDeviceUtils.INDEX_AES_PEK);   // index 1
+eraseKeyQuietly(ped, EPedKeyType.TPK, PosDeviceUtils.INDEX_AES_PEK);
+ped.writeAesKey(EPedKeyType.TLK.getPedkeyType(), (byte) 0,                   // source: TLK 0
+        EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_AES_PEK,   // into: AES_TPK 1
+        pinKey, EAesCheckMode.KCV_NONE, null);
+// PedDevException → log &quot;no TLK at index 0?&quot; → return (no PEK, online PIN fails)
+
+String hostPublicKey = this.hostPublicKey.get();          // from onboarding
+tx.lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, pinKey);</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--pek)">
+    <div class="ksh"><b>③ The PIN block, made by the PED under the PEK</b><span class="kst" style="color:var(--pek)">PEK</span></div>
+    <div class="ksw"><code>PaxPinEntry.enter (online branch)</code></div>
+<pre class="codebox">PaxPinPad pad = new PaxPinPad(&quot;Enter Online PIN&quot;);
+pad.showForOnlinePin();
+pinService.setInputPinListener(pad);
+byte[] pinBlock = pinService.getEncryptedPinData(cardPan, bypassAllowed, false);
+// empty → NO_PASSWORD (bypass) or USER_CANCEL
+tx.lastOnlinePinBlock = pinBlock;
+return EmvConstant.ContactCallbackStatus.CONTACT_OK;</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--accent)">
+    <div class="ksh"><b>④ The PEK and the PIN block handed to the network</b><span class="kst" style="color:var(--accent)">TEK + PEK</span></div>
+    <div class="ksw"><code>AbstractEmvBehavior.askTheBank → PaxEmvBehavior.addOnlineRequestData → PosTerminal.sendToBank</code></div>
+<pre class="codebox">// AbstractEmvBehavior.askTheBank (step 13)
+config = config.withIccData(field55.hex());
+config = addOnlineRequestData(config);
+return bankAnswer = bankRequest.send(config);              // → PosTerminal.sendToBank
+
+// PaxEmvBehavior.addOnlineRequestData
+String onlinePinBlockHex = tx.lastOnlinePinBlock != null
+        ? ConvertUtils.bcd2Str(tx.lastOnlinePinBlock, tx.lastOnlinePinBlock.length) : null;
+return config.withPan(pan)
+        .withOnlinePinBlock(onlinePinBlockHex)                 // → encPinBlock
+        .withOnlinePinKeyEncrypted(tx.lastOnlinePinKeyEncrypted) // → pinKey
+        ...;
+
+// PosTerminal.sendToBank
+result = communication.connectToHost(sent)...              // → SaleCommunicationBehavior</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--tek)">
+    <div class="ksh"><b>⑤ TEK made and RSA-wrapped — once per sale request</b><span class="kst" style="color:var(--tek)">TEK</span></div>
+    <div class="ksw"><code>SaleCommunicationBehavior.send / newTek / encryptTek</code></div>
+<pre class="codebox">String hostPublicKey = onboardingState.getPublicKey();
+if (hostPublicKey == null) {
+    throw new HostNotReachedException(&quot;No host public key on file — ...&quot;);   // → notSent
+}
+byte[] tek = newTek();                                    // 16 random bytes
+String tekEncrypted = encryptTek(hostPublicKey, tek);     // RsaPublicKeyEncryptor.encryptToHex
+
+private static byte[] newTek() {
+    byte[] tek = new byte[TEK_LENGTH_BYTES];              // 16
+    new SecureRandom().nextBytes(tek);
+    return tek;
+}</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--accent)">
+    <div class="ksh"><b>⑥ The exchange: wrapped TEK + wrapped PEK + body under the TEK</b><span class="kst" style="color:var(--accent)">TEK + PEK</span></div>
+    <div class="ksw"><code>SaleCommunicationBehavior.prepareExchangeRequest · GeneralRequest.forExchange</code></div>
+<pre class="codebox">ExchangeRequest exchangeRequest = new ExchangeRequest(
+        asyncRequestId, emvResult.getPan(), cvmCode(config, emvResult), transactionType);
+String encSerializedRequest = encrypted(tek, &quot;EXCHANGE_REQUEST&quot;, exchangeRequest, &quot;exchange&quot;);
+return GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
+        tekEncrypted,              // &quot;transactionKey&quot;
+        pinKeyToSend(config),      // &quot;pinKey&quot;  (every exchange, PIN or not)
+        transactionType);
+
+GeneralResponse exchangeResponse = connection.exchange(headers, exchangeRequest).blockingGet();
+decrypted(exchangeResponse, tek, &quot;Exchange&quot;, ExchangeResponse.class);</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--accent)">
+    <div class="ksh"><b>⑦ The sale: body under the TEK + the PIN block</b><span class="kst" style="color:var(--accent)">TEK + PEK</span></div>
+    <div class="ksw"><code>SaleCommunicationBehavior.callSale / prepareSaleRequest · GeneralRequest.forSale</code></div>
+<pre class="codebox">Object body = isRefund(config)
+        ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult, singleTap);
+// buildSaleRequest puts pinBlockToSend(config) inside the body too
+String encSerializedRequest = encrypted(tek, &quot;SALE_REQUEST&quot;, body, &quot;sale&quot;);
+return GeneralRequest.forSale(encSerializedRequest, asyncRequestId,
+        pinBlockToSend(config));   // &quot;encPinBlock&quot;
+
+GeneralResponse generalResponse = connection.sale(withToken, saleRequest).blockingGet();</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--tek)">
+    <div class="ksh"><b>⑧ AES with the TEK, both ways</b><span class="kst" style="color:var(--tek)">TEK</span></div>
+    <div class="ksw"><code>AesEnvelopeCrypto.encrypt / decrypt · SaleCommunicationBehavior.decrypted</code></div>
+<pre class="codebox">// AesEnvelopeCrypto: AES/CBC/PKCS5Padding, a fresh 16-byte IV in front, hex
+byte[] iv = new byte[IV_LENGTH_BYTES];        // 16
+new SecureRandom().nextBytes(iv);
+cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, &quot;AES&quot;), new IvParameterSpec(iv));
+byte[] cipherText = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
+return Hex.encode(combined);        // combined = iv followed by cipherText
+
+// SaleCommunicationBehavior.decrypted — the bank&#x27;s answer
+String decrypted = AesEnvelopeCrypto.decrypt(tek, response.getData().getEncSerializedResponse());
+logSerialized(step.toUpperCase(Locale.US) + &quot;_RESPONSE&quot;, decrypted);
+return gson.fromJson(decrypted, type);</pre>
+  </div>
+  <div class="keystage" style="border-inline-start:4px solid var(--tek)">
+    <div class="ksh"><b>⑨ Single Tap resend: the same TEK, no new exchange</b><span class="kst" style="color:var(--tek)">TEK</span></div>
+    <div class="ksw"><code>SaleCommunicationBehavior.callSale / send</code></div>
+<pre class="codebox">// RC 90 → keep id, TEK, headers for one resend
+singleTapSale = new SingleTapSale(asyncRequestId, tek, headers);
+
+// send(): the resend with the PIN
+if (resend != null &amp;&amp; resend.asyncRequestId.equals(config.getAsyncRequestId())
+        &amp;&amp; pinBlockToSend(config) != null) {
+    return callSale(resend.headers, config, emvResult, resend.tek, resend.asyncRequestId, SINGLE_TAP);
+}   // the bank already holds the PEK from the first exchange</pre>
+  </div>
   <ul class="facts">
     <li><b>Two keys, two jobs.</b> The TEK hides the whole message on the wire. The PEK hides only the PIN, and it is the only one the PED knows: the PIN block is made inside the PED, the PIN never reaches the app.</li>
     <li><b>Both are wrapped by the same RSA key</b> (<code>RsaPublicKeyEncryptor</code>, PKCS#1 v1.5, the bank's key in PKCS#1 DER, from onboarding). No bank key → no TEK can be sent: the sale is <code>notSent</code>; the PEK is written but not sent.</li>
