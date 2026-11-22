@@ -320,7 +320,7 @@ runContactlessOnline → runSingleTap → SINGLE_TAP_PIN_REQUIRED (report)
 ## 6. EMV params
 
 - **The database (GreenDAO) is the source:** filled from JSON once (`ConfigInit`), then from the host file on Download (`EmvParamUpdater.applyFromZip`).
-- **The cache** (`EmvParamService`) is a copy in memory: any write empties it (`invalidate()`), the first sale fills it (`getCachedEmvParam` → `loadFromDatabase`, 13 params).
+- **The cache** (`EmvParamService`) is a copy in memory, reloaded right after a change (`c5641de`): every DAO write (`BaseDaoHelper` insert / update / delete, except `TransData`) and every config write (`ConfigParamService`) calls `EmvParamService.onDataChanged()` → `reload()` (`loadFromDatabase`, 13 params). Many writes in one go (`ConfigInit`, `EmvParamUpdater.applyFromZip`) sit between `beginBatch()` / `endBatch()`: the cache is emptied during the batch and reloaded once at its end. A reload that throws leaves the cache empty; the first sale loads it (`getCachedEmvParam`). Not device-tested.
 - **The kernel keeps nothing:** the params are loaded into it at every attempt (`preTransProcess`).
 - Contact: what the host file does not bring keeps its value. Contactless: the host file is the whole truth; a kernel it does not bring is deleted.
 - TID / MID / MCC / merchant name do not come from the host file (`OTHERCONFIGURATION` is skipped on purpose).
