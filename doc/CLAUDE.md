@@ -179,7 +179,8 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
 | Step hooks, `goToStep`, `ask`, field 55 | `core/.../terminal/AbstractEmvBehavior.java`, `core/.../emv/Field55.java` |
 | Core packages (by owner, `7f59e35`) | `terminal` (PosTerminal + Transaction, EmvBehavior / AbstractEmvBehavior), `transaction` (config, type, its steps), `emv` (engine, EmvStep, result, Field55, ApduTrace), `card`, `host`, `cardholder` (app select, PIN pad), `param`, `util` (EmvLog) |
 | PAX flow (contact / contactless runners, callbacks, online) | `vendor-pax/.../vendor/pax/PaxEmvBehavior.java` |
-| PIN (pad, AES PIN key + RSA wrap, bypass) · host answer → PAX · readers · card data · country / seed | `vendor-pax/.../vendor/pax/{PaxPinEntry,PaxHostAnswer,PaxReaders,PaxCardData,PaxSetup}.java` |
+| PIN (pad, AES PIN key + RSA wrap, bypass) · host answer → PAX · readers · card data · country / seed · POS master key (0x20) | `vendor-pax/.../vendor/pax/{PaxPinEntry,PaxHostAnswer,PaxReaders,PaxCardData,PaxSetup,PaxMasterKey}.java` |
+| Onboarding values at rest | `network/.../onboarding/OnboardingState.java` (+ `core/.../host/MasterKey.java`) |
 | Card search (polling, ICC retry) — the SEARCH_CARD step | `vendor-pax/.../vendor/pax/PaxCardSearch.java` (run by `PaxEmvBehavior.onSearchCard`) |
 | Contact kernel wrapper + callback adapter | `vendor-pax/libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` |
 | Contactless dispatcher, reselect | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` |
@@ -258,9 +259,10 @@ after**. Each carries docs that match its own code.
   `PosTerminal*Test` (incl. `PosTerminalCloseAtHostTest`: ack / reverse, the safe end) (EMV
   tests drive a behavior as its run loop does: `TestSession.attempt` = `prepare` + the card's
   `start`; terminal tests use `StubBehavior`: the real run loop, the search a test lambda).
-  Network: 35 — `SaleAnswerLogTest`, `SingleTapTest`, `BlockingErrorsTest`, `SaleRefundGuardTest`, `OldAppSaleRequestTest`, `SalePinBlockTest`,
+  Network: 39 — `OnboardingStateMasterKeyTest`, `SaleAnswerLogTest`, `SingleTapTest`, `BlockingErrorsTest`, `SaleRefundGuardTest`, `OldAppSaleRequestTest`, `SalePinBlockTest`,
   `ReverseAcknowledgementTest`, `OnlineFailureClassifyTest`.
-  Vendor-pax: 11 — `PaxCardDataTest`, `PaxHostAnswerTest`.
+  Vendor-pax: 11 — `PaxCardDataTest`, `PaxHostAnswerTest` (on `-tests`); on this branch the harness runs
+  `PaxMasterKeyTest` (4).
   Bizentity: 25 — XML parser tests on the host's real sections (`clss_param_paypass.xml`,
   `clss_param_paywave.xml`), `PaywaveAidFloorLimitsTest`, `EmvParamServiceCacheTest`.
 - **Cloud container: no Android SDK → no Gradle.** Tests run with javac + JUnit + stub jars;
@@ -475,6 +477,13 @@ or the first online request) is written into the PED in the clear (`AES_TPK` ind
 goes RSA-wrapped as `pinKey` in every exchange, and the PED's PIN block under it goes as
 `encPinBlock` in the sale. RSA = the bank's public key from onboarding (PKCS#1). ⚠ A production PED
 may refuse the clear write (then every online PIN fails); no KCV. Nothing has to be injected.
+**Secrets at rest** (`39792d3`, the old app's way — Ebram: "the old code is your reference"):
+`OnboardingState` keeps the public key, sacs, challenge and service account encrypted by the POS
+master key in the PED (`PaxMasterKey`: index 0x20, AES-192 written once in the clear at start-up,
+`calcAes` CBC with the old fixed IV, `'@'` padding + its count in `<key>_padding`); the access token
+stays plain; no rotation, no reset (a failed decrypt reads `null` → `notSent`). Seam: core
+`MasterKey`, installed by `TerminalFactory` through static `OnboardingState.useMasterKey`. No
+migration: an already onboarded terminal must be onboarded once after the update.
 `transactionType` "PURCHASE". Encrypted fields uppercase hex, HMAC base64, amounts
 major-unit doubles, `accountId` header. mToken expires ~3 days (`403 Token has expired`,
 editable on onboarding). Each payment call: OkHttp `callTimeout` 45 s (`8a5b4b5`, was 25 s;
@@ -547,6 +556,8 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 - Online PIN keys (Flows §4): source index 0 = a clear write (PAX demo: "write plainTex TDK"),
   no TLK needed — confirm on the device (form rows 4, 5) or with PAX, and whether a production
   PED accepts a clear key; add a KCV. Form rows 4, 5, 7, 9 not run.
+- POS master key (`39792d3`): device-test the write at 0x20, `calcAes`, a fresh onboarding and a
+  sale after it; terminals onboarded before it must onboard again.
 - EMV books: check the contactless columns (Flows §8) against Books A / B / C-2 / C-3 / C-4, and
   get PAX's EMVCo Letters of Approval for the kernel versions we ship. Brand testing (Mastercard /
   Visa) needs test tools; Ebram asked the business for UL tools (17/11).

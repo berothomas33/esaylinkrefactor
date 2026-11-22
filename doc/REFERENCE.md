@@ -30,7 +30,8 @@
 | Field 55 | `core/.../emv/Field55.java` (+ `field55()` in each vendor) |
 | The card | `core/.../card/CardPresence.java` (`isEmv()` / `isNonEmv()`) |
 | PAX: the steps, the kernel callbacks, the way to the bank | `vendor-pax/.../PaxEmvBehavior.java` |
-| PAX: search, PIN, the bank's answer in PAX shape, readers, card data, setup, one attempt's notes | `PaxCardSearch`, `PaxPinEntry`, `PaxHostAnswer`, `PaxReaders`, `PaxCardData`, `PaxSetup`, `PaxKernelSession` |
+| PAX: search, PIN, the bank's answer in PAX shape, readers, card data, setup, one attempt's notes, the POS master key | `PaxCardSearch`, `PaxPinEntry`, `PaxHostAnswer`, `PaxReaders`, `PaxCardData`, `PaxSetup`, `PaxKernelSession`, `PaxMasterKey` |
+| Onboarding values at rest (public key, sacs, challenge, service account, token) | `network/.../onboarding/OnboardingState.java` + `core/.../host/MasterKey.java` |
 | The contact kernel and its callbacks | `vendor-pax/libs/sdk/emvlib/dpas/.../contact/ContactProcess.java` (`EmvCallBackListener`) |
 | The contactless kernels | `vendor-pax/libs/sdk/emvlib/.../contactless/ClssProcess.java` + `Clss*Process` (DPAS: `emvlib/dpas`) |
 | The bank | `network/.../SaleCommunicationBehavior.java`, `HostApiClient.java` |
@@ -295,10 +296,42 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 - Two keys, two jobs: the TEK hides the message on the wire; the PEK hides only the PIN, and only the PED holds it. The PIN never reaches the app.
 - No bank public key: no TEK can be sent (the sale is `notSent`); the PEK is written but not sent.
 - The PEK goes with every exchange because a Single Tap PIN comes in a resend with no exchange (same id, same TEK).
-- Source index 0 = "in the clear", not "a TLK in slot 0": nothing has to be injected. PAX's demo does the same (`PedHelper.writeTDKForDecrypt` "write plainTex TDK" with source 0; `Device.writeTMK` = `writeKey(TLK, 0, …)`). The PEK in the PED is the PEK sent.
+- Source index 0 = "in the clear", not "a TLK in slot 0": nothing has to be injected. PAX's demo does the same (`PedHelper.writeTDKForDecrypt` "write plainTex TDK" with source 0; `Device.writeTMK` = `writeKey(TLK, 0, …)`), and so does the old app (`PaxUtils.writePekAES` = our PEK write; `writeAESPedKey` writes a fresh master key with `writeAesKey(TMK, 0, …)`; `write3DesPedKey` writes even a TLK with `writeKey(TMK, 0, TLK, …)`). The PEK in the PED is the PEK sent.
 - ⚠ A production PED may refuse a clear key write (security policy / PCI): the write throws, the log says "the PED refused the clear write of the PIN key?", every online PIN fails. No KCV (`KCV_NONE`).
-- ⚠ From PAX's demo code, not its documentation; proven by an online PIN on the device (form rows 4, 5) or PAX's answer.
+- ⚠ From PAX's demo and the old app's code, not PAX's documentation; proven by an online PIN on the device (form rows 4, 5).
 - Not device-tested on this branch (form rows 4, 5, 7, 9).
+
+**The PED's slots** (what each index holds):
+
+| Index | Key | Written by | When |
+|---|---|---|---|
+| source **0** | none — "the value comes in the clear" | (every write below uses it) | — |
+| **0x01** | PEK, `AES_TPK` (`INDEX_AES_PEK`) | `PaxPinEntry.provisionOnlinePinKey` | once per attempt, at the first need |
+| **0x20** | POS master key, AES-192 (written as `TMK`) | `PaxMasterKey.generatePOSMasterKey` | once, at start-up, when no generation date is stored |
+
+**Secrets at rest: the POS master key** (`39792d3`, as the old app: `PaxUtils`, `MomknKeysUtils`, `KeyConstants`). `OnboardingState` keeps the bank's **public key**, **sacs**, **challenge** and **service account** encrypted; the **access token**, its expiry and the flags stay plain.
+
+```
+start-up   TerminalFactory.create → PaxMasterKey.generatePOSMasterKey(app)
+             no "generation_date" in prefs "pos_master_key" →
+             eraseKey(TMK, 0x20) · aesKey = 24 random bytes (AES-192)
+             writeAesKey(TMK, 0, 0x20, aesKey, KCV_NONE) · store the date (dd-MM-yyyy)
+           → OnboardingState.useMasterKey(new PaxMasterKey())
+save       savePublicKey(v) → save(): encryptDataByMasterKey(v)
+             '@' up to a multiple of 16 → calcAes(0x20, fixed IV, ENCRYPT, CBC) inside the PED
+             prefs: "public_key" = hex, "public_key_padding" = the '@' count
+read       getPublicKey() → read(): calcAes(0x20, fixed IV, DECRYPT, CBC) → drop the counted '@'
+             failure → null + one log line, no data
+fixed IV   {0,1,2,3,4,5,6,7,8,9,0,0x0A,0x0B,1,2,3}   (the old app's getIv)
+```
+
+- **`MasterKey`** (core) is the seam: the network never imports PAX. Fake / ingenico install none, so the values stay plain there.
+- **`useMasterKey` is static**, set once in `Application.onCreate` (through `TerminalFactory.create`), so the six places that do `new OnboardingState(context)` did not change.
+- **The TEK / PEK are unchanged:** `getPublicKey()` returns the same string. If it cannot be decrypted it is `null` → the sale is `notSent` ("No host public key on file"), the PEK is written but not sent — fail closed.
+- Not ported on purpose (Ebram's choice): the 9-day rotation, the automatic reset on failure, encrypting the access token. Not ported: the old app's logging of the key and the plain data.
+- ⚠ **No migration:** a terminal that held these values in the clear reads `null` after the update and must be onboarded once.
+- ⚠ A PED that refuses the write at 0x20 is only logged; the first save (onboarding) then fails — fail closed.
+- Tests (outside the repo): `OnboardingStateMasterKeyTest` (network, 4), `PaxMasterKeyTest` (vendor-pax harness, 4). Not device-tested: `writeAesKey` at 0x20, `calcAes`, the first onboarding after the update.
 
 **Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:
 
