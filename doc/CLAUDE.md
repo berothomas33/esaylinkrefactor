@@ -431,8 +431,8 @@ B / C-x (not in the repo, emvco.com blocked here) — Ebram parked it 22/11.
 - Amount limits reach the kernel as **n12 BCD** (`getPaddedNumber(x, 12)`) or as native
   `long` fields (`Clss_PreProcInfo`, `Clss_VisaAidParam`, `EMV_APPLIST`). Exception: RuPay
   floor limit padded to 8 (unused).
-- PIN: `getPinBlock` timeout in **ms**, no UI of its own; online PIN = AES TPK under TLK 0,
-  ISO 9564 format 4. Close each reader in its own try/catch (ICC#97 otherwise).
+- PIN: `getPinBlock` timeout in **ms**, no UI of its own; online PIN = AES TPK at index 1, written
+  in the clear (source index 0 = no key, not a TLK slot), ISO 9564 format 4. Close each reader in its own try/catch (ICC#97 otherwise).
 
 ## 8. Parameters
 
@@ -471,10 +471,10 @@ B / C-x (not in the repo, emvco.com blocked here) — Ebram parked it 22/11.
 REFERENCE §5): the **TEK** (16 random bytes per request, app memory only) encrypts the bodies
 (`AesEnvelopeCrypto` AES/CBC/PKCS5, IV in front) and goes RSA-wrapped as `transactionKey` in the
 exchange; the **PEK** (16 random bytes per attempt, made at the first need: the online PIN pad
-or the first online request) is written into the PED (`AES_TPK` index 1, source TLK index 0),
+or the first online request) is written into the PED in the clear (`AES_TPK` index 1, source index 0 = clear),
 goes RSA-wrapped as `pinKey` in every exchange, and the PED's PIN block under it goes as
-`encPinBlock` in the sale. RSA = the bank's public key from onboarding (PKCS#1). ⚠ TLK not
-injected; the PEK is written in the clear (index 0 meaning unconfirmed); no KCV.
+`encPinBlock` in the sale. RSA = the bank's public key from onboarding (PKCS#1). ⚠ A production PED
+may refuse the clear write (then every online PIN fails); no KCV. Nothing has to be injected.
 `transactionType` "PURCHASE". Encrypted fields uppercase hex, HMAC base64, amounts
 major-unit doubles, `accountId` header. mToken expires ~3 days (`403 Token has expired`,
 editable on onboarding). Each payment call: OkHttp `callTimeout` 45 s (`8a5b4b5`, was 25 s;
@@ -544,8 +544,9 @@ when a cancelled search is still stopping; `MainActivity` status after a sale.
 ## 11. Open
 
 - Device form on `transactionOwnsSteps` (§10): everything but the chip sale and #11.
-- Online PIN keys (Flows §4): inject the TLK at index 0; confirm with PAX what `writeAesKey` with
-  source TLK index 0 does (clear write?); add a KCV. Form rows 4, 5, 7, 9 not run.
+- Online PIN keys (Flows §4): source index 0 = a clear write (PAX demo: "write plainTex TDK"),
+  no TLK needed — confirm on the device (form rows 4, 5) or with PAX, and whether a production
+  PED accepts a clear key; add a KCV. Form rows 4, 5, 7, 9 not run.
 - EMV books: check the contactless columns (Flows §8) against Books A / B / C-2 / C-3 / C-4, and
   get PAX's EMVCo Letters of Approval for the kernel versions we ship. Brand testing (Mastercard /
   Visa) needs test tools; Ebram asked the business for UL tools (17/11).

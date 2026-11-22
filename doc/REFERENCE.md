@@ -260,7 +260,7 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 |---|---|---|
 | Protects | the request and answer bodies | the online PIN block only |
 | Made by | `SaleCommunicationBehavior.newTek()` | `PaxPinEntry.provisionOnlinePinKey` (`ensureOnlinePinKey`) |
-| Lives in | app memory only (network) | the PED: `AES_TPK` at index 1 (`INDEX_AES_PEK`), source TLK index 0; clear in app memory for a moment |
+| Lives in | app memory only (network) | the PED: `AES_TPK` at index 1 (`INDEX_AES_PEK`), written in the clear (source index 0); clear in app memory for a moment |
 | Lifetime | one sale request (new per exchange; a Single Tap resend reuses it) | one attempt, made at the first need: the online PIN pad (step 9) or the first online request (step 13) |
 | To the bank | `transactionKey` in the exchange | `pinKey` in every exchange, PIN or not |
 | Used as | `AesEnvelopeCrypto` AES/CBC/PKCS5, IV in front → `encSerializedRequest`; decrypts `encSerializedResponse` | the PED's PIN block (ISO 9564 fmt 4) → `encPinBlock` in the sale (and inside the sale body) |
@@ -268,7 +268,7 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 ```
  PaxPinEntry / PED (PEK, once per attempt)            SaleComm (TEK, once per request)            Bank
  ① PEK = 16 random bytes
- ② erase index 1 · writeAesKey(TLK 0 → AES_TPK 1, PEK)   ✗ no TLK → PedDevException → online PIN fails
+ ② erase index 1 · writeAesKey(src 0 = clear → AES_TPK 1, PEK)   ✗ refused → PedDevException → online PIN fails
  ③ RSA(bank key, PEK) → pinKey
  ④ step 9: getEncryptedPinData(PAN) → PIN typed on the PED → PIN block under the PEK
                                                       ⑤ TEK = 16 random bytes · RSA → transactionKey
@@ -295,8 +295,9 @@ public AuthResult sendToBank(config)       // names the request, records it, ONL
 - Two keys, two jobs: the TEK hides the message on the wire; the PEK hides only the PIN, and only the PED holds it. The PIN never reaches the app.
 - No bank public key: no TEK can be sent (the sale is `notSent`); the PEK is written but not sent.
 - The PEK goes with every exchange because a Single Tap PIN comes in a resend with no exchange (same id, same TEK).
-- ⚠ The TLK must be injected at index 0 (not wired yet), or every online PIN fails (`Key does not exist`).
-- ⚠ The PEK is written in the clear (source TLK index 0); PAX's demo writes a TMK the same way (`Device.writeTMK`), which suggests index 0 = clear. Not confirmed in PAX's docs or on a device: if the PED decrypts it with the TLK first, the PED's PEK ≠ the PEK sent. A production PED may refuse a clear key; no KCV (`KCV_NONE`).
+- Source index 0 = "in the clear", not "a TLK in slot 0": nothing has to be injected. PAX's demo does the same (`PedHelper.writeTDKForDecrypt` "write plainTex TDK" with source 0; `Device.writeTMK` = `writeKey(TLK, 0, …)`). The PEK in the PED is the PEK sent.
+- ⚠ A production PED may refuse a clear key write (security policy / PCI): the write throws, the log says "the PED refused the clear write of the PIN key?", every online PIN fails. No KCV (`KCV_NONE`).
+- ⚠ From PAX's demo code, not its documentation; proven by an online PIN on the device (form rows 4, 5) or PAX's answer.
 - Not device-tested on this branch (form rows 4, 5, 7, 9).
 
 **Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:

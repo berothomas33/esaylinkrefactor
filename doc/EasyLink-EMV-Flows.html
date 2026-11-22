@@ -568,7 +568,7 @@ sequenceDiagram
       <dl>
         <dt>Protects</dt><dd>The online PIN only: the PIN block</dd>
         <dt>Made by</dt><dd><code>PaxPinEntry.provisionOnlinePinKey</code>: 16 random bytes (<code>SecureRandom</code>, AES-128)</dd>
-        <dt>Lives in</dt><dd>The <b>PED</b>: written as <code>AES_TPK</code> at index 1 (<code>INDEX_AES_PEK</code>), source the TLK at index 0. Clear in the app's memory for a moment</dd>
+        <dt>Lives in</dt><dd>The <b>PED</b>: written as <code>AES_TPK</code> at index 1 (<code>INDEX_AES_PEK</code>), <b>in the clear</b> (source index 0 = no key decrypts it). Clear in the app's memory for a moment</dd>
         <dt>Lifetime</dt><dd>One attempt (<code>ensureOnlinePinKey</code>: made once, at the first need: the online PIN pad (step 9) or the first online request (step 13))</dd>
         <dt>To the bank</dt><dd>RSA-wrapped → <code>pinKey</code> in <b>every exchange</b>, PIN or not</dd>
         <dt>Used as</dt><dd>The PED makes the PIN block under it (ISO 9564 format 4) → <code>encPinBlock</code> in the <b>sale</b> (and inside the sale body)</dd>
@@ -585,7 +585,7 @@ flowchart LR
     RSA["RSA wrap<br/>bank public key"]
   end
   subgraph PED["PED (secure chip)"]
-    TLK["TLK · index 0<br/>(must be injected)"]
+    SRC["source index 0<br/>= no key: written clear"]
     PEK["PEK = AES_TPK · index 1"]
     PB["PIN block<br/>ISO 9564 fmt 4"]
   end
@@ -599,8 +599,8 @@ flowchart LR
   RSA -- "wrapped TEK + PEK" --> EX
   T -- "AES/CBC: bodies" --> EX
   T -- "AES/CBC: body" --> SA
-  P0 -- "writeAesKey(TLK 0 → 1)" --> PEK
-  TLK -.-> PEK
+  P0 -- "writeAesKey(src 0 → 1)" --> PEK
+  SRC -.-> PEK
   PEK --> PB
   PB --> SA
   EX --> BANK
@@ -622,7 +622,7 @@ sequenceDiagram
   rect rgba(181, 83, 15, 0.12)
   Note over E,P: PEK (once per attempt, first need)
   E->>E: PEK = random 16 B
-  E->>P: write PEK<br/>(TLK 0 → index 1)
+  E->>P: write PEK clear<br/>(src 0 → index 1)
   E->>E: RSA(PEK) → pinKey
   E->>P: step 9: PIN pad
   Note over P: PIN typed
@@ -677,10 +677,10 @@ new SecureRandom().nextBytes(pinKey);
 IPed ped = PedHelper.getPed();
 eraseKeyQuietly(ped, EPedKeyType.AES_TPK, PosDeviceUtils.INDEX_AES_PEK);   // index 1
 eraseKeyQuietly(ped, EPedKeyType.TPK, PosDeviceUtils.INDEX_AES_PEK);
-ped.writeAesKey(EPedKeyType.TLK.getPedkeyType(), (byte) 0,                   // source: TLK 0
+ped.writeAesKey(EPedKeyType.TLK.getPedkeyType(), (byte) 0,                   // source index 0 = written clear
         EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_AES_PEK,   // into: AES_TPK 1
         pinKey, EAesCheckMode.KCV_NONE, null);
-// PedDevException → log &quot;no TLK at index 0?&quot; → return (no PEK, online PIN fails)
+// PedDevException → log &quot;the PED refused the clear write?&quot; → return (no PEK, online PIN fails)
 
 String hostPublicKey = this.hostPublicKey.get();          // from onboarding
 tx.lastOnlinePinKeyEncrypted = RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, pinKey);</pre>
@@ -788,8 +788,9 @@ if (resend != null &amp;&amp; resend.asyncRequestId.equals(config.getAsyncReques
     <li><b>Two keys, two jobs.</b> The TEK hides the whole message on the wire. The PEK hides only the PIN, and it is the only one the PED knows: the PIN block is made inside the PED, the PIN never reaches the app.</li>
     <li><b>Both are wrapped by the same RSA key</b> (<code>RsaPublicKeyEncryptor</code>, PKCS#1 v1.5, the bank's key in PKCS#1 DER, from onboarding). No bank key → no TEK can be sent: the sale is <code>notSent</code>; the PEK is written but not sent.</li>
     <li><b>Why the PEK goes with every exchange:</b> a Mastercard Single Tap PIN comes later, in a resend that has no exchange of its own (same id, same TEK). The bank must already hold the PEK (§8).</li>
-    <li>⚠ <b>The TLK must be injected</b> at index 0, or the PEK write fails and every online PIN fails (<code>Key does not exist</code>). Not wired yet.</li>
-    <li>⚠ <b>The PEK is written in the clear</b> (source TLK index 0). PAX's demo writes a TMK the same way, which suggests index 0 = clear; not confirmed in PAX's docs or on a device. If the PED decrypts it with the TLK first, the PED's PEK ≠ the PEK sent, and the bank cannot read the PIN. A production PED may refuse a clear key. No KCV (<code>KCV_NONE</code>) checks it.</li>
+    <li><b>Source index 0 means "in the clear", not "the TLK in slot 0".</b> Nothing has to be injected for this write. PAX's own demo does the same: <code>PedHelper.writeTDKForDecrypt</code> ("write plainTex TDK") writes with source index 0, and <code>Device.writeTMK</code> writes a TMK with <code>writeKey(TLK, 0, …)</code>. So the PEK in the PED is the PEK sent to the bank.</li>
+    <li>⚠ <b>A production PED may refuse a key written in the clear</b> (its security policy / PCI). Then the write throws, the log says "the PED refused the clear write of the PIN key?", and every online PIN fails. No KCV (<code>KCV_NONE</code>) checks the key either.</li>
+    <li>⚠ Read from PAX's demo code, not from PAX's documentation; the proof is an online PIN on the device (form rows 4, 5) or PAX's answer.</li>
     <li>Not device-tested on this branch (form rows 4, 5, 7, 9).</li>
   </ul>
   <h3>How the kernel waits: <code>EMVCallback</code> (PAX's jar)</h3>

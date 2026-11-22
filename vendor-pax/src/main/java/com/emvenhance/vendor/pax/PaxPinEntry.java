@@ -138,8 +138,8 @@ final class PaxPinEntry {
                     EPedKeyType.AES_TPK.getPedkeyType(), PosDeviceUtils.INDEX_AES_PEK, pinKey,
                     EAesCheckMode.KCV_NONE, null);
         } catch (PedDevException e) {
-            LogUtils.e(TAG, "Online PIN key write failed — no TLK at index 0? Online PIN will "
-                    + "keep failing 'Key does not exist' until a real TLK is injected.", e);
+            LogUtils.e(TAG, "Online PIN key write failed — the PED refused the clear write of the "
+                    + "PIN key (AES_TPK index 1)? Online PIN will keep failing until it is accepted.", e);
             return;
         }
 
