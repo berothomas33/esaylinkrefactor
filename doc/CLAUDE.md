@@ -5,7 +5,9 @@ file in the same commit. Never put credentials, tokens, keys, PANs, track data o
 numbers in it. Kotlin: `catchup-coroutine.md`. Full flow reference (architecture,
 EmvEngine/EmvStep/onXxx, contact, contactless, EMV params, UI → kernel callback):
 `doc/REFERENCE.md`; the same flows drawn: `doc/EasyLink-EMV-Flows.html` / `.pdf` (keep them in step with
-the artifact page; §4 = the PIN book: the circle, the offline PIN, the TEK / PEK keys with their code;
+the artifact page; §4 = the PIN book: the circle, the offline PIN, the TEK / PEK keys with their code,
+the PED's slots, the POS master key, the public key's cycle, the PIN block stage by stage (format 4
+vs 0), AES in short;
 §8 = contactless, one column per kernel). Ebram's own interactive tutorial up to SET_TRANSACTION_DATA:
 `doc/Flow-To-SetTransactionData.html`. Everything missing / broken / risky, ranked: `doc/BACKLOG.md`.
 
@@ -78,6 +80,11 @@ Ingenico) plug in as a vendor module, picked by a Gradle flavor (`doc/VENDOR.md`
   there (and syncs it with the internal GitLab, `git.momkn-internal.com`). When a push is
   rejected because origin moved: `git pull --no-rebase` (a merge commit, like his), check the
   merge, then push — not a rebase (his wish, 22/11).
+  On **his** machine `origin` = the GitLab and `github` = GitHub (ours is GitHub only). A commit
+  that exists only on the GitLab (e.g. `61eb255`) reaches us when he merges it into GitHub; to
+  bring ours to the GitLab: `git pull --no-rebase github transactionStepObserver` then `git push
+  origin transactionStepObserver`. When he can't sync, ask him to push his state to a new GitHub
+  branch (`git push github HEAD:refs/heads/<name>`) and merge it here — never ask for a force push.
 - His Excel test form: fill only the cells he asks for; never change his own edits.
 - **Docs once a day, not per commit.** Don't touch `doc/CLAUDE.md` / `doc/REFERENCE.md` with
   every code commit (tokens). A scheduled task reminds him daily at ~5 PM Cairo; then, if he
@@ -358,6 +365,8 @@ after**. Each carries docs that match its own code.
   listener (PAX) is registered once per flow and released once, in `finishContactStage` /
   `finishContactlessStage` (`ca1b16a`). `TransactionStep.isEnd()` = COMPLETED,
   ERROR or CANCELLED.
+- **`EntryMethod`**: CHIP, CONTACTLESS, **MAGNETIC** (renamed from MAGSTRIPE by Ebram, `61eb255`,
+  merged in `7c4677a`), MANUAL, ANY. `isMagstripe()` / `CardPresence.magstripe(...)` keep their names.
 - **Removed on 28/10** (nothing used them; searched by bare name and `::name`):
   `PosTerminal.communication()` / `printer()`, `CardSearchListener.onCardRemoved`,
   `TransactionStepEvent.KEY_AMOUNT`, `HostDefaults.declineUntilWired`, `AuthResult`'s
@@ -434,7 +443,9 @@ B / C-x (not in the repo, emvco.com blocked here) — Ebram parked it 22/11.
   `long` fields (`Clss_PreProcInfo`, `Clss_VisaAidParam`, `EMV_APPLIST`). Exception: RuPay
   floor limit padded to 8 (unused).
 - PIN: `getPinBlock` timeout in **ms**, no UI of its own; online PIN = AES TPK at index 1, written
-  in the clear (source index 0 = no key, not a TLK slot), ISO 9564 format 4. Close each reader in its own try/catch (ICC#97 otherwise).
+  in the clear (source index 0 = no key, not a TLK slot), ISO 9564 format 4: built inside the PED by
+  `ped.getPinBlock(INDEX_AES_PEK, …, 0x14)` with the full PAN (format 0 / 3DES got "HSM command
+  error" from the bank). The RSA wraps the keys (PEK, TEK), never the PIN block. Close each reader in its own try/catch (ICC#97 otherwise).
 
 ## 8. Parameters
 

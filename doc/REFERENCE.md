@@ -28,7 +28,7 @@
 | The EMV's way to the bank | `core/.../terminal/BankRequest.java` |
 | The EMV step stream (banner, dispatch) and the APDU trace | `core/.../emv/EmvEngine.java`, `ApduTrace.java` |
 | Field 55 | `core/.../emv/Field55.java` (+ `field55()` in each vendor) |
-| The card | `core/.../card/CardPresence.java` (`isEmv()` / `isNonEmv()`) |
+| The card | `core/.../card/CardPresence.java` (`isEmv()` / `isNonEmv()`), `EntryMethod` (CHIP, CONTACTLESS, MAGNETIC — was MAGSTRIPE until `61eb255` — MANUAL, ANY) |
 | PAX: the steps, the kernel callbacks, the way to the bank | `vendor-pax/.../PaxEmvBehavior.java` |
 | PAX: search, PIN, the bank's answer in PAX shape, readers, card data, setup, one attempt's notes, the POS master key | `PaxCardSearch`, `PaxPinEntry`, `PaxHostAnswer`, `PaxReaders`, `PaxCardData`, `PaxSetup`, `PaxKernelSession`, `PaxMasterKey` |
 | Onboarding values at rest (public key, sacs, challenge, service account, token) | `network/.../onboarding/OnboardingState.java` + `core/.../host/MasterKey.java` |
