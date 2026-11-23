@@ -333,6 +333,26 @@ fixed IV   {0,1,2,3,4,5,6,7,8,9,0,0x0A,0x0B,1,2,3}   (the old app's getIv)
 - ⚠ A PED that refuses the write at 0x20 is only logged; the first save (onboarding) then fails — fail closed.
 - Tests (outside the repo): `OnboardingStateMasterKeyTest` (network, 4), `PaxMasterKeyTest` (vendor-pax harness, 4). Not device-tested: `writeAesKey` at 0x20, `calcAes`, the first onboarding after the update.
 
+**The public key's cycle** (`OnboardingClient.runOfflineCycle`, once): handshake → the bank's **SACS** (stored encrypted) → `onboard(challenge = random)` → `publicKey + serviceAccount + signature` → `HmacSigner.verify(publicKey + challenge + serviceAccount, SACS)` (HMAC-SHA256; a wrong signature fails onboarding, nothing stored) → publicKey, challenge, serviceAccount stored encrypted → `confirm(HMAC(challenge, SACS))`. **Every sale:** `getPublicKey()` (decrypted in the PED) → RSA(TEK) = `transactionKey`, RSA(PEK) = `pinKey` → the bank opens both with its private key.
+
+| | Bank public key (RSA) | POS master key | TEK / PEK |
+|---|---|---|---|
+| Kind | asymmetric (the bank keeps the private half) | AES-192 | AES-128 |
+| From | the bank, at onboarding (signed) | the terminal, once | the terminal, per request / attempt |
+| Lives in | prefs, encrypted by the master key | PED 0x20 | TEK app memory · PEK PED 0x01 |
+| To the bank | — | **never** | yes, RSA-wrapped |
+| Protects | the TEK and PEK on the way | what is kept at rest | the messages / the PIN |
+
+**PIN block: ISO 9564 format 4** (`PinService`: `getPinBlock(INDEX_AES_PEK, …, 0x14)`; format 0 with 3DES got "HSM command error" from the bank):
+
+```
+Format 0 (3DES, 8 B):  PIN 0|L|PPPP|F…F  XOR  PAN 0000|12 rightmost digits (no check digit)  → 3DES
+Format 4 (AES, 16 B):  PIN 4|L|PPPP|A…A|16 random nibbles  → AES → XOR PAN M|full PAN|0…  → AES
+```
+Format 4: AES not 3DES, 16 bytes not 8, the whole PAN not 12 digits, a different block every time (random fill), encrypted twice.
+
+**AES in short:** symmetric (the same key both ways → RSA only carries it: hybrid encryption); 128-bit block, 128 / 192 / 256-bit keys (ours 128 for TEK / PEK, 192 for the master key); CBC chains the blocks from an IV (random per message for the TEK; the old app's fixed IV for the master key, local storage only); padding to 16 (PKCS5 for the TEK, `'@'` + count for the master key).
+
 **Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:
 
 ```

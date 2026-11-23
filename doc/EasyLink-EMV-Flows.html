@@ -829,6 +829,78 @@ sequenceDiagram
     <li>The old app's fixed IV <code>{0,1,2,3,4,5,6,7,8,9,0,0x0A,0x0B,1,2,3}</code> and <code>'@'</code> padding, kept on purpose. Not ported (Ebram's choice): the 9-day rotation, the reset on failure, encrypting the token; nor the old logging of the key and the plain data.</li>
     <li>⚠ <b>No migration:</b> a terminal that held these values in the clear must be onboarded once after the update. Not device-tested.</li>
   </ul>
+  <h3>The public key's cycle: onboarding once, every sale after</h3>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"mirrorActors": false, "messageMargin": 28, "actorMargin": 60}}}%%
+sequenceDiagram
+  autonumber
+  participant T as Terminal
+  participant P as PED (0x20)
+  participant B as Bank
+  rect rgba(15, 107, 92, 0.10)
+  Note over T,B: Onboarding — once (OnboardingClient.runOfflineCycle)
+  T->>B: handshake
+  B-->>T: SACS (shared secret)
+  T->>P: store SACS encrypted
+  T->>B: onboard(challenge = random)
+  B-->>T: publicKey + serviceAccount<br/>+ signature
+  T->>T: HMAC-SHA256(publicKey + challenge<br/>+ serviceAccount, SACS) = signature?
+  T->>P: store publicKey, challenge,<br/>serviceAccount encrypted
+  T->>B: confirm(HMAC(challenge, SACS))
+  end
+  rect rgba(31, 95, 174, 0.10)
+  Note over T,B: Every sale
+  T->>P: getPublicKey() → decrypt
+  T->>T: RSA(publicKey, TEK) · RSA(publicKey, PEK)
+  T->>B: exchange: transactionKey + pinKey
+  B->>B: RSA private key → TEK, PEK
+  end
+</pre></div>
+  <ul class="facts">
+    <li><b>The signature check protects the public key.</b> The bank signs <code>publicKey + challenge + serviceAccount</code> with the SACS (HMAC-SHA256, <code>HmacSigner.verify</code>). A wrong signature fails onboarding and nothing is stored, so nobody can slip in their own public key.</li>
+    <li>The <b>private key</b> never leaves the bank: only it can open the TEK and the PEK.</li>
+  </ul>
+  <h3>Three kinds of keys, side by side</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Bank public key (RSA)</th><th>POS master key</th><th>TEK / PEK</th></tr></thead>
+    <tbody>
+      <tr><td>Kind</td><td>asymmetric (the bank keeps the private half)</td><td>AES-192</td><td>AES-128</td></tr>
+      <tr><td>From</td><td>the bank, at onboarding (signed)</td><td>made on the terminal, once</td><td>made on the terminal, per request / attempt</td></tr>
+      <tr><td>Lives in</td><td>prefs, encrypted by the master key</td><td>the PED, index 0x20</td><td>TEK: app memory · PEK: the PED, index 0x01</td></tr>
+      <tr><td>Goes to the bank?</td><td>— (it came from there)</td><td><b>never</b></td><td>yes, RSA-wrapped</td></tr>
+      <tr><td>Protects</td><td>the TEK and the PEK on the way</td><td>what the terminal keeps at rest</td><td>the messages / the PIN</td></tr>
+    </tbody>
+  </table></div>
+  <h3>The PIN block: ISO 9564 format 4 (and how it differs from format 0)</h3>
+  <p>We build format 4 with AES (<code>getPinBlock(INDEX_AES_PEK, …, mode 0x14)</code> in <code>PinService</code>). The first version used format 0 with 3DES, and the bank answered <b>"HSM command error"</b>; format 4 with AES is what the old app sends and the bank decrypts.</p>
+<pre class="codebox"><span class="c">// Format 0 — DES / 3DES, 8 bytes</span>
+PIN field : 0 | L | P P P P | F F F F F F F F F F          <span class="c">16 nibbles, 'F' fill</span>
+PAN field : 0 0 0 0 | the 12 rightmost PAN digits (no check digit)
+block     = 3DES( PIN field XOR PAN field )
+
+<span class="c">// Format 4 — AES, 16 bytes (ours, mode 0x14)</span>
+PIN field : 4 | L | P P P P | A A A A … | 16 random nibbles      <span class="c">32 nibbles</span>
+PAN field : M | the full PAN, left-justified | 0 0 0 …             <span class="c">M = PAN length − 12</span>
+step 1    = AES_PEK( PIN field )
+step 2    = step 1 XOR PAN field
+block     = AES_PEK( step 2 )                                       <span class="c">→ encPinBlock</span></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Format 0</th><th>Format 4 (ours)</th></tr></thead>
+    <tbody>
+      <tr><td>Cipher</td><td>3DES</td><td><b>AES</b></td></tr>
+      <tr><td>Size</td><td>8 bytes</td><td><b>16 bytes</b></td></tr>
+      <tr><td>PAN used</td><td>the 12 rightmost digits</td><td><b>the whole PAN</b> (mode 0x14 takes it as is)</td></tr>
+      <tr><td>Same PIN, same card</td><td>the same block every time</td><td><b>a different block every time</b> (the random fill)</td></tr>
+      <tr><td>Encryption</td><td>once</td><td>twice, with the PAN XORed in between</td></tr>
+    </tbody>
+  </table></div>
+  <h3>AES in four lines</h3>
+  <ul class="facts">
+    <li><b>Symmetric:</b> the same key encrypts and decrypts, so it must reach the bank safely — that is the RSA's only job. RSA carries the AES key, AES carries the data: <b>hybrid encryption</b>, exactly what the TEK and the PEK do.</li>
+    <li><b>Block of 128 bits</b> (16 bytes) always; the key is 128, 192 or 256 bits. Ours: TEK / PEK 128, master key 192.</li>
+    <li><b>CBC:</b> each block is XORed with the one before it; the first with the <b>IV</b>. TEK: a random IV per message, sent in front, so the same message never looks the same twice. Master key: the old app's fixed IV, so the same value gives the same result — acceptable only because it is local storage (Ebram's choice).</li>
+    <li><b>Padding</b> to a multiple of 16: PKCS5 for the TEK, <code>'@'</code> + its count for the master key (the old app).</li>
+  </ul>
   <h3>How the kernel waits: <code>EMVCallback</code> (PAX's jar)</h3>
   <p>The native kernel does not call our listener directly. It calls a Java method of <code>EMVCallback</code> (<code>EMV_v105.jar</code>, read with <code>javap</code>), and that method is what waits for <code>setCallBackResult</code>:</p>
 <pre class="codebox"><span class="c">// EMVCallback (PAX, decompiled)</span>
