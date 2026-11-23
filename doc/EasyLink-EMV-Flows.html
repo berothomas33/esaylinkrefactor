@@ -894,6 +894,59 @@ block     = AES_PEK( step 2 )                                       <span class=
       <tr><td>Encryption</td><td>once</td><td>twice, with the PAN XORed in between</td></tr>
     </tbody>
   </table></div>
+  <h3>The PIN block, stage by stage: where it is built, then AES, then RSA</h3>
+  <p><b>Where it is built:</b> inside the PED, in one call — <code>PinService.getEncryptedPinData</code> → <code>ped.getPinBlock(INDEX_AES_PEK, pinLen, PAN, 0x14, 60 s)</code>. Our code never sees the PIN, the PIN field or the clear block: only the finished 16 bytes come out. <b>The RSA never touches the PIN block</b>: it wraps the two keys (PEK, TEK); the keys protect the block and the message.</p>
+  <p><b>① Inside the PED: building format 4</b></p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "18px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 36}}}%%
+flowchart TD
+  PIN["PIN typed on the PED's keypad"] --> PF["PIN field · 16 B<br/>4 · L · PIN · A…A · 16 random nibbles"]
+  PF --> A1["AES-128 with the PEK (0x01)"]
+  A1 --> X(("XOR"))
+  PAN["PAN field · 16 B<br/>M · the full PAN · 0…"] --> X
+  X --> A2["AES-128 with the PEK"]
+  A2 --> PB["PIN block · 16 B<br/>ISO 9564 format 4"]
+  classDef pek fill:#fbeadc,stroke:#b5530f,stroke-width:2px,color:#1d2421
+  class A1,A2,PB pek
+</pre></div>
+  <p><b>② – ⑤ The layers after it: AES with the TEK, RSA on the keys</b></p>
+  <div class="diagram"><pre class="mermaid">
+%%{init: {"themeVariables": {"fontSize": "17px"}, "sequence": {"mirrorActors": false, "messageMargin": 26, "actorMargin": 50}}}%%
+sequenceDiagram
+  autonumber
+  participant P as PED
+  participant A as App
+  participant N as Network
+  participant B as Bank
+  P-->>A: ① PIN block 16 B<br/>(under the PEK)
+  A->>A: ② bytes → hex<br/>withOnlinePinBlock
+  A->>N: config (PIN block hex,<br/>pinKey)
+  rect rgba(181, 83, 15, 0.12)
+  Note over N,B: ④ the keys — RSA with the bank's public key
+  N->>N: TEK = random · RSA(TEK)
+  N->>B: exchange: transactionKey<br/>+ pinKey (= RSA(PEK))
+  end
+  rect rgba(31, 95, 174, 0.12)
+  Note over N,B: ③ the message — AES-CBC with the TEK
+  N->>N: body {…, pinBlock, …}<br/>→ AES(TEK) → encSerializedRequest
+  N->>B: sale: encSerializedRequest<br/>+ encPinBlock
+  end
+  B->>B: ⑤ RSA private → TEK, PEK<br/>TEK → body · PEK → PIN → verify
+</pre></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Stage</th><th>What happens</th><th>Key</th><th>Code</th></tr></thead>
+    <tbody>
+      <tr><td>①</td><td>The PED builds the PIN field and the PAN field, AES → XOR → AES: the 16-byte PIN block</td><td style="color:var(--pek)"><b>PEK</b> (AES)</td><td><code>PinService.getEncryptedPinData</code> → <code>ped.getPinBlock(INDEX_AES_PEK, …, 0x14)</code></td></tr>
+      <tr><td>②</td><td>Kept as bytes, turned into hex, put on the config</td><td>—</td><td><code>PaxPinEntry.enter</code> (<code>tx.lastOnlinePinBlock</code>), <code>PaxEmvBehavior.addOnlineRequestData</code></td></tr>
+      <tr><td>③</td><td>The hex goes inside the sale body (<code>pinBlock</code>), the body is AES-CBC encrypted; the same hex also goes outside as <code>encPinBlock</code></td><td style="color:var(--tek)"><b>TEK</b> (AES)</td><td><code>buildSaleRequest</code>, <code>prepareSaleRequest</code>, <code>AesEnvelopeCrypto.encrypt</code>, <code>GeneralRequest.forSale</code></td></tr>
+      <tr><td>④</td><td>The two AES keys are RSA-wrapped and go in the exchange</td><td><b>RSA</b> (bank public key)</td><td><code>provisionOnlinePinKey</code> → <code>pinKey</code>; <code>encryptTek</code> → <code>transactionKey</code></td></tr>
+      <tr><td>⑤</td><td>The bank unwraps the keys, opens the body with the TEK and the PIN block with the PEK</td><td>RSA private, TEK, PEK</td><td>(the bank)</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="facts">
+    <li><b>Order in time:</b> ④'s PEK is made first (before the pad opens, §"The code at every stage" ①), then ① (the PIN), then ② – ③ at <code>ONLINE_AUTHORIZATION</code>; the TEK of ④ is made in the network just before the exchange.</li>
+    <li><code>encPinBlock</code> outside the body is protected by the PEK only (it is already ciphertext); the copy inside the body is under the PEK and the TEK.</li>
+  </ul>
   <h3>AES in four lines</h3>
   <ul class="facts">
     <li><b>Symmetric:</b> the same key encrypts and decrypts, so it must reach the bank safely — that is the RSA's only job. RSA carries the AES key, AES carries the data: <b>hybrid encryption</b>, exactly what the TEK and the PEK do.</li>

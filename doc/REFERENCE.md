@@ -351,6 +351,18 @@ Format 4 (AES, 16 B):  PIN 4|L|PPPP|A…A|16 random nibbles  → AES → XOR PAN
 ```
 Format 4: AES not 3DES, 16 bytes not 8, the whole PAN not 12 digits, a different block every time (random fill), encrypted twice.
 
+**The PIN block, stage by stage** (the RSA never touches the block; it wraps the keys):
+
+```
+① PED   PinService.getEncryptedPinData → ped.getPinBlock(INDEX_AES_PEK 0x01, pinLen, PAN, 0x14, 60 s)
+        PIN field 4|L|PIN|A…|random  → AES(PEK) → XOR PAN field M|PAN|0…  → AES(PEK) → PIN block 16 B
+② app   tx.lastOnlinePinBlock → addOnlineRequestData: bcd2Str → hex → config.withOnlinePinBlock
+③ net   sale body {…, "pinBlock": hex, …} → AES-CBC(TEK, random IV) → encSerializedRequest
+        + "encPinBlock": the same hex, outside the body
+④ keys  PEK → RSA(bank public key) → pinKey · TEK → RSA → transactionKey   (both in the exchange)
+⑤ bank  RSA private → PEK, TEK · TEK opens the body · PEK: AES⁻¹ · XOR PAN · AES⁻¹ → the PIN → verify
+```
+
 **AES in short:** symmetric (the same key both ways → RSA only carries it: hybrid encryption); 128-bit block, 128 / 192 / 256-bit keys (ours 128 for TEK / PEK, 192 for the master key); CBC chains the blocks from an IV (random per message for the TEK; the old app's fixed IV for the master key, local storage only); padding to 16 (PKCS5 for the TEK, `'@'` + count for the master key).
 
 **Mastercard Single Tap** (`35ce685`, contactless only): a Mastercard sale under the CVM limit goes without a PIN, and the bank may answer RC 90. No second tap:
