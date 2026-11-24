@@ -123,10 +123,11 @@ public class ContactProcess extends BaseContactProcess {
         emvParam.capability = emvAid.getTerminalCapability();
         emvParam.countryCode = terminalCfg.getTerminalCountryCode();
         emvParam.exCapability = emvAid.getAdditionalTerminalCapabilities();
-        // Online-only terminal: merchant forced online (TVR byte 4 bit 4), so the kernel asks the
-        // card for an ARQC at 1st GAC and never approves offline — whatever the AID's FORCE_ONLINE
-        // flag, floor limit or TAC-Online say (e.g. the AMEX contact AIDs' TAC-Online is all 0).
-        emvParam.forceOnline = 1;
+        // Not forced online, as the old app (24/11): forceOnline = 1 sets TVR byte 4 bit 4
+        // ("merchant forced transaction online", TVR 0080008800); the old app's approved Visa sale
+        // had 0080008000 and ours got RC 902 "SERVICE NOT SUPPORTED BY THE ISSUER". The sale still
+        // goes online through the floor limit, and a kernel TC is sent to the host anyway.
+        // emvParam.forceOnline = 1;
         emvParam.getDataPIN = (byte) emvAid.getGetDataForPINTryCounter();
         emvParam.merchCateCode = terminalCfg.getMerchantCategoryCode();
 
@@ -434,7 +435,7 @@ public class ContactProcess extends BaseContactProcess {
         EMVCallback.EMVGetParameter(emvParam);
         emvParam.capability = selectedAid.getTerminalCapability();
         emvParam.exCapability = selectedAid.getAdditionalTerminalCapabilities();
-        emvParam.forceOnline = 1; // online-only terminal — see setEmvAndMCKParam
+        // emvParam.forceOnline = 1; // not forced online, as the old app — see setEmvAndMCKParam
         emvParam.getDataPIN = (byte) selectedAid.getGetDataForPINTryCounter();
         emvParam.terminalType = selectedAid.getTerminalType();
 

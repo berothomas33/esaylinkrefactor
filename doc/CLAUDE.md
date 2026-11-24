@@ -428,7 +428,9 @@ B / C-x (not in the repo, emvco.com blocked here) — Ebram parked it 22/11.
 **Facts**
 - **Never write 9F03 into the contact kernel** (AUC → cashback → TVR b2b5 → IAC-Denial → AAC
   −11; device-confirmed). `readIccTag` answers 9F03 as zeros. Sale transType `0x00`.
-- Online-only: `forceOnline=1`; nothing is approved offline. A kernel TC
+- Online-only: `forceOnline=1` was commented out on 24/11, as the old app (it set TVR byte 4 bit 4
+  "merchant forced online", 0080008800, and a Visa sale got RC 902; the old app's approved one had
+  0080008000). Sales go online through the floor limit; nothing is approved offline. A kernel TC
   (`RESULT_OFFLINE_APPROVED`) after the 1st GAC goes to the host without an ARQC and the host's
   answer is the result (REFERENCE §5). (Decide if TC-to-host is the rule: BACKLOG 1.6.)
   **Refunds ask for an ARQC like a sale** (production cards, 01/11): they go online the normal
