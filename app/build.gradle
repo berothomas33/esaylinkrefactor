@@ -88,6 +88,10 @@ android {
             dimension "environment"
             buildConfigField "String", "baseUrl", "\"https://Payment.alahlymomkn.com/pci-dss/api/v1/\""
         }
+        rkiPilot {
+            dimension "environment"
+            buildConfigField "String", "baseUrl", "\"https://test-payment.alahlymomkn.com/rc-3-4/api/v1/\""
+        }
 
         dev {
             dimension "production"
