@@ -66,11 +66,11 @@ android {
         }
         envtest {
             dimension "environment"
-            buildConfigField "String", "baseUrl", "\"https://test-payment.alahlymomkn.com/api/v1/\""
+            buildConfigField "String", "baseUrl", "\"https://payment.alahlymomkn.com/test/api/v1/\""
         }
         uat {
             dimension "environment"
-            buildConfigField "String", "baseUrl", "\"https://test-payment.alahlymomkn.com/uat/api/v1/\""
+            buildConfigField "String", "baseUrl", "\"https://payment.alahlymomkn.com/uat/api/v1/\""
         }
         uatr3 {
             dimension "environment"
