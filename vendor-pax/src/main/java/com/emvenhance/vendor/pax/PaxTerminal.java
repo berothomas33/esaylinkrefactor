@@ -6,7 +6,6 @@ import com.emvenhance.core.host.PrinterBehavior;
 import com.emvenhance.core.param.EmvParams;
 import com.emvenhance.core.terminal.PosTerminal;
 import com.emvenhance.network.SaleCommunicationBehavior;
-import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.settings.PinBypassSettings;
 import com.pax.commonlib.application.BaseApplication;
 import com.pax.commonlib.utils.LogUtils;
@@ -32,8 +31,7 @@ public class PaxTerminal extends PosTerminal {
     }
 
     private static PaxPinEntry pinEntry() {
-        return new PaxPinEntry(new PinBypassSettings(BaseApplication.getAppContext()),
-                () -> new OnboardingState(BaseApplication.getAppContext()).getPublicKey());
+        return new PaxPinEntry(new PinBypassSettings(BaseApplication.getAppContext()));
     }
 
     @Nullable

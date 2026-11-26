@@ -22,9 +22,6 @@ public final class TransactionConfig {
     private final String onlinePinBlock;
 
     @Nullable
-    private final String onlinePinKeyEncrypted;
-
-    @Nullable
     private final EmvTransactionResult emvResult;
 
     @Nullable
@@ -34,12 +31,12 @@ public final class TransactionConfig {
     private final String asyncRequestId;
 
     public TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode) {
-        this(type, amountMinor, mode, null, null, null, null, null, null, null);
+        this(type, amountMinor, mode, null, null, null, null, null, null);
     }
 
     private TransactionConfig(TransactionType type, long amountMinor, EntryMethod mode,
             @Nullable String iccData, @Nullable String pan, @Nullable String onlinePinBlock,
-            @Nullable String onlinePinKeyEncrypted, @Nullable EmvTransactionResult emvResult,
+            @Nullable EmvTransactionResult emvResult,
             @Nullable String referenceNumber, @Nullable String asyncRequestId) {
         this.type = type;
         this.amountMinor = amountMinor;
@@ -47,7 +44,6 @@ public final class TransactionConfig {
         this.iccData = iccData;
         this.pan = pan;
         this.onlinePinBlock = onlinePinBlock;
-        this.onlinePinKeyEncrypted = onlinePinKeyEncrypted;
         this.emvResult = emvResult;
         this.referenceNumber = referenceNumber;
         this.asyncRequestId = asyncRequestId;
@@ -82,11 +78,6 @@ public final class TransactionConfig {
     @Nullable
     public String getOnlinePinBlock() {
         return onlinePinBlock;
-    }
-
-    @Nullable
-    public String getOnlinePinKeyEncrypted() {
-        return onlinePinKeyEncrypted;
     }
 
     @Nullable
@@ -138,41 +129,36 @@ public final class TransactionConfig {
 
     public TransactionConfig withMode(EntryMethod mode) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+                emvResult, referenceNumber, asyncRequestId);
     }
 
     public TransactionConfig withIccData(@Nullable String iccData) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+                emvResult, referenceNumber, asyncRequestId);
     }
 
     public TransactionConfig withPan(@Nullable String pan) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+                emvResult, referenceNumber, asyncRequestId);
     }
 
     public TransactionConfig withOnlinePinBlock(@Nullable String onlinePinBlock) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
-    }
-
-    public TransactionConfig withOnlinePinKeyEncrypted(@Nullable String onlinePinKeyEncrypted) {
-        return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+                emvResult, referenceNumber, asyncRequestId);
     }
 
     public TransactionConfig withEmvResult(@Nullable EmvTransactionResult emvResult) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+                emvResult, referenceNumber, asyncRequestId);
     }
 
     public TransactionConfig withReferenceNumber(@Nullable String referenceNumber) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+                emvResult, referenceNumber, asyncRequestId);
     }
 
     public TransactionConfig withAsyncRequestId(@Nullable String asyncRequestId) {
         return new TransactionConfig(type, amountMinor, mode, iccData, pan, onlinePinBlock,
-                onlinePinKeyEncrypted, emvResult, referenceNumber, asyncRequestId);
+                emvResult, referenceNumber, asyncRequestId);
     }
 }

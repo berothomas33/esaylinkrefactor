@@ -24,9 +24,6 @@ final class PaxKernelSession {
     byte[] lastOnlinePinBlock;
 
     @Nullable
-    String lastOnlinePinKeyEncrypted;
-
-    @Nullable
     IssuerRspData pendingScripts;
 
     @Nullable

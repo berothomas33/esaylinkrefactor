@@ -11,6 +11,7 @@ import com.pax.dal.entity.ECryptOperate;
 import com.pax.dal.entity.ECryptOpt;
 import com.pax.dal.entity.EPedKeyType;
 import com.pax.dal.exceptions.PedDevException;
+import com.pax.poslib.utils.PosDeviceUtils;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -36,7 +37,8 @@ public final class PaxTerminalKeys implements TerminalKeys {
     private static final byte INDEX_KEK = 2;
     private static final byte INDEX_KBPK = 1;
     private static final byte INDEX_TDK = 3;
-    private static final byte INDEX_TPK = 4;
+    /** Where PinService makes the PIN block: one constant for both. */
+    private static final byte INDEX_TPK = PosDeviceUtils.INDEX_AES_TPK;
     private static final byte INDEX_APP_TDK = 5;
 
     @Override

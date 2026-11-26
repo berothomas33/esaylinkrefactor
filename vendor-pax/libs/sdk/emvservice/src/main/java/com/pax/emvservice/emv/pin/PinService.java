@@ -32,9 +32,9 @@ import com.pax.poslib.utils.PosDeviceUtils;
 
 public class PinService {
     /**
-     * The online PIN key at {@link PosDeviceUtils#INDEX_AES_PEK} (0x01) is an AES key ({@code AES_TPK},
-     * erased and written fresh per sale by {@code PaxEmvBehavior#provisionOnlinePinKey}), and the
-     * host decrypts the PIN block with AES as ISO 9564 format 4, like the old app. The 3DES
+     * The online PIN key at {@link PosDeviceUtils#INDEX_AES_TPK} (0x04) is the RKI TPK
+     * ({@code AES_TPK}, injected at onboarding as TR-31, KCV-checked), and the host decrypts the
+     * PIN block with AES as ISO 9564 format 4, like card acceptance. The 3DES
      * {@link EPinBlockMode#ISO9564_0} call used before read a different, 3DES key slot, which the
      * host couldn't decrypt ("HSM command error").
      *
@@ -80,7 +80,7 @@ public class PinService {
                 ped.setKeyboardLayoutLandscape(landscape);//设置密码键盘横向显示。仅支持EPedType.INTERNAL 类型。
             }
 
-            byte[] pinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_AES_PEK, pinLen,
+            byte[] pinBlock = ped.getPinBlock(PosDeviceUtils.INDEX_AES_TPK, pinLen,
                     panBlock.getBytes(), PIN_BLOCK_MODE_ISO9564_4_AES, PIN_TIMEOUT_MS);
             LogUtils.i(TAG, "ISO 9564 format 4 (AES) PIN block, "
                     + (pinBlock == null ? 0 : pinBlock.length) + " bytes");

@@ -18,9 +18,6 @@ import retrofit2.http.Path;
 
 public interface HostApiConnection {
 
-    @POST("orchestration/exchange")
-    Single<GeneralResponse> exchange(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
-
     @POST("orchestration/sale")
     Single<GeneralResponse> sale(@HeaderMap Map<String, String> headers, @Body GeneralRequest request);
 

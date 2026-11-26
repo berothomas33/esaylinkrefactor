@@ -1324,7 +1324,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
         if (activeCard == null || activeCard.isNonEmv()) {
             return config;
         }
-        pinEntry.ensureOnlinePinKey(tx);
         boolean contactless = activeCard.isContactless();
         String pan = contactless ? getContactlessPan() : getContactPan();
         String track2 = contactless ? getContactlessTrack2Data() : getContactTrack2Data();
@@ -1334,7 +1333,6 @@ public class PaxEmvBehavior extends AbstractEmvBehavior
                 : null;
         return config.withPan(pan)
                 .withOnlinePinBlock(onlinePinBlockHex)
-                .withOnlinePinKeyEncrypted(tx.lastOnlinePinKeyEncrypted)
                 .withEmvResult(buildEmvTransactionResult(pan, track2, cardHolderName,
                         config.getIccData(), onlinePinBlockHex, contactless));
     }

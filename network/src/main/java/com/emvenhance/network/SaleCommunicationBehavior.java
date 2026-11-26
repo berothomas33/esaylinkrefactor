@@ -10,12 +10,10 @@ import com.emvenhance.core.transaction.TransactionConfig;
 import com.emvenhance.core.transaction.TransactionType;
 import com.emvenhance.core.host.AuthResult;
 import com.emvenhance.core.host.CommunicationBehavior;
-import com.emvenhance.network.crypto.AesEnvelopeCrypto;
-import com.emvenhance.network.crypto.RsaPublicKeyEncryptor;
+import com.emvenhance.core.host.TerminalKeys.Key;
+import com.emvenhance.network.crypto.PedEnvelopeCrypto;
 import com.emvenhance.network.model.AcknowledgementRequest;
 import com.emvenhance.network.model.AcknowledgementResponse;
-import com.emvenhance.network.model.ExchangeRequest;
-import com.emvenhance.network.model.ExchangeResponse;
 import com.emvenhance.network.model.GeneralRequest;
 import com.emvenhance.network.model.GeneralResponse;
 import com.emvenhance.network.model.RefundRequest;
@@ -31,8 +29,6 @@ import com.google.gson.Gson;
 
 import java.net.ConnectException;
 import java.net.UnknownHostException;
-import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -45,7 +41,6 @@ import retrofit2.HttpException;
 public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     private static final int SUCCESS_STATUS_CODE = 200;
-    private static final int TEK_LENGTH_BYTES = 16;
     private static final String TRANSACTION_TYPE_SALE = "PURCHASE";
     private static final String TRANSACTION_TYPE_REFUND = "REFUND";
 
@@ -69,7 +64,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     private final String sn;
     /**
      * The sale the host answered "PIN required" (Mastercard Single Tap), kept for its one resend:
-     * the same asyncRequestId and TEK, no new exchange. One transaction at a time, on its thread.
+     * the same asyncRequestId. One transaction at a time, on its thread.
      */
     @Nullable
     private SingleTapSale singleTapSale;
@@ -126,14 +121,12 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         singleTapSale = null;
         if (resend != null && resend.asyncRequestId.equals(config.getAsyncRequestId())
                 && pinBlockToSend(config) != null) {
-            Log.i(TAG, "Single Tap: the same sale again with the PIN — same id and TEK, no exchange");
-            return callSale(resend.headers, config, emvResult, resend.tek, resend.asyncRequestId,
-                    SINGLE_TAP);
+            Log.i(TAG, "Single Tap: the same sale again with the PIN — same id");
+            return callSale(resend.headers, config, emvResult, resend.asyncRequestId, SINGLE_TAP);
         }
-        String hostPublicKey = onboardingState.getPublicKey();
-        if (hostPublicKey == null) {
+        if (!onboardingState.isOfflineOnboarded()) {
             throw new HostNotReachedException(
-                    "No host public key on file — onboarding must complete before a TEK can be wrapped for the host");
+                    "Onboarding not completed — no TDK / TPK in the PED to seal the request with");
         }
         if (onboardingState.getAccessToken() == null) {
             throw new HostNotReachedException(
@@ -148,34 +141,9 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             return answerOf(notReached("Token refresh", unwrapped(e)));
         }
         Map<String, String> headers = HostHeaders.buildAuthenticated(sn, accessToken);
-        byte[] tek = newTek();
-        String tekEncrypted = encryptTek(hostPublicKey, tek);
         String asyncRequestId = config.getAsyncRequestId() != null
                 ? config.getAsyncRequestId() : UUID.randomUUID().toString();
-
-        GeneralRequest exchangeRequest =
-                prepareExchangeRequest(config, emvResult, tek, tekEncrypted, asyncRequestId);
-        try {
-            GeneralResponse exchangeResponse = connection.exchange(headers, exchangeRequest).blockingGet();
-            decrypted(exchangeResponse, tek, "Exchange", ExchangeResponse.class);
-        } catch (RuntimeException e) {
-            return answerOf(exchangeError(unwrapped(e)));
-        }
-        return callSale(headers, config, emvResult, tek, asyncRequestId, null);
-    }
-
-    private static byte[] newTek() {
-        byte[] tek = new byte[TEK_LENGTH_BYTES];
-        new SecureRandom().nextBytes(tek);
-        return tek;
-    }
-
-    private static String encryptTek(String hostPublicKey, byte[] tek) {
-        try {
-            return RsaPublicKeyEncryptor.encryptToHex(hostPublicKey, tek);
-        } catch (GeneralSecurityException e) {
-            throw new HostNotReachedException("Failed to RSA-encrypt the transaction key (TEK)", e);
-        }
+        return callSale(headers, config, emvResult, asyncRequestId, null);
     }
 
     static Throwable unwrapped(RuntimeException e) {
@@ -266,36 +234,25 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         }
     }
 
-    private GeneralRequest prepareExchangeRequest(TransactionConfig config,
-            EmvTransactionResult emvResult, byte[] tek, String tekEncrypted, String asyncRequestId) {
-        String transactionType = hostTransactionType(config);
-        ExchangeRequest exchangeRequest = new ExchangeRequest(
-                asyncRequestId, emvResult.getPan(), cvmCode(config, emvResult), transactionType);
-        String encSerializedRequest = encrypted(tek, "EXCHANGE_REQUEST", exchangeRequest, "exchange");
-        return GeneralRequest.forExchange(encSerializedRequest, asyncRequestId,
-                tekEncrypted, pinKeyToSend(config), transactionType);
-    }
-
     private AuthResult callSale(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, byte[] tek, String asyncRequestId,
-            @Nullable String singleTap) {
+            EmvTransactionResult emvResult, String asyncRequestId, @Nullable String singleTap) {
         boolean refund = isRefund(config);
         String step = refund ? "Refund" : "Sale";
         GeneralRequest saleRequest =
-                prepareSaleRequest(config, emvResult, tek, asyncRequestId, step, singleTap);
+                prepareSaleRequest(config, emvResult, asyncRequestId, step, singleTap);
         Map<String, String> withToken = withMToken(headers);
         SaleResponse saleResponse;
         try {
             GeneralResponse generalResponse = refund
                     ? connection.refund(withToken, saleRequest).blockingGet()
                     : connection.sale(withToken, saleRequest).blockingGet();
-            saleResponse = decrypted(generalResponse, tek, step, SaleResponse.class);
+            saleResponse = decrypted(generalResponse, step, SaleResponse.class);
             logSaleAnswer(step, saleResponse);
         } catch (RuntimeException e) {
             return answerOf(classify(step, unwrapped(e)));
         }
         if (singleTapPinRequired(saleResponse.getResponseCode(), config, emvResult)) {
-            singleTapSale = new SingleTapSale(asyncRequestId, tek, headers);
+            singleTapSale = new SingleTapSale(asyncRequestId, headers);
             Log.i(TAG, "Single Tap: the host asks for the PIN (RC " + RC_SINGLE_TAP_PIN_REQUIRED + ")");
             return AuthResult.pinRequired(String.valueOf(RC_SINGLE_TAP_PIN_REQUIRED),
                     saleResponse.getResponseMessage() != null
@@ -320,33 +277,32 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
     private static final class SingleTapSale {
         final String asyncRequestId;
-        final byte[] tek;
         final Map<String, String> headers;
 
-        SingleTapSale(String asyncRequestId, byte[] tek, Map<String, String> headers) {
+        SingleTapSale(String asyncRequestId, Map<String, String> headers) {
             this.asyncRequestId = asyncRequestId;
-            this.tek = tek;
             this.headers = headers;
         }
     }
 
     private GeneralRequest prepareSaleRequest(TransactionConfig config, EmvTransactionResult emvResult,
-            byte[] tek, String asyncRequestId, String step, @Nullable String singleTap) {
+            String asyncRequestId, String step, @Nullable String singleTap) {
         Object body = isRefund(config)
                 ? buildRefundRequest(config, emvResult) : buildSaleRequest(config, emvResult, singleTap);
-        String encSerializedRequest = encrypted(tek, step.toUpperCase(Locale.US) + "_REQUEST", body,
+        String encSerializedRequest = encrypted(step.toUpperCase(Locale.US) + "_REQUEST", body,
                 step.toLowerCase(Locale.US));
         logSerialized("CHIP_DATA (field 55 sent)", String.valueOf(config.getIccData()));
         return GeneralRequest.forSale(encSerializedRequest, asyncRequestId, pinBlockToSend(config));
     }
 
-    private String encrypted(byte[] tek, String logLabel, Object body, String what) {
+    /** The body sealed with the TDK in the PED (RKI), as card acceptance's encryptData. */
+    private String encrypted(String logLabel, Object body, String what) {
         String serialized = gson.toJson(body);
         logSerialized(logLabel, serialized);
         try {
-            return AesEnvelopeCrypto.encrypt(tek, serialized);
-        } catch (GeneralSecurityException e) {
-            throw new HostNotReachedException("Failed to AES-encrypt the " + what + " request", e);
+            return PedEnvelopeCrypto.encrypt(Key.TDK, serialized);
+        } catch (RuntimeException e) {
+            throw new HostNotReachedException("Failed to seal the " + what + " request with the TDK", e);
         }
     }
 
@@ -380,12 +336,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         return message.startsWith(step) ? message : step + ": " + message;
     }
 
-    static RuntimeException exchangeError(Throwable e) {
-        return e instanceof HostNotReachedException
-                ? (HostNotReachedException) e : notReached("Exchange", e);
-    }
-
-    private <T> T decrypted(GeneralResponse response, byte[] tek, String step, Class<T> type) {
+    private <T> T decrypted(GeneralResponse response, String step, Class<T> type) {
         if (response.getStatusCode() != SUCCESS_STATUS_CODE || response.getData() == null
                 || response.getData().getEncSerializedResponse() == null) {
             String message = response.getMessage() != null ? response.getMessage() : step + " failed";
@@ -395,11 +346,11 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
                     ? new HostNotReachedException(error) : new SaleException(error);
         }
         try {
-            String decrypted = AesEnvelopeCrypto.decrypt(tek, response.getData().getEncSerializedResponse());
+            String decrypted = PedEnvelopeCrypto.decrypt(Key.TDK, response.getData().getEncSerializedResponse());
             logSerialized(step.toUpperCase(Locale.US) + "_RESPONSE", decrypted);
             return gson.fromJson(decrypted, type);
-        } catch (GeneralSecurityException e) {
-            throw new SaleException("Failed to decrypt the " + step + " response", e);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            throw new SaleException("Failed to open the " + step + " response with the TDK", e);
         }
     }
 
@@ -550,16 +501,6 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     static String pinBlockToSend(TransactionConfig config) {
         String pinBlock = config.getOnlinePinBlock();
         return pinBlock == null || pinBlock.trim().isEmpty() ? null : pinBlock;
-    }
-
-    /**
-     * The online PIN key goes with every exchange, PIN or not (old app): a Single Tap sale has no
-     * PIN at first, and its resend has no exchange of its own to bring the key.
-     */
-    @Nullable
-    static String pinKeyToSend(TransactionConfig config) {
-        String pinKey = config.getOnlinePinKeyEncrypted();
-        return pinKey == null || pinKey.trim().isEmpty() ? null : pinKey;
     }
 
     static String pinEnterMode(TransactionConfig config, EmvTransactionResult emvResult) {
