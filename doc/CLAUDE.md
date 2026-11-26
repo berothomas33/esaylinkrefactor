@@ -519,6 +519,17 @@ alone (`SaleCommunicationBehavior.answerOf`; `HostNotReachedException` never lea
 401/403, no connection. Errors name their step (`Exchange: HTTP 403 Forbidden`). Not tried on the
 host yet.
 
+**Host code 999** (card acceptance's `ErrorCodes.AUTO_RESET`): `SaleCommunicationBehavior.hostStatusCode`
+reads a failed call as `ErrorUtils.handleHttpException` does — HTTP 401 / ≥ 408 (so an HTTP 999 too),
+the error body's `statusCode` for 400 / 402–407, HTTP 404 with no error body, else -1; it consumes
+the error body. A 999 on token refresh, sale / refund or reversal runs the whole RKI onboarding
+again on the transaction thread (`reOnboard` → `onboarding.runOfflineCycle`) and makes the call once
+more. A failed re-onboarding leaves the terminal not onboarded, so later sales are not sent. Checked
+outside the repo with a scratch JVM program using real Retrofit `HttpException`s built from
+`Response.error(...)` (19 cases: 999 as HTTP and in the body, 400 / 402–407 / 404 / 405 body, 401
+and 408 HTTP wins, 500, 404 with no error body, string / null / malformed body, non-HTTP error;
+0 mismatches). Not device-tested; the host has not been seen sending 999.
+
 ## 10. Device test cases (`report_easylink.xlsx`, "Device test form")
 
 Columns: # / Case / Do / Expect / one Pass-Fail-Not run column per branch / Notes. Status

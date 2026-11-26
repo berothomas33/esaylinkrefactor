@@ -26,6 +26,8 @@ import com.emvenhance.network.onboarding.OnboardingState;
 import com.emvenhance.network.tlv.BerTlv;
 import com.emvenhance.network.tlv.IssuerResponseFields;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import java.net.ConnectException;
 import java.net.UnknownHostException;
@@ -36,7 +38,9 @@ import java.util.UUID;
 
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Single;
+import okhttp3.ResponseBody;
 import retrofit2.HttpException;
+import retrofit2.Response;
 
 public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
@@ -56,6 +60,11 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     /** The host's "PIN required" for a contactless Mastercard sale sent without one (old app). */
     static final int RC_SINGLE_TAP_PIN_REQUIRED = 90;
     static final String SINGLE_TAP = "ST";
+    /**
+     * Card acceptance's {@code ErrorCodes.AUTO_RESET}: the host no longer trusts this terminal's
+     * onboarding (its keys). Answered as card acceptance does: re-onboard, then the call once more.
+     */
+    static final int HOST_AUTO_RESET = 999;
 
     private final HostApiConnection connection;
     private final OnboardingClient onboarding;
@@ -122,7 +131,7 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
         if (resend != null && resend.asyncRequestId.equals(config.getAsyncRequestId())
                 && pinBlockToSend(config) != null) {
             Log.i(TAG, "Single Tap: the same sale again with the PIN — same id");
-            return callSale(resend.headers, config, emvResult, resend.asyncRequestId, SINGLE_TAP);
+            return callSale(resend.headers, config, emvResult, resend.asyncRequestId, SINGLE_TAP, false);
         }
         if (!onboardingState.isOfflineOnboarded()) {
             throw new HostNotReachedException(
@@ -135,15 +144,14 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
 
         String accessToken;
         try {
-            accessToken = onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState)
-                    .blockingGet();
+            accessToken = validAccessToken();
         } catch (RuntimeException e) {
             return answerOf(notReached("Token refresh", unwrapped(e)));
         }
         Map<String, String> headers = HostHeaders.buildAuthenticated(sn, accessToken);
         String asyncRequestId = config.getAsyncRequestId() != null
                 ? config.getAsyncRequestId() : UUID.randomUUID().toString();
-        return callSale(headers, config, emvResult, asyncRequestId, null);
+        return callSale(headers, config, emvResult, asyncRequestId, null, false);
     }
 
     static Throwable unwrapped(RuntimeException e) {
@@ -186,8 +194,18 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             if (headers == null) {
                 return;
             }
-            GeneralResponse response = await(connection.reverse(headers,
-                    new ReverseRequest(sent.getAsyncRequestId(), hostTransactionType(sent))));
+            ReverseRequest request = new ReverseRequest(sent.getAsyncRequestId(), hostTransactionType(sent));
+            GeneralResponse response;
+            try {
+                response = await(connection.reverse(headers, request));
+            } catch (RuntimeException e) {
+                String accessToken = hostStatusCode(e) == HOST_AUTO_RESET ? reOnboard("Reversal") : null;
+                if (accessToken == null) {
+                    throw e;
+                }
+                response = await(connection.reverse(
+                        withMToken(HostHeaders.buildAuthenticated(sn, accessToken)), request));
+            }
             checkStatus("Reversal", response.getStatusCode(), response.getMessage());
         });
     }
@@ -198,9 +216,69 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             Log.i(TAG, what + " not sent: the request never went to the host");
             return null;
         }
-        String accessToken = await(
-                onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState));
-        return withMToken(HostHeaders.buildAuthenticated(sn, accessToken));
+        return withMToken(HostHeaders.buildAuthenticated(sn, validAccessToken()));
+    }
+
+    /** The access token, refreshed when due; a 999 on the refresh re-onboards (card acceptance). */
+    private String validAccessToken() {
+        try {
+            return await(onboarding.ensureValidAccessToken(HostHeaders.build(sn), onboardingState));
+        } catch (RuntimeException e) {
+            String accessToken = hostStatusCode(e) == HOST_AUTO_RESET ? reOnboard("Token refresh") : null;
+            if (accessToken == null) {
+                throw e;
+            }
+            return accessToken;
+        }
+    }
+
+    /**
+     * Card acceptance's auto re-onboarding ({@code autoReset} + {@code AutoReOnboardingManager}):
+     * the whole onboarding again — new KBPK, TDK, TPK, service account, token. Runs on the
+     * transaction's thread, so the card waits. The new access token, or {@code null} when it
+     * failed (the terminal is then not onboarded: later sales are not sent).
+     */
+    @Nullable
+    private String reOnboard(String what) {
+        Log.w(TAG, what + ": host code " + HOST_AUTO_RESET + " — re-onboarding, then the call once more");
+        try {
+            String accessToken = onboarding.runOfflineCycle(sn, onboardingState).blockingGet().getAccessToken();
+            Log.i(TAG, what + ": re-onboarded — sending once more");
+            return accessToken;
+        } catch (RuntimeException e) {
+            Throwable cause = unwrapped(e);
+            Log.w(TAG, what + ": re-onboarding failed (" + cause.getMessage() + ") — " + what + " fails");
+            return null;
+        }
+    }
+
+    /**
+     * The status card acceptance reads from a failed call ({@code ErrorUtils.handleHttpException}):
+     * the HTTP code for 401 and ≥ 408 (so an HTTP 999 too), the error body's {@code statusCode}
+     * for 400 / 402–407, HTTP 404 when there is no error body at all, -1 otherwise. Reads
+     * (consumes) the error body.
+     */
+    static int hostStatusCode(Throwable e) {
+        if (!(e instanceof HttpException)) {
+            return -1;
+        }
+        HttpException http = (HttpException) e;
+        int code = http.code();
+        if (code == 401 || code >= 408) {
+            return code;
+        }
+        Response<?> response = http.response();
+        ResponseBody body = response != null ? response.errorBody() : null;
+        if (body == null) {
+            return code == 404 ? 404 : -1;
+        }
+        try {
+            JsonObject json = new Gson().fromJson(body.string(), JsonObject.class);
+            JsonElement statusCode = json != null ? json.get("statusCode") : null;
+            return statusCode != null && statusCode.isJsonPrimitive() ? statusCode.getAsInt() : -1;
+        } catch (Exception parseFailed) {
+            return -1;
+        }
     }
 
     private static <T> T await(Single<T> call) {
@@ -235,7 +313,8 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
     }
 
     private AuthResult callSale(Map<String, String> headers, TransactionConfig config,
-            EmvTransactionResult emvResult, String asyncRequestId, @Nullable String singleTap) {
+            EmvTransactionResult emvResult, String asyncRequestId, @Nullable String singleTap,
+            boolean afterReOnboarding) {
         boolean refund = isRefund(config);
         String step = refund ? "Refund" : "Sale";
         GeneralRequest saleRequest =
@@ -249,7 +328,15 @@ public final class SaleCommunicationBehavior implements CommunicationBehavior {
             saleResponse = decrypted(generalResponse, step, SaleResponse.class);
             logSaleAnswer(step, saleResponse);
         } catch (RuntimeException e) {
-            return answerOf(classify(step, unwrapped(e)));
+            Throwable cause = unwrapped(e);
+            if (!afterReOnboarding && hostStatusCode(cause) == HOST_AUTO_RESET) {
+                String accessToken = reOnboard(step);
+                if (accessToken != null) {
+                    return callSale(HostHeaders.buildAuthenticated(sn, accessToken), config, emvResult,
+                            asyncRequestId, singleTap, true);
+                }
+            }
+            return answerOf(classify(step, cause));
         }
         if (singleTapPinRequired(saleResponse.getResponseCode(), config, emvResult)) {
             singleTapSale = new SingleTapSale(asyncRequestId, headers);

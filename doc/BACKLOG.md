@@ -61,6 +61,20 @@ APDU trace is debug-gated), 0.11 (`RELEASE` hard-coded `false`), 0.12
 no `callTimeout`; `PosTerminal.authorize` still caps the whole call at 90 s), 5.1, 5.3, 6.6
 (amount 0 accepted), 6.7. Not re-checked: the rest.
 
+## Status on `transactionStepObserver_rki` (2026-11-26, code at HEAD)
+
+`13a6986` (RKI keys in the PED), `2815b82` (the pilot's onboarding cycle) and `d9e5d8c` (RKI sale:
+TDK 3 / TPK 4, no exchange) built pax / fake / ingenico RkiPilotDevDebug; none device-tested or run
+against rc-3-4.
+
+**Done, unverified:** card acceptance's host code **999** (`ErrorCodes.AUTO_RESET`) —
+`SaleCommunicationBehavior.hostStatusCode` reads the status from the HTTP code (401 / ≥ 408) or the
+error body's `statusCode`, as `ErrorUtils.handleHttpException` does (including 404 with no error
+body); a 999 on token refresh / sale / refund / reversal re-onboards (`runOfflineCycle`) and makes
+the call once more, with a guard against a second auto-reset on the retry. Scratch-checked outside
+the repo against real Retrofit `HttpException`s from `Response.error(...)`: 19 cases, 0 mismatches.
+Still open: no device test, no host trace of 999, and no journal if the re-onboarding itself fails.
+
 ---
 
 ## 0. Do first (money, PCI, hangs)
