@@ -141,10 +141,8 @@ public class OnboardingActivity extends AppCompatActivity {
         setOnboardingBusy(true);
         onboardingStatusText.setText(R.string.onboarding_in_progress);
 
-        Map<String, String> headers = HostHeaders.build(serialNumber());
-
         OnboardingState state = new OnboardingState(this);
-        Single<CreateTokenResult> cycle = new OnboardingClient().runOfflineCycle(headers, state);
+        Single<CreateTokenResult> cycle = new OnboardingClient().runOfflineCycle(serialNumber(), state);
 
         disposables.add(cycle
                 .subscribeOn(Schedulers.io())

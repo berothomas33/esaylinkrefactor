@@ -25,6 +25,21 @@ public final class HostHeaders {
         return headers;
     }
 
+    /**
+     * RKI onboarding and its confirm: the identity goes encrypted in the body, so the identity
+     * headers go empty, as card acceptance ({@code NetworkUtils.getHeaders("", "", lang, "", …, apiKey, …)}).
+     */
+    public static Map<String, String> buildForEncryptedOnboarding() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("aggregator-app-key", "");
+        headers.put("system-app-key", "");
+        headers.put("sn", "");
+        headers.put("apiKey", HostAppKeys.API_KEY);
+        headers.put("lang", HostAppKeys.DEFAULT_LANG);
+        logHeaders("buildForEncryptedOnboarding", headers);
+        return headers;
+    }
+
     public static Map<String, String> buildAuthenticated(String sn, String accessToken) {
         Map<String, String> headers = new HashMap<>();
         headers.put("aggregator-app-key", HostAppKeys.AGGREGATOR_APP_KEY);
